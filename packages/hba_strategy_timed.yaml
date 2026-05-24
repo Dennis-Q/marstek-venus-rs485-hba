@@ -1,0 +1,86 @@
+# hba_strategy_timed.yaml
+#
+# Timed strategy — up to 3 configurable time periods with per-period sub-strategies.
+#
+# Up to 3 named time windows (A, B, C) can be configured. Each has a start/end time
+# (input_datetime helpers) and a sub-strategy select. Periods B and C are optional
+# (gated by input_boolean.hba_strategy_timed_has_period_b/c).
+#
+# Time matching: periods are evaluated in order A → B → C. The first matching period
+# wins. If no period matches, the default strategy (strat_0) is used.
+# Comparison: now_time (HH:MM:SS string) between period start and end — works for
+# same-day windows (e.g. 02:00–06:00). Cross-midnight windows are not supported.
+#
+# Sub-strategies available per period (same 7 options as each selector):
+#   Full stop | Self-consumption | Charge | Charge PV | Zero import | Sell | Standby / peak shave
+#
+# flow_prefix propagation: Charge and Sell are called with flow_prefix: "Timed →"
+# so the full execution chain appears in active_flow, e.g.:
+#   "Timed → Charge → Charge PV → Self-consumption (charge only)"
+# Other sub-strategies use the write-then-skip-label pattern instead:
+#   write "Timed → Full stop" → call full_stop with skip_label: true
+
+script:
+  hba_strategy_timed:
+    alias: "HBA: Strategy - Timed"
+    sequence:
+      - variables:
+          now_time: "{{ now().strftime('%H:%M:%S') }}"
+          a1: "{{ states('input_datetime.hba_strategy_timed_period_a1') }}"
+          a2: "{{ states('input_datetime.hba_strategy_timed_period_a2') }}"
+          b1: "{{ states('input_datetime.hba_strategy_timed_period_b1') }}"
+          b2: "{{ states('input_datetime.hba_strategy_timed_period_b2') }}"
+          c1: "{{ states('input_datetime.hba_strategy_timed_period_c1') }}"
+          c2: "{{ states('input_datetime.hba_strategy_timed_period_c2') }}"
+          has_b: "{{ is_state('input_boolean.hba_strategy_timed_has_period_b', 'on') }}"
+          has_c: "{{ is_state('input_boolean.hba_strategy_timed_has_period_c', 'on') }}"
+          in_a: "{{ a1 <= now_time <= a2 }}"
+          in_b: "{{ has_b and b1 <= now_time <= b2 }}"
+          in_c: "{{ has_c and c1 <= now_time <= c2 }}"
+          sub: >
+            {% if in_a %}{{ states('input_select.hba_strategy_timed_strat_a') }}
+            {% elif in_b %}{{ states('input_select.hba_strategy_timed_strat_b') }}
+            {% elif in_c %}{{ states('input_select.hba_strategy_timed_strat_c') }}
+            {% else %}{{ states('input_select.hba_strategy_timed_strat_0') }}
+            {% endif %}
+      - choose:
+          - conditions: "{{ sub | trim == 'Full stop' }}"
+            sequence:
+              - action: input_text.set_value
+                target: { entity_id: input_text.hba_strategy_active_flow }
+                data: { value: "Timed → Full stop" }
+              - action: script.hba_strategy_full_stop
+                data: { skip_label: true }
+          - conditions: "{{ sub | trim == 'Self-consumption' }}"
+            sequence:
+              - action: input_text.set_value
+                target: { entity_id: input_text.hba_strategy_active_flow }
+                data: { value: "Timed → Self-consumption" }
+              - action: script.hba_strategy_self_consumption
+                data: { skip_label: true }
+          - conditions: "{{ sub | trim == 'Charge' }}"
+            sequence:
+              - action: script.hba_strategy_charge
+                data: { flow_prefix: "Timed →" }
+          - conditions: "{{ sub | trim == 'Charge PV' }}"
+            sequence:
+              - action: script.hba_strategy_charge_pv
+                data: { flow_prefix: "Timed →" }
+          - conditions: "{{ sub | trim == 'Zero import' }}"
+            sequence:
+              - action: input_text.set_value
+                target: { entity_id: input_text.hba_strategy_active_flow }
+                data: { value: "Timed → Zero import" }
+              - action: script.hba_strategy_zero_import
+                data: { skip_label: true }
+          - conditions: "{{ sub | trim == 'Sell' }}"
+            sequence:
+              - action: script.hba_strategy_sell
+                data: { flow_prefix: "Timed →" }
+          - conditions: "{{ sub | trim == 'Standby / peak shave' }}"
+            sequence:
+              - action: input_text.set_value
+                target: { entity_id: input_text.hba_strategy_active_flow }
+                data: { value: "Timed → Standby / peak shave" }
+              - action: script.hba_strategy_standby
+                data: { skip_label: true }

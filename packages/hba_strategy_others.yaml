@@ -1,0 +1,153 @@
+# hba_strategy_others.yaml
+#
+# Simple / single-purpose strategies:
+#   • hba_strategy_full_stop  — stops all batteries, resets PID state
+#   • hba_strategy_zero_import — prevent grid import; charge disabled; stops when SoC at minimum
+#   • hba_strategy_standby    — soft idle + activates self-consumption when peak limit exceeded
+#
+# These three strategies have straightforward logic and do not warrant their own files.
+
+script:
+  # ── Full stop ─────────────────────────────────────────────────────────────────
+  # Stops all batteries and resets PID state (I-term + pid_output → 0).
+  # Called directly by hba_run_strategy, and as a sub-routine by most other strategies
+  # when a goal-reached or fault condition is detected.
+  #
+  # skip_label: caller manages active_flow label (used by e.g. "Timed → Full stop" pattern).
+  hba_strategy_full_stop:
+    alias: "HBA: Strategy - Full stop"
+    fields:
+      skip_label:
+        description: "Skip writing to active_flow when the caller manages the label"
+        default: false
+    sequence:
+      - choose:
+          - conditions: "{{ not (skip_label | default(false)) }}"
+            sequence:
+              - action: input_text.set_value
+                target: { entity_id: input_text.hba_strategy_active_flow }
+                data: { value: "Full stop" }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_control_i_term }
+        data: { value: 0 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_control_pid_output }
+        data: { value: 0 }
+      - action: script.hba_set_batteries
+        data: { desired_power_w: 0, mode: "stop" }
+
+  # ── Zero import ───────────────────────────────────────────────────────────────
+  # Covers home loads to prevent grid import; charging disabled.
+  # Equivalent to Node-RED "Discharge only" (renamed to match v4.10.0 terminology).
+  #
+  # SoC-empty guard: when all batteries reach their discharge cutoff, dispatches to
+  # Full stop with a descriptive label so the Insights panel shows the reason.
+  # Uses ±0.5 % buffer consistent with hba_set_batteries.
+  #
+  # skip_label: caller manages the label (e.g. "Timed → Zero import").
+  hba_strategy_zero_import:
+    alias: "HBA: Strategy - Zero import"
+    fields:
+      skip_label:
+        description: "Pass true when the caller manages its own sub-strategy label"
+        default: false
+    sequence:
+      - variables:
+          _skip_label: "{{ skip_label | default(false) }}"
+      - variables:
+          count: "{{ states('input_number.hba_battery_count') | int(1) }}"
+          all_empty: >
+            {% set ns = namespace(empty=true) %}
+            {% for i in range(1, count + 1) %}
+              {% set soc = states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') | float(0) %}
+              {% set cutoff = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) %}
+              {% if soc > cutoff + 0.5 %}{% set ns.empty = false %}{% endif %}
+            {% endfor %}
+            {{ ns.empty }}
+      - choose:
+          - conditions: "{{ all_empty }}"
+            sequence:
+              - action: input_text.set_value
+                target: { entity_id: input_text.hba_strategy_active_flow }
+                data: { value: "Zero import → Full stop (SoC at minimum)" }
+              - action: script.hba_strategy_full_stop
+                data: { skip_label: true }
+        default:
+          - choose:
+              - conditions: "{{ not _skip_label }}"
+                sequence:
+                  - action: input_text.set_value
+                    target: { entity_id: input_text.hba_strategy_active_flow }
+                    data: { value: "Zero import" }
+          - action: script.hba_strategy_self_consumption
+            data:
+              skip_label: true
+              charge_disabled: true
+
+  # ── Standby / peak shave ──────────────────────────────────────────────────────
+  # Battery soft-idles (both charge_disabled and discharge_disabled → 1 W hold) unless
+  # grid power exceeds the configured import or export limit, at which point it activates
+  # self-consumption with the limit as setpoint.
+  #
+  # The 1 W soft-idle hold keeps the Marstek relay engaged so there is no relay click
+  # when peak shaving activates. This matches the original Node-RED standby behaviour.
+  #
+  # When called from hba_run_strategy via the EV stop trigger path
+  # (input_boolean.hba_control_has_power_limit_during_ev_charge is on), this script
+  # acts as a power-limited safe mode while the EV is charging.
+  #
+  # skip_label: caller manages the label (e.g. "EV stop trigger — Peak shave active").
+  hba_strategy_standby:
+    alias: "HBA: Strategy - Standby / Peak shave"
+    fields:
+      skip_label:
+        description: "Pass true when the caller manages its own sub-strategy label"
+        default: false
+    sequence:
+      - variables:
+          _skip_label: "{{ skip_label | default(false) }}"
+      - variables:
+          grid_power: "{{ states('sensor.p1_meter_power') | float(0) }}"
+          has_import_limit: "{{ is_state('input_boolean.hba_control_has_power_limit_import', 'on') }}"
+          has_export_limit: "{{ is_state('input_boolean.hba_control_has_power_limit_export', 'on') }}"
+          import_limit: "{{ states('input_number.hba_control_power_limit_import') | float(5000) }}"
+          export_limit: "{{ states('input_number.hba_control_power_limit_export') | float(5000) }}"
+      - choose:
+          - conditions: "{{ has_import_limit and grid_power > import_limit }}"
+            sequence:
+              - choose:
+                  - conditions: "{{ not _skip_label }}"
+                    sequence:
+                      - action: input_text.set_value
+                        target: { entity_id: input_text.hba_strategy_active_flow }
+                        data: { value: "Standby / Peak shave → Self-consumption (import)" }
+              - action: script.hba_strategy_self_consumption
+                data:
+                  skip_label: true
+                  setpoint_override: "{{ import_limit }}"
+          - conditions: "{{ has_export_limit and grid_power < -export_limit }}"
+            sequence:
+              - choose:
+                  - conditions: "{{ not _skip_label }}"
+                    sequence:
+                      - action: input_text.set_value
+                        target: { entity_id: input_text.hba_strategy_active_flow }
+                        data: { value: "Standby / Peak shave → Self-consumption (export)" }
+              - action: script.hba_strategy_self_consumption
+                data:
+                  skip_label: true
+                  setpoint_override: "{{ -export_limit }}"
+        default:
+          - choose:
+              - conditions: "{{ not _skip_label }}"
+                sequence:
+                  - action: input_text.set_value
+                    target: { entity_id: input_text.hba_strategy_active_flow }
+                    data: { value: "Standby / Peak shave" }
+          # Both directions disabled → self-consumption sends a 1 W idle hold so the relay
+          # stays engaged (soft stop). Avoids relay click when peak shaving later activates.
+          - action: script.hba_strategy_self_consumption
+            data:
+              skip_label: true
+              charge_disabled: true
+              discharge_disabled: true

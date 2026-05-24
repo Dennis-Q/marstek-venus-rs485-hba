@@ -1,0 +1,1056 @@
+input_boolean:
+  hba_strategy_timed_has_period_b:
+    name: "Enable additional period B"
+    icon: mdi:clock-plus
+  hba_strategy_timed_has_period_c:
+    name: "Enable additional period C"
+    icon: mdi:clock-plus
+  hba_control_has_power_limit_import:
+    name: "Enable import peak shaving"
+    icon: mdi:transmission-tower-import
+  hba_control_has_power_limit_export:
+    name: "Enable export peak shaving"
+    icon: mdi:transmission-tower-export
+  hba_control_is_debug_mode:
+    name: "Insight mode"
+    icon: mdi:bug-outline
+  hba_control_onboarding_finished:
+    name: "Finish onboarding"
+    icon: mdi:check-circle-outline
+  hba_control_has_power_limit_during_ev_charge:
+    name: "Keep peak shaving during EV stop"
+    icon: mdi:car-electric-outline
+
+input_datetime:
+  hba_strategy_timed_period_a1:
+    name: "Period A start"
+    has_date: false
+    has_time: true
+  hba_strategy_timed_period_a2:
+    name: "Period A stop"
+    has_date: false
+    has_time: true
+  hba_strategy_timed_period_b1:
+    name: "Period B start"
+    has_date: false
+    has_time: true
+  hba_strategy_timed_period_b2:
+    name: "Period B stop"
+    has_date: false
+    has_time: true
+  hba_strategy_timed_period_c1:
+    name: "Period C start"
+    has_date: false
+    has_time: true
+  hba_strategy_timed_period_c2:
+    name: "Period C stop"
+    has_date: false
+    has_time: true
+  hba_strategy_dynamic_cheapest_start:
+    name: "Cheap period start"
+    has_date: true
+    has_time: true
+  hba_strategy_dynamic_cheapest_end:
+    name: "Cheap period end"
+    has_date: true
+    has_time: true
+  hba_strategy_dynamic_expensive_start:
+    name: "Expensive period start"
+    has_date: true
+    has_time: true
+  hba_strategy_dynamic_expensive_end:
+    name: "Expensive period end"
+    has_date: true
+    has_time: true
+  hba_last_active_m1:
+    name: "Battery M1 last active"
+    has_date: true
+    has_time: true
+  hba_last_active_m2:
+    name: "Battery M2 last active"
+    has_date: true
+    has_time: true
+  hba_last_active_m3:
+    name: "Battery M3 last active"
+    has_date: true
+    has_time: true
+  hba_last_active_m4:
+    name: "Battery M4 last active"
+    has_date: true
+    has_time: true
+  hba_last_active_m5:
+    name: "Battery M5 last active"
+    has_date: true
+    has_time: true
+  hba_last_active_m6:
+    name: "Battery M6 last active"
+    has_date: true
+    has_time: true
+
+input_number:
+  # --- User-settable configuration values (mode: box = text input, not slider) ---
+  hba_battery_count:
+    name: "Number of batteries"
+    min: 1
+    max: 6
+    step: 1
+    mode: slider
+    icon: mdi:counter
+  hba_control_prioritize_battery:
+    name: "Priority battery"
+    min: 1
+    max: 6
+    step: 1
+    mode: box
+    icon: mdi:star-circle
+
+  # --- PID setpoint and tuning ---
+  hba_target_grid_consumption_in_w:
+    name: "Target grid consumption"
+    min: -15000
+    max: 15000
+    step: 1
+    mode: box
+    unit_of_measurement: W
+    icon: mdi:transmission-tower
+  hba_control_hysteresis_in_w:
+    name: "Hysteresis"
+    min: 0
+    max: 200
+    step: 1
+    mode: box
+    unit_of_measurement: W
+    icon: mdi:arrow-expand-horizontal
+  hba_control_idle_time:
+    name: "Idle timeout"
+    min: 0
+    max: 60
+    step: 1
+    mode: box
+    unit_of_measurement: min
+    icon: mdi:timer-pause
+  hba_control_kp:
+    name: "PID Kp (proportional)"
+    min: 0
+    max: 2
+    step: 0.01
+    mode: box
+    icon: mdi:tune
+  hba_control_ki:
+    name: "PID Ki (integral)"
+    min: 0
+    max: 5
+    step: 0.01
+    mode: box
+    icon: mdi:tune-variant
+  hba_control_kd:
+    name: "PID Kd (derivative)"
+    min: 0
+    max: 5
+    step: 0.01
+    mode: box
+    icon: mdi:tune-vertical
+  hba_control_pid_output_dampening:
+    name: "PID output dampening"
+    min: 0
+    max: 90
+    step: 1
+    mode: box
+    unit_of_measurement: "%"
+    icon: mdi:waves
+  hba_control_error_signal_dampening:
+    name: "Error signal dampening"
+    min: 0
+    max: 90
+    step: 1
+    mode: box
+    unit_of_measurement: "%"
+    icon: mdi:waves-arrow-right
+
+  # --- PID internal state (written by controller script) ---
+  hba_control_error_signal:
+    name: "PID error signal"
+    min: -15000
+    max: 15000
+    step: 1
+    unit_of_measurement: W
+    icon: mdi:sine-wave
+  hba_control_pid_output:
+    name: "PID output"
+    min: -15000
+    max: 15000
+    step: 1
+    unit_of_measurement: W
+    icon: mdi:gauge
+  hba_control_p_term:
+    name: "PID P term"
+    min: -10000
+    max: 10000
+    step: 1
+    unit_of_measurement: W
+    icon: mdi:alpha-p-circle
+  hba_control_i_term:
+    name: "PID I term"
+    min: -10000
+    max: 10000
+    step: 1
+    unit_of_measurement: W
+    icon: mdi:alpha-i-circle
+  hba_control_d_term:
+    name: "PID D term"
+    min: -10000
+    max: 10000
+    step: 1
+    unit_of_measurement: W
+    icon: mdi:alpha-d-circle
+  hba_control_error_deviation:
+    name: "Error deviation"
+    min: -10000
+    max: 10000
+    step: 1
+    unit_of_measurement: W
+    icon: mdi:chart-bell-curve
+  hba_control_pid_output_deviation:
+    name: "PID output deviation"
+    min: -10000
+    max: 10000
+    step: 1
+    unit_of_measurement: W
+    icon: mdi:chart-bell-curve-cumulative
+  hba_control_debug:
+    name: "Debug value"
+    min: -10000
+    max: 10000
+    step: 1
+    icon: mdi:bug
+
+  # --- Peak shaving limits ---
+  hba_control_power_limit_import:
+    name: "Import power limit"
+    min: 500
+    max: 25000
+    step: 100
+    mode: box
+    unit_of_measurement: W
+    icon: mdi:transmission-tower-import
+  hba_control_power_limit_export:
+    name: "Export power limit"
+    min: 500
+    max: 25000
+    step: 100
+    mode: box
+    unit_of_measurement: W
+    icon: mdi:transmission-tower-export
+
+  # --- Slow charge limits (battery health) ---
+  # Two configurable levels: cap charge power when SoC exceeds each threshold.
+  # Set power limit to 0 to disable that level (BMS handles the taper instead).
+  hba_control_slow_charge_soc_threshold_1:
+    name: "Slow charge SoC threshold 1"
+    min: 80
+    max: 100
+    step: 1
+    mode: box
+    unit_of_measurement: "%"
+    icon: mdi:battery-alert-variant-outline
+  hba_control_slow_charge_power_limit_1:
+    name: "Slow charge power limit 1"
+    min: 0
+    max: 10000
+    step: 100
+    mode: box
+    unit_of_measurement: W
+    icon: mdi:speedometer-slow
+  hba_control_slow_charge_soc_threshold_2:
+    name: "Slow charge SoC threshold 2"
+    min: 80
+    max: 100
+    step: 1
+    mode: box
+    unit_of_measurement: "%"
+    icon: mdi:battery-alert-variant-outline
+  hba_control_slow_charge_power_limit_2:
+    name: "Slow charge power limit 2"
+    min: 0
+    max: 10000
+    step: 100
+    mode: box
+    unit_of_measurement: W
+    icon: mdi:speedometer-slow
+
+  # --- Charge/Sell strategy targets ---
+  hba_strategy_charge_target_energy:
+    name: "Charge target energy"
+    min: 0
+    max: 30
+    step: 0.1
+    mode: box
+    unit_of_measurement: kWh
+    icon: mdi:battery-arrow-up
+  hba_strategy_charge_target_soc:
+    name: "Charge target SoC"
+    min: 15
+    max: 100
+    step: 1
+    mode: box
+    unit_of_measurement: "%"
+    icon: mdi:battery-80
+  hba_solar_reserved_for_house:
+    name: "Solar reserved for house"
+    min: 0
+    max: 500
+    step: 0.1
+    mode: box
+    unit_of_measurement: kWh
+    icon: mdi:home-lightning-bolt
+  hba_strategy_sell_target_energy:
+    name: "Sell target energy"
+    min: 0
+    max: 30
+    step: 0.1
+    mode: box
+    unit_of_measurement: kWh
+    icon: mdi:battery-arrow-down
+  hba_strategy_sell_target_soc:
+    name: "Sell target SoC"
+    min: 11
+    max: 80
+    step: 1
+    mode: box
+    unit_of_measurement: "%"
+    icon: mdi:battery-20
+
+  # --- Dynamic pricing windows ---
+  hba_strategy_dynamic_cheapest_hrs:
+    name: "Cheapest period hours"
+    min: 0
+    max: 8
+    step: 1
+    mode: box
+    unit_of_measurement: h
+    icon: mdi:clock-fast
+  hba_strategy_dynamic_expensive_hrs:
+    name: "Expensive period hours"
+    min: 0
+    max: 23
+    step: 1
+    mode: box
+    unit_of_measurement: h
+    icon: mdi:clock-alert
+  hba_strategy_dynamic_v2_max_cheap_hours_per_day:
+    name: "Dynamic v2 Max cheap hours/day"
+    min: 0
+    max: 24
+    step: 0.25
+    unit_of_measurement: h
+    mode: box
+    icon: mdi:clock-minus-outline
+  hba_strategy_dynamic_v2_max_expensive_hours_per_day:
+    name: "Dynamic v2 Max expensive hours/day"
+    min: 0
+    max: 24
+    step: 0.25
+    unit_of_measurement: h
+    mode: box
+    icon: mdi:clock-plus-outline
+  hba_strategy_dynamic_threshold_cheapest_period:
+    name: "Cheap period max tariff"
+    min: 0
+    max: 30
+    step: 0.5
+    mode: box
+    unit_of_measurement: ct/kWh
+    icon: mdi:currency-eur
+  hba_strategy_dynamic_threshold_delta:
+    name: "Expensive period min delta"
+    min: 0
+    max: 20
+    step: 0.5
+    mode: box
+    unit_of_measurement: ct/kWh
+    icon: mdi:delta
+  hba_strategy_dynamic_cheapest_avg_tariff:
+    name: "Cheap period avg tariff"
+    min: -1000
+    max: 1000
+    step: 0.01
+    unit_of_measurement: ct/kWh
+    icon: mdi:currency-eur
+  hba_strategy_dynamic_expensive_avg_tariff:
+    name: "Expensive period avg tariff"
+    min: -1000
+    max: 1000
+    step: 0.01
+    unit_of_measurement: ct/kWh
+    icon: mdi:currency-eur
+  hba_strategy_dynamic_expensive_avg_delta:
+    name: "Expensive period avg delta"
+    min: 0
+    max: 1000
+    step: 0.01
+    unit_of_measurement: ct/kWh
+    icon: mdi:delta
+
+  # --- Per-battery SoC cutoffs (hba_ prefix to avoid conflict with HBC) ---
+  hba_marstek_m1_charging_cutoff_capacity:
+    name: "M1 charge cutoff SoC"
+    min: 80
+    max: 100
+    step: 1
+    mode: box
+    unit_of_measurement: "%"
+    icon: mdi:battery-alert-variant
+  hba_marstek_m1_discharging_cutoff_capacity:
+    name: "M1 discharge cutoff SoC"
+    min: 11
+    max: 80
+    step: 1
+    mode: box
+    unit_of_measurement: "%"
+    icon: mdi:battery-alert
+  hba_marstek_m2_charging_cutoff_capacity:
+    name: "M2 charge cutoff SoC"
+    min: 80
+    max: 100
+    step: 1
+    mode: box
+    unit_of_measurement: "%"
+    icon: mdi:battery-alert-variant
+  hba_marstek_m2_discharging_cutoff_capacity:
+    name: "M2 discharge cutoff SoC"
+    min: 11
+    max: 80
+    step: 1
+    mode: box
+    unit_of_measurement: "%"
+    icon: mdi:battery-alert
+  hba_marstek_m3_charging_cutoff_capacity:
+    name: "M3 charge cutoff SoC"
+    min: 80
+    max: 100
+    step: 1
+    mode: box
+    unit_of_measurement: "%"
+    icon: mdi:battery-alert-variant
+  hba_marstek_m3_discharging_cutoff_capacity:
+    name: "M3 discharge cutoff SoC"
+    min: 11
+    max: 80
+    step: 1
+    mode: box
+    unit_of_measurement: "%"
+    icon: mdi:battery-alert
+  hba_marstek_m4_charging_cutoff_capacity:
+    name: "M4 charge cutoff SoC"
+    min: 80
+    max: 100
+    step: 1
+    mode: box
+    unit_of_measurement: "%"
+    icon: mdi:battery-alert-variant
+  hba_marstek_m4_discharging_cutoff_capacity:
+    name: "M4 discharge cutoff SoC"
+    min: 11
+    max: 80
+    step: 1
+    mode: box
+    unit_of_measurement: "%"
+    icon: mdi:battery-alert
+  hba_marstek_m5_charging_cutoff_capacity:
+    name: "M5 charge cutoff SoC"
+    min: 80
+    max: 100
+    step: 1
+    mode: box
+    unit_of_measurement: "%"
+    icon: mdi:battery-alert-variant
+  hba_marstek_m5_discharging_cutoff_capacity:
+    name: "M5 discharge cutoff SoC"
+    min: 11
+    max: 80
+    step: 1
+    mode: box
+    unit_of_measurement: "%"
+    icon: mdi:battery-alert
+  hba_marstek_m6_charging_cutoff_capacity:
+    name: "M6 charge cutoff SoC"
+    min: 80
+    max: 100
+    step: 1
+    mode: box
+    unit_of_measurement: "%"
+    icon: mdi:battery-alert-variant
+  hba_marstek_m6_discharging_cutoff_capacity:
+    name: "M6 discharge cutoff SoC"
+    min: 11
+    max: 80
+    step: 1
+    mode: box
+    unit_of_measurement: "%"
+    icon: mdi:battery-alert
+
+input_text:
+  hba_strategy_active_flow:
+    name: "Active strategy flow"
+    max: 255
+    icon: mdi:sitemap
+  hba_control_cycle_state:
+    name: "PID cycle state"
+    max: 100
+    icon: mdi:state-machine
+  hba_strategy_ev_sensor_entity_id:
+    name: "EV charging entity_id"
+    max: 100
+    icon: mdi:car-electric
+  hba_strategy_dynamic_frank_sensor_entity_id:
+    name: "Frank Energie prices sensor entity_id"
+    max: 150
+    icon: mdi:lightning-bolt
+  hba_strategy_solar_forecast_entity_id:
+    name: "Solar forecast today (entity_id)"
+    max: 100
+    icon: mdi:solar-power
+  hba_strategy_solar_forecast_tomorrow_entity_id:
+    name: "Solar forecast tomorrow (entity_id)"
+    max: 100
+    icon: mdi:solar-power-variant
+input_select:
+  hba_marstek_master_battery_mode:
+    name: "Master battery mode"
+    options:
+      - "Manual control"
+      - "Marstek control"
+      - "Full control"
+    icon: mdi:battery-sync
+  hba_strategy:
+    name: "Active strategy"
+    options:
+      - "Full stop"
+      - "Self-consumption"
+      - "Timed"
+      - "Dynamic"
+      - "Dynamic v2"
+      - "Charge"
+      - "Charge PV"
+      - "Sell"
+      - "Zero import"
+      - "Standby / peak shave"
+    icon: mdi:strategy
+  hba_control_pid_presets:
+    name: "PID presets"
+    options:
+      - "Custom"
+      - "Very safe"
+      - "Safe"
+      - "Regular"
+      - "Regular (original HBC)"
+    icon: mdi:tune
+  hba_strategy_timed_strat_0:
+    name: "Timed baseline strategy"
+    options:
+      - "Full stop"
+      - "Self-consumption"
+      - "Charge"
+      - "Charge PV"
+      - "Sell"
+      - "Zero import"
+      - "Standby / peak shave"
+    icon: mdi:clock-outline
+  hba_strategy_timed_strat_a:
+    name: "Timed strategy period A"
+    options:
+      - "Full stop"
+      - "Self-consumption"
+      - "Charge"
+      - "Charge PV"
+      - "Sell"
+      - "Zero import"
+      - "Standby / peak shave"
+    icon: mdi:clock-start
+  hba_strategy_timed_strat_b:
+    name: "Timed strategy period B"
+    options:
+      - "Full stop"
+      - "Self-consumption"
+      - "Charge"
+      - "Charge PV"
+      - "Sell"
+      - "Zero import"
+      - "Standby / peak shave"
+    icon: mdi:clock-end
+  hba_strategy_timed_strat_c:
+    name: "Timed strategy period C"
+    options:
+      - "Full stop"
+      - "Self-consumption"
+      - "Charge"
+      - "Charge PV"
+      - "Sell"
+      - "Zero import"
+      - "Standby / peak shave"
+    icon: mdi:clock-end
+  hba_strategy_dynamic_data_source:
+    name: "Dynamic pricing source"
+    options:
+      - "Zonneplan"
+      - "Tibber"
+      - "Nordpool"
+      - "PVPC"
+      - "Octopus Energy"
+      - "Energi Data Service"
+      - "Frank Energie"
+      - "ENTSOE"
+    icon: mdi:chart-line
+  hba_strategy_dynamic_default:
+    name: "Dynamic fallback strategy"
+    options:
+      - "Charge PV"
+      - "Self-consumption"
+      - "Zero import"
+      - "Standby / peak shave"
+      - "Full stop"
+    icon: mdi:battery-sync
+  hba_strategy_dynamic_cheapest:
+    name: "Cheap period strategy"
+    options:
+      - "Charge"
+      - "Charge PV"
+      - "Standby / peak shave"
+    icon: mdi:battery-charging-low
+  hba_strategy_dynamic_expensive:
+    name: "Expensive period strategy"
+    options:
+      - "Self-consumption"
+      - "Sell"
+      - "Zero import"
+      - "Standby / peak shave"
+    icon: mdi:battery-high
+  hba_strategy_charge_goal:
+    name: "Charge goal"
+    options:
+      - "batteries are full"
+      - "state of charge"
+      - "energy reserve"
+      - "solar forecast"
+    icon: mdi:battery-charging-100
+  hba_strategy_sell_goal:
+    name: "Sell goal"
+    options:
+      - "batteries are empty"
+      - "state of charge"
+      - "energy reserve"
+    icon: mdi:battery-charging-outline
+  hba_strategy_charge_goal_reached:
+    name: "When done charging, switch to"
+    options:
+      - "Full stop"
+      - "Self-consumption"
+      - "Charge PV"
+      - "Sell"
+      - "Zero import"
+      - "Standby / peak shave"
+    icon: mdi:battery-check-outline
+  hba_strategy_sell_goal_reached:
+    name: "When done selling, switch to"
+    options:
+      - "Full stop"
+      - "Self-consumption"
+      - "Charge PV"
+      - "Zero import"
+      - "Charge"
+      - "Standby / peak shave"
+    icon: mdi:battery-arrow-down-outline
+  hba_control_priority_change_interval:
+    name: "Priority battery change interval"
+    options:
+      - "Auto balance"
+      - "Weekly"
+      - "Daily"
+      - "Never"
+    icon: mdi:rotate-right
+
+template:
+  - sensor:
+      - name: "HBA Active strategy"
+        unique_id: hba_strategy_active_sub_strategy
+        icon: mdi:list-status
+        state: >
+          {% set flow = states('input_text.hba_strategy_active_flow') %}
+          {% if flow in ['', 'unknown', 'unavailable'] %}
+            {{ flow }}
+          {% else %}
+            {{ flow.split(' → ')[-1] }}
+          {% endif %}
+
+      - name: "HBA Total Battery Power"
+        unique_id: hba_total_battery_power_in_w
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        state: >
+          {% set count = states('input_number.hba_battery_count') | int(1) %}
+          {% set ns = namespace(total=0) %}
+          {% for i in range(1, count + 1) %}
+            {% set ns.total = ns.total + states('sensor.marstek_m' ~ i ~ '_ac_power') | float(0) %}
+          {% endfor %}
+          {{ ns.total | round(0) | int }}
+
+      - name: "HBA Total Commanded Power"
+        unique_id: hba_total_commanded_power
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        icon: mdi:flash
+        state: >
+          {% set count = states('input_number.hba_battery_count') | int(1) %}
+          {% set ns = namespace(total=0) %}
+          {% for i in range(1, count + 1) %}
+            {% set mode = states('select.marstek_m' ~ i ~ '_forcible_charge_discharge') %}
+            {% set cp = states('number.marstek_m' ~ i ~ '_forcible_charge_power') | float(0) %}
+            {% set dp = states('number.marstek_m' ~ i ~ '_forcible_discharge_power') | float(0) %}
+            {% if mode == 'charge' %}
+              {% set ns.total = ns.total + cp %}
+            {% elif mode == 'discharge' %}
+              {% set ns.total = ns.total - dp %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.total | round(0) | int }}
+
+      - name: "HBA Time Remaining"
+        unique_id: hba_time_remaining
+        icon: mdi:timer
+        state: >
+          {% set power = [states('sensor.hba_total_battery_power') | float(0), 0] | max %}
+          {% set capacity_kwh = states('sensor.hba_charge_available_energy') | float(0) %}
+          {% if power > 0 and capacity_kwh > 0 %}
+            {% set time_hrs = (capacity_kwh * 1000) / power %}
+            {% set hrs = time_hrs | int %}
+            {% set minutes = ((time_hrs - hrs) * 60) | int %}
+            {{ '{:02}:{:02}'.format(hrs, minutes) }} hours ({{ capacity_kwh | round(2) }} kWh)
+          {% else %}
+            Charging ({{ capacity_kwh | round(2) }} kWh)
+          {% endif %}
+
+      - name: "HBA Charge Remaining Energy"
+        unique_id: hba_charge_remaining_energy
+        unit_of_measurement: kWh
+        device_class: energy_storage
+        state_class: measurement
+        state: >
+          {% set count = states('input_number.hba_battery_count') | int(1) %}
+          {% set ns = namespace(total=0) %}
+          {% for i in range(1, count + 1) %}
+            {% set soc = states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') | float(0) %}
+            {% set cap = states('sensor.marstek_m' ~ i ~ '_battery_total_energy') | float(0) %}
+            {% set soc_max = states('input_number.hba_marstek_m' ~ i ~ '_charging_cutoff_capacity') | float(100) %}
+            {% set ns.total = ns.total + ([((soc_max - soc) / 100) * cap, 0] | max) %}
+          {% endfor %}
+          {{ ns.total | round(2) }}
+
+      - name: "HBA Charge Available Energy"
+        unique_id: hba_charge_available_energy
+        unit_of_measurement: kWh
+        device_class: energy_storage
+        state_class: measurement
+        state: >
+          {% set count = states('input_number.hba_battery_count') | int(1) %}
+          {% set ns = namespace(total=0) %}
+          {% for i in range(1, count + 1) %}
+            {% set soc = states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') | float(0) %}
+            {% set cap = states('sensor.marstek_m' ~ i ~ '_battery_total_energy') | float(0) %}
+            {% set soc_min = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) %}
+            {% set ns.total = ns.total + ([((soc - soc_min) / 100) * cap, 0] | max) %}
+          {% endfor %}
+          {{ ns.total | round(2) }}
+
+      - name: "HBA Total Max Charge Power"
+        unique_id: hba_total_max_charge_power
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        icon: mdi:flash-triangle
+        state: >
+          {% set count = states('input_number.hba_battery_count') | int(1) %}
+          {% set ns = namespace(total=0) %}
+          {% for i in range(1, count + 1) %}
+            {% set pw = states('number.marstek_m' ~ i ~ '_max_charge_power') | float(0) %}
+            {% set ns.total = ns.total + (pw if pw > 50 else 2500) %}
+          {% endfor %}
+          {{ ns.total | int }}
+
+      - name: "HBA Total Max Discharge Power"
+        unique_id: hba_total_max_discharge_power
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        icon: mdi:flash-triangle
+        state: >
+          {% set count = states('input_number.hba_battery_count') | int(1) %}
+          {% set ns = namespace(total=0) %}
+          {% for i in range(1, count + 1) %}
+            {% set pw = states('number.marstek_m' ~ i ~ '_max_discharge_power') | float(0) %}
+            {% set ns.total = ns.total + (pw if pw > 50 else 2500) %}
+          {% endfor %}
+          {{ ns.total | int }}
+
+      - name: "Estimated Profit per kWh"
+        unique_id: hba_estimated_profit_per_kwh
+        unit_of_measurement: "ct/kWh"
+        icon: mdi:currency-eur
+        state: >
+          {% set delta = states('input_number.hba_strategy_dynamic_expensive_avg_delta') | float(0) %}
+          {% set threshold = states('input_number.hba_strategy_dynamic_threshold_delta') | float(0) %}
+          {{ [delta - threshold, 0] | max | round(2) }}
+
+      # ── Solar forecast distribution sensors (used by Charge → solar forecast goal cards)
+      - name: "HBA Solar Forecast Today"
+        unique_id: hba_solar_forecast_today
+        unit_of_measurement: kWh
+        device_class: energy
+        state_class: measurement
+        icon: mdi:weather-sunny
+        state: >
+          {% set e = states('input_text.hba_strategy_solar_forecast_entity_id') | trim %}
+          {{ states(e) | float(0) if e not in ['', 'unknown', 'unavailable'] else 0 }}
+
+      - name: "HBA Solar Forecast Tomorrow"
+        unique_id: hba_solar_forecast_tomorrow
+        unit_of_measurement: kWh
+        device_class: energy
+        state_class: measurement
+        icon: mdi:weather-sunny
+        state: >
+          {% set e = states('input_text.hba_strategy_solar_forecast_tomorrow_entity_id') | trim %}
+          {{ states(e) | float(0) if e not in ['', 'unknown', 'unavailable'] else 0 }}
+
+      - name: "HBA Solar Forecast Surplus Today"
+        unique_id: hba_solar_forecast_surplus_today
+        unit_of_measurement: kWh
+        device_class: energy
+        state_class: measurement
+        icon: mdi:solar-power-variant
+        state: >
+          {% set e = states('input_text.hba_strategy_solar_forecast_entity_id') | trim %}
+          {% set forecast = states(e) | float(0) if e not in ['', 'unknown', 'unavailable'] else 0 %}
+          {% set reserved = states('input_number.hba_solar_reserved_for_house') | float(5) %}
+          {{ [forecast - reserved, 0] | max | round(2) }}
+
+      - name: "HBA Solar Forecast Surplus Tomorrow"
+        unique_id: hba_solar_forecast_surplus_tomorrow
+        unit_of_measurement: kWh
+        device_class: energy
+        state_class: measurement
+        icon: mdi:solar-power-variant
+        state: >
+          {% set e = states('input_text.hba_strategy_solar_forecast_tomorrow_entity_id') | trim %}
+          {% set forecast = states(e) | float(0) if e not in ['', 'unknown', 'unavailable'] else 0 %}
+          {% set reserved = states('input_number.hba_solar_reserved_for_house') | float(5) %}
+          {{ [forecast - reserved, 0] | max | round(2) }}
+
+      - name: "HBA Charge Target Energy"
+        unique_id: hba_charge_target_energy
+        unit_of_measurement: kWh
+        device_class: energy_storage
+        state_class: measurement
+        icon: mdi:battery-arrow-up
+        state: >
+          {% set count = states('input_number.hba_battery_count') | int(1) %}
+          {% set ns = namespace(energy_max=0) %}
+          {% for i in range(1, count + 1) %}
+            {% set cap = states('sensor.marstek_m' ~ i ~ '_battery_total_energy') | float(0) %}
+            {% set soc_max = states('input_number.hba_marstek_m' ~ i ~ '_charging_cutoff_capacity') | float(100) %}
+            {% set soc_min = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) %}
+            {% set ns.energy_max = ns.energy_max + (soc_max - soc_min) / 100 * cap %}
+          {% endfor %}
+          {% set e = states('input_text.hba_strategy_solar_forecast_entity_id') | trim %}
+          {% set forecast = states(e) | float(0) if e not in ['', 'unknown', 'unavailable'] else 0 %}
+          {% set threshold = states('input_number.hba_solar_reserved_for_house') | float(5) %}
+          {% set solar_surplus = [forecast - threshold, 0] | max %}
+          {{ [ns.energy_max - solar_surplus, 0] | max | round(2) }}
+
+      - name: "HBA Charge Grid Energy Portion"
+        unique_id: hba_charge_grid_energy_portion
+        unit_of_measurement: kWh
+        device_class: energy_storage
+        state_class: measurement
+        icon: mdi:transmission-tower
+        state: >
+          {% set count = states('input_number.hba_battery_count') | int(1) %}
+          {% set ns = namespace(energy_max=0) %}
+          {% for i in range(1, count + 1) %}
+            {% set cap = states('sensor.marstek_m' ~ i ~ '_battery_total_energy') | float(0) %}
+            {% set soc_max = states('input_number.hba_marstek_m' ~ i ~ '_charging_cutoff_capacity') | float(100) %}
+            {% set soc_min = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) %}
+            {% set ns.energy_max = ns.energy_max + (soc_max - soc_min) / 100 * cap %}
+          {% endfor %}
+          {% set e = states('input_text.hba_strategy_solar_forecast_entity_id') | trim %}
+          {% set forecast = states(e) | float(0) if e not in ['', 'unknown', 'unavailable'] else 0 %}
+          {% set threshold = states('input_number.hba_solar_reserved_for_house') | float(5) %}
+          {% set solar_surplus = [forecast - threshold, 0] | max %}
+          {% set energy_desired = [ns.energy_max - solar_surplus, 0] | max %}
+          {% set available = states('sensor.hba_charge_available_energy') | float(0) %}
+          {{ [energy_desired - available, 0] | max | round(2) }}
+
+      - name: "HBA Charge Solar Energy Portion"
+        unique_id: hba_charge_solar_energy_portion
+        unit_of_measurement: kWh
+        device_class: energy_storage
+        state_class: measurement
+        icon: mdi:solar-power
+        state: >
+          {% set count = states('input_number.hba_battery_count') | int(1) %}
+          {% set ns = namespace(energy_max=0) %}
+          {% for i in range(1, count + 1) %}
+            {% set cap = states('sensor.marstek_m' ~ i ~ '_battery_total_energy') | float(0) %}
+            {% set soc_max = states('input_number.hba_marstek_m' ~ i ~ '_charging_cutoff_capacity') | float(100) %}
+            {% set soc_min = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) %}
+            {% set ns.energy_max = ns.energy_max + (soc_max - soc_min) / 100 * cap %}
+          {% endfor %}
+          {% set e = states('input_text.hba_strategy_solar_forecast_entity_id') | trim %}
+          {% set forecast = states(e) | float(0) if e not in ['', 'unknown', 'unavailable'] else 0 %}
+          {% set threshold = states('input_number.hba_solar_reserved_for_house') | float(5) %}
+          {% set solar_surplus = [forecast - threshold, 0] | max %}
+          {% set charge_target = [ns.energy_max - solar_surplus, 0] | max %}
+          {% set available = states('sensor.hba_charge_available_energy') | float(0) %}
+          {% set filled = [charge_target, available] | max %}
+          {{ [ns.energy_max - filled, 0] | max | round(2) if ns.energy_max > 0 else 0 }}
+
+  - binary_sensor:
+      - name: "HBA EV Is Active"
+        unique_id: hba_ev_is_active
+        icon: mdi:ev-station
+        state: >
+          {% set e = states('input_text.hba_strategy_ev_sensor_entity_id') | trim %}
+          {{ states(e) == 'on' if e not in ['', 'unknown', 'unavailable'] else false }}
+      - name: "HBA Dynamic Cheap Threshold Met"
+        unique_id: hba_dynamic_cheap_threshold_met
+        icon: mdi:check-circle
+        state: >
+          {% set avg = states('input_number.hba_strategy_dynamic_cheapest_avg_tariff') | float(999) %}
+          {% set threshold = states('input_number.hba_strategy_dynamic_threshold_cheapest_period') | float(0) %}
+          {{ avg <= threshold }}
+      - name: "HBA Dynamic Expensive Threshold Met"
+        unique_id: hba_dynamic_expensive_threshold_met
+        icon: mdi:check-circle
+        state: >
+          {% set delta = states('input_number.hba_strategy_dynamic_expensive_avg_delta') | float(0) %}
+          {% set threshold = states('input_number.hba_strategy_dynamic_threshold_delta') | float(0) %}
+          {{ delta >= threshold }}
+      - name: "HBA Is Charging"
+        unique_id: hba_control_is_charging
+        device_class: battery_charging
+        icon: mdi:battery-charging
+        state: "{{ states('sensor.hba_total_commanded_power') | float(0) > 0 }}"
+      - name: "HBA Solar Surplus Covers Battery Capacity"
+        unique_id: hba_solar_surplus_covers_battery_capacity
+        icon: mdi:solar-power
+        state: >
+          {% set count = states('input_number.hba_battery_count') | int(1) %}
+          {% set ns = namespace(energy_max=0) %}
+          {% for i in range(1, count + 1) %}
+            {% set cap = states('sensor.marstek_m' ~ i ~ '_battery_total_energy') | float(0) %}
+            {% set soc_max = states('input_number.hba_marstek_m' ~ i ~ '_charging_cutoff_capacity') | float(100) %}
+            {% set soc_min = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) %}
+            {% set ns.energy_max = ns.energy_max + (soc_max - soc_min) / 100 * cap %}
+          {% endfor %}
+          {% set e = states('input_text.hba_strategy_solar_forecast_entity_id') | trim %}
+          {% set forecast = states(e) | float(0) if e not in ['', 'unknown', 'unavailable'] else 0 %}
+          {% set threshold = states('input_number.hba_solar_reserved_for_house') | float(5) %}
+          {% set solar_surplus = [forecast - threshold, 0] | max %}
+          {{ solar_surplus >= ns.energy_max }}
+      - name: "HBA Solar Surplus Covers Battery Capacity Tomorrow"
+        unique_id: hba_solar_surplus_covers_battery_capacity_tomorrow
+        icon: mdi:solar-power
+        state: >
+          {% set count = states('input_number.hba_battery_count') | int(1) %}
+          {% set ns = namespace(energy_max=0) %}
+          {% for i in range(1, count + 1) %}
+            {% set cap = states('sensor.marstek_m' ~ i ~ '_battery_total_energy') | float(0) %}
+            {% set soc_max = states('input_number.hba_marstek_m' ~ i ~ '_charging_cutoff_capacity') | float(100) %}
+            {% set soc_min = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) %}
+            {% set ns.energy_max = ns.energy_max + (soc_max - soc_min) / 100 * cap %}
+          {% endfor %}
+          {% set e = states('input_text.hba_strategy_solar_forecast_tomorrow_entity_id') | trim %}
+          {% set forecast = states(e) | float(0) if e not in ['', 'unknown', 'unavailable'] else 0 %}
+          {% set threshold = states('input_number.hba_solar_reserved_for_house') | float(5) %}
+          {% set solar_surplus = [forecast - threshold, 0] | max %}
+          {{ solar_surplus >= ns.energy_max }}
+      - name: "HBA Charge Goal Reached"
+        unique_id: hba_strategy_charge_goal_reached
+        icon: mdi:battery-check
+        state: >
+          {% if states('input_select.hba_strategy') != 'Charge' %}
+            false
+          {% else %}
+            {% set count = states('input_number.hba_battery_count') | int(1) %}
+            {% set goal = states('input_select.hba_strategy_charge_goal') %}
+            {% if goal == 'batteries are full' %}
+              {% set ns = namespace(full=true) %}
+              {% for i in range(1, count + 1) %}
+                {% set soc = states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') | float(0) %}
+                {% set cutoff = states('input_number.hba_marstek_m' ~ i ~ '_charging_cutoff_capacity') | float(100) %}
+                {% if soc < cutoff - 1 %}{% set ns.full = false %}{% endif %}
+              {% endfor %}
+              {{ ns.full }}
+            {% elif goal == 'state of charge' %}
+              {% set ns = namespace(total=0) %}
+              {% for i in range(1, count + 1) %}
+                {% set ns.total = ns.total + states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') | float(0) %}
+              {% endfor %}
+              {{ (ns.total / count) >= states('input_number.hba_strategy_charge_target_soc') | float(90) }}
+            {% elif goal == 'energy reserve' %}
+              {{ states('sensor.hba_charge_available_energy') | float(0) >= states('input_number.hba_strategy_charge_target_energy') | float(5) }}
+            {% elif goal == 'solar forecast' %}
+              {% set ns2 = namespace(energy_max=0) %}
+              {% for i in range(1, count + 1) %}
+                {% set cap = states('sensor.marstek_m' ~ i ~ '_battery_total_energy') | float(0) %}
+                {% set soc_max = states('input_number.hba_marstek_m' ~ i ~ '_charging_cutoff_capacity') | float(100) %}
+                {% set soc_min = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) %}
+                {% set ns2.energy_max = ns2.energy_max + (soc_max - soc_min) / 100 * cap %}
+              {% endfor %}
+              {% set e_today = states('input_text.hba_strategy_solar_forecast_entity_id') | trim %}
+              {% set forecast_kwh = states(e_today) | float(0) if e_today not in ['', 'unknown', 'unavailable'] else 0 %}
+              {% set threshold = states('input_number.hba_solar_reserved_for_house') | float(5) %}
+              {% set solar_surplus = [forecast_kwh - threshold, 0] | max %}
+              {% set energy_desired = [ns2.energy_max - solar_surplus, 0] | max %}
+              {{ states('sensor.hba_charge_available_energy') | float(0) >= energy_desired }}
+            {% else %}
+              false
+            {% endif %}
+          {% endif %}
+      - name: "HBA Any Battery Offline"
+        unique_id: hba_any_battery_offline
+        icon: mdi:battery-alert
+        state: >
+          {% set count = states('input_number.hba_battery_count') | int(1) %}
+          {% set ns = namespace(offline=false) %}
+          {% for i in range(1, count + 1) %}
+            {% set inv = states('sensor.marstek_m' ~ i ~ '_inverter_state') %}
+            {% if inv in ['unavailable', 'unknown', ''] %}
+              {% set ns.offline = true %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.offline }}
+
+######################################################################################################
+# RECORDER — LOGBOOK FILTERING
+######################################################################################################
+# Exclude high-frequency technical entities from the recorder to reduce database size.
+recorder:
+  exclude:
+    entity_globs:
+      # PID control terms and deviations (updated every ~1 s during operation)
+      - input_number.hba_control_*_term
+      - input_number.hba_control_*_deviation
+      # Dynamic strategy calculated averages (updated hourly)
+      - input_number.hba_strategy_dynamic_*_avg_*
+    entities:
+      # Debug value (updated frequently when debug mode is active)
+      - input_number.hba_control_debug
+      # Commanded power — updates on every battery write (~1 s during active control)
+      - sensor.hba_total_commanded_power
+      # Status field (updated every P1 cycle, ~1 s)
+      - sensor.hba_time_remaining
+      # Uncomment hba_control_pid_output to exclude (useful for PID graph in self-consumption view)
+      - input_number.hba_control_error_signal    # updated every ~1 s during operation
+      # - input_number.hba_control_pid_output      # useful for debugging PID behaviour

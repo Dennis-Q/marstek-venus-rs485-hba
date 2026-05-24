@@ -1,0 +1,47 @@
+# hba_config.yaml — HBA grid power sensor (template)
+#
+# PURPOSE
+#   This file defines sensor.p1_meter_power, which HBA reads on every state
+#   change of the sensor. It must be:
+#     • Positive  when importing power from the grid
+#     • Negative  when exporting power to the grid
+#
+# HOW TO USE
+#   Uncomment ONE of the examples below that matches your setup and edit the
+#   entity IDs to match your actual DSMR/P1 reader sensors.
+#   Check Developer Tools → States to find the right entity names.
+#
+# ONLY THIS FILE needs editing. All other hba_*.yaml files work as-is.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+
+# EXAMPLE 1 — Separate consumption and production sensors (most common)
+#   Common with the DSMR Reader integration and similar Dutch P1 readers.
+#   Entity names vary by integration — check Developer Tools → States if
+#   sensor.power_consumption / sensor.power_production don't exist in your setup.
+#
+# template:
+#   - sensor:
+#       - name: "P1 Meter Power"
+#         unique_id: "p1_meter_power"
+#         unit_of_measurement: "W"
+#         device_class: "power"
+#         state_class: "measurement"
+#         state: >
+#           {% set consumption = states('sensor.power_consumption') | float(0) %}
+#           {% set production  = states('sensor.power_production')  | float(0) %}
+#           {{ (consumption - production) | round(0) | int }}
+
+
+# EXAMPLE 2 — Single combined sensor
+#   Use this when your P1 reader already provides one sensor that is positive
+#   on import and negative on export. Just point to it directly.
+#
+# template:
+#   - sensor:
+#       - name: "P1 Meter Power"
+#         unique_id: "p1_meter_power"
+#         unit_of_measurement: "W"
+#         device_class: "power"
+#         state_class: "measurement"
+#         state: "{{ states('sensor.YOUR_COMBINED_P1_SENSOR') | float(0) | round(0) | int }}"

@@ -1,0 +1,273 @@
+# hba_strategy_dynamic_v2.yaml
+#
+# Dynamic pricing v2 — Extreme-Pair Matching (non-contiguous hour selection).
+#
+# Unlike Dynamic v1 (which selects a single contiguous cheapest/most-expensive window
+# using HACS Cheapest Energy Hours), Dynamic v2 selects the cheapest and most expensive
+# hours independently across all available daily prices using a two-pointer algorithm.
+# Marks are fixed at price-publish time and do not shift as hours pass.
+#
+# Algorithm (per calendar day, runs independently for today and tomorrow):
+#   1. Sort the day's prices ascending.
+#   2. Walk two pointers inward (lo=cheapest, hi=most-expensive):
+#      - Pair (lo_s, hi_s). If spread (hi_s.pc − lo_s.pc) >= delta_thr:
+#          mark lo_s as 'cheap' (if lo counter < max_cheap)
+#          mark hi_s as 'expensive' (if hi counter < max_exp)
+#          advance both counters
+#      - If spread falls below delta_thr → stop (remaining pairs not worth marking)
+#      - If both caps reached → stop
+#   3. Repeat for tomorrow's prices (tomorrow's marks are independent of today's).
+#
+# Marks are stable: only change when new price data is published or config changes.
+# thr_cheap (v1 threshold) is NOT used — the only threshold in v2 is delta_thr.
+#
+# mark_now values: 'Cheap' | 'Expensive' | 'Regular' (capitalized, matching original).
+# marks[i].mark values: 'low' (cheap price) | 'high' (expensive price) | none (lowercase,
+# matching original HBC sensor format; dashboard renders 🟢/🟠/— from these values).
+#
+# sensor.hba_energy_prices_data is a trigger-based template sensor that re-runs the
+# full two-pointer algorithm on every trigger. It is NOT a polling sensor — do NOT use
+# homeassistant.update_entity to refresh it (that doesn't work on trigger-based sensors).
+# To force a refresh, toggle one of the config helpers (e.g. max_cheap_hours ±1 and back).
+#
+# sensor attributes:
+#   datapoints_per_hour  — always 1 (Frank Energie is hourly)
+#   mark_now             — the current hour's mark ('Cheap'/'Expensive'/'Regular')
+#   prices               — flat list of ct/kWh values, chronological (today + tomorrow)
+#   marks                — list of {start, end, price, mark, is_now} objects
+#
+# Jinja2 notes:
+#   - entry['from'] NOT entry.from — 'from' is a Jinja2 keyword inside {% %} blocks
+#   - >- block scalar + {%- -%} whitespace stripping required for templates whose output
+#     is passed to | from_json (HA 2026.5.1 rejects whitespace-padded strings)
+#   - Two-pointer "break" simulated via namespace(done=false) and guard on loop iteration
+
+template:
+  - trigger:
+      - trigger: time_pattern
+        hours: "/1"
+      - trigger: homeassistant
+        event: start
+      - trigger: state
+        entity_id:
+          - input_text.hba_strategy_dynamic_frank_sensor_entity_id
+          - input_number.hba_strategy_dynamic_v2_max_cheap_hours_per_day
+          - input_number.hba_strategy_dynamic_v2_max_expensive_hours_per_day
+          - input_number.hba_strategy_dynamic_threshold_delta
+          # threshold_cheapest_period is a v1-only helper (not used in v2 calculation)
+          # but is included here so changing it triggers a sensor refresh — consistent
+          # with the pattern of re-evaluating whenever any pricing config helper changes.
+          - input_number.hba_strategy_dynamic_threshold_cheapest_period
+      # Fire when the Frank Energie sensor publishes new price data (e.g. adds tomorrow
+      # prices mid-afternoon). Watches the last entry in the 'prices' attribute.
+      - trigger: template
+        value_template: >
+          {% set s = states('input_text.hba_strategy_dynamic_frank_sensor_entity_id') | trim %}
+          {{ state_attr(s, 'prices') | last | default('') if s | has_value else '' }}
+    sensor:
+      - name: "HBA Energy Prices Data"
+        unique_id: hba_energy_prices_data
+        icon: mdi:cash-clock
+        state: "{{ now().strftime('Updated %H:%M') }}"
+        attributes:
+          datapoints_per_hour: 1
+          mark_now: >-
+            {%- set frank_id = states('input_text.hba_strategy_dynamic_frank_sensor_entity_id') | trim -%}
+            {%- set raw = state_attr(frank_id, 'prices') if frank_id | has_value else [] -%}
+            {%- if raw is not sequence or raw | length == 0 -%}Regular
+            {%- else -%}
+              {%- set max_cheap = (states('input_number.hba_strategy_dynamic_v2_max_cheap_hours_per_day') | float(4) | round | int) or 9999 -%}
+              {%- set max_exp = (states('input_number.hba_strategy_dynamic_v2_max_expensive_hours_per_day') | float(4) | round | int) or 9999 -%}
+              {%- set delta_thr = states('input_number.hba_strategy_dynamic_threshold_delta') | float(0) -%}
+              {%- set now_slot_ts = (as_timestamp(now()) | int // 3600) * 3600 -%}
+              {%- set today_start_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0)) | int -%}
+              {%- set tomorrow_start_ts = today_start_ts + 86400 -%}
+              {%- set ns_slots = namespace(today=[]) -%}
+              {%- for entry in raw -%}
+                {%- if 'from' in entry and 'price' in entry -%}
+                  {%- set slot_ts = (as_timestamp(entry['from']) | int // 3600) * 3600 -%}
+                  {%- set pc = (entry.price | float(0) * 100) | round(4) -%}
+                  {%- if today_start_ts <= slot_ts < tomorrow_start_ts -%}
+                    {%- set ns_slots.today = ns_slots.today + [{'ts': slot_ts, 'pc': pc}] -%}
+                  {%- endif -%}
+                {%- endif -%}
+              {%- endfor -%}
+              {%- set sorted_today = ns_slots.today | sort(attribute='pc') -%}
+              {%- set ns_marks = namespace(cheap=[], exp=[]) -%}
+              {# Two-pointer: lo_s = cheapest end, hi_s = most-expensive end. k*2 < n guards lo < hi. #}
+              {%- set ns_tp = namespace(done=false, lo=0, hi=0) -%}
+              {%- for k in range(sorted_today | length) -%}
+                {%- if not ns_tp.done and k * 2 < (sorted_today | length) -%}
+                  {%- set lo_s = sorted_today[k] -%}
+                  {%- set hi_s = sorted_today[(sorted_today | length) - 1 - k] -%}
+                  {%- if hi_s.pc - lo_s.pc >= delta_thr -%}
+                    {%- set mark_cheap = ns_tp.lo < max_cheap -%}
+                    {%- set mark_exp = ns_tp.hi < max_exp -%}
+                    {%- if not mark_cheap and not mark_exp -%}{%- set ns_tp.done = true -%}
+                    {%- else -%}
+                      {%- if mark_cheap -%}{%- set ns_marks.cheap = ns_marks.cheap + [lo_s.ts] -%}{%- set ns_tp.lo = ns_tp.lo + 1 -%}{%- endif -%}
+                      {%- if mark_exp -%}{%- set ns_marks.exp = ns_marks.exp + [hi_s.ts] -%}{%- set ns_tp.hi = ns_tp.hi + 1 -%}{%- endif -%}
+                    {%- endif -%}
+                  {%- else -%}{%- set ns_tp.done = true -%}
+                  {%- endif -%}
+                {%- endif -%}
+              {%- endfor -%}
+              {%- if now_slot_ts in ns_marks.cheap -%}Cheap
+              {%- elif now_slot_ts in ns_marks.exp -%}Expensive
+              {%- else -%}Regular
+              {%- endif -%}
+            {%- endif -%}
+          prices: >-
+            {%- set frank_id = states('input_text.hba_strategy_dynamic_frank_sensor_entity_id') | trim -%}
+            {%- set raw = state_attr(frank_id, 'prices') if frank_id | has_value else [] -%}
+            {%- if raw is not sequence or raw | length == 0 -%}[]
+            {%- else -%}
+              {%- set ns_out = namespace(out=[]) -%}
+              {%- for entry in raw -%}
+                {%- if 'from' in entry and 'price' in entry -%}
+                  {%- set slot_ts = (as_timestamp(entry['from']) | int // 3600) * 3600 -%}
+                  {%- set pc = (entry.price | float(0) * 100) | round(4) -%}
+                  {%- set ns_out.out = ns_out.out + [{'ts': slot_ts, 'pc': pc}] -%}
+                {%- endif -%}
+              {%- endfor -%}
+              {{ (ns_out.out | sort(attribute='ts') | map(attribute='pc') | list) | tojson }}
+            {%- endif -%}
+          marks: >-
+            {%- set frank_id = states('input_text.hba_strategy_dynamic_frank_sensor_entity_id') | trim -%}
+            {%- set raw = state_attr(frank_id, 'prices') if frank_id | has_value else [] -%}
+            {%- if raw is not sequence or raw | length == 0 -%}[]
+            {%- else -%}
+              {%- set max_cheap = (states('input_number.hba_strategy_dynamic_v2_max_cheap_hours_per_day') | float(4) | round | int) or 9999 -%}
+              {%- set max_exp = (states('input_number.hba_strategy_dynamic_v2_max_expensive_hours_per_day') | float(4) | round | int) or 9999 -%}
+              {%- set delta_thr = states('input_number.hba_strategy_dynamic_threshold_delta') | float(0) -%}
+              {%- set now_slot_ts = (as_timestamp(now()) | int // 3600) * 3600 -%}
+              {%- set today_start_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0)) | int -%}
+              {%- set tomorrow_start_ts = today_start_ts + 86400 -%}
+              {%- set day_after_ts = tomorrow_start_ts + 86400 -%}
+              {%- set ns_slots = namespace(today=[], tomorrow=[]) -%}
+              {%- for entry in raw -%}
+                {%- if 'from' in entry and 'price' in entry -%}
+                  {%- set slot_ts = (as_timestamp(entry['from']) | int // 3600) * 3600 -%}
+                  {%- set pc = (entry.price | float(0) * 100) | round(4) -%}
+                  {%- if today_start_ts <= slot_ts < tomorrow_start_ts -%}
+                    {%- set ns_slots.today = ns_slots.today + [{'ts': slot_ts, 'pc': pc}] -%}
+                  {%- elif tomorrow_start_ts <= slot_ts < day_after_ts -%}
+                    {%- set ns_slots.tomorrow = ns_slots.tomorrow + [{'ts': slot_ts, 'pc': pc}] -%}
+                  {%- endif -%}
+                {%- endif -%}
+              {%- endfor -%}
+              {%- set ns_marks = namespace(cheap=[], exp=[]) -%}
+              {%- set sorted_today = ns_slots.today | sort(attribute='pc') -%}
+              {# Two-pointer (today): lo_s = cheapest end, hi_s = most-expensive end. k*2 < n guards lo < hi. #}
+              {%- set ns_tp_today = namespace(done=false, lo=0, hi=0) -%}
+              {%- for k in range(sorted_today | length) -%}
+                {%- if not ns_tp_today.done and k * 2 < (sorted_today | length) -%}
+                  {%- set lo_s = sorted_today[k] -%}
+                  {%- set hi_s = sorted_today[(sorted_today | length) - 1 - k] -%}
+                  {%- if hi_s.pc - lo_s.pc >= delta_thr -%}
+                    {%- set mark_cheap = ns_tp_today.lo < max_cheap -%}
+                    {%- set mark_exp = ns_tp_today.hi < max_exp -%}
+                    {%- if not mark_cheap and not mark_exp -%}{%- set ns_tp_today.done = true -%}
+                    {%- else -%}
+                      {%- if mark_cheap -%}{%- set ns_marks.cheap = ns_marks.cheap + [lo_s.ts] -%}{%- set ns_tp_today.lo = ns_tp_today.lo + 1 -%}{%- endif -%}
+                      {%- if mark_exp -%}{%- set ns_marks.exp = ns_marks.exp + [hi_s.ts] -%}{%- set ns_tp_today.hi = ns_tp_today.hi + 1 -%}{%- endif -%}
+                    {%- endif -%}
+                  {%- else -%}{%- set ns_tp_today.done = true -%}
+                  {%- endif -%}
+                {%- endif -%}
+              {%- endfor -%}
+              {%- set sorted_tom = ns_slots.tomorrow | sort(attribute='pc') -%}
+              {# Two-pointer (tomorrow): same algorithm applied independently to tomorrow's prices. #}
+              {%- set ns_tp_tom = namespace(done=false, lo=0, hi=0) -%}
+              {%- for k in range(sorted_tom | length) -%}
+                {%- if not ns_tp_tom.done and k * 2 < (sorted_tom | length) -%}
+                  {%- set lo_s = sorted_tom[k] -%}
+                  {%- set hi_s = sorted_tom[(sorted_tom | length) - 1 - k] -%}
+                  {%- if hi_s.pc - lo_s.pc >= delta_thr -%}
+                    {%- set mark_cheap = ns_tp_tom.lo < max_cheap -%}
+                    {%- set mark_exp = ns_tp_tom.hi < max_exp -%}
+                    {%- if not mark_cheap and not mark_exp -%}{%- set ns_tp_tom.done = true -%}
+                    {%- else -%}
+                      {%- if mark_cheap -%}{%- set ns_marks.cheap = ns_marks.cheap + [lo_s.ts] -%}{%- set ns_tp_tom.lo = ns_tp_tom.lo + 1 -%}{%- endif -%}
+                      {%- if mark_exp -%}{%- set ns_marks.exp = ns_marks.exp + [hi_s.ts] -%}{%- set ns_tp_tom.hi = ns_tp_tom.hi + 1 -%}{%- endif -%}
+                    {%- endif -%}
+                  {%- else -%}{%- set ns_tp_tom.done = true -%}
+                  {%- endif -%}
+                {%- endif -%}
+              {%- endfor -%}
+              {%- set ns_out = namespace(out=[]) -%}
+              {%- for slot in (ns_slots.today + ns_slots.tomorrow) | sort(attribute='ts') -%}
+                {%- set mark = 'low' if slot.ts in ns_marks.cheap else ('high' if slot.ts in ns_marks.exp else none) -%}
+                {%- set start_str = slot.ts | timestamp_custom('%Y-%m-%dT%H:%M:%SZ', false) -%}
+                {%- set end_str = (slot.ts + 3600) | timestamp_custom('%Y-%m-%dT%H:%M:%SZ', false) -%}
+                {%- set ns_out.out = ns_out.out + [{'start': start_str, 'end': end_str, 'price': slot.pc, 'mark': mark, 'is_now': slot.ts == now_slot_ts}] -%}
+              {%- endfor -%}
+              {{ ns_out.out | tojson }}
+            {%- endif -%}
+
+script:
+  # ── Dynamic v2 dispatch ───────────────────────────────────────────────────────
+  # Reads mark_now from sensor.hba_energy_prices_data (pre-computed by the template
+  # sensor above) and dispatches to the configured sub-strategy for that mark.
+  # Uses the same sub-strategy selects as Dynamic v1 (hba_strategy_dynamic_cheapest,
+  # hba_strategy_dynamic_expensive, hba_strategy_dynamic_default).
+  hba_strategy_dynamic_v2:
+    alias: "HBA: Strategy - Dynamic v2 (Extreme-Pair Matching)"
+    sequence:
+      - variables:
+          v2_mark_now: "{{ state_attr('sensor.hba_energy_prices_data', 'mark_now') | default('Regular') }}"
+          sub: >
+            {% if v2_mark_now == 'Cheap' %}
+              {{ states('input_select.hba_strategy_dynamic_cheapest') }}
+            {% elif v2_mark_now == 'Expensive' %}
+              {{ states('input_select.hba_strategy_dynamic_expensive') }}
+            {% else %}
+              {{ states('input_select.hba_strategy_dynamic_default') }}
+            {% endif %}
+      - choose:
+          - conditions: "{{ sub | trim == 'Full stop' }}"
+            sequence:
+              - action: input_text.set_value
+                target: { entity_id: input_text.hba_strategy_active_flow }
+                data: { value: "Dynamic v2 → Full stop" }
+              - action: script.hba_strategy_full_stop
+                data: { skip_label: true }
+          - conditions: "{{ sub | trim == 'Self-consumption' }}"
+            sequence:
+              - action: input_text.set_value
+                target: { entity_id: input_text.hba_strategy_active_flow }
+                data: { value: "Dynamic v2 → Self-consumption" }
+              - action: script.hba_strategy_self_consumption
+                data: { skip_label: true }
+          - conditions: "{{ sub | trim == 'Charge' }}"
+            sequence:
+              - action: script.hba_strategy_charge
+                data: { flow_prefix: "Dynamic v2 →" }
+          - conditions: "{{ sub | trim == 'Charge PV' }}"
+            sequence:
+              - action: script.hba_strategy_charge_pv
+                data: { flow_prefix: "Dynamic v2 →" }
+          - conditions: "{{ sub | trim == 'Zero import' }}"
+            sequence:
+              - action: input_text.set_value
+                target: { entity_id: input_text.hba_strategy_active_flow }
+                data: { value: "Dynamic v2 → Zero import" }
+              - action: script.hba_strategy_zero_import
+                data: { skip_label: true }
+          - conditions: "{{ sub | trim == 'Sell' }}"
+            sequence:
+              - action: script.hba_strategy_sell
+                data: { flow_prefix: "Dynamic v2 →" }
+          - conditions: "{{ sub | trim == 'Standby / peak shave' }}"
+            sequence:
+              - action: input_text.set_value
+                target: { entity_id: input_text.hba_strategy_active_flow }
+                data: { value: "Dynamic v2 → Standby / peak shave" }
+              - action: script.hba_strategy_standby
+                data: { skip_label: true }
+        default:
+          - action: input_text.set_value
+            target: { entity_id: input_text.hba_strategy_active_flow }
+            data: { value: "Dynamic v2 → Self-consumption" }
+          - action: script.hba_strategy_self_consumption
+            data: { skip_label: true }

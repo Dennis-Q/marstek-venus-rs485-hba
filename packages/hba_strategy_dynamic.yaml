@@ -1,0 +1,244 @@
+# hba_strategy_dynamic.yaml
+#
+# Dynamic pricing strategy (v1) — cheapest/most-expensive hours via HACS.
+#
+# Requires the "Cheapest Energy Hours" HACS integration (cheapest_energy_hours.jinja).
+# Supports multiple price providers: Frank Energie, Tibber, Nordpool, Zonneplan,
+# EasyEnergy / EnergyZero.
+#
+# How it works:
+#   The hba_dynamic_period_calculation automation runs up to every 15 minutes and calls
+#   the cheapest_energy_hours macro to find the cheapest N hours and most expensive M hours
+#   in the upcoming period. The result (start/end times + average tariffs) is stored in
+#   input_datetime and input_number helpers.
+#
+#   Each control cycle, hba_strategy_dynamic reads those helpers and determines which
+#   period is active:
+#     - If now is within the cheap window AND average tariff <= threshold_cheapest_period
+#       → use the configured "cheapest" sub-strategy (typically Charge)
+#     - If now is within the expensive window AND delta >= threshold_delta
+#       → use the configured "expensive" sub-strategy (typically Sell)
+#     - Otherwise → use the default sub-strategy (typically Self-consumption)
+#
+# Thresholds prevent acting on cheap/expensive periods that aren't actually worth it:
+#   threshold_cheapest_period: max average tariff (ct/kWh) to consider "cheap enough to charge"
+#   threshold_delta: min spread between cheap and expensive averages to consider "worth selling"
+#
+# Resolution: 1h (act at top of each hour) or 15min (act every quarter-hour).
+# The condition on the automation checks trigger.platform to gate time_pattern triggers.
+#
+# Timestamp handling: input_datetime values are read via state_attr(..., 'timestamp')
+# (returns UTC epoch) to avoid timezone ambiguity. as_timestamp(now()) is always UTC epoch.
+# Using as_timestamp(states('input_datetime.xxx')) can return naive-string UTC offsets
+# that cause 1–2 hour boundary errors in summer (CEST = UTC+2).
+
+automation:
+  # ── Dynamic pricing period calculation ────────────────────────────────────────
+  - id: hba_dynamic_period_calculation
+    alias: "HBA: Dynamic - calculate pricing periods"
+    description: >
+      Runs hourly to call the cheapest_energy_hours macro (HACS required) and store
+      cheapest/expensive period datetimes and average tariffs in helpers. The dynamic
+      strategy script reads these to select a sub-strategy each control cycle.
+    triggers:
+      - trigger: time_pattern
+        minutes: "/15"
+      - trigger: homeassistant
+        event: start
+      - trigger: state
+        entity_id:
+          - input_select.hba_strategy_dynamic_data_source
+          - input_number.hba_strategy_dynamic_cheapest_hrs
+          - input_number.hba_strategy_dynamic_expensive_hrs
+          - input_text.hba_strategy_dynamic_frank_sensor_entity_id
+      # Fire when the configured price sensor publishes new price data (e.g. Frank Energie
+      # adds tomorrow's prices mid-afternoon). Watches the last entry in the 'prices'
+      # attribute of whatever sensor entity is configured in the input_text helper.
+      - trigger: template
+        value_template: >
+          {% set s = states('input_text.hba_strategy_dynamic_frank_sensor_entity_id') | trim %}
+          {{ state_attr(s, 'prices') | last | default('') if s | has_value else '' }}
+    # Only act on the time_pattern trigger at the top of each hour (minute=0).
+    # State-change and HA-start triggers always pass through.
+    # trigger.platform | default('') guard: manual automation.trigger sets platform to None.
+    conditions:
+      - condition: template
+        value_template: >
+          {{ (trigger.platform | default('')) != 'time_pattern'
+             or now().minute == 0 }}
+    actions:
+      # Clear stale values immediately so the display shows 0 rather than
+      # the previous source's numbers while the new calculation runs.
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_strategy_dynamic_cheapest_avg_tariff }
+        data: { value: 0 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_strategy_dynamic_expensive_avg_tariff }
+        data: { value: 0 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_strategy_dynamic_expensive_avg_delta }
+        data: { value: 0 }
+      - variables:
+          data_source: "{{ states('input_select.hba_strategy_dynamic_data_source') }}"
+          cheapest_hrs: "{{ states('input_number.hba_strategy_dynamic_cheapest_hrs') | int(1) }}"
+          expensive_hrs: "{{ states('input_number.hba_strategy_dynamic_expensive_hrs') | int(1) }}"
+      - variables:
+          cheapest_json: >
+            {% from 'cheapest_energy_hours.jinja' import cheapest_energy_hours %}
+            {% set h = cheapest_hrs %}
+            {% set ns = namespace(r={}) %}
+            {% if data_source == 'Zonneplan' %}
+              {% set ns.r = cheapest_energy_hours(sensor='sensor.zonneplan_current_electricity_tariff',
+                 source_settings='zonneplan', hours=h, mode='all') %}
+            {% elif data_source == 'Frank Energie' %}
+              {% set frank_sensor = states('input_text.hba_strategy_dynamic_frank_sensor_entity_id') | trim %}
+              {% set ns.r = cheapest_energy_hours(sensor=frank_sensor,
+                 source_settings='frank-energie', hours=h, mode='all') %}
+            {% elif data_source in ['Nordpool (core)', 'Nordpool'] %}
+              {% set ns.r = cheapest_energy_hours(source_settings='nordpool', hours=h, mode='all') %}
+            {% elif data_source in ['Tibber (core)', 'Tibber'] %}
+              {% set ns.r = cheapest_energy_hours(source_settings='tibber', hours=h, mode='all') %}
+            {% elif data_source == 'EasyEnergy, EnergyZero (core)' %}
+              {% set ns.r = cheapest_energy_hours(source_settings='easyenergy', hours=h, mode='all') %}
+            {% endif %}
+            {{ ns.r | tojson if ns.r is mapping else '{}' }}
+          expensive_json: >
+            {% from 'cheapest_energy_hours.jinja' import cheapest_energy_hours %}
+            {% set h = expensive_hrs %}
+            {% set ns = namespace(r={}) %}
+            {% if data_source == 'Zonneplan' %}
+              {% set ns.r = cheapest_energy_hours(sensor='sensor.zonneplan_current_electricity_tariff',
+                 source_settings='zonneplan', lowest=false, hours=h, mode='all') %}
+            {% elif data_source == 'Frank Energie' %}
+              {% set frank_sensor = states('input_text.hba_strategy_dynamic_frank_sensor_entity_id') | trim %}
+              {% set ns.r = cheapest_energy_hours(sensor=frank_sensor,
+                 source_settings='frank-energie', lowest=false, hours=h, mode='all') %}
+            {% elif data_source in ['Nordpool (core)', 'Nordpool'] %}
+              {% set ns.r = cheapest_energy_hours(source_settings='nordpool', lowest=false, hours=h, mode='all') %}
+            {% elif data_source in ['Tibber (core)', 'Tibber'] %}
+              {% set ns.r = cheapest_energy_hours(source_settings='tibber', lowest=false, hours=h, mode='all') %}
+            {% elif data_source == 'EasyEnergy, EnergyZero (core)' %}
+              {% set ns.r = cheapest_energy_hours(source_settings='easyenergy', lowest=false, hours=h, mode='all') %}
+            {% endif %}
+            {{ ns.r | tojson if ns.r is mapping else '{}' }}
+      - variables:
+          cheapest: "{{ cheapest_json | trim | from_json if (cheapest_json | trim)[:1] == '{' else {} }}"
+          expensive: "{{ expensive_json | trim | from_json if (expensive_json | trim)[:1] == '{' else {} }}"
+          cheap_start: "{{ cheapest.start | default('') if cheapest else '' }}"
+          cheap_end: "{{ cheapest.end | default('') if cheapest else '' }}"
+          exp_start: "{{ expensive.start | default('') if expensive else '' }}"
+          exp_end: "{{ expensive.end | default('') if expensive else '' }}"
+          # Zonneplan reports raw values ~2500000 for 25 ct/kWh; EUR/kWh sources report 0.25
+          conversion: "{{ 0.00001 if data_source == 'Zonneplan' else 100 }}"
+          cheap_avg_ct: "{{ (cheapest.average | float(0) * conversion) | round(2) if cheapest else 0 }}"
+          exp_avg_ct: "{{ (expensive.average | float(0) * conversion) | round(2) if expensive else 0 }}"
+          delta_ct: "{{ (exp_avg_ct - cheap_avg_ct) | round(2) }}"
+      - choose:
+          - conditions: "{{ cheap_start != '' }}"
+            sequence:
+              - action: input_datetime.set_datetime
+                target: { entity_id: input_datetime.hba_strategy_dynamic_cheapest_start }
+                data: { datetime: "{{ cheap_start }}" }
+              - action: input_datetime.set_datetime
+                target: { entity_id: input_datetime.hba_strategy_dynamic_cheapest_end }
+                data: { datetime: "{{ cheap_end }}" }
+              - action: input_number.set_value
+                target: { entity_id: input_number.hba_strategy_dynamic_cheapest_avg_tariff }
+                data: { value: "{{ cheap_avg_ct }}" }
+      - choose:
+          - conditions: "{{ exp_start != '' }}"
+            sequence:
+              - action: input_datetime.set_datetime
+                target: { entity_id: input_datetime.hba_strategy_dynamic_expensive_start }
+                data: { datetime: "{{ exp_start }}" }
+              - action: input_datetime.set_datetime
+                target: { entity_id: input_datetime.hba_strategy_dynamic_expensive_end }
+                data: { datetime: "{{ exp_end }}" }
+              - action: input_number.set_value
+                target: { entity_id: input_number.hba_strategy_dynamic_expensive_avg_tariff }
+                data: { value: "{{ exp_avg_ct }}" }
+              - action: input_number.set_value
+                target: { entity_id: input_number.hba_strategy_dynamic_expensive_avg_delta }
+                data: { value: "{{ delta_ct }}" }
+
+script:
+  # ── Dynamic pricing dispatch ──────────────────────────────────────────────────
+  # Reads the pre-calculated cheap/expensive windows (stored by hba_dynamic_period_calculation)
+  # and dispatches to the appropriate sub-strategy each control cycle.
+  hba_strategy_dynamic:
+    alias: "HBA: Strategy - Dynamic pricing"
+    sequence:
+      - variables:
+          now_ts: "{{ as_timestamp(now()) }}"
+          # state_attr(..., 'timestamp') returns UTC epoch, avoiding timezone ambiguity.
+          # Do NOT use as_timestamp(states('input_datetime.xxx')) — it can be offset by UTC
+          # offset in summer (CEST = UTC+2), causing period boundaries to shift 2 hours.
+          cheap_start_ts: >
+            {{ state_attr('input_datetime.hba_strategy_dynamic_cheapest_start', 'timestamp') | float(0) }}
+          cheap_end_ts: >
+            {{ state_attr('input_datetime.hba_strategy_dynamic_cheapest_end', 'timestamp') | float(0) }}
+          exp_start_ts: >
+            {{ state_attr('input_datetime.hba_strategy_dynamic_expensive_start', 'timestamp') | float(0) }}
+          exp_end_ts: >
+            {{ state_attr('input_datetime.hba_strategy_dynamic_expensive_end', 'timestamp') | float(0) }}
+          in_cheap: "{{ cheap_start_ts > 0 and cheap_start_ts <= now_ts and now_ts <= cheap_end_ts }}"
+          in_expensive: "{{ exp_start_ts > 0 and exp_start_ts <= now_ts and now_ts <= exp_end_ts }}"
+          cheap_avg_ct: "{{ states('input_number.hba_strategy_dynamic_cheapest_avg_tariff') | float(0) }}"
+          threshold_cheap_ct: "{{ states('input_number.hba_strategy_dynamic_threshold_cheapest_period') | float(0) }}"
+          delta_ct: "{{ states('input_number.hba_strategy_dynamic_expensive_avg_delta') | float(0) }}"
+          min_delta_ct: "{{ states('input_number.hba_strategy_dynamic_threshold_delta') | float(0) }}"
+          sub: >
+            {% if in_cheap and cheap_avg_ct <= threshold_cheap_ct %}
+              {{ states('input_select.hba_strategy_dynamic_cheapest') }}
+            {% elif in_expensive and delta_ct >= min_delta_ct %}
+              {{ states('input_select.hba_strategy_dynamic_expensive') }}
+            {% else %}
+              {{ states('input_select.hba_strategy_dynamic_default') }}
+            {% endif %}
+      - choose:
+          - conditions: "{{ sub | trim == 'Full stop' }}"
+            sequence:
+              - action: input_text.set_value
+                target: { entity_id: input_text.hba_strategy_active_flow }
+                data: { value: "Dynamic → Full stop" }
+              - action: script.hba_strategy_full_stop
+                data: { skip_label: true }
+          - conditions: "{{ sub | trim == 'Self-consumption' }}"
+            sequence:
+              - action: input_text.set_value
+                target: { entity_id: input_text.hba_strategy_active_flow }
+                data: { value: "Dynamic → Self-consumption" }
+              - action: script.hba_strategy_self_consumption
+                data: { skip_label: true }
+          - conditions: "{{ sub | trim == 'Charge' }}"
+            sequence:
+              - action: script.hba_strategy_charge
+                data: { flow_prefix: "Dynamic →" }
+          - conditions: "{{ sub | trim == 'Charge PV' }}"
+            sequence:
+              - action: script.hba_strategy_charge_pv
+                data: { flow_prefix: "Dynamic →" }
+          - conditions: "{{ sub | trim == 'Zero import' }}"
+            sequence:
+              - action: input_text.set_value
+                target: { entity_id: input_text.hba_strategy_active_flow }
+                data: { value: "Dynamic → Zero import" }
+              - action: script.hba_strategy_zero_import
+                data: { skip_label: true }
+          - conditions: "{{ sub | trim == 'Sell' }}"
+            sequence:
+              - action: script.hba_strategy_sell
+                data: { flow_prefix: "Dynamic →" }
+          - conditions: "{{ sub | trim == 'Standby / peak shave' }}"
+            sequence:
+              - action: input_text.set_value
+                target: { entity_id: input_text.hba_strategy_active_flow }
+                data: { value: "Dynamic → Standby / peak shave" }
+              - action: script.hba_strategy_standby
+                data: { skip_label: true }
+        default:
+          - action: input_text.set_value
+            target: { entity_id: input_text.hba_strategy_active_flow }
+            data: { value: "Dynamic → Self-consumption" }
+          - action: script.hba_strategy_self_consumption
+            data: { skip_label: true }

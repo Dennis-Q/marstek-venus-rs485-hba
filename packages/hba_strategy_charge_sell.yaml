@@ -1,0 +1,240 @@
+# hba_strategy_charge_sell.yaml
+#
+# Charge and Sell strategies — charge or discharge to a configurable goal.
+#
+# Both strategies share the same structure:
+#   1. Evaluate goal_reached based on the configured goal type.
+#   2. If goal reached → dispatch to the configured next strategy
+#      (input_select.hba_strategy_charge/sell_goal_reached, default: Full stop).
+#   3. If not yet reached → run at max power (or regulated via self-consumption when
+#      a power limit is active).
+#
+# Goal types:
+#   Charge: batteries are full | state of charge | energy reserve | solar forecast
+#   Sell:   batteries are empty | state of charge | energy reserve
+#
+# Solar forecast goal (Charge only):
+#   energy_max    = sum of (soc_max − soc_min)/100 × capacity per battery
+#   solar_surplus = max(forecast_kwh − solar_reserved_for_house, 0)
+#   energy_desired = max(energy_max − solar_surplus, 0)
+#   goal_reached when available_energy >= energy_desired
+#
+# Power modes:
+#   Charge: if import power limit active → regulated (self-consumption with discharge_disabled)
+#           else → max power via hba_set_batteries (mode: charge)
+#   Sell:   if export power limit active → regulated (self-consumption with charge_disabled,
+#           setpoint_override = −export_limit)
+#           else → max power via hba_set_batteries (mode: discharge)
+#
+# flow_prefix field: allows caller (Timed, Dynamic) to prepend parent context to all labels
+# so the active_flow chain is complete, e.g. "Timed → Charge → Charge PV → Self-consumption".
+#
+# Note on goal-reached label stability: all label writes inside goal-reached branches are
+# prefixed with (_flow_prefix ~ ' ') so the label never drops the parent context even when
+# goal_reached is true on every cycle (which it is once the target is reached).
+#
+# Fix for original Node-RED bug: the original Sell strategy reads msg.charge.goal_reached_strategy
+# instead of msg.sell.*. HBA uses separate helpers for Charge and Sell goal-reached strategies.
+
+script:
+  # ── Charge to goal ────────────────────────────────────────────────────────────
+  hba_strategy_charge:
+    alias: "HBA: Strategy - Charge to goal"
+    fields:
+      flow_prefix:
+        description: "Optional prefix prepended to all flow labels (e.g. 'Timed →' when called from Timed)"
+        default: ""
+    sequence:
+      - variables:
+          _flow_prefix: "{{ flow_prefix | default('') }}"
+      - variables:
+          count: "{{ states('input_number.hba_battery_count') | int(1) }}"
+          goal: "{{ states('input_select.hba_strategy_charge_goal') }}"
+          target_soc: "{{ states('input_number.hba_strategy_charge_target_soc') | float(90) }}"
+          target_energy: "{{ states('input_number.hba_strategy_charge_target_energy') | float(5) }}"
+          available_energy: "{{ states('sensor.hba_charge_available_energy') | float(0) }}"
+          avg_soc: >
+            {% set ns = namespace(total=0) %}
+            {% for i in range(1, count + 1) %}
+              {% set ns.total = ns.total + states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') | float(0) %}
+            {% endfor %}
+            {{ ns.total / count }}
+          goal_reached: >
+            {% if goal == 'batteries are full' %}
+              {% set ns = namespace(full=true) %}
+              {% for i in range(1, count + 1) %}
+                {% set soc = states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') | float(0) %}
+                {% set cutoff = states('input_number.hba_marstek_m' ~ i ~ '_charging_cutoff_capacity') | float(100) %}
+                {% if soc < cutoff - 0.5 %}{% set ns.full = false %}{% endif %}
+              {% endfor %}
+              {{ ns.full }}
+            {% elif goal == 'state of charge' %}
+              {{ avg_soc >= target_soc }}
+            {% elif goal == 'energy reserve' %}
+              {{ available_energy >= target_energy }}
+            {% elif goal == 'solar forecast' %}
+              {% set ns2 = namespace(energy_max=0) %}
+              {% for i in range(1, count + 1) %}
+                {% set cap = states('sensor.marstek_m' ~ i ~ '_battery_total_energy') | float(0) %}
+                {% set soc_max = states('input_number.hba_marstek_m' ~ i ~ '_charging_cutoff_capacity') | float(100) %}
+                {% set soc_min = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) %}
+                {% set ns2.energy_max = ns2.energy_max + (soc_max - soc_min) / 100 * cap %}
+              {% endfor %}
+              {% set e_today = states('input_text.hba_strategy_solar_forecast_entity_id') | trim %}
+              {% set forecast_kwh = states(e_today) | float(0) if e_today not in ['', 'unknown', 'unavailable'] else 0 %}
+              {% set threshold = states('input_number.hba_solar_reserved_for_house') | float(5) %}
+              {% set solar_surplus = [forecast_kwh - threshold, 0] | max %}
+              {% set energy_desired = [ns2.energy_max - solar_surplus, 0] | max %}
+              {{ available_energy >= energy_desired }}
+            {% else %}
+              false
+            {% endif %}
+      - choose:
+          - conditions: "{{ goal_reached }}"
+            sequence:
+              - variables:
+                  next: "{{ states('input_select.hba_strategy_charge_goal_reached') }}"
+              - choose:
+                  - conditions: "{{ next == 'Charge PV' }}"
+                    sequence:
+                      - action: script.hba_strategy_charge_pv
+                        data: { flow_prefix: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Charge →" }
+                  - conditions: "{{ next == 'Self-consumption' }}"
+                    sequence:
+                      - action: input_text.set_value
+                        target: { entity_id: input_text.hba_strategy_active_flow }
+                        data: { value: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Charge → Self-consumption" }
+                      - action: script.hba_strategy_self_consumption
+                        data: { skip_label: true }
+                  - conditions: "{{ next == 'Zero import' }}"
+                    sequence:
+                      - action: input_text.set_value
+                        target: { entity_id: input_text.hba_strategy_active_flow }
+                        data: { value: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Charge → Zero import" }
+                      - action: script.hba_strategy_zero_import
+                        data: { skip_label: true }
+                  - conditions: "{{ next == 'Sell' }}"
+                    sequence:
+                      - action: input_text.set_value
+                        target: { entity_id: input_text.hba_strategy_active_flow }
+                        data: { value: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Charge → Sell" }
+                      - action: script.hba_strategy_sell
+                        data: {}
+                  - conditions: "{{ next == 'Standby / peak shave' }}"
+                    sequence:
+                      - action: input_text.set_value
+                        target: { entity_id: input_text.hba_strategy_active_flow }
+                        data: { value: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Charge → Standby / peak shave" }
+                      - action: script.hba_strategy_standby
+                        data: { skip_label: true }
+                default:
+                  - action: input_text.set_value
+                    target: { entity_id: input_text.hba_strategy_active_flow }
+                    data: { value: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Charge → Full stop" }
+                  - action: script.hba_strategy_full_stop
+                    data: { skip_label: true }
+        default:
+          - action: input_text.set_value
+            target: { entity_id: input_text.hba_strategy_active_flow }
+            data: { value: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Charge" }
+          - choose:
+              - conditions: "{{ is_state('input_boolean.hba_control_has_power_limit_import', 'on') }}"
+                sequence:
+                  - action: script.hba_strategy_self_consumption
+                    data: { skip_label: true }
+            default:
+              - action: script.hba_set_batteries
+                data:
+                  desired_power_w: "{{ states('sensor.hba_total_max_charge_power') | float(2500) | int }}"
+                  mode: "charge"
+
+  # ── Sell (discharge to grid) ──────────────────────────────────────────────────
+  hba_strategy_sell:
+    alias: "HBA: Strategy - Sell (discharge to grid)"
+    fields:
+      flow_prefix:
+        description: "Optional prefix prepended to all flow labels (e.g. 'Timed →' when called from Timed)"
+        default: ""
+    sequence:
+      - variables:
+          _flow_prefix: "{{ flow_prefix | default('') }}"
+      - variables:
+          count: "{{ states('input_number.hba_battery_count') | int(1) }}"
+          goal: "{{ states('input_select.hba_strategy_sell_goal') }}"
+          target_soc: "{{ states('input_number.hba_strategy_sell_target_soc') | float(20) }}"
+          target_energy: "{{ states('input_number.hba_strategy_sell_target_energy') | float(2) }}"
+          available_energy: "{{ states('sensor.hba_charge_available_energy') | float(0) }}"
+          avg_soc: >
+            {% set ns = namespace(total=0) %}
+            {% for i in range(1, count + 1) %}
+              {% set ns.total = ns.total + states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') | float(0) %}
+            {% endfor %}
+            {{ ns.total / count }}
+          goal_reached: >
+            {% if goal == 'batteries are empty' %}
+              {{ available_energy <= 0.1 }}
+            {% elif goal == 'state of charge' %}
+              {{ avg_soc <= target_soc }}
+            {% elif goal == 'energy reserve' %}
+              {{ available_energy <= target_energy }}
+            {% else %}
+              false
+            {% endif %}
+      - choose:
+          - conditions: "{{ goal_reached }}"
+            sequence:
+              - variables:
+                  next: "{{ states('input_select.hba_strategy_sell_goal_reached') }}"
+              - choose:
+                  - conditions: "{{ next == 'Charge PV' }}"
+                    sequence:
+                      - action: script.hba_strategy_charge_pv
+                        data: { flow_prefix: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Sell →" }
+                  - conditions: "{{ next == 'Self-consumption' }}"
+                    sequence:
+                      - action: input_text.set_value
+                        target: { entity_id: input_text.hba_strategy_active_flow }
+                        data: { value: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Sell → Self-consumption" }
+                      - action: script.hba_strategy_self_consumption
+                        data: { skip_label: true }
+                  - conditions: "{{ next == 'Zero import' }}"
+                    sequence:
+                      - action: input_text.set_value
+                        target: { entity_id: input_text.hba_strategy_active_flow }
+                        data: { value: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Sell → Zero import" }
+                      - action: script.hba_strategy_zero_import
+                        data: { skip_label: true }
+                  - conditions: "{{ next == 'Charge' }}"
+                    sequence:
+                      - action: script.hba_strategy_charge
+                        data: { flow_prefix: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Sell →" }
+                  - conditions: "{{ next == 'Standby / peak shave' }}"
+                    sequence:
+                      - action: input_text.set_value
+                        target: { entity_id: input_text.hba_strategy_active_flow }
+                        data: { value: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Sell → Standby / peak shave" }
+                      - action: script.hba_strategy_standby
+                        data: { skip_label: true }
+                default:
+                  - action: input_text.set_value
+                    target: { entity_id: input_text.hba_strategy_active_flow }
+                    data: { value: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Sell → Full stop" }
+                  - action: script.hba_strategy_full_stop
+                    data: { skip_label: true }
+        default:
+          - action: input_text.set_value
+            target: { entity_id: input_text.hba_strategy_active_flow }
+            data: { value: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Sell" }
+          - choose:
+              - conditions: "{{ is_state('input_boolean.hba_control_has_power_limit_export', 'on') }}"
+                sequence:
+                  - action: script.hba_strategy_self_consumption
+                    data:
+                      skip_label: true
+                      charge_disabled: true
+                      setpoint_override: "{{ -(states('input_number.hba_control_power_limit_export') | float(5000)) }}"
+            default:
+              - action: script.hba_set_batteries
+                data:
+                  desired_power_w: "{{ -(states('sensor.hba_total_max_discharge_power') | float(2500)) | int }}"
+                  mode: "discharge"

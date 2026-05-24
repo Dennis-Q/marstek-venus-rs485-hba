@@ -1,0 +1,198 @@
+# HBA ↔ HBC Coexistence
+# Detects conflicts when HBC (Node-RED flows or native HA automations) and HBA
+# run simultaneously and resolves them.
+# Safe to load on any HA instance — on instances without Node-RED the command_line
+# sensor returns "not_installed", and script actions on missing automations use
+# continue_on_error: true so they fail gracefully.
+#
+# On the live HBC instance:
+#   1. Run script.hba_apply_defaults to set the Node-RED addon slug.
+#   2. Use the "Take control" / "Yield to HBC" buttons on the dashboard to
+#      hand off between HBA and Node-RED cleanly.
+#   3. If both accidentally run simultaneously, the conflict guard auto-disables
+#      HBA, sets Manual control, and creates a persistent notification.
+#
+# HBC native HA automation entity IDs (house_battery_control_config.yaml):
+#   automation.change_stategy_to_pid_for_self_consumption
+#   automation.change_stategy_to_pid_for_charge_pv_or
+# These are disabled by hba_take_control and re-enabled by hba_yield_to_hbc.
+#
+# Node-RED addon slug: standard HAOS slug is a0d7b954_nodered.
+# Configure via input_text.hba_hbc_nodered_addon_slug if yours differs.
+
+input_boolean:
+  hba_safety_lockout:
+    name: "HBA Safety lockout (HBC conflict)"
+    icon: mdi:shield-alert
+
+input_text:
+  hba_hbc_nodered_addon_slug:
+    name: "HBC Node-RED addon slug"
+    icon: mdi:transit-connection-variant
+
+# Polls the Supervisor API every 10 s to check Node-RED addon state.
+# SUPERVISOR_TOKEN env var is always set by HAOS; curl inherits it from HA's process env.
+# Returns: "started" | "stopped" | "error" | "not_installed" (NR not on this instance)
+command_line:
+  - sensor:
+      unique_id: hba_hbc_nodered_state
+      name: "HBA HBC Node-RED"
+      command: >-
+        curl -sf
+        -H "Authorization: Bearer $SUPERVISOR_TOKEN"
+        http://supervisor/addons/a0d7b954_nodered/info
+        | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['data']['state'])"
+        2>/dev/null || echo "not_installed"
+      scan_interval: 10
+      icon: mdi:transit-connection-variant
+
+template:
+  - binary_sensor:
+      - name: "HBA HBC Node-RED Running"
+        unique_id: hba_hbc_nodered_running
+        state: "{{ states('sensor.hba_hbc_node_red') == 'started' }}"
+        device_class: running
+        icon: mdi:transit-connection-variant
+
+      # True when HBC's native HA automations are enabled.
+      # These automations (in house_battery_control_config.yaml) set PID parameters
+      # and may indirectly control batteries. hba_take_control disables them;
+      # hba_yield_to_hbc re-enables them.
+      - name: "HBA HBC Automations Active"
+        unique_id: hba_hbc_automations_active
+        state: >
+          {{ is_state('automation.change_stategy_to_pid_for_self_consumption', 'on')
+             or is_state('automation.change_stategy_to_pid_for_charge_pv_or', 'on') }}
+        device_class: running
+        icon: mdi:transit-connection-variant
+
+      # True when both systems are simultaneously active with Full control.
+      # Triggers on NR flows active OR HBC native automations enabled, combined
+      # with HBA loop running in Full control.
+      - name: "HBA Conflict Active"
+        unique_id: hba_conflict_active
+        state: >
+          {{ (is_state('binary_sensor.hba_hbc_automations_active', 'on')
+              or (is_state('binary_sensor.hba_hbc_node_red_running', 'on')
+                  and is_state('input_boolean.house_battery_control_has_node_red', 'on')))
+             and is_state('automation.hba_control_loop_p1_meter_triggered', 'on')
+             and is_state('input_select.hba_marstek_master_battery_mode', 'Full control') }}
+        device_class: problem
+        icon: mdi:alert-circle
+
+automation:
+  - id: hba_conflict_guard
+    alias: "HBA: Conflict guard — HBC and HBA simultaneously active"
+    description: >
+      Fires when HBC (native automations or Node-RED) and HBA are both in Full control.
+      Immediately stops HBA, runs Full stop to settle the batteries, then creates a
+      persistent notification and sets the safety lockout.
+      Recover using the "Take control" or "Yield to HBC" dashboard buttons.
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_conflict_active
+        to: "on"
+    actions:
+      - action: input_select.select_option
+        target: { entity_id: input_select.hba_marstek_master_battery_mode }
+        data: { option: "Manual control" }
+      - action: automation.turn_off
+        target: { entity_id: automation.hba_control_loop_p1_meter_triggered }
+      - action: script.hba_strategy_full_stop
+        data: {}
+      - action: input_boolean.turn_on
+        target: { entity_id: input_boolean.hba_safety_lockout }
+      - action: persistent_notification.create
+        data:
+          title: "HBA: Conflict — HBA disabled"
+          message: >
+            HBA and HBC were simultaneously active in Full control mode and were
+            sending conflicting commands to the batteries. HBA has been disabled
+            and batteries set to Manual control. Use the dashboard buttons to
+            resume the desired controller.
+          notification_id: hba_hbc_conflict
+
+script:
+  hba_take_control:
+    alias: "HBA: Take control from HBC"
+    icon: mdi:home-battery
+    description: >
+      Safely hands battery control from HBC to HBA.
+      Disables HBC native automations, stops Node-RED, runs Full stop,
+      then enables HBA loop and sets Full control.
+    sequence:
+      - variables:
+          nr_slug: "{{ states('input_text.hba_hbc_nodered_addon_slug') | trim }}"
+      - action: persistent_notification.dismiss
+        data: { notification_id: hba_hbc_conflict }
+      - action: input_boolean.turn_off
+        target: { entity_id: input_boolean.hba_safety_lockout }
+      - action: input_select.select_option
+        target: { entity_id: input_select.hba_marstek_master_battery_mode }
+        data: { option: "Manual control" }
+      - action: automation.turn_off
+        continue_on_error: true
+        target:
+          entity_id:
+            - automation.change_stategy_to_pid_for_self_consumption
+            - automation.change_stategy_to_pid_for_charge_pv_or
+      - action: input_select.select_option
+        continue_on_error: true
+        target: { entity_id: input_select.house_battery_strategy }
+        data: { option: "Full stop" }
+      - action: input_select.select_option
+        continue_on_error: true
+        target: { entity_id: input_select.marstek_master_battery_mode }
+        data: { option: "Manual control" }
+      - delay: { seconds: 2 }
+      - action: hassio.addon_stop
+        continue_on_error: true
+        data: { addon: "{{ nr_slug }}" }
+      - wait_for_trigger:
+          - trigger: state
+            entity_id: binary_sensor.hba_hbc_node_red_running
+            to: 'off'
+        timeout: 30
+        continue_on_timeout: true
+      - action: script.hba_strategy_full_stop
+        data: {}
+      - action: automation.turn_on
+        target: { entity_id: automation.hba_control_loop_p1_meter_triggered }
+      - action: input_select.select_option
+        target: { entity_id: input_select.hba_marstek_master_battery_mode }
+        data: { option: "Full control" }
+
+  hba_yield_to_hbc:
+    alias: "HBA: Yield control to HBC (Node-RED)"
+    icon: mdi:transit-connection-variant
+    description: >
+      Safely hands battery control from HBA back to HBC.
+      Disables HBA loop, runs Full stop, starts Node-RED,
+      then re-enables HBC native automations and sets Full control.
+    sequence:
+      - variables:
+          nr_slug: "{{ states('input_text.hba_hbc_nodered_addon_slug') | trim }}"
+      - action: input_select.select_option
+        target: { entity_id: input_select.hba_marstek_master_battery_mode }
+        data: { option: "Manual control" }
+      - action: automation.turn_off
+        target: { entity_id: automation.hba_control_loop_p1_meter_triggered }
+      - action: script.hba_strategy_full_stop
+        data: {}
+      - delay: { seconds: 2 }
+      - action: hassio.addon_start
+        continue_on_error: true
+        data: { addon: "{{ nr_slug }}" }
+      - delay: { seconds: 5 }
+      - action: automation.turn_on
+        continue_on_error: true
+        target:
+          entity_id:
+            - automation.change_stategy_to_pid_for_self_consumption
+            - automation.change_stategy_to_pid_for_charge_pv_or
+      - action: input_boolean.turn_off
+        target: { entity_id: input_boolean.hba_safety_lockout }
+      - action: input_select.select_option
+        target: { entity_id: input_select.hba_marstek_master_battery_mode }
+        data: { option: "Manual control" }

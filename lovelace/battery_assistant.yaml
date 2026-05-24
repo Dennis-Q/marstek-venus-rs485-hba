@@ -1,11 +1,46 @@
 views:
+  # ── VIEW 1: HOME ────────────────────────────────────────────────────────────
   - type: sections
-    path: home-battery-control
-    max_columns: 3
-    title: Home battery control
+    path: hba-overview
+    title: Home Battery Assistant
     icon: mdi:home
+    max_columns: 3
+    header:
+      card:
+        type: markdown
+        content: '### Home Battery Assistant *(HBA v4.10.0-r1)*'
+        text_only: true
+    cards: []
     sections:
+
+      # Battery offline warning — full width, hidden when all batteries are online
       - type: grid
+        column_span: 3
+        visibility:
+          - condition: state
+            entity: binary_sensor.hba_any_battery_offline
+            state: "on"
+        cards:
+          - type: markdown
+            content: >
+              {% set count = states('input_number.hba_battery_count') | int(1) %}
+              {% set ns = namespace(offline=[]) %}
+              {% for i in range(1, count + 1) %}
+                {% set inv = states('sensor.marstek_m' ~ i ~ '_inverter_state') %}
+                {% if inv in ['unavailable', 'unknown', ''] %}
+                  {% set ns.offline = ns.offline + ['M' ~ i] %}
+                {% endif %}
+              {% endfor %}
+              <ha-alert alert-type="error">Battery {{ ns.offline | join(', ') }} offline — check connectivity or reduce battery count in settings.</ha-alert>
+
+      # Onboarding (hidden once dismissed)
+      - type: grid
+        visibility:
+          - condition: not
+            conditions:
+              - condition: state
+                entity: input_boolean.hba_control_onboarding_finished
+                state: 'on'
         cards:
           - type: heading
             heading: Onboarding
@@ -14,24 +49,78 @@ views:
           - type: markdown
             content: '### Step 1'
             text_only: true
-          - type: entities
-            entities:
-              - entity: input_number.house_battery_count
+          - type: markdown
+            content: >-
+              <ha-alert title="Apply default settings">Set all HBA parameters
+              to safe starting values before you begin configuring. You can
+              re-apply defaults any time from Advanced Settings.</ha-alert>
+            text_only: true
+            grid_options:
+              columns: full
+            visibility:
+              - condition: numeric_state
+                entity: input_number.hba_control_kp
+                below: 0.01
+          - type: button
+            name: Apply defaults
+            icon: mdi:cog-refresh
+            show_name: true
+            show_icon: true
+            tap_action:
+              action: perform-action
+              perform_action: script.turn_on
+              target:
+                entity_id: script.hba_apply_defaults
+              confirmation:
+                text: >-
+                  This will set all HBA parameters to safe starting values. Any
+                  values you have already configured will be overwritten.
+                  Continue?
+            visibility:
+              - condition: numeric_state
+                entity: input_number.hba_control_kp
+                below: 0.01
+          - type: markdown
+            content: >-
+              <ha-alert title="Default settings applied"
+              alert-type="success">HBA is using safe starting values.</ha-alert>
+            text_only: true
+            grid_options:
+              columns: full
+            visibility:
+              - condition: numeric_state
+                entity: input_number.hba_control_kp
+                above: 0
           - type: markdown
             content: '### Step 2'
             text_only: true
+          - type: entities
+            entities:
+              - entity: input_number.hba_battery_count
+          - type: markdown
+            content: '### Step 3'
+            text_only: true
+          - type: markdown
+            content: >-
+              <ha-alert title="Grid Power Sensor"
+              alert-type="success">Configured — using sensor.p1_meter_power.</ha-alert>
+            visibility:
+              - condition: not
+                conditions:
+                  - condition: or
+                    conditions:
+                      - condition: state
+                        entity: sensor.p1_meter_power
+                        state: unavailable
+                      - condition: state
+                        entity: sensor.p1_meter_power
+                        state: unknown
           - type: markdown
             content: >-
               <ha-alert title="Setup Grid Power Sensor">Configure your P1 power
               sensor</ha-alert>
 
-              1. Edit the file
-
-              `packages/house_battery_control_config.yaml` 
-
-              1. Find the `<< YOUR GRID POWER SENSOR HERE` tag 
-
-              1. Enter your sensor indicating your grid power usage in Watts.
+              Edit `packages/hba_config.yaml` and set your grid power sensor.
             visibility:
               - condition: or
                 conditions:
@@ -42,62 +131,51 @@ views:
                     entity: sensor.p1_meter_power
                     state: unknown
           - type: markdown
+            content: '### Step 4'
+            text_only: true
+          - type: markdown
             content: >-
-              <ha-alert title="Grid Power Sensor"
-              alert-type="success">Configured</ha-alert>
+              <ha-alert title="Battery M1 connected"
+              alert-type="success">Modbus TCP connection active.</ha-alert>
             visibility:
               - condition: not
                 conditions:
                   - condition: or
                     conditions:
                       - condition: state
-                        entity: sensor.p1_meter_power
-                        state: unavailable
-                      - condition: state
-                        entity: sensor.p1_meter_power
+                        entity: sensor.marstek_m1_inverter_state
                         state: unknown
-          - type: heading
-            icon: mdi:pen
-            heading: Open file editor
-            heading_style: subtitle
-            tap_action:
-              action: navigate
-              navigation_path: /core_configurator
-          - type: markdown
-            content: '### Step 3'
-            text_only: true
+                      - condition: state
+                        entity: sensor.marstek_m1_inverter_state
+                        state: unavailable
           - type: markdown
             content: >-
-              <ha-alert title="Setup Node-RED"> Import and deploy <font
-              color=red>Node-RED</font> scripts.</ha-alert>
+              <ha-alert title="Set battery IP addresses">Edit
+              **packages/marstek_m1_modbus_tcp.yaml** (and m2/m3) and set the correct IP for each battery.</ha-alert>
             visibility:
-              - condition: state
-                entity: input_boolean.house_battery_control_has_node_red
-                state_not: 'on'
+              - condition: or
+                conditions:
+                  - condition: state
+                    entity: sensor.marstek_m1_inverter_state
+                    state: unknown
+                  - condition: state
+                    entity: sensor.marstek_m1_inverter_state
+                    state: unavailable
           - type: markdown
-            content: >-
-              <ha-alert title="Node-RED" alert-type="success">Configured and
-              script deployed</ha-alert>
-            visibility:
-              - condition: state
-                entity: input_boolean.house_battery_control_has_node_red
-                state: 'on'
-          - type: markdown
-            content: '### Step 4'
+            content: '### Step 5'
             text_only: true
           - type: markdown
             content: >-
               <ha-alert title="(Optional) review power limits"> Use limits and
-              peak shaving to reduce <font color=darkblue>peaks and overload
-              risk</font>.</ha-alert>
+              peak shaving to reduce peaks and overload risk.</ha-alert>
             visibility:
               - condition: and
                 conditions:
                   - condition: state
-                    entity: input_boolean.house_battery_control_has_power_limit_import
+                    entity: input_boolean.hba_control_has_power_limit_import
                     state_not: 'on'
                   - condition: state
-                    entity: input_boolean.house_battery_control_has_power_limit_export
+                    entity: input_boolean.hba_control_has_power_limit_export
                     state_not: 'on'
           - type: heading
             icon: mdi:cog-outline
@@ -105,81 +183,48 @@ views:
             heading_style: subtitle
             tap_action:
               action: navigate
-              navigation_path: /home-battery/advanced-settings
+              navigation_path: /home-battery-assistant/advanced-settings
             visibility:
               - condition: and
                 conditions:
                   - condition: state
-                    entity: input_boolean.house_battery_control_has_power_limit_import
+                    entity: input_boolean.hba_control_has_power_limit_import
                     state_not: 'on'
                   - condition: state
-                    entity: input_boolean.house_battery_control_has_power_limit_export
+                    entity: input_boolean.hba_control_has_power_limit_export
                     state_not: 'on'
           - type: markdown
             content: >-
-              <ha-alert title="Power limits" alert-type="success"> Batteries
+              <ha-alert title="Power limits" alert-type="success">Batteries
               will help prevent peaks and overloads, when able.</ha-alert>
             visibility:
               - condition: or
                 conditions:
                   - condition: state
-                    entity: input_boolean.house_battery_control_has_power_limit_import
+                    entity: input_boolean.hba_control_has_power_limit_import
                     state: 'on'
                   - condition: state
-                    entity: input_boolean.house_battery_control_has_power_limit_export
+                    entity: input_boolean.hba_control_has_power_limit_export
                     state: 'on'
           - type: markdown
-            content: '### Step 5'
+            content: '### Step 6'
             text_only: true
           - type: markdown
             content: >-
-              Set the Master Battery Control to `Full Control` only after
-              reviewing and checking all installation instructions. 
-
-
-              Pick a battery charging strategy e.g. `self-consumption`, choose
-              controller sensitivity `very safe` and you are done!
-          - type: markdown
-            content: '### Done'
-            text_only: true
-            visibility:
-              - condition: state
-                entity: input_boolean.house_battery_control_has_node_red
-                state: 'on'
-              - condition: not
-                conditions:
-                  - condition: or
-                    conditions:
-                      - condition: state
-                        entity: sensor.p1_meter_power
-                        state: unavailable
-                      - condition: state
-                        entity: sensor.p1_meter_power
-                        state: unknown
+              Set the Master Battery Control to `Full Control` after reviewing
+              all installation instructions. Pick a battery charging strategy
+              e.g. `self-consumption`, choose controller sensitivity `very safe`
+              and you are done!
           - show_name: false
             show_icon: true
             type: button
-            entity: input_boolean.house_battery_control_onboarding_finished
+            entity: input_boolean.hba_control_onboarding_finished
             grid_options:
               columns: 2
               rows: 1
             icon: mdi:eye-off-outline
             hold_action:
               action: toggle
-            visibility:
-              - condition: state
-                entity: input_boolean.house_battery_control_has_node_red
-                state: 'on'
-              - condition: not
-                conditions:
-                  - condition: or
-                    conditions:
-                      - condition: state
-                        entity: sensor.p1_meter_power
-                        state: unavailable
-                      - condition: state
-                        entity: sensor.p1_meter_power
-                        state: unknown
             icon_height: 25px
           - type: markdown
             text_only: true
@@ -189,20 +234,6 @@ views:
             content: |-
               ---
               Hide onboarding
-            visibility:
-              - condition: state
-                entity: input_boolean.house_battery_control_has_node_red
-                state: 'on'
-              - condition: not
-                conditions:
-                  - condition: or
-                    conditions:
-                      - condition: state
-                        entity: sensor.p1_meter_power
-                        state: unavailable
-                      - condition: state
-                        entity: sensor.p1_meter_power
-                        state: unknown
           - type: markdown
             content: >-
               _You can find battery settings and unhide onboarding on the
@@ -211,52 +242,115 @@ views:
               columns: full
               rows: auto
             text_only: true
-            visibility:
-              - condition: state
-                entity: input_boolean.house_battery_control_has_node_red
-                state: 'on'
-              - condition: not
-                conditions:
-                  - condition: or
-                    conditions:
-                      - condition: state
-                        entity: sensor.p1_meter_power
-                        state: unavailable
-                      - condition: state
-                        entity: sensor.p1_meter_power
-                        state: unknown
-        visibility:
-          - condition: not
-            conditions:
-              - condition: state
-                entity: input_boolean.house_battery_control_onboarding_finished
-                state: 'on'
+
+      # Master Battery Control
       - type: grid
         cards:
           - type: heading
             heading: Master Battery Control
             heading_style: title
             icon: mdi:gamepad-variant-outline
-          - type: tile
+          - type: markdown
+            content: >-
+              <ha-alert alert-type="error">EV is charging — Full Stop strategy
+              is active.</ha-alert>
+            text_only: true
             grid_options:
               columns: full
             visibility:
               - condition: state
-                entity: sensor.ev_is_charging
+                entity: binary_sensor.hba_ev_is_active
                 state: 'on'
+              - condition: state
+                entity: input_select.hba_marstek_master_battery_mode
+                state: Full control
+          - type: markdown
+            content: >-
+              <ha-alert alert-type="error">HBA disabled — conflict with HBC was
+              detected. Use the buttons below to resume.</ha-alert>
+            text_only: true
+            grid_options:
+              columns: full
+            visibility:
+              - condition: state
+                entity: input_boolean.hba_safety_lockout
+                state: 'on'
+          - type: markdown
+            content: >-
+              <ha-alert alert-type="warning">Node-RED (HBC) is running — use
+              the buttons below to hand off control.</ha-alert>
+            text_only: true
+            grid_options:
+              columns: full
+            visibility:
+              - condition: state
+                entity: binary_sensor.hba_hbc_node_red_running
+                state: 'on'
+          - type: markdown
+            content: >-
+              <ha-alert alert-type="warning">HBC automations are enabled — HBC
+              may be managing your batteries. Use the buttons below to hand
+              off.</ha-alert>
+            text_only: true
+            grid_options:
+              columns: full
+            visibility:
+              - condition: state
+                entity: binary_sensor.hba_hbc_automations_active
+                state: 'on'
+          - type: markdown
+            content: >-
+              <ha-alert alert-type="warning">HBC (House Battery Control) is in
+              Full Control — it may be managing your batteries. Use the buttons
+              below to hand off.</ha-alert>
+            text_only: true
+            grid_options:
+              columns: full
+            visibility:
               - condition: state
                 entity: input_select.marstek_master_battery_mode
                 state: Full control
-            entity: sensor.ev_is_charging
-            name: EV is charging - Full Stop strategy is active
-            color: red
-            hide_state: true
-            vertical: false
-            features_position: bottom
+          - type: horizontal-stack
+            cards:
+              - type: button
+                name: Take control (HBA)
+                icon: mdi:home-battery
+                show_name: true
+                show_icon: true
+                tap_action:
+                  action: perform-action
+                  perform_action: script.turn_on
+                  target:
+                    entity_id: script.hba_take_control
+              - type: button
+                name: Yield to HBC
+                icon: mdi:transit-connection-variant
+                show_name: true
+                show_icon: true
+                tap_action:
+                  action: perform-action
+                  perform_action: script.turn_on
+                  target:
+                    entity_id: script.hba_yield_to_hbc
+            visibility:
+              - condition: or
+                conditions:
+                  - condition: state
+                    entity: binary_sensor.hba_hbc_node_red_running
+                    state: 'on'
+                  - condition: state
+                    entity: input_boolean.hba_safety_lockout
+                    state: 'on'
+                  - condition: state
+                    entity: binary_sensor.hba_hbc_automations_active
+                    state: 'on'
+                  - condition: state
+                    entity: input_select.marstek_master_battery_mode
+                    state: Full control
           - features:
               - type: select-options
             type: tile
-            entity: input_select.marstek_master_battery_mode
+            entity: input_select.hba_marstek_master_battery_mode
             features_position: bottom
             vertical: false
             show_entity_picture: false
@@ -264,7 +358,7 @@ views:
             name: Control Mode
             icon: mdi:camera-control
           - type: tile
-            entity: input_select.house_battery_strategy
+            entity: input_select.hba_strategy
             name: Choose strategy
             show_entity_picture: false
             hide_state: true
@@ -274,37 +368,42 @@ views:
             features_position: bottom
             visibility:
               - condition: state
-                entity: input_select.marstek_master_battery_mode
+                entity: input_select.hba_marstek_master_battery_mode
                 state: Full control
           - type: heading
             icon: mdi:alert
-            heading: 'Dynamic strategy: Full Stop. Please configure dynamic strategy'
+            heading: 'Dynamic/Dynamic v2: configure dynamic strategy first'
             heading_style: subtitle
             tap_action:
               action: navigate
-              navigation_path: /home-battery/1
+              navigation_path: /home-battery-assistant/timed-dynamic
             visibility:
+              - condition: or
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_strategy
+                    state: Dynamic
+                  - condition: state
+                    entity: input_select.hba_strategy
+                    state: "Dynamic v2"
               - condition: state
-                entity: input_select.house_battery_strategy_dynamic_data_source
-                state: None
-              - condition: state
-                entity: input_select.house_battery_strategy
-                state: Dynamic
-              - condition: state
-                entity: input_select.marstek_master_battery_mode
+                entity: input_select.hba_marstek_master_battery_mode
                 state: Full control
           - type: heading
             icon: mdi:information-slab-circle
-            heading: 'About strategies '
+            heading: About strategies
             heading_style: subtitle
             tap_action:
               action: url
               url_path: https://docs.homebatterycontrol.com/03-strategies.html
           - type: entities
             entities:
-              - entity: input_text.house_battery_strategy_active_sub_strategy
+              - entity: sensor.hba_active_strategy
                 type: simple-entity
-                name: Executing (flow)
+                name: Executing
+              - entity: input_text.hba_strategy_active_flow
+                type: simple-entity
+                name: Flow
             grid_options:
               columns: 12
               rows: auto
@@ -313,17 +412,19 @@ views:
             no_background: true
             visibility:
               - condition: state
-                entity: input_select.marstek_master_battery_mode
+                entity: input_select.hba_marstek_master_battery_mode
                 state: Full control
           - type: history-graph
             entities:
-              - entity: input_select.house_battery_strategy
+              - entity: input_select.hba_strategy
                 name: Chosen strategy
-              - entity: input_text.house_battery_strategy_active_sub_strategy
+              - entity: sensor.hba_active_strategy
                 name: Executing
+              - entity: input_text.hba_strategy_active_flow
+                name: Flow
             visibility:
               - condition: state
-                entity: input_select.marstek_master_battery_mode
+                entity: input_select.hba_marstek_master_battery_mode
                 state: Full control
             hours_to_show: 12
           - type: markdown
@@ -332,32 +433,138 @@ views:
 
               #### Your energy and battery usage</font>
             text_only: true
-          - type: history-graph
-            entities:
-              - entity: input_number.house_battery_control_pid_output
-                name: PID control
-              - entity: sensor.p1_meter_power
-                name: Grid power
-              - entity: select.marstek_m1_forcible_charge_discharge
-                name: M1
-              - entity: select.marstek_m2_forcible_charge_discharge
-                name: M2
-              - entity: select.marstek_m3_forcible_charge_discharge
-                name: M3
-              - entity: select.marstek_m4_forcible_charge_discharge
-                name: M4
-              - entity: select.marstek_m5_forcible_charge_discharge
-                name: M5
-              - entity: select.marstek_m6_forcible_charge_discharge
-                name: M6
-            hours_to_show: 0.05
+          - type: conditional
+            conditions:
+              - condition: numeric_state
+                entity: input_number.hba_battery_count
+                above: 0
+                below: 2
+            card:
+              type: history-graph
+              hours_to_show: 0.05
+              entities:
+                - entity: input_number.hba_control_pid_output
+                  name: PID control
+                - entity: sensor.p1_meter_power
+                  name: Grid power
+                - entity: select.marstek_m1_forcible_charge_discharge
+                  name: M1
+          - type: conditional
+            conditions:
+              - condition: numeric_state
+                entity: input_number.hba_battery_count
+                above: 1
+                below: 3
+            card:
+              type: history-graph
+              hours_to_show: 0.05
+              entities:
+                - entity: input_number.hba_control_pid_output
+                  name: PID control
+                - entity: sensor.p1_meter_power
+                  name: Grid power
+                - entity: select.marstek_m1_forcible_charge_discharge
+                  name: M1
+                - entity: select.marstek_m2_forcible_charge_discharge
+                  name: M2
+          - type: conditional
+            conditions:
+              - condition: numeric_state
+                entity: input_number.hba_battery_count
+                above: 2
+                below: 4
+            card:
+              type: history-graph
+              hours_to_show: 0.05
+              entities:
+                - entity: input_number.hba_control_pid_output
+                  name: PID control
+                - entity: sensor.p1_meter_power
+                  name: Grid power
+                - entity: select.marstek_m1_forcible_charge_discharge
+                  name: M1
+                - entity: select.marstek_m2_forcible_charge_discharge
+                  name: M2
+                - entity: select.marstek_m3_forcible_charge_discharge
+                  name: M3
+          - type: conditional
+            conditions:
+              - condition: numeric_state
+                entity: input_number.hba_battery_count
+                above: 3
+                below: 5
+            card:
+              type: history-graph
+              hours_to_show: 0.05
+              entities:
+                - entity: input_number.hba_control_pid_output
+                  name: PID control
+                - entity: sensor.p1_meter_power
+                  name: Grid power
+                - entity: select.marstek_m1_forcible_charge_discharge
+                  name: M1
+                - entity: select.marstek_m2_forcible_charge_discharge
+                  name: M2
+                - entity: select.marstek_m3_forcible_charge_discharge
+                  name: M3
+                - entity: select.marstek_m4_forcible_charge_discharge
+                  name: M4
+          - type: conditional
+            conditions:
+              - condition: numeric_state
+                entity: input_number.hba_battery_count
+                above: 4
+                below: 6
+            card:
+              type: history-graph
+              hours_to_show: 0.05
+              entities:
+                - entity: input_number.hba_control_pid_output
+                  name: PID control
+                - entity: sensor.p1_meter_power
+                  name: Grid power
+                - entity: select.marstek_m1_forcible_charge_discharge
+                  name: M1
+                - entity: select.marstek_m2_forcible_charge_discharge
+                  name: M2
+                - entity: select.marstek_m3_forcible_charge_discharge
+                  name: M3
+                - entity: select.marstek_m4_forcible_charge_discharge
+                  name: M4
+                - entity: select.marstek_m5_forcible_charge_discharge
+                  name: M5
+          - type: conditional
+            conditions:
+              - condition: numeric_state
+                entity: input_number.hba_battery_count
+                above: 5
+            card:
+              type: history-graph
+              hours_to_show: 0.05
+              entities:
+                - entity: input_number.hba_control_pid_output
+                  name: PID control
+                - entity: sensor.p1_meter_power
+                  name: Grid power
+                - entity: select.marstek_m1_forcible_charge_discharge
+                  name: M1
+                - entity: select.marstek_m2_forcible_charge_discharge
+                  name: M2
+                - entity: select.marstek_m3_forcible_charge_discharge
+                  name: M3
+                - entity: select.marstek_m4_forcible_charge_discharge
+                  name: M4
+                - entity: select.marstek_m5_forcible_charge_discharge
+                  name: M5
+                - entity: select.marstek_m6_forcible_charge_discharge
+                  name: M6
           - type: heading
             icon: mdi:information
             heading: Self-consumption
             heading_style: subtitle
             tap_action:
               action: navigate
-              navigation_path: /home-battery/1
+              navigation_path: /home-battery-assistant/self-consumption
           - type: markdown
             content: >-
               <ha-alert alert-type="warning">High controller sensitivity,
@@ -366,24 +573,24 @@ views:
               - condition: or
                 conditions:
                   - condition: numeric_state
-                    entity: input_number.house_battery_control_kp
+                    entity: input_number.hba_control_kp
                     above: 0.5
                   - condition: numeric_state
-                    entity: input_number.house_battery_control_ki
+                    entity: input_number.hba_control_ki
                     above: 0.5
                   - condition: numeric_state
-                    entity: input_number.house_battery_control_kd
+                    entity: input_number.hba_control_kd
                     above: 0.5
                   - condition: numeric_state
-                    entity: input_number.house_battery_control_error_signal_dampening
+                    entity: input_number.hba_control_error_signal_dampening
                     above: 70
                   - condition: numeric_state
-                    entity: input_number.house_battery_control_pid_output_dampening
+                    entity: input_number.hba_control_pid_output_dampening
                     above: 50
             text_only: true
           - type: entities
             entities:
-              - entity: input_select.house_battery_control_pid_presets
+              - entity: input_select.hba_control_pid_presets
                 name: Controller sensitivity
           - type: heading
             icon: ''
@@ -391,7 +598,9 @@ views:
             heading_style: subtitle
             tap_action:
               action: navigate
-              navigation_path: /home-battery/1
+              navigation_path: /home-battery-assistant/self-consumption
+
+      # Battery status
       - type: grid
         cards:
           - type: heading
@@ -399,7 +608,7 @@ views:
             heading_style: title
             icon: mdi:home-battery-outline
           - type: tile
-            entity: sensor.battery_time_remaining
+            entity: sensor.hba_time_remaining
             name: Battery remaining
             icon: mdi:battery-clock
             show_entity_picture: false
@@ -442,7 +651,7 @@ views:
                     entity: sensor.marstek_m2_device_name
                     state_not: unknown
                   - condition: numeric_state
-                    entity: input_number.house_battery_count
+                    entity: input_number.hba_battery_count
                     above: 1
           - type: glance
             entities:
@@ -461,7 +670,7 @@ views:
                     entity: sensor.marstek_m2_device_name
                     state_not: unknown
                   - condition: numeric_state
-                    entity: input_number.house_battery_count
+                    entity: input_number.hba_battery_count
                     above: 1
           - type: heading
             heading: Marstek M3
@@ -474,7 +683,7 @@ views:
                     entity: sensor.marstek_m3_device_name
                     state_not: unknown
                   - condition: numeric_state
-                    entity: input_number.house_battery_count
+                    entity: input_number.hba_battery_count
                     above: 2
           - type: glance
             entities:
@@ -493,7 +702,7 @@ views:
                     entity: sensor.marstek_m3_device_name
                     state_not: unknown
                   - condition: numeric_state
-                    entity: input_number.house_battery_count
+                    entity: input_number.hba_battery_count
                     above: 2
           - type: heading
             heading: Marstek M4
@@ -506,7 +715,7 @@ views:
                     entity: sensor.marstek_m4_device_name
                     state_not: unknown
                   - condition: numeric_state
-                    entity: input_number.house_battery_count
+                    entity: input_number.hba_battery_count
                     above: 3
           - type: glance
             entities:
@@ -525,7 +734,7 @@ views:
                     entity: sensor.marstek_m4_device_name
                     state_not: unknown
                   - condition: numeric_state
-                    entity: input_number.house_battery_count
+                    entity: input_number.hba_battery_count
                     above: 3
           - type: heading
             heading: Marstek M5
@@ -538,7 +747,7 @@ views:
                     entity: sensor.marstek_m5_device_name
                     state_not: unknown
                   - condition: numeric_state
-                    entity: input_number.house_battery_count
+                    entity: input_number.hba_battery_count
                     above: 4
           - type: glance
             entities:
@@ -557,7 +766,7 @@ views:
                     entity: sensor.marstek_m5_device_name
                     state_not: unknown
                   - condition: numeric_state
-                    entity: input_number.house_battery_count
+                    entity: input_number.hba_battery_count
                     above: 4
           - type: heading
             heading: Marstek M6
@@ -570,7 +779,7 @@ views:
                     entity: sensor.marstek_m6_device_name
                     state_not: unknown
                   - condition: numeric_state
-                    entity: input_number.house_battery_count
+                    entity: input_number.hba_battery_count
                     above: 5
           - type: glance
             entities:
@@ -589,7 +798,7 @@ views:
                     entity: sensor.marstek_m6_device_name
                     state_not: unknown
                   - condition: numeric_state
-                    entity: input_number.house_battery_count
+                    entity: input_number.hba_battery_count
                     above: 5
           - type: heading
             heading: Info and guides
@@ -611,18 +820,37 @@ views:
               url_path: >-
                 https://www.youtube.com/playlist?list=PL9wonDMnFmzvm-ln2iHdRE5niDD3ikrKn
           - type: heading
+            icon: mdi:source-branch
+            heading: GitHub — Home Battery Assistant
+            heading_style: subtitle
+            tap_action:
+              action: url
+              url_path: https://github.com/Dennis-Q/home-battery-assistant
+          - type: heading
             icon: mdi:spider
+            heading: Problem solver
             heading_style: subtitle
             tap_action:
               action: navigate
-              navigation_path: /home-battery/4
-            heading: Problem solver
+              navigation_path: /home-battery-assistant/insights
           - type: markdown
-            content: '-----'
+            content: '---'
             text_only: true
           - type: heading
             icon: mdi:star-check-outline
-            heading: Do you like this project? Consider giving a star
+            heading: Like HBA? Give it a star!
+            heading_style: subtitle
+            tap_action:
+              action: url
+              url_path: https://github.com/Dennis-Q/home-battery-assistant
+          - type: markdown
+            content: >-
+              [![GitHub
+              stars](https://img.shields.io/github/stars/Dennis-Q/home-battery-assistant?style=social)](https://github.com/Dennis-Q/home-battery-assistant)
+            text_only: true
+          - type: heading
+            icon: mdi:heart-outline
+            heading: Based on the excellent Home Battery Control (HBC) by gitcodebob
             heading_style: subtitle
             tap_action:
               action: url
@@ -632,16 +860,52 @@ views:
               [![GitHub
               stars](https://img.shields.io/github/stars/gitcodebob/marstek-venus-rs485-node-red?style=social)](https://github.com/gitcodebob/marstek-venus-rs485-node-red)
             text_only: true
-    header:
-      card:
-        type: markdown
-        content: '### Home Battery Control *(v4.10.0)*'
-        text_only: true
-    cards: []
+
+  # ── VIEW 2: SELF-CONSUMPTION (PID) ──────────────────────────────────────────
   - type: sections
     max_columns: 3
     icon: mdi:transmission-tower-off
-    path: ''
+    path: self-consumption
+    title: Self-consumption
+    cards: []
+    badges:
+      - type: entity
+        show_name: true
+        show_state: true
+        show_icon: true
+        entity: input_select.hba_strategy
+        name: Choose strategy
+        tap_action:
+          action: more-info
+      - type: entity
+        show_name: true
+        show_state: true
+        show_icon: true
+        entity: sensor.hba_active_strategy
+        show_entity_picture: false
+        name: Executing
+      - type: entity
+        show_name: true
+        show_state: true
+        show_icon: true
+        entity: input_text.hba_strategy_active_flow
+        show_entity_picture: false
+        name: Flow
+    header:
+      layout: center
+      badges_position: top
+      badges_wrap: scroll
+      card:
+        type: markdown
+        content: >-
+          ### Self-consumption strategy *(HBA v4.10.0-r1)*
+
+          The **PID controller** steers your batteries to keep grid usage near
+          target, _e.g. 0 Watt_, and is used by:
+
+          _Self-consumption, Charge PV, Charge (regulated), Peak shaving and
+          more..._
+        text_only: true
     sections:
       - type: grid
         cards:
@@ -654,8 +918,9 @@ views:
               <font color="grey"><i>These settings tune how aggressive the
               system tries to keep the grid power at the desired power level.
               Too aggressive is unstable! Too safe will cost efficiency. This
-              PID control can outperform Vendor made software by a great margin,
-              according to community feedback.
+              PID control could outperform Vendor made software — community
+              feedback from HBC is promising, but HBA uses a new implementation,
+              so time will tell.
 
               </i></font>
             text_only: true
@@ -675,39 +940,40 @@ views:
               - condition: or
                 conditions:
                   - condition: numeric_state
-                    entity: input_number.house_battery_control_kp
+                    entity: input_number.hba_control_kp
                     above: 0.5
                   - condition: numeric_state
-                    entity: input_number.house_battery_control_ki
+                    entity: input_number.hba_control_ki
                     above: 0.5
                   - condition: numeric_state
-                    entity: input_number.house_battery_control_kd
+                    entity: input_number.hba_control_kd
                     above: 0.5
                   - condition: numeric_state
-                    entity: input_number.house_battery_control_error_signal_dampening
+                    entity: input_number.hba_control_error_signal_dampening
                     above: 70
                   - condition: numeric_state
-                    entity: input_number.house_battery_control_pid_output_dampening
+                    entity: input_number.hba_control_pid_output_dampening
                     above: 50
             text_only: true
           - type: entities
             entities:
-              - entity: input_select.house_battery_control_pid_presets
+              - entity: input_select.hba_control_pid_presets
                 name: PID presets
-              - entity: input_number.house_battery_control_kp
+              - entity: input_number.hba_control_kp
                 name: Proportional gain (Kp)
-              - entity: input_number.house_battery_control_ki
+              - entity: input_number.hba_control_ki
                 name: Integral gain (Ki)
-              - entity: input_number.house_battery_control_kd
+              - entity: input_number.hba_control_kd
                 name: Differential gain (Kd)
-              - entity: input_number.house_battery_control_error_signal_dampening
+              - entity: input_number.hba_control_error_signal_dampening
                 name: Input smoothing
                 secondary_info: none
-              - entity: input_number.house_battery_control_pid_output_dampening
+              - entity: input_number.hba_control_pid_output_dampening
                 name: Output smoothing
-              - entity: input_number.house_target_grid_consumption_in_w
+              - entity: input_number.hba_target_grid_consumption_in_w
                 name: Target grid consumption
       - type: grid
+        column_span: 2
         cards:
           - type: heading
             heading: PID history
@@ -733,17 +999,17 @@ views:
           - title: PID analysis
             type: history-graph
             entities:
-              - entity: input_number.house_battery_control_pid_output
+              - entity: input_number.hba_control_pid_output
                 name: PID output
               - entity: sensor.p1_meter_power
                 name: Grid power
-              - entity: input_number.house_battery_control_error_signal
+              - entity: input_number.hba_control_error_signal
                 name: PID input
-              - entity: input_number.house_battery_control_p_term
+              - entity: input_number.hba_control_p_term
                 name: P-term
-              - entity: input_number.house_battery_control_i_term
+              - entity: input_number.hba_control_i_term
                 name: I-term
-              - entity: input_number.house_battery_control_d_term
+              - entity: input_number.hba_control_d_term
                 name: D-term
             grid_options:
               columns: full
@@ -757,15 +1023,28 @@ views:
             text_only: true
             grid_options:
               columns: full
-        column_span: 2
-    title: Self-consumption
+
+  # ── VIEW 3: CHARGE/SELL ─────────────────────────────────────────────────────
+  - type: sections
+    max_columns: 4
+    title: Charge / Sell
+    path: charge-sell
+    icon: mdi:transmission-tower-export
+    header:
+      layout: center
+      badges_position: top
+      badges_wrap: scroll
+      card:
+        type: markdown
+        text_only: true
+        content: '### Charge / Sell *(HBA v4.10.0-r1)*'
     cards: []
     badges:
       - type: entity
         show_name: true
         show_state: true
         show_icon: true
-        entity: input_select.house_battery_strategy
+        entity: input_select.hba_strategy
         name: Choose strategy
         tap_action:
           action: more-info
@@ -773,27 +1052,16 @@ views:
         show_name: true
         show_state: true
         show_icon: true
-        entity: input_text.house_battery_strategy_active_sub_strategy
+        entity: sensor.hba_active_strategy
         show_entity_picture: false
         name: Executing
-    header:
-      layout: center
-      badges_position: top
-      badges_wrap: scroll
-      card:
-        type: markdown
-        content: >-
-          ### Self-consumption strategy (NoM)
-
-          The **PID controller** steers your batteries to keep grid usage near
-          target, _e.g. 0 Watt_, and is used by: 
-
-          _Self-consumption, Charge PV, Charge (regulated), Peak shaving and
-          more..._
-        text_only: true
-  - type: sections
-    max_columns: 4
-    title: Charge/Sell
+      - type: entity
+        show_name: true
+        show_state: true
+        show_icon: true
+        entity: input_text.hba_strategy_active_flow
+        show_entity_picture: false
+        name: Flow
     sections:
       - type: grid
         cards:
@@ -811,48 +1079,48 @@ views:
                 https://docs.homebatterycontrol.com/03-strategies.html#charge-from-grid
           - type: entities
             entities:
-              - entity: input_select.house_battery_strategy_charge_goal
+              - entity: input_select.hba_strategy_charge_goal
               - type: conditional
                 conditions:
-                  - entity: input_select.house_battery_strategy_charge_goal
+                  - entity: input_select.hba_strategy_charge_goal
                     state: energy reserve
                 row:
-                  entity: input_number.house_battery_strategy_charge_target_energy
+                  entity: input_number.hba_strategy_charge_target_energy
               - type: conditional
                 conditions:
-                  - entity: input_select.house_battery_strategy_charge_goal
+                  - entity: input_select.hba_strategy_charge_goal
                     state: state of charge
                 row:
-                  entity: input_number.house_battery_strategy_charge_target_soc
+                  entity: input_number.hba_strategy_charge_target_soc
               - type: conditional
                 conditions:
-                  - entity: input_select.house_battery_strategy_charge_goal
+                  - entity: input_select.hba_strategy_charge_goal
                     state: solar forecast
                 row:
-                  entity: input_number.house_battery_solar_reserved_for_house
+                  entity: input_number.hba_solar_reserved_for_house
                   name: Solar reserved for house
               - type: conditional
                 conditions:
-                  - entity: input_select.house_battery_strategy_charge_goal
+                  - entity: input_select.hba_strategy_charge_goal
                     state: solar forecast
                   - condition: numeric_state
-                    entity: sensor.charge_target_energy
+                    entity: sensor.hba_charge_target_energy
                     above: 0
                 row:
-                  entity: sensor.charge_target_energy
+                  entity: sensor.hba_charge_target_energy
                   type: simple-entity
                   name: Grid charge up to
             show_header_toggle: false
             state_color: false
           - type: distribution
             entities:
-              - entity: sensor.charge_available_energy
+              - entity: sensor.hba_charge_available_energy
                 name: Available
                 color: '#4db6ac'
-              - entity: sensor.charge_grid_energy_portion
+              - entity: sensor.hba_charge_grid_energy_portion
                 name: Grid charge
                 color: '#488fc2'
-              - entity: sensor.charge_solar_energy_portion
+              - entity: sensor.hba_charge_solar_energy_portion
                 name: Solar charge
                 color: amber
             grid_options:
@@ -860,7 +1128,7 @@ views:
               rows: 1.5
             visibility:
               - condition: state
-                entity: input_select.house_battery_strategy_charge_goal
+                entity: input_select.hba_strategy_charge_goal
                 state: solar forecast
           - type: heading
             icon: mdi:weather-sunny
@@ -868,17 +1136,17 @@ views:
             heading_style: subtitle
             visibility:
               - condition: state
-                entity: input_select.house_battery_strategy_charge_goal
+                entity: input_select.hba_strategy_charge_goal
                 state: solar forecast
           - type: entities
             entities:
-              - entity: sensor.solar_forecast_today
-              - entity: sensor.solar_forecast_surplus_today
+              - entity: sensor.hba_solar_forecast_today
+              - entity: sensor.hba_solar_forecast_surplus_today
                 name: Solar reserved for batteries
             show_header_toggle: false
             visibility:
               - condition: state
-                entity: input_select.house_battery_strategy_charge_goal
+                entity: input_select.hba_strategy_charge_goal
                 state: solar forecast
           - type: markdown
             content: >-
@@ -888,10 +1156,10 @@ views:
               - condition: and
                 conditions:
                   - condition: state
-                    entity: input_select.house_battery_strategy_charge_goal
+                    entity: input_select.hba_strategy_charge_goal
                     state: solar forecast
                   - condition: state
-                    entity: binary_sensor.solar_surplus_covers_battery_capacity
+                    entity: binary_sensor.hba_solar_surplus_covers_battery_capacity
                     state: 'on'
           - type: heading
             icon: mdi:weather-sunny
@@ -899,17 +1167,17 @@ views:
             heading_style: subtitle
             visibility:
               - condition: state
-                entity: input_select.house_battery_strategy_charge_goal
+                entity: input_select.hba_strategy_charge_goal
                 state: solar forecast
           - type: entities
             entities:
-              - entity: sensor.solar_forecast_tomorrow
-              - entity: sensor.solar_forecast_surplus_tomorrow
+              - entity: sensor.hba_solar_forecast_tomorrow
+              - entity: sensor.hba_solar_forecast_surplus_tomorrow
                 name: Solar reserved for batteries
             show_header_toggle: false
             visibility:
               - condition: state
-                entity: input_select.house_battery_strategy_charge_goal
+                entity: input_select.hba_strategy_charge_goal
                 state: solar forecast
           - type: markdown
             content: >-
@@ -919,11 +1187,10 @@ views:
               - condition: and
                 conditions:
                   - condition: state
-                    entity: input_select.house_battery_strategy_charge_goal
+                    entity: input_select.hba_strategy_charge_goal
                     state: solar forecast
                   - condition: state
-                    entity: >-
-                      binary_sensor.solar_surplus_covers_battery_capacity_tomorrow
+                    entity: binary_sensor.hba_solar_surplus_covers_battery_capacity_tomorrow
                     state: 'on'
           - type: heading
             icon: mdi:information-slab-circle
@@ -934,30 +1201,19 @@ views:
               url_path: https://docs.homebatterycontrol.com/04-setup-solar-forecast
             visibility:
               - condition: state
-                entity: input_select.house_battery_strategy_charge_goal
+                entity: input_select.hba_strategy_charge_goal
                 state: solar forecast
           - type: entities
             entities:
-              - entity: input_text.house_battery_strategy_solar_forecast_entity_id
+              - entity: input_text.hba_strategy_solar_forecast_entity_id
                 name: Solar forecast sensor (kWh today) [entity_id]
-              - entity: >-
-                  input_text.house_battery_strategy_solar_forecast_tomorrow_entity_id
+              - entity: input_text.hba_strategy_solar_forecast_tomorrow_entity_id
                 name: Solar forecast sensor (kWh tomorrow) [entity_id]
+            show_header_toggle: false
             visibility:
               - condition: state
-                entity: input_select.house_battery_strategy_charge_goal
+                entity: input_select.hba_strategy_charge_goal
                 state: solar forecast
-          - type: heading
-            icon: mdi:information-slab-circle
-            heading: When done charging, switch to strategy
-            heading_style: subtitle
-            tap_action:
-              action: url
-              url_path: >-
-                https://docs.homebatterycontrol.com/03-strategies.html#charge-from-grid
-          - type: entities
-            entities:
-              - entity: input_select.house_battery_strategy_charge_goal_reached
           - type: markdown
             content: >-
               <font color=grey>_'Reserve' is usable energy in your batteries
@@ -969,11 +1225,22 @@ views:
               - condition: or
                 conditions:
                   - condition: state
-                    entity: input_select.house_battery_strategy_charge_goal
+                    entity: input_select.hba_strategy_charge_goal
                     state: energy reserve
                   - condition: state
-                    entity: input_select.house_battery_strategy_charge_goal
+                    entity: input_select.hba_strategy_charge_goal
                     state: solar forecast
+          - type: heading
+            icon: mdi:information-slab-circle
+            heading: When done charging, switch to strategy
+            heading_style: subtitle
+            tap_action:
+              action: url
+              url_path: >-
+                https://docs.homebatterycontrol.com/03-strategies.html#charge-from-grid
+          - type: entities
+            entities:
+              - entity: input_select.hba_strategy_charge_goal_reached
           - type: markdown
             content: >-
               <font color=grey><i>Visit the '<ha-icon
@@ -982,17 +1249,6 @@ views:
 
               </i></font>
             text_only: true
-          - type: entities
-            entities:
-              - entity: input_number.house_battery_total_available_energy
-              - entity: input_number.house_battery_total_max_available_energy
-              - entity: input_number.house_battery_total_battery_power
-              - entity: input_number.house_battery_total_max_charge_power
-              - entity: input_number.house_battery_total_max_discharge_power
-            visibility:
-              - condition: state
-                entity: input_boolean.house_battery_control_is_debug_mode
-                state: 'on'
       - type: grid
         cards:
           - type: heading
@@ -1009,21 +1265,32 @@ views:
                 https://docs.homebatterycontrol.com/03-strategies.html#charge-from-grid
           - type: entities
             entities:
-              - entity: input_select.house_battery_strategy_sell_goal
+              - entity: input_select.hba_strategy_sell_goal
               - type: conditional
                 conditions:
-                  - entity: input_select.house_battery_strategy_sell_goal
+                  - entity: input_select.hba_strategy_sell_goal
                     state: energy reserve
                 row:
-                  entity: input_number.house_battery_strategy_sell_target_energy
+                  entity: input_number.hba_strategy_sell_target_energy
               - type: conditional
                 conditions:
-                  - entity: input_select.house_battery_strategy_sell_goal
+                  - entity: input_select.hba_strategy_sell_goal
                     state: state of charge
                 row:
-                  entity: input_number.house_battery_strategy_sell_target_soc
+                  entity: input_number.hba_strategy_sell_target_soc
             show_header_toggle: false
             state_color: false
+          - type: markdown
+            content: >-
+              <font color=grey>_'Reserve' is usable energy in your batteries
+              (e.g. above 11% SoC)_
+
+              </font>
+            text_only: true
+            visibility:
+              - condition: state
+                entity: input_select.hba_strategy_sell_goal
+                state: energy reserve
           - type: heading
             icon: mdi:information-slab-circle
             heading: When done, switch to strategy
@@ -1034,18 +1301,7 @@ views:
                 https://docs.homebatterycontrol.com/03-strategies.html#charge-from-grid
           - type: entities
             entities:
-              - entity: input_select.house_battery_strategy_sell_goal_reached
-          - type: markdown
-            content: >-
-              <font color=grey>_'Reserve' is usable energy in your batteries
-              (e.g. above 11% SoC)_
-
-              </font>
-            text_only: true
-            visibility:
-              - condition: state
-                entity: input_select.house_battery_strategy_sell_goal
-                state: energy reserve
+              - entity: input_select.hba_strategy_sell_goal_reached
           - type: markdown
             content: >-
               <font color=grey><i>Visit the '<ha-icon
@@ -1054,14 +1310,20 @@ views:
 
               </i></font>
             text_only: true
-    icon: mdi:transmission-tower-export
+
+  # ── VIEW 4: TIMED/DYNAMIC ───────────────────────────────────────────────────
+  - type: sections
+    max_columns: 3
+    title: Timed / Dynamic
+    path: timed-dynamic
+    icon: mdi:timer-cog-outline
     cards: []
     badges:
       - type: entity
         show_name: true
         show_state: true
         show_icon: true
-        entity: input_select.house_battery_strategy
+        entity: input_select.hba_strategy
         name: Choose strategy
         tap_action:
           action: more-info
@@ -1069,17 +1331,24 @@ views:
         show_name: true
         show_state: true
         show_icon: true
-        entity: input_text.house_battery_strategy_active_sub_strategy
+        entity: sensor.hba_active_strategy
         show_entity_picture: false
         name: Executing
+      - type: entity
+        show_name: true
+        show_state: true
+        show_icon: true
+        entity: input_text.hba_strategy_active_flow
+        show_entity_picture: false
+        name: Flow
     header:
       layout: center
       badges_position: top
       badges_wrap: scroll
-  - type: sections
-    max_columns: 3
-    title: Timed/Dynamic
-    icon: mdi:timer-cog-outline
+      card:
+        type: markdown
+        text_only: true
+        content: '### Timed / Dynamic *(HBA v4.10.0-r1)*'
     sections:
       - type: grid
         cards:
@@ -1095,7 +1364,7 @@ views:
               url_path: https://youtu.be/UbeJaRjFK_o?t=53s
           - type: entities
             entities:
-              - entity: input_select.house_battery_strategy_timed_strat_0
+              - entity: input_select.hba_strategy_timed_strat_0
                 name: Default strategy
             grid_options:
               columns: 9
@@ -1112,13 +1381,13 @@ views:
             face_style: markers
           - type: entities
             entities:
-              - entity: input_datetime.house_battery_strategy_timed_period_a1
-              - entity: input_select.house_battery_strategy_timed_strat_a
-              - entity: input_datetime.house_battery_strategy_timed_period_a2
+              - entity: input_datetime.hba_strategy_timed_period_a1
+              - entity: input_select.hba_strategy_timed_strat_a
+              - entity: input_datetime.hba_strategy_timed_period_a2
           - type: tile
             grid_options:
               columns: full
-            entity: input_boolean.house_battery_strategy_timed_has_period_b
+            entity: input_boolean.hba_strategy_timed_has_period_b
             name: Add period
             icon: mdi:plus
             color: blue-grey
@@ -1130,19 +1399,19 @@ views:
             features_position: bottom
             visibility:
               - condition: state
-                entity: input_boolean.house_battery_strategy_timed_has_period_b
+                entity: input_boolean.hba_strategy_timed_has_period_b
                 state: 'off'
           - type: entities
             entities:
-              - entity: input_datetime.house_battery_strategy_timed_period_b1
-              - entity: input_select.house_battery_strategy_timed_strat_b
-              - entity: input_datetime.house_battery_strategy_timed_period_b2
+              - entity: input_datetime.hba_strategy_timed_period_b1
+              - entity: input_select.hba_strategy_timed_strat_b
+              - entity: input_datetime.hba_strategy_timed_period_b2
             visibility:
               - condition: state
-                entity: input_boolean.house_battery_strategy_timed_has_period_b
+                entity: input_boolean.hba_strategy_timed_has_period_b
                 state: 'on'
           - type: tile
-            entity: input_boolean.house_battery_strategy_timed_has_period_c
+            entity: input_boolean.hba_strategy_timed_has_period_c
             name: Add period
             icon: mdi:plus
             color: blue-grey
@@ -1156,13 +1425,13 @@ views:
               - condition: and
                 conditions:
                   - condition: state
-                    entity: input_boolean.house_battery_strategy_timed_has_period_b
+                    entity: input_boolean.hba_strategy_timed_has_period_b
                     state: 'on'
                   - condition: state
-                    entity: input_boolean.house_battery_strategy_timed_has_period_c
+                    entity: input_boolean.hba_strategy_timed_has_period_c
                     state: 'off'
           - type: tile
-            entity: input_boolean.house_battery_strategy_timed_has_period_b
+            entity: input_boolean.hba_strategy_timed_has_period_b
             name: Remove period
             icon: mdi:minus
             color: red
@@ -1176,28 +1445,28 @@ views:
               - condition: and
                 conditions:
                   - condition: state
-                    entity: input_boolean.house_battery_strategy_timed_has_period_b
+                    entity: input_boolean.hba_strategy_timed_has_period_b
                     state: 'on'
                   - condition: state
-                    entity: input_boolean.house_battery_strategy_timed_has_period_c
+                    entity: input_boolean.hba_strategy_timed_has_period_c
                     state: 'off'
           - type: entities
             entities:
-              - entity: input_datetime.house_battery_strategy_timed_period_c1
-              - entity: input_select.house_battery_strategy_timed_strat_c
-              - entity: input_datetime.house_battery_strategy_timed_period_c2
+              - entity: input_datetime.hba_strategy_timed_period_c1
+              - entity: input_select.hba_strategy_timed_strat_c
+              - entity: input_datetime.hba_strategy_timed_period_c2
             visibility:
               - condition: state
-                entity: input_boolean.house_battery_strategy_timed_has_period_c
+                entity: input_boolean.hba_strategy_timed_has_period_c
                 state: 'on'
           - type: tile
             grid_options:
               columns: full
             visibility:
               - condition: state
-                entity: input_boolean.house_battery_strategy_timed_has_period_c
+                entity: input_boolean.hba_strategy_timed_has_period_c
                 state: 'on'
-            entity: input_boolean.house_battery_strategy_timed_has_period_c
+            entity: input_boolean.hba_strategy_timed_has_period_c
             name: Remove period
             icon: mdi:minus
             color: red
@@ -1220,156 +1489,25 @@ views:
               action: url
               url_path: >-
                 https://docs.homebatterycontrol.com/05-setup-dynamic.html#use-the-dynamic-strategy
-            visibility:
-              - condition: not
-                conditions:
-                  - condition: state
-                    entity: update.cheapest_energy_hours_update
-                    state: unavailable
-                  - condition: state
-                    entity: update.cheapest_energy_hours_update
-                    state: unknown
-          - type: markdown
-            content: >-
-              <ha-alert alert-type="info">Cheapest Hours integration not
-              installed.</ha-alert>
-
-
-              This strategy uses [the Cheapest Hours integration from
-              TheFes](https://github.com/TheFes/cheapest-energy-hours/tree/main?tab=readme-ov-file#how-to-install).
-
-              Please install via HACS or follow his instructions.
-            text_only: true
-            visibility:
-              - condition: or
-                conditions:
-                  - condition: state
-                    entity: update.cheapest_energy_hours_update
-                    state: unavailable
-                  - condition: state
-                    entity: update.cheapest_energy_hours_update
-                    state: unknown
-          - type: heading
-            icon: mdi:information
-            heading_style: subtitle
-            tap_action:
-              action: url
-              url_path: >-
-                https://docs.homebatterycontrol.com/05-setup-dynamic.html#setup-getting-dynamic-up-and-running
-            visibility:
-              - condition: or
-                conditions:
-                  - condition: state
-                    entity: update.cheapest_energy_hours_update
-                    state: unavailable
-                  - condition: state
-                    entity: update.cheapest_energy_hours_update
-                    state: unknown
-            heading: Setup instructions dynamic strategy
           - type: entities
             entities:
-              - entity: input_select.house_battery_strategy_dynamic_data_source
-          - type: heading
-            icon: mdi:information
-            heading_style: subtitle
-            heading: Calculated periods and tariffs
-            tap_action:
-              action: url
-              url_path: >-
-                https://docs.homebatterycontrol.com/05-setup-dynamic.html#period-startend-times-read-only
-          - show_name: true
-            show_icon: true
-            show_state: true
-            type: glance
+              - entity: input_select.hba_strategy_dynamic_data_source
+          - type: entities
             entities:
-              - entity: >-
-                  input_number.house_battery_strategy_dynamic_expensive_avg_tariff
-                type: simple-entity
-                name: Expensive period
-              - entity: >-
-                  input_number.house_battery_strategy_dynamic_cheapest_avg_tariff
-                type: simple-entity
-                name: Charged at
-              - entity: >-
-                  input_number.house_battery_strategy_dynamic_expensive_avg_delta
-                type: simple-entity
-                name: Price delta
-          - type: vertical-stack
-            cards:
-              - type: conditional
-                conditions:
-                  - condition: state
-                    entity: binary_sensor.is_below_threshold_cheapest_period_tariff
-                    state: 'on'
-                card:
-                  type: entities
-                  entities:
-                    - entity: input_number.house_battery_strategy_dynamic_cheapest_hrs
-                      name: Cheapest period
-                    - entity: >-
-                        input_datetime.house_battery_strategy_dynamic_cheapest_start
-                      type: simple-entity
-                      name: Start
-                    - entity: >-
-                        input_datetime.house_battery_strategy_dynamic_cheapest_end
-                      type: simple-entity
-                      name: End
-              - type: conditional
-                conditions:
-                  - condition: not
-                    conditions:
-                      - condition: state
-                        entity: >-
-                          binary_sensor.is_below_threshold_cheapest_period_tariff
-                        state: 'on'
-                card:
-                  type: markdown
-                  content: >-
-                    <ha-alert title="SKIPPING cheapest period">You have set a
-                    price limit for the cheapest period</ha-alert>The cheapest
-                    period is too expensive today.
-          - type: vertical-stack
-            cards:
-              - type: conditional
-                conditions:
-                  - condition: state
-                    entity: binary_sensor.is_above_threshold_price_delta
-                    state: 'on'
-                card:
-                  type: entities
-                  entities:
-                    - entity: >-
-                        input_number.house_battery_strategy_dynamic_expensive_hrs
-                      name: Expensive period
-                    - entity: >-
-                        input_datetime.house_battery_strategy_dynamic_expensive_start
-                      name: Start
-                      type: simple-entity
-                    - entity: >-
-                        input_datetime.house_battery_strategy_dynamic_expensive_end
-                      name: End
-                      type: simple-entity
-              - type: conditional
-                conditions:
-                  - condition: not
-                    conditions:
-                      - condition: state
-                        entity: binary_sensor.is_above_threshold_price_delta
-                        state: 'on'
-                card:
-                  type: markdown
-                  content: >-
-                    <ha-alert title="SKIPPING expensive period">You have set a
-                    minimum Price Delta.</ha-alert>The price difference between
-                    the expensive and cheapest period is too small. Discharging
-                    is not economical.
+              - entity: input_text.hba_strategy_dynamic_frank_sensor_entity_id
+                name: Frank Energie prices sensor
+                icon: mdi:lightning-bolt
+            visibility:
+              - condition: state
+                entity: input_select.hba_strategy_dynamic_data_source
+                state: "Frank Energie"
           - type: heading
             icon: mdi:format-align-middle
             heading_style: subtitle
             heading: Regular period
           - type: entities
             entities:
-              - entity: input_select.house_battery_strategy_dynamic_default
+              - entity: input_select.hba_strategy_dynamic_default
                 name: Default to
           - type: heading
             icon: mdi:timeline-clock-outline
@@ -1377,116 +1515,166 @@ views:
             heading_style: subtitle
           - type: entities
             entities:
-              - entity: input_select.house_battery_strategy_dynamic_cheapest
+              - entity: input_select.hba_strategy_dynamic_cheapest
                 name: I want to use
-              - entity: input_number.house_battery_strategy_dynamic_cheapest_hrs
+              - entity: input_number.hba_strategy_dynamic_cheapest_hrs
                 name: During the cheapest
-              - entity: >-
-                  input_number.house_battery_strategy_dynamic_threshold_cheapest_period
-                name: If the tariff is below
-                icon: mdi:download-circle-outline
-              - entity: >-
-                  input_number.house_battery_strategy_dynamic_cheapest_avg_tariff
-                name: Today the tariff is
-                type: simple-entity
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_strategy
+                    state_not: "Dynamic v2"
+                row:
+                  entity: input_number.hba_strategy_dynamic_threshold_cheapest_period
+                  name: If the tariff is below
+                  icon: mdi:download-circle-outline
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_strategy
+                    state_not: "Dynamic v2"
+                row:
+                  entity: input_datetime.hba_strategy_dynamic_cheapest_start
+                  type: simple-entity
+                  name: Start
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_strategy
+                    state_not: "Dynamic v2"
+                row:
+                  entity: input_datetime.hba_strategy_dynamic_cheapest_end
+                  type: simple-entity
+                  name: End
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_strategy
+                    state_not: "Dynamic v2"
+                row:
+                  entity: input_number.hba_strategy_dynamic_cheapest_avg_tariff
+                  name: Today the tariff is
+                  type: simple-entity
+          - type: markdown
+            content: >-
+              <ha-alert title="SKIPPING cheapest period">You have set a price
+              limit for the cheapest period. The cheapest period is too
+              expensive today.</ha-alert>
+            text_only: true
+            visibility:
+              - condition: state
+                entity: binary_sensor.hba_dynamic_cheap_threshold_met
+                state: 'off'
+              - condition: state
+                entity: input_select.hba_strategy
+                state_not: "Dynamic v2"
           - type: heading
             icon: mdi:timeline-clock-outline
             heading: Expensive period
             heading_style: subtitle
           - type: entities
             entities:
-              - entity: input_select.house_battery_strategy_dynamic_expensive
+              - entity: input_select.hba_strategy_dynamic_expensive
                 name: I want to use
-              - entity: input_number.house_battery_strategy_dynamic_expensive_hrs
+              - entity: input_number.hba_strategy_dynamic_expensive_hrs
                 name: During the most expensive
-              - entity: input_number.house_battery_strategy_dynamic_threshold_delta
+              - entity: input_number.hba_strategy_dynamic_threshold_delta
                 name: If the price delta >=
-              - entity: >-
-                  input_number.house_battery_strategy_dynamic_expensive_avg_delta
-                name: Today the price delta is
-                type: simple-entity
               - type: conditional
                 conditions:
-                  - entity: input_select.house_battery_strategy_dynamic_expensive
-                    state: Sell
+                  - condition: state
+                    entity: input_select.hba_strategy
+                    state_not: "Dynamic v2"
+                row:
+                  entity: input_datetime.hba_strategy_dynamic_expensive_start
+                  name: Start
+                  type: simple-entity
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_strategy
+                    state_not: "Dynamic v2"
+                row:
+                  entity: input_datetime.hba_strategy_dynamic_expensive_end
+                  name: End
+                  type: simple-entity
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_strategy
+                    state_not: "Dynamic v2"
+                row:
+                  entity: input_number.hba_strategy_dynamic_expensive_avg_delta
+                  name: Today the price delta is
+                  type: simple-entity
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_strategy_dynamic_expensive
+                    state: "Sell"
                 row:
                   entity: sensor.estimated_profit_per_kwh
                   name: Estimated profit per kWh
-      - type: grid
-        cards:
-          - type: heading
-            heading_style: title
-            heading: Price data (to help you analyse results)
-            icon: mdi:flask-outline
-          - type: heading
-            icon: mdi:spider
-            heading: Enable insights mode to view this data
-            heading_style: subtitle
+                  type: simple-entity
+                  icon: mdi:currency-eur
           - type: markdown
             content: >-
-              <small><small>
-
-
-              | Time | Today (cents) | Tomorrow (cents) |
-
-              |:---:|:-------:|:------:|
-
-              {% set data_sensor = 'sensor.hbc_energy_prices_data' %}
-
-              {%- set prices = state_attr(data_sensor, 'prices') -%}
-
-              {%- set points_per_hour = state_attr(data_sensor,
-              'datapoints_per_hour') | default(1, true) | int -%}
-
-              {%- set points_per_day = 24 * points_per_hour -%}
-
-              {%- set interval_minutes = (60 / points_per_hour) | int -%}
-
-              {%- if prices is not none and prices | length >= points_per_day
-              -%}
-                {%- for i in range(points_per_day) -%}
-                  {%- set today_price = prices[i] -%}
-                  {#- Calculate the index for the same time tomorrow -#}
-                  {%- set tomorrow_idx = i + points_per_day -%}
-                  {%- set tomorrow_price = prices[tomorrow_idx] if prices | length >= (tomorrow_idx + 1) else none -%}
-                  {#- Calculate hours and minutes for the timestamp -#}
-                  {%- set hour = (i // points_per_hour) | int -%}
-                  {%- set minutes = (i % points_per_hour) * interval_minutes -%}
-                  | {{ "%02d"|format(hour) }}:{{ "%02d"|format(minutes) }} | {{ "%0.1f"|format(today_price) }} | {{ "%0.1f"|format(tomorrow_price) if tomorrow_price is not none else "-" }} |
-                {% endfor %}
-              {%- else -%}
-                | - | *Insufficient data available...* | - |
-              {% endif %}
-
-
-              **Start date:** {{ state_attr(data_sensor, 'start') }}
-
-              **Interval:** {{ 60 // points_per_hour }} minutes
-
-              **Datapoints:** {{prices | length}} points / {{points_per_day}}
-              per day
-
-
-              </small></small>
-        visibility:
-          - condition: not
-            conditions:
+              <ha-alert title="SKIPPING expensive period">You have set a
+              minimum price delta. The price difference between the expensive
+              and cheapest period is too small. Discharging is not
+              economical.</ha-alert>
+            text_only: true
+            visibility:
               - condition: state
-                entity: update.cheapest_energy_hours_update
-                state: unavailable
+                entity: binary_sensor.hba_dynamic_expensive_threshold_met
+                state: 'off'
               - condition: state
-                entity: update.cheapest_energy_hours_update
-                state: unknown
-          - condition: state
-            entity: input_boolean.house_battery_control_is_debug_mode
-            state: 'on'
+                entity: input_select.hba_strategy
+                state_not: "Dynamic v2"
+          - type: heading
+            icon: mdi:information
+            heading: Calculated periods and tariffs
+            heading_style: subtitle
+            tap_action:
+              action: url
+              url_path: >-
+                https://docs.homebatterycontrol.com/05-setup-dynamic.html#period-startend-times-read-only
+            visibility:
+              - condition: state
+                entity: input_select.hba_strategy
+                state_not: "Dynamic v2"
+          - show_name: true
+            show_icon: true
+            show_state: true
+            type: glance
+            entities:
+              - entity: input_number.hba_strategy_dynamic_expensive_avg_tariff
+                type: simple-entity
+                name: Expensive period
+              - entity: input_number.hba_strategy_dynamic_cheapest_avg_tariff
+                type: simple-entity
+                name: Charged at
+              - entity: input_number.hba_strategy_dynamic_expensive_avg_delta
+                type: simple-entity
+                name: Price delta
+            visibility:
+              - condition: state
+                entity: input_select.hba_strategy
+                state_not: "Dynamic v2"
+
+  # ── VIEW 5: INSIGHTS (DEBUG) ────────────────────────────────────────────────
+  - type: sections
+    max_columns: 3
+    title: Insights
+    path: insights
+    icon: mdi:spider-outline
     cards: []
     badges:
       - type: entity
         show_name: true
         show_state: false
         show_icon: true
-        entity: input_boolean.house_battery_control_is_debug_mode
+        entity: input_boolean.hba_control_is_debug_mode
         tap_action:
           action: toggle
         name: Insights mode
@@ -1494,7 +1682,7 @@ views:
         show_name: true
         show_state: true
         show_icon: true
-        entity: input_select.house_battery_strategy
+        entity: input_select.hba_strategy
         name: Choose strategy
         tap_action:
           action: more-info
@@ -1502,156 +1690,294 @@ views:
         show_name: true
         show_state: true
         show_icon: true
-        entity: input_text.house_battery_strategy_active_sub_strategy
+        entity: sensor.hba_active_strategy
         show_entity_picture: false
         name: Executing
+      - type: entity
+        show_name: true
+        show_state: true
+        show_icon: true
+        entity: input_text.hba_strategy_active_flow
+        show_entity_picture: false
+        name: Flow
     header:
       layout: center
       badges_position: top
       badges_wrap: scroll
-  - type: sections
-    max_columns: 3
-    icon: mdi:spider-outline
-    path: ''
-    background:
-      opacity: 10
-      alignment: center
-      size: cover
-      repeat: repeat
-      attachment: fixed
-    sections:
-      - type: grid
-        cards:
-          - type: heading
-            heading: Node-RED
-            heading_style: title
-          - type: heading
-            icon: mdi:list-status
-            heading: 🕵️ Flow trace
-            heading_style: subtitle
-          - type: markdown
-            content: >-
-              **Strategy:** {{ states('input_select.house_battery_strategy')}}
-
-              ***
-
-              {% set history = state_attr('sensor.home_battery_control_trace',
-              'history') or [] %} {% set start_ts =
-              state_attr('sensor.home_battery_control_trace', 'start') %} {% set
-              end_ts = state_attr('sensor.home_battery_control_trace', 'end') %}
-              {% set start_dt = (start_ts / 1000) | as_datetime if start_ts is
-              number else as_datetime(start_ts) %} {% set end_dt = (end_ts /
-              1000) | as_datetime if end_ts is number else as_datetime(end_ts)
-              %} {% set total_dt = (end_dt - start_dt).total_seconds() if end_dt
-              and start_dt else 0 %}
-
-              Flows used
-
-              | Step | Flow | Duration |
-
-              | :--- | :--- | :--- |
-
-              {% set first_ts = history[0].timestamp if history|length > 0 else
-              end_ts %} {% set first_dt = (first_ts / 1000) | as_datetime if
-              first_ts is number else as_datetime(first_ts) %} {% set d0 =
-              (first_dt - start_dt).total_seconds() if first_dt and start_dt
-              else 0 %} | 0 | Home battery start | `{{ "{:.3f}".format(d0) }}s`
-              |
-
-              {% for entry in history -%}
-                {%- set ts = entry.timestamp -%}
-                {%- set current_dt = (ts / 1000) | as_datetime if ts is number else as_datetime(ts) -%}
-                {%- if not loop.last -%}
-                  {%- set next_ts = history[loop.index].timestamp -%}
-                {%- else -%}
-                  {%- set next_ts = end_ts -%}
-                {%- endif -%}    
-                {%- set next_dt = (next_ts / 1000) | as_datetime if next_ts is number else as_datetime(next_ts) -%}
-                {%- set delta = (next_dt - current_dt).total_seconds() if next_dt and current_dt else 0 -%}
-                | {{ loop.index }} | {{ entry.flow }} | `{{ "{:.3f}".format(delta) }}s` |
-              {% endfor %} | ✔️ | Home Battery Start | `Done` |
-
-
-              **Total `{{ "{:.3f}".format(total_dt) }}s`** spent in strategy
-              flows
-      - type: grid
-        cards:
-          - type: heading
-            heading: Insights
-            heading_style: title
-          - type: heading
-            icon: mdi:list-box-outline
-            heading: 📋 Explanations (last 100 items)
-            heading_style: subtitle
-          - type: markdown
-            content: >
-              {% set logs = state_attr('sensor.home_battery_control_log', 'log')
-              %}  {% if logs %}
-
-              | Time |  | Flow | Node | Explanation |
-
-              | :--- | :--- | :--- | :--- | :--- |
-                {%- for entry in logs %}
-                {%- set color = '#009ac7' -%}
-                {%- if entry.level == 'log' %}{% set color = '#38cd9e' -%}
-                {%- elif entry.level == 'warn' %}{% set color = 'orange' -%}
-                {%- elif entry.level == 'error' %}{% set color = 'red' -%}
-                {%- endif %}
-                | {{ entry.timestamp }} | {{ entry.icon }} |<font color="{{color}}">{{ entry.flow }}</font> | {{ entry.node }} |{{ entry.payload }} |
-                {%- endfor %}
-              {% else %}
-                No logs available
-              {% endif %}
-            grid_options:
-              columns: full
-        column_span: 2
-    header:
       card:
         type: markdown
         text_only: true
         content: >-
-          ### Help
+          ### Insights *(HBA v4.10.0-r1)*
 
-          Need help figuring out what is going on? 
+          Need help figuring out what is going on?
 
-          Hit **Insights mode**. _Auto-off after 5min._
-
+          Hit **Insights mode** to toggle debug entities.
           📘 [Troubleshooting
           documentation](https://docs.homebatterycontrol.com/07-troubleshooting.html)
-      layout: center
-      badges_position: top
-      badges_wrap: scroll
-    badges:
-      - type: entity
-        show_name: true
-        show_state: false
-        show_icon: true
-        entity: input_boolean.house_battery_control_is_debug_mode
-        tap_action:
-          action: toggle
-        name: Insights mode
-      - type: entity
-        show_name: true
-        show_state: true
-        show_icon: true
-        entity: input_select.house_battery_strategy
-        name: Choose strategy
-        tap_action:
-          action: more-info
-      - type: entity
-        show_name: true
-        show_state: true
-        show_icon: true
-        entity: input_text.house_battery_strategy_active_sub_strategy
-        show_entity_picture: false
-        name: Executing
-    cards: []
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Flows used
+            heading_style: title
+            icon: mdi:sitemap
+          - type: markdown
+            content: |-
+              {% set strategy = states('input_select.hba_strategy') -%}
+              {% set executing = states('input_text.hba_strategy_active_flow') -%}
+              {% set parts = executing.split(' → ') if executing not in ['', 'unknown', 'unavailable'] else [] -%}
+              {% set skip_first = parts | length > 0 and parts[0] == strategy -%}
+              {% set show_parts = parts[1:] if skip_first else parts -%}
+              Control loop
+              &nbsp;↳ {{ strategy }}
+              {%- for part in show_parts %}
+              {{ '&nbsp;&nbsp;' * loop.index ~ '&nbsp;' }}↳ {{ part }}
+              {%- endfor %}
+          - type: heading
+            heading: Controller state
+            heading_style: title
+            icon: mdi:list-status
+          - type: markdown
+            content: |-
+              {% set grid = states('sensor.p1_meter_power') | float(0) -%}
+              {% set target = states('input_number.hba_target_grid_consumption_in_w') | float(0) -%}
+              {% set err = grid - target -%}
+              {% set ev_e = states('input_text.hba_strategy_ev_sensor_entity_id') | trim -%}
+              {% set p1_age = (as_timestamp(now()) - as_timestamp(states['sensor.p1_meter_power'].last_changed)) | int -%}
+              {% set has_imp = is_state('input_boolean.hba_control_has_power_limit_import', 'on') -%}
+              {% set has_exp = is_state('input_boolean.hba_control_has_power_limit_export', 'on') -%}
+              {% set imp_lim = states('input_number.hba_control_power_limit_import') | float(0) | int -%}
+              {% set exp_lim = states('input_number.hba_control_power_limit_export') | float(0) | int -%}
+              **Grid:** {% if grid > 0 %}Import **{{ grid | round(0) | int }} W** from grid{% elif grid < 0 %}Export **{{ (grid | abs) | round(0) | int }} W** to grid{% else %}Measuring ({{ grid | int }} W){% endif %} | **P1:** {{ p1_age }}s ago
+
+              **Error:** {{ err | round(0) | int }} W (target {{ target | int }} W)
+              **Deadband:** {% if err | abs < 15 %}✅ inside ±15 W{% else %}⚡ outside — {{ err | abs | round(0) | int }} W from setpoint{% endif %}
+
+              **{{ states('input_select.hba_strategy') }} strategy** | Executing: **{{ states('sensor.hba_active_strategy') }}** | Flow: **{{ states('input_text.hba_strategy_active_flow') }}**
+
+              **PID cycle:** {{ states('input_text.hba_control_cycle_state') }}
+
+              {% if has_imp or has_exp -%}
+              **Peak shaving:** {% if has_imp %}import ≤ {{ imp_lim }} W{% if grid > imp_lim %} 🔴 clamping{% else %} 🟢{% endif %}{% endif %}{% if has_imp and has_exp %} / {% endif %}{% if has_exp %}export ≤ {{ exp_lim }} W{% if grid < 0 and (grid | abs) > exp_lim %} 🔴 clamping{% else %} 🟢{% endif %}{% endif %}
+
+              {% endif -%}
+              **EV stop:** {{ states(ev_e) if ev_e not in ['','unknown','unavailable'] else '_not configured_' }}
+          - type: heading
+            heading: System state
+            heading_style: title
+            icon: mdi:information-outline
+          - type: entities
+            entities:
+              - entity: binary_sensor.hba_is_charging
+                name: System charging
+              - entity: binary_sensor.hba_charge_goal_reached
+                name: Charge goal reached
+              - entity: input_number.hba_control_prioritize_battery
+                name: Priority battery
+            show_header_toggle: false
+
+      - type: grid
+        cards:
+          - type: heading
+            heading: Battery connectivity
+            heading_style: title
+            icon: mdi:lan-connect
+          - type: markdown
+            content: |-
+              {% set count = states('input_number.hba_battery_count') | int(1) -%}
+              {%- for idx in range(1, count + 1) %}
+              {%- set inv = states('sensor.marstek_m' ~ idx ~ '_inverter_state') -%}
+              {%- set ok = inv not in ['unavailable', 'unknown', ''] %}
+              {{ '🟢' if ok else '🔴' }} **M{{ idx }}** — {{ inv if ok else 'offline / unavailable' }}
+              {%- endfor %}
+          - type: heading
+            heading: Battery aggregates
+            heading_style: title
+            icon: mdi:battery-outline
+          - type: entities
+            entities:
+              - entity: sensor.hba_total_battery_power
+                name: Actual power (measured)
+              - entity: sensor.hba_total_commanded_power
+                name: Commanded power (HBA)
+              - entity: sensor.hba_charge_available_energy
+                name: Available energy
+              - entity: sensor.hba_total_max_charge_power
+                name: Max charge power
+              - entity: sensor.hba_total_max_discharge_power
+                name: Max discharge power
+              - entity: sensor.hba_time_remaining
+                name: Time remaining (discharge)
+            show_header_toggle: false
+
+      - type: grid
+        cards:
+          - type: heading
+            heading: Power history
+            heading_style: title
+            icon: mdi:chart-line
+          - type: history-graph
+            entities:
+              - entity: sensor.p1_meter_power
+                name: Grid (P1)
+              - entity: sensor.hba_total_battery_power
+                name: Batteries
+            hours_to_show: 1
+          - type: heading
+            heading: Insights
+            heading_style: title
+            icon: mdi:magnify
+            visibility:
+              - condition: state
+                entity: input_boolean.hba_control_is_debug_mode
+                state: "on"
+          - type: markdown
+            content: |-
+              {% set count = states('input_number.hba_battery_count') | int(1) -%}
+              {% set desired = states('sensor.hba_total_commanded_power') | float(0) -%}
+              {% set pid_out = states('input_number.hba_control_pid_output') | float(0) -%}
+              {% set p_t = states('input_number.hba_control_p_term') | float(0) -%}
+              {% set i_t = states('input_number.hba_control_i_term') | float(0) -%}
+              {% set d_t = states('input_number.hba_control_d_term') | float(0) -%}
+              {% set kp = states('input_number.hba_control_kp') | float(0) -%}
+              {% set ki = states('input_number.hba_control_ki') | float(0) -%}
+              {% set kd = states('input_number.hba_control_kd') | float(0) -%}
+              {% set max_pw = (states('sensor.hba_total_max_charge_power') if desired >= 0 else states('sensor.hba_total_max_discharge_power')) | float(2500) | int -%}
+              **PID Controller**
+              P {{ p_t | round(0) | int }} W @ gain {{ kp }}
+              I {{ i_t | round(0) | int }} W @ gain {{ ki }} (max. {{ max_pw }} W)
+              D {{ d_t | round(0) | int }} W @ gain {{ kd }}
+              **PID {{ 'Charge' if pid_out > 0 else 'Discharge' }}:** {{ p_t | round(0) | int }} + {{ i_t | round(0) | int }} + {{ d_t | round(0) | int }} = **{{ pid_out | round(0) | int }} W**
+
+              {% set thr1 = states('input_number.hba_control_slow_charge_soc_threshold_1') | float(95) -%}
+              {%- set lim1 = states('input_number.hba_control_slow_charge_power_limit_1') | float(0) | int -%}
+              {%- set thr2 = states('input_number.hba_control_slow_charge_soc_threshold_2') | float(99) -%}
+              {%- set lim2 = states('input_number.hba_control_slow_charge_power_limit_2') | float(0) | int -%}
+              {%- set idle_cfg_s = states('input_number.hba_control_idle_time') | float(5) * 60 | int -%}
+              **Load distribution** — compensate **{{ desired | abs | round(0) | int }} W** ({{ count }} batter{{ 'y' if count == 1 else 'ies' }})
+              {% for idx in range(1, count + 1) -%}
+              {%- set priority = states('input_number.hba_control_prioritize_battery') | int(1) -%}
+              {%- set soc = states('sensor.marstek_m' ~ idx ~ '_battery_state_of_charge') | float(0) | round(1) -%}
+              {%- set soc_min = states('input_number.hba_marstek_m' ~ idx ~ '_discharging_cutoff_capacity') | float(15) | round(0) | int -%}
+              {%- set soc_max = states('input_number.hba_marstek_m' ~ idx ~ '_charging_cutoff_capacity') | float(100) | round(0) | int -%}
+              {%- set mode = states('select.marstek_m' ~ idx ~ '_forcible_charge_discharge') -%}
+              {%- set rs485 = states('select.marstek_m' ~ idx ~ '_rs485_control_mode') -%}
+              {%- set last_ts = as_timestamp(states('input_datetime.hba_last_active_m' ~ idx)) | float(0) -%}
+              {%- set idle_s = (as_timestamp(now()) - last_ts) | int if last_ts > 0 else -1 -%}
+              {%- set idle_str = (idle_s // 60) ~ 'm ' ~ (idle_s % 60) ~ 's' if idle_s >= 0 else '?' -%}
+              {%- set over_idle = idle_s >= idle_cfg_s if idle_s >= 0 else false -%}
+              {%- if mode == 'charge' -%}
+              {%- set power = states('number.marstek_m' ~ idx ~ '_forcible_charge_power') | float(0) | int -%}
+              {%- set hw_max = states('number.marstek_m' ~ idx ~ '_max_charge_power') | float(2500) | int -%}
+              {%- elif mode == 'discharge' -%}
+              {%- set power = states('number.marstek_m' ~ idx ~ '_forcible_discharge_power') | float(0) | int -%}
+              {%- set hw_max = states('number.marstek_m' ~ idx ~ '_max_discharge_power') | float(2500) | int -%}
+              {%- else -%}
+              {%- set power = 0 -%}
+              {%- set hw_max = 0 -%}
+              {%- endif %}
+              **M{{ idx }}**{{ ' ★' if idx == priority else '' }} | RS485: {{ rs485 }} | idle {{ idle_str }}{{ ' ⏹ timeout' if over_idle else '' }}
+              {{ soc }}% SoC (min: {{ soc_min }}%, max: {{ soc_max }}%)
+              {%- if mode == 'stop' %} → **stop**
+              {%- else %} → **{{ mode }}** {{ power }}W / {{ hw_max }}W max{% if mode == 'charge' %}{% if lim2 > 0 and soc >= thr2 %} ⚠ slow: {{ lim2 }}W cap{% elif lim1 > 0 and soc >= thr1 %} ⚠ slow: {{ lim1 }}W cap{% endif %}{% endif %}
+              {%- endif %}
+              {% endfor %}
+            visibility:
+              - condition: state
+                entity: input_boolean.hba_control_is_debug_mode
+                state: "on"
+          - type: markdown
+            content: |-
+              {% set cheap_s = states('input_datetime.hba_strategy_dynamic_cheapest_start') -%}
+              {% set cheap_e = states('input_datetime.hba_strategy_dynamic_cheapest_end') -%}
+              {% set exp_s = states('input_datetime.hba_strategy_dynamic_expensive_start') -%}
+              {% set exp_e = states('input_datetime.hba_strategy_dynamic_expensive_end') -%}
+              {% set mark_now = state_attr('sensor.hba_energy_prices_data', 'mark_now') | default('unknown') -%}
+              {% set cheap_strat = states('input_select.hba_strategy_dynamic_cheapest') -%}
+              {% set exp_strat = states('input_select.hba_strategy_dynamic_expensive') -%}
+              {% set def_strat = states('input_select.hba_strategy_dynamic_default') -%}
+              {% set cheap_met = is_state('binary_sensor.hba_dynamic_cheap_threshold_met', 'on') -%}
+              {% set exp_met = is_state('binary_sensor.hba_dynamic_expensive_threshold_met', 'on') -%}
+              {% set strategy = states('input_select.hba_strategy') -%}
+              **Dynamic pricing — now**
+              Mark: **{{ mark_now }}**{% if strategy == 'Dynamic' %} | Cheap threshold: {{ '✅ met' if cheap_met else '❌ not met (SKIP)' }} | Exp. threshold: {{ '✅ met' if exp_met else '❌ not met (SKIP)' }}{% endif %}
+
+              🟢 Cheap → **{{ cheap_strat }}** ({{ cheap_s[11:16] if cheap_s | length > 15 else '?' }} – {{ cheap_e[11:16] if cheap_e | length > 15 else '?' }})
+              🟠 Expensive → **{{ exp_strat }}** ({{ exp_s[11:16] if exp_s | length > 15 else '?' }} – {{ exp_e[11:16] if exp_e | length > 15 else '?' }})
+              — Default → **{{ def_strat }}**
+            visibility:
+              - condition: state
+                entity: input_boolean.hba_control_is_debug_mode
+                state: "on"
+              - condition: or
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_strategy
+                    state: "Dynamic"
+                  - condition: state
+                    entity: input_select.hba_strategy
+                    state: "Dynamic v2"
+
+
+  # ── VIEW 6: ADVANCED SETTINGS ───────────────────────────────────────────────
   - type: sections
     max_columns: 3
     title: Advanced settings
     path: advanced-settings
     icon: mdi:cog-outline
+    cards: []
+    badges:
+      - type: entity
+        show_name: true
+        show_state: true
+        show_icon: true
+        entity: input_select.hba_strategy
+        name: Choose strategy
+        tap_action:
+          action: more-info
+      - type: entity
+        show_name: true
+        show_state: true
+        show_icon: true
+        entity: sensor.hba_active_strategy
+        show_entity_picture: false
+        name: Executing
+      - type: entity
+        show_name: true
+        show_state: true
+        show_icon: true
+        entity: input_text.hba_strategy_active_flow
+        show_entity_picture: false
+        name: Flow
+    header:
+      layout: center
+      badges_position: top
+      badges_wrap: scroll
+      card:
+        type: markdown
+        text_only: true
+        content: '### Advanced settings *(HBA v4.10.0-r1)*'
     sections:
+      # Battery offline warning — full width, hidden when all batteries are online
+      - type: grid
+        column_span: 3
+        visibility:
+          - condition: state
+            entity: binary_sensor.hba_any_battery_offline
+            state: "on"
+        cards:
+          - type: markdown
+            content: >
+              {% set count = states('input_number.hba_battery_count') | int(1) %}
+              {% set ns = namespace(offline=[]) %}
+              {% for i in range(1, count + 1) %}
+                {% set inv = states('sensor.marstek_m' ~ i ~ '_inverter_state') %}
+                {% if inv in ['unavailable', 'unknown', ''] %}
+                  {% set ns.offline = ns.offline + ['M' ~ i] %}
+                {% endif %}
+              {% endfor %}
+              <ha-alert alert-type="error">Battery {{ ns.offline | join(', ') }} offline — check connectivity or reduce battery count in settings.</ha-alert>
       - type: grid
         cards:
           - type: heading
@@ -1660,23 +1986,9 @@ views:
             icon: mdi:home
           - type: entities
             entities:
-              - entity: input_number.house_battery_count
+              - entity: input_number.hba_battery_count
           - type: tile
-            visibility:
-              - condition: state
-                entity: input_boolean.house_battery_control_has_node_red
-                state: 'on'
-              - condition: not
-                conditions:
-                  - condition: or
-                    conditions:
-                      - condition: state
-                        entity: sensor.p1_meter_power
-                        state: unavailable
-                      - condition: state
-                        entity: sensor.p1_meter_power
-                        state: unknown
-            entity: input_boolean.house_battery_control_onboarding_finished
+            entity: input_boolean.hba_control_onboarding_finished
             name: Show/Hide onboarding
             icon: mdi:eye-off-outline
             color: disabled
@@ -1688,6 +2000,7 @@ views:
             features_position: bottom
             grid_options:
               columns: full
+
       - type: grid
         cards:
           - type: heading
@@ -1707,9 +2020,9 @@ views:
             show_state: true
             type: glance
             entities:
-              - entity: input_number.house_battery_control_prioritize_battery
+              - entity: input_number.hba_control_prioritize_battery
                 name: 'Battery #'
-              - entity: input_select.house_battery_control_priority_change_interval
+              - entity: input_select.hba_control_priority_change_interval
             state_color: false
             columns: 3
           - type: heading
@@ -1722,11 +2035,19 @@ views:
                 https://docs.homebatterycontrol.com/06-advanced-features.html#battery-life
           - type: entities
             entities:
-              - entity: input_number.house_battery_control_idle_time
+              - entity: input_number.hba_control_idle_time
                 name: Stop after Idle for
-              - entity: input_number.house_battery_control_hysteresis_in_w
+              - entity: input_number.hba_control_hysteresis_in_w
                 name: 'Hysteresis '
                 secondary_info: none
+          - type: markdown
+            content: >-
+              <font color="grey"><i>Recommended: **Kp × 50 W** (e.g. Kp=0.7 →
+              35 W, round up to 50 W). Too low causes charge/discharge
+              oscillation near the setpoint; too high prevents small
+              corrections.</i></font>
+            text_only: true
+
       - type: grid
         cards:
           - type: heading
@@ -1743,7 +2064,7 @@ views:
             text_only: true
           - type: entities
             entities:
-              - entity: input_text.house_battery_strategy_ev_sensor_entity_id
+              - entity: input_text.hba_strategy_ev_sensor_entity_id
                 secondary_info: none
           - type: markdown
             content: >-
@@ -1751,19 +2072,36 @@ views:
               `on/off template_sensor` in the field above</font>
             text_only: true
           - type: tile
-            grid_options:
-              columns: full
-            entity: sensor.ev_is_charging
+            entity: binary_sensor.hba_ev_is_active
             name: EV stop trigger
             vertical: false
             features_position: bottom
+            grid_options:
+              columns: full
           - type: markdown
             content: >-
-              <font color=grey>The `EV stop trigger` should now indicate whether
-              an all stop has been triggered. Stop trigger 'on' = batteries
-              'Full stop'.</font>
+              <font color=grey>The EV stop trigger should indicate whether a
+              Full Stop has been triggered. Trigger **on** = batteries in Full
+              stop.</font>
             text_only: true
+          - type: tile
+            entity: input_boolean.hba_control_has_power_limit_during_ev_charge
+            name: Keep peak shaving active during EV stop
+            color: blue
+            vertical: false
+            hide_state: true
+            features_position: bottom
+            grid_options:
+              columns: full
+          - type: markdown
+            content: >-
+              <font color=grey>When enabled, batteries still respond to import/export
+              power limits while the EV stop trigger is active (uses Standby / peak
+              shave strategy instead of Full stop).</font>
+            text_only: true
+
       - type: grid
+        column_span: 3
         cards:
           - type: heading
             icon: mdi:transmission-tower
@@ -1785,18 +2123,18 @@ views:
           - type: markdown
             content: >-
               <font color=grey><i>Use your batteries to reduce peak loads and
-              reduce 'capacity tariff' (aka CAPTAR, aka capaciteitstarief). 
-
-              When enabled, the batteries will automatically charge or discharge
-              (when able) to reduce peak loads on your **grid connection**.
-              Active during every strategy except "`Full Stop`"</i>
+              reduce 'capacity tariff' (aka CAPTAR). When enabled, the batteries
+              will automatically charge or discharge (when able) to reduce peak
+              loads on your **grid connection**. Active during every strategy
+              except "`Full Stop`"</i>
 
               </font>
             text_only: true
             grid_options:
               columns: full
-        column_span: 3
+
       - type: grid
+        column_span: 1
         cards:
           - type: heading
             icon: mdi:transmission-tower-import
@@ -1804,14 +2142,13 @@ views:
             heading_style: subtitle
           - type: entities
             entities:
-              - entity: input_boolean.house_battery_control_has_power_limit_import
+              - entity: input_boolean.hba_control_has_power_limit_import
               - type: conditional
                 conditions:
-                  - entity: input_boolean.house_battery_control_has_power_limit_import
+                  - entity: input_boolean.hba_control_has_power_limit_import
                     state: 'on'
                 row:
-                  type: input-number-entity
-                  entity: input_number.house_battery_control_power_limit_import
+                  entity: input_number.hba_control_power_limit_import
                   icon: mdi:home-import-outline
           - type: markdown
             content: >-
@@ -1822,7 +2159,7 @@ views:
             text_only: true
             grid_options:
               columns: full
-        column_span: 1
+
       - type: grid
         cards:
           - type: heading
@@ -1831,14 +2168,13 @@ views:
             heading_style: subtitle
           - type: entities
             entities:
-              - entity: input_boolean.house_battery_control_has_power_limit_export
+              - entity: input_boolean.hba_control_has_power_limit_export
               - type: conditional
                 conditions:
-                  - entity: input_boolean.house_battery_control_has_power_limit_export
+                  - entity: input_boolean.hba_control_has_power_limit_export
                     state: 'on'
                 row:
-                  type: input-number-entity
-                  entity: input_number.house_battery_control_power_limit_export
+                  entity: input_number.hba_control_power_limit_export
           - type: markdown
             content: >-
               <font color=grey><i>This also determines **Sell strategy**
@@ -1848,42 +2184,75 @@ views:
             text_only: true
             grid_options:
               columns: full
-      - type: grid
-        cards:
-          - type: heading
-            icon: mdi:car-electric
-            heading: Home Energy Control
-            heading_style: subtitle
-          - type: entities
-            entities:
-              - entity: >-
-                  input_boolean.house_battery_control_has_power_limit_during_ev_charge
-          - type: markdown
-            content: >-
-              <font color=grey><i>Keep batteries available for peak shaving even
-              when the EV stop trigger is active. The EV stop trigger does stop
-              any other strategies from executing.</i> 
 
-              ℹ️ Your grid import limit should be larger than your EV charge
-              power to prevent your EV from draining your home battery.
-
-              </font>
-            text_only: true
-            grid_options:
-              columns: full
-        visibility:
-          - condition: state
-            entity: >-
-              input_boolean.house_battery_control_has_power_limit_during_ev_charge
-            state_not: unknown
       - type: grid
+        column_span: 3
         cards:
           - type: markdown
             content: '---'
             grid_options:
               columns: full
             text_only: true
+
+      # Slow charge — battery health
+      - type: grid
         column_span: 3
+        cards:
+          - type: heading
+            icon: mdi:battery-heart-variant
+            heading: Battery health — slow charge near full SoC
+            heading_style: title
+          - type: markdown
+            content: >-
+              <font color=grey><i>Reduces charge power when a battery's SoC
+              exceeds each threshold, to protect cell health at high charge
+              levels. Two configurable levels — the stricter limit wins when
+              both thresholds are exceeded. Set either **power limit to 0 W**
+              to disable that level and let the BMS handle the taper
+              instead.</i>
+
+              </font>
+            text_only: true
+            grid_options:
+              columns: full
+
+      - type: grid
+        column_span: 1
+        cards:
+          - type: heading
+            icon: mdi:speedometer-slow
+            heading: Slow charge level 1
+            heading_style: subtitle
+          - type: entities
+            entities:
+              - entity: input_number.hba_control_slow_charge_soc_threshold_1
+                name: SoC threshold
+              - entity: input_number.hba_control_slow_charge_power_limit_1
+                name: Max charge power (0 = disabled)
+
+      - type: grid
+        cards:
+          - type: heading
+            icon: mdi:speedometer-slow
+            heading: Slow charge level 2
+            heading_style: subtitle
+          - type: entities
+            entities:
+              - entity: input_number.hba_control_slow_charge_soc_threshold_2
+                name: SoC threshold
+              - entity: input_number.hba_control_slow_charge_power_limit_2
+                name: Max charge power (0 = disabled)
+
+      - type: grid
+        column_span: 3
+        cards:
+          - type: markdown
+            content: '---'
+            grid_options:
+              columns: full
+            text_only: true
+
+      # Per-battery settings M1
       - type: grid
         cards:
           - type: heading
@@ -1896,7 +2265,7 @@ views:
                 content: '**<font color="#9b9b9b">Discharging</font>**'
                 text_only: true
               - type: tile
-                entity: input_number.marstek_m1_discharging_cutoff_capacity
+                entity: input_number.hba_marstek_m1_discharging_cutoff_capacity
                 name: Cutoff capacity
                 hide_state: true
                 vertical: false
@@ -1925,7 +2294,7 @@ views:
                 grid_options:
                   columns: 12
                   rows: 2
-                entity: input_number.marstek_m1_charging_cutoff_capacity
+                entity: input_number.hba_marstek_m1_charging_cutoff_capacity
                 name: Cutoff capacity
                 hide_state: true
                 vertical: false
@@ -1953,6 +2322,8 @@ views:
               action: url
               url_path: >-
                 https://docs.homebatterycontrol.com/06-advanced-features.html#chargingdischarging-limits
+
+      # Per-battery settings M2
       - type: grid
         cards:
           - type: heading
@@ -1965,7 +2336,7 @@ views:
                 content: '**<font color="#9b9b9b">Discharging</font>**'
                 text_only: true
               - type: tile
-                entity: input_number.marstek_m2_discharging_cutoff_capacity
+                entity: input_number.hba_marstek_m2_discharging_cutoff_capacity
                 name: Cutoff capacity
                 hide_state: true
                 vertical: false
@@ -1994,7 +2365,7 @@ views:
                 grid_options:
                   columns: 12
                   rows: 2
-                entity: input_number.marstek_m2_charging_cutoff_capacity
+                entity: input_number.hba_marstek_m2_charging_cutoff_capacity
                 name: Cutoff capacity
                 hide_state: true
                 vertical: false
@@ -2016,8 +2387,10 @@ views:
                 features_position: inline
         visibility:
           - condition: numeric_state
-            entity: input_number.house_battery_count
+            entity: input_number.hba_battery_count
             above: 1
+
+      # Per-battery settings M3
       - type: grid
         cards:
           - type: heading
@@ -2030,7 +2403,7 @@ views:
                 content: '**<font color="#9b9b9b">Discharging</font>**'
                 text_only: true
               - type: tile
-                entity: input_number.marstek_m3_discharging_cutoff_capacity
+                entity: input_number.hba_marstek_m3_discharging_cutoff_capacity
                 name: Cutoff capacity
                 hide_state: true
                 vertical: false
@@ -2059,7 +2432,7 @@ views:
                 grid_options:
                   columns: 12
                   rows: 2
-                entity: input_number.marstek_m3_charging_cutoff_capacity
+                entity: input_number.hba_marstek_m3_charging_cutoff_capacity
                 name: Cutoff capacity
                 hide_state: true
                 vertical: false
@@ -2081,8 +2454,10 @@ views:
                 features_position: inline
         visibility:
           - condition: numeric_state
-            entity: input_number.house_battery_count
+            entity: input_number.hba_battery_count
             above: 2
+
+      # Per-battery settings M4
       - type: grid
         cards:
           - type: heading
@@ -2095,7 +2470,7 @@ views:
                 content: '**<font color="#9b9b9b">Discharging</font>**'
                 text_only: true
               - type: tile
-                entity: input_number.marstek_m4_discharging_cutoff_capacity
+                entity: input_number.hba_marstek_m4_discharging_cutoff_capacity
                 name: Cutoff capacity
                 hide_state: true
                 vertical: false
@@ -2124,7 +2499,7 @@ views:
                 grid_options:
                   columns: 12
                   rows: 2
-                entity: input_number.marstek_m4_charging_cutoff_capacity
+                entity: input_number.hba_marstek_m4_charging_cutoff_capacity
                 name: Cutoff capacity
                 hide_state: true
                 vertical: false
@@ -2144,10 +2519,20 @@ views:
                   - type: numeric-input
                     style: buttons
                 features_position: inline
+          - type: heading
+            icon: mdi:information-slab-circle
+            heading: Cutoff capacities
+            heading_style: subtitle
+            tap_action:
+              action: url
+              url_path: >-
+                https://docs.homebatterycontrol.com/06-advanced-features.html#chargingdischarging-limits
         visibility:
           - condition: numeric_state
-            entity: input_number.house_battery_count
+            entity: input_number.hba_battery_count
             above: 3
+
+      # Per-battery settings M5
       - type: grid
         cards:
           - type: heading
@@ -2160,7 +2545,7 @@ views:
                 content: '**<font color="#9b9b9b">Discharging</font>**'
                 text_only: true
               - type: tile
-                entity: input_number.marstek_m5_discharging_cutoff_capacity
+                entity: input_number.hba_marstek_m5_discharging_cutoff_capacity
                 name: Cutoff capacity
                 hide_state: true
                 vertical: false
@@ -2189,7 +2574,7 @@ views:
                 grid_options:
                   columns: 12
                   rows: 2
-                entity: input_number.marstek_m5_charging_cutoff_capacity
+                entity: input_number.hba_marstek_m5_charging_cutoff_capacity
                 name: Cutoff capacity
                 hide_state: true
                 vertical: false
@@ -2209,10 +2594,20 @@ views:
                   - type: numeric-input
                     style: buttons
                 features_position: inline
+          - type: heading
+            icon: mdi:information-slab-circle
+            heading: Cutoff capacities
+            heading_style: subtitle
+            tap_action:
+              action: url
+              url_path: >-
+                https://docs.homebatterycontrol.com/06-advanced-features.html#chargingdischarging-limits
         visibility:
           - condition: numeric_state
-            entity: input_number.house_battery_count
+            entity: input_number.hba_battery_count
             above: 4
+
+      # Per-battery settings M6
       - type: grid
         cards:
           - type: heading
@@ -2225,7 +2620,7 @@ views:
                 content: '**<font color="#9b9b9b">Discharging</font>**'
                 text_only: true
               - type: tile
-                entity: input_number.marstek_m6_discharging_cutoff_capacity
+                entity: input_number.hba_marstek_m6_discharging_cutoff_capacity
                 name: Cutoff capacity
                 hide_state: true
                 vertical: false
@@ -2254,7 +2649,7 @@ views:
                 grid_options:
                   columns: 12
                   rows: 2
-                entity: input_number.marstek_m6_charging_cutoff_capacity
+                entity: input_number.hba_marstek_m6_charging_cutoff_capacity
                 name: Cutoff capacity
                 hide_state: true
                 vertical: false
@@ -2274,17 +2669,119 @@ views:
                   - type: numeric-input
                     style: buttons
                 features_position: inline
+          - type: heading
+            icon: mdi:information-slab-circle
+            heading: Cutoff capacities
+            heading_style: subtitle
+            tap_action:
+              action: url
+              url_path: >-
+                https://docs.homebatterycontrol.com/06-advanced-features.html#chargingdischarging-limits
         visibility:
           - condition: numeric_state
-            entity: input_number.house_battery_count
+            entity: input_number.hba_battery_count
             above: 5
+
+      - type: grid
+        cards:
+          - type: heading
+            heading: HBA-specific settings
+            heading_style: title
+            icon: mdi:home-battery
+          - type: heading
+            heading: HBA ↔ HBC handoff
+            heading_style: subtitle
+            icon: mdi:transit-connection-variant
+          - type: horizontal-stack
+            cards:
+              - type: button
+                name: Take control (HBA)
+                icon: mdi:home-battery
+                show_name: true
+                show_icon: true
+                tap_action:
+                  action: perform-action
+                  perform_action: script.turn_on
+                  target:
+                    entity_id: script.hba_take_control
+              - type: button
+                name: Yield to HBC
+                icon: mdi:transit-connection-variant
+                show_name: true
+                show_icon: true
+                tap_action:
+                  action: perform-action
+                  perform_action: script.turn_on
+                  target:
+                    entity_id: script.hba_yield_to_hbc
+          - type: entities
+            entities:
+              - entity: input_text.hba_hbc_nodered_addon_slug
+                name: Node-RED addon slug
+          - type: markdown
+            content: >-
+              <font color=grey><i>Only needed when running HBA alongside HBC. The
+              slug is used by the Take control / Yield to HBC buttons to start and
+              stop Node-RED. The default (`a0d7b954_nodered`) is correct for most
+              installations — only change it if your Node-RED addon has a different
+              slug.</i></font>
+            text_only: true
+          - type: heading
+            heading: Frank Energie
+            heading_style: subtitle
+            icon: mdi:lightning-bolt
+          - type: entities
+            entities:
+              - entity: input_text.hba_strategy_dynamic_frank_sensor_entity_id
+                name: Frank Energie prices sensor
+                icon: mdi:lightning-bolt
+          - type: markdown
+            content: >-
+              <font color=grey><i>Only used when the dynamic pricing data source
+              is set to Frank Energie. The default matches HBC — change it if
+              your integration uses English entity names or you prefer market
+              price over all-in.</i></font>
+            text_only: true
+          - type: heading
+            heading: Reset to defaults
+            heading_style: subtitle
+            icon: mdi:cog-refresh
+          - type: markdown
+            content: >-
+              <ha-alert alert-type="warning">Resets all HBA parameters to safe
+              starting values. Any values you have configured will be
+              overwritten.</ha-alert>
+            text_only: true
+            grid_options:
+              columns: full
+          - type: button
+            name: Reset to defaults
+            icon: mdi:cog-refresh
+            show_name: true
+            show_icon: true
+            tap_action:
+              action: perform-action
+              perform_action: script.turn_on
+              target:
+                entity_id: script.hba_apply_defaults
+              confirmation:
+                text: >-
+                  This will reset all HBA parameters to safe starting values.
+                  Any values you have configured will be overwritten. Continue?
+
+  # ── VIEW 7: LAB FEATURES ────────────────────────────────────────────────────
+  - type: sections
+    max_columns: 3
+    title: Lab features
+    path: lab-features
+    icon: mdi:flask
     cards: []
     badges:
       - type: entity
         show_name: true
         show_state: true
         show_icon: true
-        entity: input_select.house_battery_strategy
+        entity: input_select.hba_strategy
         name: Choose strategy
         tap_action:
           action: more-info
@@ -2292,104 +2789,34 @@ views:
         show_name: true
         show_state: true
         show_icon: true
-        entity: input_text.house_battery_strategy_active_sub_strategy
+        entity: sensor.hba_active_strategy
         show_entity_picture: false
         name: Executing
+      - type: entity
+        show_name: true
+        show_state: true
+        show_icon: true
+        entity: input_text.hba_strategy_active_flow
+        show_entity_picture: false
+        name: Flow
     header:
+      card:
+        type: markdown
+        text_only: true
+        content: >-
+          ### Lab features *(HBA v4.10.0-r1)*
+
+          These features are experimental. Use at your own discretion.
       layout: center
       badges_position: top
       badges_wrap: scroll
-  - type: sections
-    max_columns: 3
-    title: Lab features
-    path: lab-features
-    icon: mdi:flask
     sections:
+      # ── Config column ────────────────────────────────────────────────────────
       - type: grid
         cards:
           - type: heading
             heading: FEAT | Dynamic strategy v2 (multi-peak support)
             heading_style: title
-          - type: markdown
-            content: |-
-              <ha-alert title="Choose strategy **Dynamic v2**">
-              To activate this lab feature</ha-alert>
-            visibility:
-              - condition: not
-                conditions:
-                  - condition: state
-                    entity: input_select.house_battery_strategy
-                    state: Dynamic 2
-            text_only: true
-          - type: heading
-            icon: mdi:information
-            heading: Using the dynamic v2 strategy
-            heading_style: subtitle
-            tap_action:
-              action: url
-              url_path: https://docs.homebatterycontrol.com/05-dynamic-v2.html
-            visibility:
-              - condition: not
-                conditions:
-                  - condition: state
-                    entity: update.cheapest_energy_hours_update
-                    state: unavailable
-                  - condition: state
-                    entity: update.cheapest_energy_hours_update
-                    state: unknown
-          - type: markdown
-            content: >-
-              <ha-alert alert-type="info">Cheapest Hours integration not
-              installed.</ha-alert>
-
-
-              This strategy uses [the Cheapest Hours integration from
-              TheFes](https://github.com/TheFes/cheapest-energy-hours/tree/main?tab=readme-ov-file#how-to-install).
-
-              Please install via HACS or follow his instructions.
-            text_only: true
-            visibility:
-              - condition: or
-                conditions:
-                  - condition: state
-                    entity: update.cheapest_energy_hours_update
-                    state: unavailable
-                  - condition: state
-                    entity: update.cheapest_energy_hours_update
-                    state: unknown
-          - type: heading
-            icon: mdi:information
-            heading_style: subtitle
-            tap_action:
-              action: url
-              url_path: >-
-                https://docs.homebatterycontrol.com/05-setup-dynamic.html#setup-getting-dynamic-up-and-running
-            visibility:
-              - condition: or
-                conditions:
-                  - condition: state
-                    entity: update.cheapest_energy_hours_update
-                    state: unavailable
-                  - condition: state
-                    entity: update.cheapest_energy_hours_update
-                    state: unknown
-            heading: Setup instructions dynamic strategy
-          - type: entities
-            entities:
-              - entity: input_select.house_battery_strategy_dynamic_data_source
-            grid_options:
-              columns: 9
-              rows: auto
-          - clock_style: digital
-            clock_size: small
-            show_seconds: false
-            no_background: true
-            type: clock
-            grid_options:
-              columns: 3
-              rows: 1
-            title: Time
-            face_style: markers
           - type: heading
             icon: mdi:information
             heading_style: subtitle
@@ -2400,9 +2827,34 @@ views:
                 https://docs.homebatterycontrol.com/05-setup-dynamic.html#strategy-configuration
           - type: entities
             entities:
-              - entity: input_number.house_battery_strategy_dynamic_threshold_delta
+              - entity: input_select.hba_strategy_dynamic_data_source
+            grid_options:
+              columns: 9
+              rows: auto
+          - type: entities
+            entities:
+              - entity: input_text.hba_strategy_dynamic_frank_sensor_entity_id
+                name: Frank Energie prices sensor
+                icon: mdi:lightning-bolt
+            visibility:
+              - condition: state
+                entity: input_select.hba_strategy_dynamic_data_source
+                state: "Frank Energie"
+          - clock_style: digital
+            clock_size: small
+            show_seconds: false
+            no_background: true
+            type: clock
+            grid_options:
+              columns: 3
+              rows: 1
+            title: Time
+            face_style: markers
+          - type: entities
+            entities:
+              - entity: input_number.hba_strategy_dynamic_threshold_delta
                 name: Min. price difference
-              - entity: sensor.hbc_energy_prices_data
+              - entity: sensor.hba_energy_prices_data
                 type: attribute
                 attribute: mark_now
                 name: Current period
@@ -2412,7 +2864,7 @@ views:
             heading: Regular period
           - type: entities
             entities:
-              - entity: input_select.house_battery_strategy_dynamic_default
+              - entity: input_select.hba_strategy_dynamic_default
                 name: Default to
           - type: heading
             icon: mdi:timeline-clock-outline
@@ -2420,47 +2872,45 @@ views:
             heading_style: subtitle
           - type: entities
             entities:
-              - entity: input_select.house_battery_strategy_dynamic_cheapest
+              - entity: input_select.hba_strategy_dynamic_cheapest
                 name: I want to use
-              - entity: input_number.house_battery_strategy_dynamic_cheapest_hrs
-                name: 'Max # cheap hrs'
+              - entity: input_number.hba_strategy_dynamic_v2_max_cheap_hours_per_day
+                name: Max # cheap hrs
           - type: heading
             icon: mdi:timeline-clock-outline
             heading: Expensive periods
             heading_style: subtitle
           - type: entities
             entities:
-              - entity: input_select.house_battery_strategy_dynamic_expensive
+              - entity: input_select.hba_strategy_dynamic_expensive
                 name: I want to use
-              - entity: input_number.house_battery_strategy_dynamic_expensive_hrs
-                name: 'Max # expensive hrs'
+              - entity: input_number.hba_strategy_dynamic_v2_max_expensive_hours_per_day
+                name: Max # expensive hrs
+
+      # ── Price marks visualisation ─────────────────────────────────────────────
       - type: grid
         cards:
           - type: heading
             heading: FEAT | Price marks visualisation
             heading_style: title
             icon: mdi:chart-bar
-          - type: heading
-            icon: mdi:spider
-            heading: Enable insights mode to view this data
-            heading_style: subtitle
           - type: markdown
             content: >-
               <small><small>
 
 
-              | Time | Today ¢ | Mark | Trend | Tomorrow ¢ | Mark | Trend |
+              | Time | Today ¢ | Mark | Trend | · | Tomorrow ¢ | Mark | Trend |
 
-              |:---:|---:|:---:|:---:|---:|:---:|:---:|
+              |:---:|---:|:---:|:---:|:---:|---:|:---:|:---:|
 
-              {% set s = 'sensor.hbc_energy_prices_data' %}
+              {% set s = 'sensor.hba_energy_prices_data' %}
 
               {%- set prices = state_attr(s, 'prices') or [] -%}
 
-              {%- set marks  = state_attr(s, 'marks') or [] -%}
+              {%- set marks_raw = state_attr(s, 'marks') -%}
+              {%- set marks  = (marks_raw | from_json) if marks_raw is string and marks_raw | trim != '' else (marks_raw or []) -%}
 
-              {%- set pph    = state_attr(s, 'datapoints_per_hour') | default(1,
-              true) | int -%}
+              {%- set pph    = state_attr(s, 'datapoints_per_hour') | default(1, true) | int -%}
 
               {%- set ppd    = 24 * pph -%}
 
@@ -2468,14 +2918,16 @@ views:
 
               {%- set bars   = ['▁','▂','▃','▄','▅','▆','▇','█'] -%}
 
-              {%- set pmin   = (prices | min) if prices else 0 -%}
+              {%- set t_prices = prices[:ppd] if (prices | length) >= ppd else prices -%}
+              {%- set m_prices = prices[ppd:ppd*2] if (prices | length) >= ppd*2 else [] -%}
+              {%- set t_pmin = (t_prices | min) if t_prices else 0 -%}
+              {%- set t_pmax = (t_prices | max) if t_prices else 0 -%}
+              {%- set t_rng  = t_pmax - t_pmin -%}
+              {%- set m_pmin = (m_prices | min) if m_prices else 0 -%}
+              {%- set m_pmax = (m_prices | max) if m_prices else 0 -%}
+              {%- set m_rng  = m_pmax - m_pmin -%}
 
-              {%- set pmax   = (prices | max) if prices else 0 -%}
-
-              {%- set rng    = pmax - pmin -%}
-
-              {%- set current_idx = now().hour * pph + (now().minute // step)
-              -%}
+              {%- set current_idx = now().hour * pph + (now().minute // step) -%}
 
               {%- if prices and (prices | length) >= ppd -%}
                 {%- for i in range(ppd) -%}
@@ -2486,167 +2938,40 @@ views:
                   {%- set minute    = (i % pph) * step -%}
                   {%- set t_mark    = marks[i].mark if (marks | length) > i else none -%}
                   {%- set tom_mark  = marks[t_idx].mark if (marks | length) > t_idx else none -%}
-                  {%- set t_bar     = bars[((t_price - pmin) / rng * 7) | round(0) | int] if rng > 0 else bars[0] -%}
-                  {%- set tom_bar   = (bars[((tom_price - pmin) / rng * 7) | round(0) | int] if (tom_price is not none and rng > 0) else (bars[0] if tom_price is not none else '-')) -%}
-                  {%- set t_emoji   = '🔴' if t_mark == 'high' else ('🟢' if t_mark == 'low' else '—') -%}
-                  {%- set tom_emoji = '🔴' if tom_mark == 'high' else ('🟢' if tom_mark == 'low' else ('—' if tom_price is not none else '-')) -%}
-                  | {% if i == current_idx %}<font color="#009ac7">{{ "%02d"|format(hour) }}:{{ "%02d"|format(minute) }}</font>{% else %}{{ "%02d"|format(hour) }}:{{ "%02d"|format(minute) }}{% endif %} | {% if i == current_idx %}<font color="#009ac7">{{ "%0.1f"|format(t_price) }}</font>{% elif t_mark == 'high' %}<font color="orange">{{ "%0.1f"|format(t_price) }}</font>{% elif t_mark == 'low' %}<font color="#4caf50">{{ "%0.1f"|format(t_price) }}</font>{% else %}{{ "%0.1f"|format(t_price) }}{% endif %} | {{ t_emoji }} | {% if i == current_idx %}<font color="#009ac7">{{ t_bar }}</font>{% elif t_mark == 'high' %}<font color="orange">{{ t_bar }}</font>{% elif t_mark == 'low' %}<font color="#4caf50">{{ t_bar }}</font>{% else %}{{ t_bar }}{% endif %} | {% if tom_price is not none %}{% if tom_mark == 'high' %}<font color="orange">{{ "%0.1f"|format(tom_price) }}</font>{% elif tom_mark == 'low' %}<font color="#4caf50">{{ "%0.1f"|format(tom_price) }}</font>{% else %}{{ "%0.1f"|format(tom_price) }}{% endif %}{% else %}-{% endif %} | {{ tom_emoji }} | {% if tom_mark == 'high' %}<font color="orange">{{ tom_bar }}</font>{% elif tom_mark == 'low' %}<font color="#4caf50">{{ tom_bar }}</font>{% else %}{{ tom_bar }}{% endif %} |
+                  {%- set t_bar     = bars[((t_price - t_pmin) / t_rng * 7) | round(0) | int] if t_rng > 0 else bars[0] -%}
+                  {%- set tom_bar   = (bars[((tom_price - m_pmin) / m_rng * 7) | round(0) | int] if (tom_price is not none and m_rng > 0) else (bars[0] if tom_price is not none else '-')) -%}
+                  {%- set t_emoji   = '🟠' if t_mark == 'high' else ('🟢' if t_mark == 'low' else '—') -%}
+                  {%- set tom_emoji = '🟠' if tom_mark == 'high' else ('🟢' if tom_mark == 'low' else ('—' if tom_price is not none else '-')) -%}
+                  | {% if i == current_idx %}<font color="#009ac7">{{ "%02d"|format(hour) }}:{{ "%02d"|format(minute) }}</font>{% else %}{{ "%02d"|format(hour) }}:{{ "%02d"|format(minute) }}{% endif %} | {% if i == current_idx %}<font color="#009ac7">{{ "%0.1f"|format(t_price) }}</font>{% elif t_mark == 'high' %}<font color="orange">{{ "%0.1f"|format(t_price) }}</font>{% elif t_mark == 'low' %}<font color="#4caf50">{{ "%0.1f"|format(t_price) }}</font>{% else %}{{ "%0.1f"|format(t_price) }}{% endif %} | {{ t_emoji }} | {% if i == current_idx %}<font color="#009ac7">{{ t_bar }}</font>{% elif t_mark == 'high' %}<font color="orange">{{ t_bar }}</font>{% elif t_mark == 'low' %}<font color="#4caf50">{{ t_bar }}</font>{% else %}{{ t_bar }}{% endif %} | | {% if tom_price is not none %}{% if tom_mark == 'high' %}<font color="orange">{{ "%0.1f"|format(tom_price) }}</font>{% elif tom_mark == 'low' %}<font color="#4caf50">{{ "%0.1f"|format(tom_price) }}</font>{% else %}{{ "%0.1f"|format(tom_price) }}{% endif %}{% else %}-{% endif %} | {{ tom_emoji }} | {% if tom_mark == 'high' %}<font color="orange">{{ tom_bar }}</font>{% elif tom_mark == 'low' %}<font color="#4caf50">{{ tom_bar }}</font>{% else %}{{ tom_bar }}{% endif %} |
                 {% endfor %}
               {%- else -%}
-                | - | *Insufficient data available...* | - | - | - | - | - |
+                | - | *Insufficient data available...* | - | - | | - | - | - |
               {% endif %}
 
 
-              **Range:** {{ "%0.1f"|format(pmin) }} – {{ "%0.1f"|format(pmax) }}
-              ¢  •  **Spread:** {{ "%0.1f"|format(rng) }} ¢
+              **Today**
+              Range: {{ "%0.1f"|format(t_pmin) }} – {{ "%0.1f"|format(t_pmax) }} ¢
+              Spread: {{ "%0.1f"|format(t_rng) }} ¢
+
+              {%- if m_prices %}
+
+              **Tomorrow**
+              Range: {{ "%0.1f"|format(m_pmin) }} – {{ "%0.1f"|format(m_pmax) }} ¢
+              Spread: {{ "%0.1f"|format(m_rng) }} ¢
+              {%- endif %}
 
 
               </small></small>
-        visibility:
-          - condition: not
-            conditions:
-              - condition: state
-                entity: update.cheapest_energy_hours_update
-                state: unavailable
-              - condition: state
-                entity: update.cheapest_energy_hours_update
-                state: unknown
-          - condition: state
-            entity: input_boolean.house_battery_control_is_debug_mode
-            state: 'on'
+
+      # ── Price chart ──────────────────────────────────────────────────────────
       - type: grid
         column_span: 2
         cards:
-          - type: heading
-            heading: FEAT | Price periods table
-            heading_style: title
-            icon: mdi:table-row
-          - type: heading
-            icon: mdi:spider
-            heading: Table and strategy explained
-            heading_style: subtitle
-            tap_action:
-              action: url
-              url_path: https://docs.homebatterycontrol.com/05-dynamic-v2.html
-          - type: markdown
-            content: >
-              {%- set s = 'sensor.hbc_energy_prices_data' -%}
-
-              {%- set prices = state_attr(s, 'prices') or [] -%}
-
-              {%- set marks  = state_attr(s, 'marks') or [] -%}
-
-              {%- set pph    = state_attr(s, 'datapoints_per_hour') | default(1,
-              true) | int -%}
-
-              {%- set ppd    = 24 * pph -%}
-
-              {%- set step   = (60 / pph) | int -%}
-
-              {%- set bars   = ['▁','▂','▃','▄','▅','▆','▇','█'] -%}
-
-              {%- set pmin   = (prices | min) if prices else 0 -%}
-
-              {%- set pmax   = (prices | max) if prices else 0 -%}
-
-              {%- set rng    = pmax - pmin -%}
-
-              {%- set current_idx = now().hour * pph + (now().minute // step)
-              -%}
-
-              <small><small>
-
-
-              {% if prices and (prices | length) >= ppd -%}
-
-              **Today**
-
-
-              | |{% for i in range(ppd) %} {% if i == current_idx %}<font
-              color="#009ac7">{{ "%02d"|format(i // pph) }}:{{ "%02d"|format((i
-              % pph) * step) }}</font>{% else %}{{ "%02d"|format(i // pph) }}:{{
-              "%02d"|format((i % pph) * step) }}{% endif %} |{% endfor %}
-
-              |:---:|{% for i in range(ppd) %}:---:|{% endfor %}
-
-              | Cents |{% for i in range(ppd) %} {%- set m = marks[i].mark if
-              (marks | length) > i else none -%}{% if i == current_idx %}<font
-              color="#009ac7">{{ "%0.1f"|format(prices[i]) }}</font>{% elif m ==
-              'high' %}<font color="orange">{{ "%0.1f"|format(prices[i])
-              }}</font>{% elif m == 'low' %}<font color="#4caf50">{{
-              "%0.1f"|format(prices[i]) }}</font>{% else %}{{
-              "%0.1f"|format(prices[i]) }}{% endif %} |{% endfor %}
-
-              | Trend |{% for i in range(ppd) %} {%- set b = bars[((prices[i] -
-              pmin) / rng * 7) | round(0) | int] if rng > 0 else bars[0] -%}{%-
-              set m = marks[i].mark if (marks | length) > i else none -%}{% if i
-              == current_idx %}<font color="#009ac7">{{ b }}</font>{% elif m ==
-              'high' %}<font color="orange">{{ b }}</font>{% elif m == 'low'
-              %}<font color="#4caf50">{{ b }}</font>{% else %}{{ b }}{% endif %}
-              |{% endfor %}
-
-              {%- else %}
-
-              *Insufficient price data...*
-
-              {%- endif %}
-
-
-              {% if (prices | length) >= 2 * ppd -%}
-
-              **Tomorrow**
-
-
-              | |{% for i in range(ppd) %} {{ "%02d"|format(i // pph) }}:{{
-              "%02d"|format((i % pph) * step) }} |{% endfor %}
-
-              |:---:|{% for i in range(ppd) %}:---:|{% endfor %}
-
-              | Cents |{% for i in range(ppd) %} {%- set m = marks[i + ppd].mark
-              if (marks | length) > (i + ppd) else none -%}{% if m == 'high'
-              %}<font color="orange">{{ "%0.1f"|format(prices[i + ppd])
-              }}</font>{% elif m == 'low' %}<font color="#4caf50">{{
-              "%0.1f"|format(prices[i + ppd]) }}</font>{% else %}{{
-              "%0.1f"|format(prices[i + ppd]) }}{% endif %} |{% endfor %}
-
-              | Trend |{% for i in range(ppd) %} {%- set b = bars[((prices[i +
-              ppd] - pmin) / rng * 7) | round(0) | int] if rng > 0 else bars[0]
-              -%}{%- set m = marks[i + ppd].mark if (marks | length) > (i + ppd)
-              else none -%}{% if m == 'high' %}<font color="orange">{{ b
-              }}</font>{% elif m == 'low' %}<font color="#4caf50">{{ b
-              }}</font>{% else %}{{ b }}{% endif %} |{% endfor %}
-
-              {%- endif %}
-
-
-              **Range:** {{ "%0.1f"|format(pmin) }} – {{ "%0.1f"|format(pmax) }}
-              cents
-
-              **Spread:** {{ "%0.1f"|format(rng) }} cents
-
-
-              </small></small>
-            grid_options:
-              columns: full
-          - type: heading
-            icon: mdi:comment-quote
-            heading: Give feedback on this feature
-            heading_style: title
-            tap_action:
-              action: url
-              url_path: https://forms.gle/6cqjc1YefDAEb8Pz9
-            badges:
-              - type: button
-                icon: mdi:gesture-tap-button
-                tap_action:
-                  action: url
-                  url_path: https://forms.gle/6cqjc1YefDAEb8Pz9
-                color: teal
           - type: custom:apexcharts-card
             header:
               show: true
               show_states: false
-              title: Prijsintervallen
+              title: Price intervals
             graph_span: 48h
             span:
               start: day
@@ -2676,14 +3001,15 @@ views:
                 x:
                   format: ddd dd MMM HH:mm
             series:
-              - entity: sensor.hbc_energy_prices_data
-                name: Prijs
+              - entity: sensor.hba_energy_prices_data
+                name: Price
                 type: column
                 float_precision: 1
                 show:
                   legend_value: false
                 data_generator: |
-                  const marks = entity.attributes.marks || [];
+                  const marksRaw = entity.attributes.marks || [];
+                  const marks = typeof marksRaw === 'string' ? JSON.parse(marksRaw) : marksRaw;
                   const colours = { high: '#ff9800', low: '#4caf50' };
                   return marks.map(iv => ({
                     x: new Date(iv.start).getTime(),
@@ -2692,59 +3018,3 @@ views:
                       ? '#009ac7'
                       : (colours[iv.mark] || '#9e9e9e')
                   }));
-        visibility:
-          - condition: not
-            conditions:
-              - condition: state
-                entity: update.cheapest_energy_hours_update
-                state: unavailable
-              - condition: state
-                entity: update.cheapest_energy_hours_update
-                state: unknown
-          - condition: state
-            entity: input_select.house_battery_strategy
-            state: Dynamic 2
-    badges:
-      - type: entity
-        show_name: true
-        show_state: false
-        show_icon: true
-        entity: input_boolean.house_battery_control_is_debug_mode
-        tap_action:
-          action: toggle
-        name: Insights mode
-      - type: entity
-        show_name: true
-        show_state: true
-        show_icon: true
-        entity: input_select.house_battery_strategy
-        name: Choose strategy
-        tap_action:
-          action: more-info
-      - type: entity
-        show_name: true
-        show_state: true
-        show_icon: true
-        entity: input_text.house_battery_strategy_active_sub_strategy
-        show_entity_picture: false
-        name: Executing
-      - type: entity
-        show_name: true
-        show_state: false
-        show_icon: false
-        tap_action:
-          action: url
-          url_path: https://forms.gle/6cqjc1YefDAEb8Pz9
-        entity: input_select.house_battery_strategy
-        name: Give feedback
-        color: teal
-    header:
-      card:
-        type: markdown
-        text_only: true
-        content: >-
-          ### LAB-features
-
-          These features are experimental and may disappear or be adopted in the
-          future. Use at your own discretion.
-    cards: []

@@ -1,0 +1,55 @@
+# hba_strategy_charge_pv.yaml
+#
+# Charge PV strategy — charge batteries from solar surplus only.
+#
+# Calls self-consumption with discharge_disabled=true so the PID only ever outputs
+# positive values (charge direction). When solar production exceeds home consumption,
+# grid_power goes negative (export). The PID then acts to absorb that surplus into
+# the battery until the batteries are full.
+#
+# All-full guard: if every battery is at or above its charging cutoff (±0.5 % buffer),
+# dispatches to Full stop instead of spinning the PID with no useful output.
+# Uses the same ±0.5 % buffer as hba_set_batteries to prevent relay chattering exactly
+# at the boundary (e.g. 99.5 % SoC with 100 % cutoff = considers full, matching set_batteries).
+#
+# flow_prefix field: passed by Timed, Dynamic, or goal-reached dispatchers so the full
+# execution chain appears in the active_flow label, e.g. "Timed → Charge PV → Full stop".
+# The label is written AFTER calling self_consumption (which skips its own label) so the
+# final value reflects the actual executed path (including Charge PV → Full stop).
+
+script:
+  hba_strategy_charge_pv:
+    alias: "HBA: Strategy - Charge PV (solar only)"
+    fields:
+      flow_prefix:
+        description: "Optional prefix prepended to flow labels (e.g. 'Charge → ' when called from goal-reached dispatch)"
+        default: ""
+    sequence:
+      - variables:
+          _flow_prefix: "{{ flow_prefix | default('') }}"
+      - variables:
+          count: "{{ states('input_number.hba_battery_count') | int(1) }}"
+          all_full: >
+            {% set ns = namespace(full=true) %}
+            {% for i in range(1, count + 1) %}
+              {% set soc = states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') | float(0) %}
+              {% set cutoff = states('input_number.hba_marstek_m' ~ i ~ '_charging_cutoff_capacity') | float(100) %}
+              {% if soc < cutoff - 0.5 %}{% set ns.full = false %}{% endif %}
+            {% endfor %}
+            {{ ns.full }}
+      - choose:
+          - conditions: "{{ all_full }}"
+            sequence:
+              - action: input_text.set_value
+                target: { entity_id: input_text.hba_strategy_active_flow }
+                data: { value: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Charge PV → Full stop" }
+              - action: script.hba_strategy_full_stop
+                data: { skip_label: true }
+        default:
+          # discharge_disabled clamps PID output to ≥0 inside self_consumption,
+          # so no separate discharge-override is needed after the call.
+          - action: script.hba_strategy_self_consumption
+            data: { skip_label: true, discharge_disabled: true }
+          - action: input_text.set_value
+            target: { entity_id: input_text.hba_strategy_active_flow }
+            data: { value: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Charge PV → Self-consumption (charge only)" }

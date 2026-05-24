@@ -1,0 +1,294 @@
+# hba_strategy_self_consumption.yaml
+#
+# Self-consumption strategy — PID controller.
+#
+# This is the most complex and performance-critical script in HBA. It runs every ~1 s
+# (triggered by sensor.p1_meter_power via hba_control_loop → hba_run_strategy) and is
+# also called as a sub-routine by Charge PV, Zero import, Standby, Timed, and Dynamic.
+#
+# Algorithm (mirrors Node-RED `02 strategy-self-consumption.json`):
+#
+#   error = setpoint − grid_power           (positive = need to charge/reduce export)
+#   err_filtered = (1-d)*err + d*prev_err   (optional IIR smoothing, d=err_damp_pct/100)
+#
+#   Layer 1 — Deadband (15 W, hard-coded):
+#     If |error| < 15 W → skip entire cycle. No Modbus write, no PID update.
+#
+#   PID calculation:
+#     p_term  = Kp * err_filtered
+#     new_i   = clamp(prev_i + Ki * err_filtered, anti-windup bounds)   ← stored value, bumpless
+#     d_term  = Kd * (err_filtered − prev_err)   (equivalent to −D on measurement for const. setpoint)
+#     raw_out = p_term + new_i + d_term
+#     eff_out = (1−d)*raw_out + d*prev_output    (optional output IIR, d=out_damp_pct/100)
+#     clamped = clamp(eff_out, −total_max_discharge, +total_max_charge)
+#               with discharge side clamped to 0 when discharge_disabled, etc.
+#
+#   Layer 2 — Direction-flip guard (hysteresis):
+#     If PID wants to flip charge↔discharge and |clamped| < hysteresis → output = 0
+#     (bypassed when charge_disabled or discharge_disabled: those are constraint-driven
+#      flips, not PID ambiguity near the setpoint — suppressing them would cause oscillation)
+#
+#   Peak shaving (applied to guarded output):
+#     If has_power_limit_import and output > import_limit → cap to import_limit
+#     If has_power_limit_export and output < −export_limit → cap to −export_limit
+#
+#   Layer 3 — Idle hold / stop (when peak_shaving_output == 0):
+#     Per-battery: check hba_last_active_mX timestamp.
+#     If time_idle < idle_time → send 1 W directed hold (keeps relay engaged)
+#     If time_idle >= idle_time → send mode: stop (relay disconnects)
+#     Direction of idle hold: is_charging_idle (respects mode constraints so
+#     Discharge Only never idles in charge direction).
+#
+# Anti-windup: dynamic bounds — only sum power from batteries actually within their
+# SoC cutoffs (assignable_charge / assignable_discharge). Prevents I-term from
+# accumulating beyond what the batteries can currently absorb.
+#
+# Fields:
+#   skip_label        — caller manages active_flow label (default: false)
+#   discharge_disabled — clamp PID to ≥0; Charge PV mode (default: false)
+#   charge_disabled    — clamp PID to ≤0; Zero import mode (default: false)
+#   setpoint_override  — override target_grid_consumption_in_w in W (Standby / peak shave)
+
+script:
+  hba_strategy_self_consumption:
+    alias: "HBA: Strategy - Self-consumption (PID)"
+    fields:
+      skip_label:
+        description: "Pass true when the caller manages its own sub-strategy label"
+        default: false
+      discharge_disabled:
+        description: "Pass true to prevent the PID from issuing discharge commands (Charge PV mode)"
+        default: false
+      charge_disabled:
+        description: "Pass true to prevent the PID from issuing charge commands (Zero import mode)"
+        default: false
+      setpoint_override:
+        description: "Override the grid consumption setpoint in W (used by Zero import and Standby; omit to use input_number.hba_target_grid_consumption_in_w)"
+    sequence:
+      # Capture script field values as plain variables immediately.
+      # Script fields are accessible in `variables:` steps but can fail to resolve
+      # inside deeply-nested `choose:` conditions in some HA versions.
+      - variables:
+          _discharge_disabled: "{{ discharge_disabled | default(false) }}"
+          _charge_disabled: "{{ charge_disabled | default(false) }}"
+          _setpoint_override: "{{ setpoint_override | default(none) }}"
+      - variables:
+          # Read current state
+          grid_power: "{{ states('sensor.p1_meter_power') | float(0) }}"
+          target: >
+            {{ _setpoint_override | float(0) if _setpoint_override is not none
+               else states('input_number.hba_target_grid_consumption_in_w') | float(0) }}
+          kp: "{{ states('input_number.hba_control_kp') | float(0.5) }}"
+          ki: "{{ states('input_number.hba_control_ki') | float(0.05) }}"
+          kd: "{{ states('input_number.hba_control_kd') | float(0) }}"
+          hysteresis: "{{ states('input_number.hba_control_hysteresis_in_w') | float(20) }}"
+          out_damp_pct: "{{ states('input_number.hba_control_pid_output_dampening') | float(30) }}"
+          err_damp_pct: "{{ states('input_number.hba_control_error_signal_dampening') | float(0) }}"
+          prev_i: "{{ states('input_number.hba_control_i_term') | float(0) }}"
+          prev_err: "{{ states('input_number.hba_control_error_signal') | float(0) }}"
+          prev_output: "{{ states('input_number.hba_control_pid_output') | float(0) }}"
+          is_charging_last: "{{ states('input_number.hba_control_pid_output') | float(0) >= 0 }}"
+          # Idle hold direction: respect mode constraints so Discharge Only never idles in charge direction.
+          # MUST use single-line {{ }} template — block scalar `>` renders Python False as string "false"
+          # which is truthy in Jinja2, causing +1 W (charge) instead of −1 W (discharge).
+          is_charging_idle: "{{ false if _charge_disabled else (true if _discharge_disabled else is_charging_last) }}"
+          # Calculate total max power from actual battery entities (fallback 2500W/battery if unread)
+          total_max_charge: >
+            {% set count = states('input_number.hba_battery_count') | int(1) %}
+            {% set ns = namespace(total=0) %}
+            {% for i in range(1, count + 1) %}
+              {% set pw = states('number.marstek_m' ~ i ~ '_max_charge_power') | float(0) %}
+              {% set ns.total = ns.total + (pw if pw > 50 else 2500) %}
+            {% endfor %}
+            {{ ns.total | int }}
+          total_max_discharge: >
+            {% set count = states('input_number.hba_battery_count') | int(1) %}
+            {% set ns = namespace(total=0) %}
+            {% for i in range(1, count + 1) %}
+              {% set pw = states('number.marstek_m' ~ i ~ '_max_discharge_power') | float(0) %}
+              {% set ns.total = ns.total + (pw if pw > 50 else 2500) %}
+            {% endfor %}
+            {{ ns.total | int }}
+          # Dynamic anti-windup: only count batteries actually within their SoC cutoffs.
+          # Prevents I-term from accumulating beyond what batteries can currently absorb.
+          assignable_charge: >
+            {% set count = states('input_number.hba_battery_count') | int(1) %}
+            {% set ns = namespace(total=0) %}
+            {% for i in range(1, count + 1) %}
+              {% set soc = states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') | float(0) %}
+              {% set cutoff = states('input_number.hba_marstek_m' ~ i ~ '_charging_cutoff_capacity') | float(100) %}
+              {% if soc < cutoff - 0.5 %}
+                {% set pw = states('number.marstek_m' ~ i ~ '_max_charge_power') | float(0) %}
+                {% set ns.total = ns.total + (pw if pw > 50 else 2500) %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.total | int }}
+          assignable_discharge: >
+            {% set count = states('input_number.hba_battery_count') | int(1) %}
+            {% set ns = namespace(total=0) %}
+            {% for i in range(1, count + 1) %}
+              {% set soc = states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') | float(0) %}
+              {% set cutoff = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) %}
+              {% if soc > cutoff + 0.5 %}
+                {% set pw = states('number.marstek_m' ~ i ~ '_max_discharge_power') | float(0) %}
+                {% set ns.total = ns.total + (pw if pw > 50 else 2500) %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.total | int }}
+          # PID: error = setpoint − measurement (positive error → need to charge/reduce export)
+          raw_err: "{{ target - grid_power }}"
+          effective_err: >
+            {{ raw_err * (1 - err_damp_pct / 100) + prev_err * (err_damp_pct / 100) }}
+          p_term: "{{ kp * effective_err }}"
+          new_i: >
+            {% set unclamped = prev_i + ki * effective_err %}
+            {% set lo = 0 if _discharge_disabled else -assignable_discharge %}
+            {% set hi = 0 if _charge_disabled else assignable_charge %}
+            {{ [[lo, unclamped] | max, hi] | min }}
+          d_term: "{{ kd * (effective_err - prev_err) }}"
+          raw_output: "{{ p_term + new_i + d_term }}"
+          effective_output: >
+            {{ raw_output * (1 - out_damp_pct / 100) + prev_output * (out_damp_pct / 100) }}
+          # Clamp to battery capability; floor/ceiling = 0 when discharge/charge disabled
+          clamped_output: >
+            {% set lo = 0 if _discharge_disabled else -total_max_discharge %}
+            {% set hi = 0 if _charge_disabled else total_max_charge %}
+            {{ [[lo, effective_output] | max, hi] | min | round(0) | int }}
+      - variables:
+          # Direction-flip guard (layer 2): suppress a direction change when new magnitude < hysteresis.
+          # Bypassed when a mode flag forces the direction (charge_disabled / discharge_disabled) —
+          # those are constraint-driven flips, not PID ambiguity near the setpoint.
+          guarded_output: >
+            {% if not _charge_disabled and not _discharge_disabled
+                 and (clamped_output > 0) != is_charging_last
+                 and (clamped_output | abs) < hysteresis %}
+              0
+            {% else %}
+              {{ clamped_output }}
+            {% endif %}
+      - variables:
+          # Apply peak shaving: cap charge/discharge output against import/export limits
+          peak_shaving_output: >
+            {% set out = guarded_output | int %}
+            {% if out > 0 and is_state('input_boolean.hba_control_has_power_limit_import', 'on') %}
+              {% set limit = states('input_number.hba_control_power_limit_import') | float(out) | int %}
+              {% set out = [out, limit] | min %}
+            {% endif %}
+            {% if out < 0 and is_state('input_boolean.hba_control_has_power_limit_export', 'on') %}
+              {% set limit = states('input_number.hba_control_power_limit_export') | float(-out) | int %}
+              {% set out = [out, -limit] | max %}
+            {% endif %}
+            {{ out }}
+      - choose:
+          # Deadband (layer 1): grid error < 15 W — skip entire cycle, batteries hold last Modbus state
+          - conditions: "{{ raw_err | abs < 15 }}"
+            sequence:
+              - choose:
+                  - conditions: "{{ is_state('input_boolean.hba_control_is_debug_mode', 'on') }}"
+                    sequence:
+                      - action: input_text.set_value
+                        target: { entity_id: input_text.hba_control_cycle_state }
+                        data: { value: "Deadband" }
+        default:
+          - choose:
+              - conditions: "{{ not (skip_label | default(false)) }}"
+                sequence:
+                  - action: input_text.set_value
+                    target: { entity_id: input_text.hba_strategy_active_flow }
+                    data: { value: "Self-consumption" }
+          - action: input_number.set_value
+            target: { entity_id: input_number.hba_control_error_signal }
+            data: { value: "{{ effective_err | round(1) }}" }
+          - action: input_number.set_value
+            target: { entity_id: input_number.hba_control_p_term }
+            data: { value: "{{ p_term | round(1) }}" }
+          - action: input_number.set_value
+            target: { entity_id: input_number.hba_control_i_term }
+            data: { value: "{{ new_i | round(1) }}" }
+          - action: input_number.set_value
+            target: { entity_id: input_number.hba_control_d_term }
+            data: { value: "{{ d_term | round(1) }}" }
+          - action: input_number.set_value
+            target: { entity_id: input_number.hba_control_pid_output }
+            data: { value: "{{ peak_shaving_output }}" }
+          - choose:
+              # Output non-zero after guard — send command and mark batteries as active
+              - conditions: "{{ peak_shaving_output != 0 }}"
+                sequence:
+                  - choose:
+                      - conditions: "{{ is_state('input_boolean.hba_control_is_debug_mode', 'on') }}"
+                        sequence:
+                          - action: input_text.set_value
+                            target: { entity_id: input_text.hba_control_cycle_state }
+                            data:
+                              value: >
+                                {% if guarded_output != clamped_output %}
+                                  Direction guard — flip suppressed
+                                {% else %}
+                                  Active — {{ peak_shaving_output | int }}W {{ 'charge' if peak_shaving_output > 0 else 'discharge' }}
+                                {% endif %}
+                  - action: script.hba_set_batteries
+                    data:
+                      desired_power_w: "{{ peak_shaving_output }}"
+                      mode: "auto"
+            default:
+              # Idle: PID output zero — per-battery idle hold / stop.
+              # Each battery tracks its own last-active timestamp so batteries
+              # with no assigned share can disconnect their relay independently.
+              - variables:
+                  idle_secs: "{{ states('input_number.hba_control_idle_time') | float(5) * 60 }}"
+              - repeat:
+                  count: "{{ states('input_number.hba_battery_count') | int(1) }}"
+                  sequence:
+                    - variables:
+                        bat_last_ts: >
+                          {% set ts = as_timestamp(states('input_datetime.hba_last_active_m' ~ repeat.index), 0) | float(0) %}
+                          {{ ts if ts > 0 else as_timestamp(now()) }}
+                        bat_time_idle: "{{ as_timestamp(now()) - bat_last_ts }}"
+                    - choose:
+                        - conditions: "{{ bat_time_idle < idle_secs }}"
+                          sequence:
+                            - choose:
+                                - conditions: "{{ is_state('input_boolean.hba_control_is_debug_mode', 'on') }}"
+                                  sequence:
+                                    - action: input_text.set_value
+                                      target: { entity_id: input_text.hba_control_cycle_state }
+                                      data:
+                                        value: "Idle hold M{{ repeat.index }} — {{ 'charge' if is_charging_idle else 'discharge' }}"
+                            - action: number.set_value
+                              continue_on_error: true
+                              target:
+                                entity_id: "number.marstek_m{{ repeat.index }}_forcible_charge_power"
+                              data: { value: "{{ 1 if is_charging_idle else 0 }}" }
+                            - action: number.set_value
+                              continue_on_error: true
+                              target:
+                                entity_id: "number.marstek_m{{ repeat.index }}_forcible_discharge_power"
+                              data: { value: "{{ 0 if is_charging_idle else 1 }}" }
+                            - action: select.select_option
+                              continue_on_error: true
+                              target:
+                                entity_id: "select.marstek_m{{ repeat.index }}_forcible_charge_discharge"
+                              data: { option: "{{ 'charge' if is_charging_idle else 'discharge' }}" }
+                      default:
+                        - choose:
+                            - conditions: "{{ is_state('input_boolean.hba_control_is_debug_mode', 'on') }}"
+                              sequence:
+                                - action: input_text.set_value
+                                  target: { entity_id: input_text.hba_control_cycle_state }
+                                  data: { value: "Idle stop M{{ repeat.index }}" }
+                        - action: number.set_value
+                          continue_on_error: true
+                          target:
+                            entity_id: "number.marstek_m{{ repeat.index }}_forcible_charge_power"
+                          data: { value: 0 }
+                        - action: number.set_value
+                          continue_on_error: true
+                          target:
+                            entity_id: "number.marstek_m{{ repeat.index }}_forcible_discharge_power"
+                          data: { value: 0 }
+                        - action: select.select_option
+                          continue_on_error: true
+                          target:
+                            entity_id: "select.marstek_m{{ repeat.index }}_forcible_charge_discharge"
+                          data: { option: "stop" }

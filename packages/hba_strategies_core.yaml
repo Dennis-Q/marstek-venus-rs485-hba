@@ -1,0 +1,748 @@
+# hba_strategies_core.yaml
+#
+# Core infrastructure for Home Battery Assistant (HBA).
+#
+# Contains:
+#   • The main control loop automation (P1-triggered, ~1 s)
+#   • Master mode / PID preset / priority cycling / insights auto-off automations
+#   • hba_run_strategy   — strategy dispatcher (reads input_select.hba_strategy)
+#   • hba_apply_master_mode — pushes RS485/work-mode settings to all batteries
+#   • hba_set_batteries  — distributes a target power across N batteries
+#   • hba_advance_priority — rotates the priority battery index
+#   • hba_apply_defaults — writes factory defaults to all user-facing helpers
+#
+# Strategy scripts that do the actual control logic live in separate files:
+#   hba_strategy_self_consumption.yaml   (PID, most complex)
+#   hba_strategy_charge_pv.yaml
+#   hba_strategy_others.yaml             (full_stop, zero_import, standby)
+#   hba_strategy_charge_sell.yaml        (charge, sell)
+#   hba_strategy_timed.yaml
+#   hba_strategy_dynamic.yaml            (+ hba_dynamic_period_calculation automation)
+#   hba_strategy_dynamic_v2.yaml         (+ sensor.hba_energy_prices_data template sensor)
+
+automation:
+  # ── Control loop ─────────────────────────────────────────────────────────────
+  - id: hba_control_loop
+    alias: "HBA: Control loop (P1 meter triggered)"
+    description: >
+      Fires on every P1 meter update (~1 s) for real-time response, matching
+      Node-RED behaviour. mode: single drops updates that arrive while a
+      previous cycle is still running (Modbus writes), preventing queue buildup.
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: sensor.p1_meter_power
+    conditions:
+      - condition: state
+        entity_id: input_select.hba_marstek_master_battery_mode
+        state: "Full control"
+    actions:
+      - action: script.hba_run_strategy
+        data: {}
+
+  # ── Master mode changed ───────────────────────────────────────────────────────
+  - id: hba_master_mode_changed
+    alias: "HBA: Master mode changed"
+    description: "Applies work mode and RS485 settings to all batteries when master mode changes."
+    triggers:
+      - trigger: state
+        entity_id: input_select.hba_marstek_master_battery_mode
+    actions:
+      - action: script.hba_apply_master_mode
+        data: {}
+
+  # ── PID preset changed ────────────────────────────────────────────────────────
+  # Writes Kp/Ki/Kd and dampening values for the selected named preset.
+  - id: hba_pid_preset_changed
+    alias: "HBA: PID preset changed"
+    triggers:
+      - trigger: state
+        entity_id: input_select.hba_control_pid_presets
+    actions:
+      - choose:
+          - conditions:
+              - condition: state
+                entity_id: input_select.hba_control_pid_presets
+                state: "Very safe"
+            sequence:
+              - action: input_number.set_value
+                target: { entity_id: input_number.hba_control_kp }
+                data: { value: 0.1 }
+              - action: input_number.set_value
+                target: { entity_id: input_number.hba_control_ki }
+                data: { value: 0.1 }
+              - action: input_number.set_value
+                target: { entity_id: input_number.hba_control_kd }
+                data: { value: 0.0 }
+              - action: input_number.set_value
+                target: { entity_id: input_number.hba_control_error_signal_dampening }
+                data: { value: 0 }
+              - action: input_number.set_value
+                target: { entity_id: input_number.hba_control_pid_output_dampening }
+                data: { value: 10 }
+          - conditions:
+              - condition: state
+                entity_id: input_select.hba_control_pid_presets
+                state: "Safe"
+            sequence:
+              - action: input_number.set_value
+                target: { entity_id: input_number.hba_control_kp }
+                data: { value: 0.3 }
+              - action: input_number.set_value
+                target: { entity_id: input_number.hba_control_ki }
+                data: { value: 0.3 }
+              - action: input_number.set_value
+                target: { entity_id: input_number.hba_control_kd }
+                data: { value: 0.1 }
+              - action: input_number.set_value
+                target: { entity_id: input_number.hba_control_error_signal_dampening }
+                data: { value: 20 }
+              - action: input_number.set_value
+                target: { entity_id: input_number.hba_control_pid_output_dampening }
+                data: { value: 0 }
+          - conditions:
+              - condition: state
+                entity_id: input_select.hba_control_pid_presets
+                state: "Regular"
+            sequence:
+              - action: input_number.set_value
+                target: { entity_id: input_number.hba_control_kp }
+                data: { value: 0.35 }
+              - action: input_number.set_value
+                target: { entity_id: input_number.hba_control_ki }
+                data: { value: 0.3 }
+              - action: input_number.set_value
+                target: { entity_id: input_number.hba_control_kd }
+                data: { value: 0.1 }
+              - action: input_number.set_value
+                target: { entity_id: input_number.hba_control_error_signal_dampening }
+                data: { value: 20 }
+              - action: input_number.set_value
+                target: { entity_id: input_number.hba_control_pid_output_dampening }
+                data: { value: 10 }
+          - conditions:
+              - condition: state
+                entity_id: input_select.hba_control_pid_presets
+                state: "Regular (original HBC)"
+            sequence:
+              - action: input_number.set_value
+                target: { entity_id: input_number.hba_control_kp }
+                data: { value: 0.3 }
+              - action: input_number.set_value
+                target: { entity_id: input_number.hba_control_ki }
+                data: { value: 0.4 }
+              - action: input_number.set_value
+                target: { entity_id: input_number.hba_control_kd }
+                data: { value: 0.8 }
+              - action: input_number.set_value
+                target: { entity_id: input_number.hba_control_error_signal_dampening }
+                data: { value: 50 }
+              - action: input_number.set_value
+                target: { entity_id: input_number.hba_control_pid_output_dampening }
+                data: { value: 10 }
+
+  # ── Auto-cycle priority battery ───────────────────────────────────────────────
+  # Rotates hba_control_prioritize_battery to spread wear across batteries.
+  # Rate-limited: uses states.input_number.hba_control_prioritize_battery.last_updated
+  # so no extra helper is needed to enforce a 1-hour minimum between rotations.
+  - id: hba_cycle_priority
+    alias: "HBA: Auto-cycle priority battery"
+    mode: single
+    triggers:
+      - trigger: time
+        at: "00:00:00"
+        id: midnight
+      - trigger: time_pattern
+        minutes: "/15"
+        id: periodic
+    actions:
+      - variables:
+          interval: "{{ states('input_select.hba_control_priority_change_interval') }}"
+          priority_bat: "{{ states('input_number.hba_control_prioritize_battery') | int(1) }}"
+          priority_soc: "{{ states('sensor.marstek_m' ~ states('input_number.hba_control_prioritize_battery') | int(1) ~ '_battery_state_of_charge') | float(0) }}"
+          charge_cutoff: "{{ states('input_number.hba_marstek_m' ~ states('input_number.hba_control_prioritize_battery') | int(1) ~ '_charging_cutoff_capacity') | float(100) }}"
+          discharge_cutoff: "{{ states('input_number.hba_marstek_m' ~ states('input_number.hba_control_prioritize_battery') | int(1) ~ '_discharging_cutoff_capacity') | float(13) }}"
+          # Auto balance: rotate when priority battery has reached a SoC limit (nearly full or nearly empty)
+          priority_at_limit: "{{ priority_soc >= charge_cutoff - 1 or priority_soc <= discharge_cutoff + 1 }}"
+          secs_since_last_change: >
+            {{ (as_timestamp(now()) - as_timestamp(
+               states.input_number.hba_control_prioritize_battery.last_updated
+            )) | int(0) }}
+      - choose:
+          - conditions: "{{ interval == 'Daily' and trigger.id == 'midnight' }}"
+            sequence:
+              - action: script.hba_advance_priority
+                data: {}
+          - conditions: "{{ interval == 'Weekly' and trigger.id == 'midnight' and now().weekday() == 0 }}"
+            sequence:
+              - action: script.hba_advance_priority
+                data: {}
+          - conditions: >
+              {{ interval == 'Auto balance' and trigger.id == 'periodic'
+                 and priority_at_limit and secs_since_last_change > 3600 }}
+            sequence:
+              - action: script.hba_advance_priority
+                data: {}
+
+  # ── Insights debug mode auto-off ──────────────────────────────────────────────
+  # Mirrors original Node-RED: debug mode turns itself off after 5 minutes to avoid
+  # leaving ~1 Hz history writes running indefinitely.
+  - id: hba_insights_mode_auto_off
+    alias: "HBA: Insights mode — auto-off after 5 minutes"
+    description: "Mirrors original Node-RED behaviour: debug mode turns itself off after 5 minutes to avoid leaving history writes running indefinitely."
+    triggers:
+      - trigger: state
+        entity_id: input_boolean.hba_control_is_debug_mode
+        to: "on"
+        for:
+          minutes: 5
+    actions:
+      - action: input_boolean.turn_off
+        target: { entity_id: input_boolean.hba_control_is_debug_mode }
+
+script:
+  # ── Strategy dispatcher ───────────────────────────────────────────────────────
+  # Called by hba_control_loop every ~1 s. Checks for the EV stop trigger first,
+  # then dispatches to the configured strategy script.
+  hba_run_strategy:
+    alias: "HBA: Run active strategy"
+    sequence:
+      - variables:
+          strategy: "{{ states('input_select.hba_strategy') }}"
+          ev_entity: "{{ states('input_text.hba_strategy_ev_sensor_entity_id') | trim }}"
+          ev_active: >
+            {% if ev_entity not in ['', 'unknown', 'unavailable'] %}
+              {{ states(ev_entity) == 'on' }}
+            {% else %}
+              false
+            {% endif %}
+      - variables:
+          ev_peak_shave: "{{ is_state('input_boolean.hba_control_has_power_limit_during_ev_charge', 'on') }}"
+      - choose:
+          # EV stop trigger overrides all strategies
+          - conditions: "{{ ev_active and ev_peak_shave }}"
+            sequence:
+              - action: input_text.set_value
+                target: { entity_id: input_text.hba_strategy_active_flow }
+                data: { value: "EV stop trigger — Peak shave active" }
+              - action: script.hba_strategy_standby
+                data: { skip_label: true }
+          - conditions: "{{ ev_active }}"
+            sequence:
+              - action: input_text.set_value
+                target: { entity_id: input_text.hba_strategy_active_flow }
+                data: { value: "EV stop trigger" }
+              - action: script.hba_strategy_full_stop
+                data: { skip_label: true }
+          - conditions: "{{ strategy == 'Full stop' }}"
+            sequence:
+              - action: script.hba_strategy_full_stop
+                data: {}
+          - conditions: "{{ strategy == 'Self-consumption' }}"
+            sequence:
+              - action: script.hba_strategy_self_consumption
+                data: {}
+          - conditions: "{{ strategy == 'Timed' }}"
+            sequence:
+              - action: script.hba_strategy_timed
+                data: {}
+          - conditions: "{{ strategy == 'Dynamic' }}"
+            sequence:
+              - action: script.hba_strategy_dynamic
+                data: {}
+          - conditions: "{{ strategy == 'Dynamic v2' }}"
+            sequence:
+              - action: script.hba_strategy_dynamic_v2
+                data: {}
+          - conditions: "{{ strategy == 'Charge' }}"
+            sequence:
+              - action: script.hba_strategy_charge
+                data: {}
+          - conditions: "{{ strategy == 'Charge PV' }}"
+            sequence:
+              - action: script.hba_strategy_charge_pv
+                data: {}
+          - conditions: "{{ strategy == 'Zero import' }}"
+            sequence:
+              - action: script.hba_strategy_zero_import
+                data: {}
+          - conditions: "{{ strategy == 'Sell' }}"
+            sequence:
+              - action: script.hba_strategy_sell
+                data: {}
+          - conditions: "{{ strategy == 'Standby / peak shave' }}"
+            sequence:
+              - action: script.hba_strategy_standby
+                data: {}
+
+  # ── Master mode application ───────────────────────────────────────────────────
+  # RS485 control mode semantics:
+  #   21930 (0x55AA) = RS485 enabled  — HBA has full Modbus control
+  #   21947 (0x55BB) = RS485 disabled — battery ignores Modbus writes, uses own algorithm
+  # Full control → enable RS485 + set work mode to manual
+  # Manual control → set work mode to manual only (RS485 unchanged; user steers via app)
+  # Marstek control → disable RS485 so battery uses its own built-in algorithm
+  hba_apply_master_mode:
+    alias: "HBA: Apply master mode to all batteries"
+    sequence:
+      - variables:
+          mode: "{{ states('input_select.hba_marstek_master_battery_mode') }}"
+          count: "{{ states('input_number.hba_battery_count') | int(1) }}"
+      - repeat:
+          count: "{{ count }}"
+          sequence:
+            - variables:
+                bat: "m{{ repeat.index }}"
+            - choose:
+                - conditions: "{{ mode == 'Manual control' }}"
+                  sequence:
+                    - action: select.select_option
+                      target:
+                        entity_id: "select.marstek_{{ bat }}_user_work_mode"
+                      data: { option: "manual" }
+                - conditions: "{{ mode == 'Full control' }}"
+                  sequence:
+                    - action: select.select_option
+                      target:
+                        entity_id: "select.marstek_{{ bat }}_user_work_mode"
+                      data: { option: "manual" }
+                    - action: select.select_option
+                      continue_on_error: true
+                      target:
+                        entity_id: "select.marstek_{{ bat }}_rs485_control_mode"
+                      data: { option: "enable" }
+                - conditions: "{{ mode == 'Marstek control' }}"
+                  sequence:
+                    - action: select.select_option
+                      continue_on_error: true
+                      target:
+                        entity_id: "select.marstek_{{ bat }}_rs485_control_mode"
+                      data: { option: "disable" }
+
+  # ── Battery power distribution ────────────────────────────────────────────────
+  # Distributes a target power across N batteries using priority-first waterfall fill:
+  #   1. Priority battery takes as much as it can (hw max, SoC eligibility, slow-charge cap).
+  #   2. Each remaining battery in ascending index order takes as much of the remainder as it can.
+  # Per-battery eligibility: SoC within cutoffs (±0.5 % buffer) and inverter not faulted.
+  # Shares are pre-computed in a single Jinja2 namespace loop into shares_json before the
+  # repeat, because Jinja2 loop iterations cannot share mutable state — variables: steps in
+  # a repeat are independent and cannot decrement a running remainder across iterations.
+  hba_set_batteries:
+    alias: "HBA: Set battery power (distribute across all)"
+    description: >
+      desired_power_w: positive = charge, negative = discharge.
+      mode: 'stop' | 'charge' | 'discharge' | 'auto'
+    fields:
+      desired_power_w:
+        description: "Target power in W (positive=charge, negative=discharge)"
+        example: 1500
+      mode:
+        description: "stop | charge | discharge | auto"
+        example: "auto"
+    sequence:
+      - variables:
+          count: "{{ states('input_number.hba_battery_count') | int(1) }}"
+          desired: "{{ desired_power_w | int(0) }}"
+      - choose:
+          # FULL STOP
+          - conditions: "{{ mode == 'stop' or desired == 0 }}"
+            sequence:
+              - repeat:
+                  count: "{{ count }}"
+                  sequence:
+                    - action: number.set_value
+                      continue_on_error: true
+                      target:
+                        entity_id: "number.marstek_m{{ repeat.index }}_forcible_charge_power"
+                      data: { value: 0 }
+                    - action: number.set_value
+                      continue_on_error: true
+                      target:
+                        entity_id: "number.marstek_m{{ repeat.index }}_forcible_discharge_power"
+                      data: { value: 0 }
+                    - action: select.select_option
+                      continue_on_error: true
+                      target:
+                        entity_id: "select.marstek_m{{ repeat.index }}_forcible_charge_discharge"
+                      data: { option: "stop" }
+          # CHARGE
+          - conditions: "{{ mode == 'charge' or (mode == 'auto' and desired > 0) }}"
+            sequence:
+              - variables:
+                  sc_thr1: "{{ states('input_number.hba_control_slow_charge_soc_threshold_1') | float(95) }}"
+                  sc_lim1: "{{ states('input_number.hba_control_slow_charge_power_limit_1') | float(1500) | int }}"
+                  sc_thr2: "{{ states('input_number.hba_control_slow_charge_soc_threshold_2') | float(99) }}"
+                  sc_lim2: "{{ states('input_number.hba_control_slow_charge_power_limit_2') | float(1000) | int }}"
+              - variables:
+                  priority_bat: "{{ states('input_number.hba_control_prioritize_battery') | int(1) }}"
+              - variables:
+                  shares_json: >-
+                    {%- set ns = namespace(remaining=desired | abs, shares={}) -%}
+                    {%- set order = [priority_bat] -%}
+                    {%- for i in range(1, count + 1) -%}
+                      {%- if i != priority_bat -%}
+                        {%- set order = order + [i] -%}
+                      {%- endif -%}
+                    {%- endfor -%}
+                    {%- for bat in order -%}
+                      {%- set soc = states('sensor.marstek_m' ~ bat ~ '_battery_state_of_charge') | float(0) -%}
+                      {%- set soc_max = states('input_number.hba_marstek_m' ~ bat ~ '_charging_cutoff_capacity') | float(100) -%}
+                      {%- set hw_max = states('number.marstek_m' ~ bat ~ '_max_charge_power') | float(2500) | int -%}
+                      {%- set inv = states('sensor.marstek_m' ~ bat ~ '_inverter_state') -%}
+                      {%- set eligible = soc < soc_max - 0.5 and inv not in ['Fault','unknown','unavailable'] -%}
+                      {%- if eligible -%}
+                        {%- set eff_max = hw_max -%}
+                        {%- if sc_lim2 > 0 and soc >= sc_thr2 -%}
+                          {%- set eff_max = [hw_max, sc_lim2] | min -%}
+                        {%- elif sc_lim1 > 0 and soc >= sc_thr1 -%}
+                          {%- set eff_max = [hw_max, sc_lim1] | min -%}
+                        {%- endif -%}
+                        {%- set share = [ns.remaining, eff_max] | min | round(0) | int -%}
+                        {%- set ns.remaining = ns.remaining - share -%}
+                        {%- set ns.shares = ns.shares | combine({bat | string: share}) -%}
+                      {%- else -%}
+                        {%- set ns.shares = ns.shares | combine({bat | string: 0}) -%}
+                      {%- endif -%}
+                    {%- endfor -%}
+                    {{ ns.shares | tojson }}
+              - repeat:
+                  count: "{{ count }}"
+                  sequence:
+                    - variables:
+                        bat_idx: "{{ repeat.index }}"
+                        soc: "{{ states('sensor.marstek_m' ~ repeat.index ~ '_battery_state_of_charge') | float(0) }}"
+                        soc_max: "{{ states('input_number.hba_marstek_m' ~ repeat.index ~ '_charging_cutoff_capacity') | float(100) }}"
+                        share: "{{ (shares_json | trim | from_json).get(repeat.index | string, 0) }}"
+                    - choose:
+                        - conditions: "{{ soc < soc_max - 0.5 and share > 0 }}"
+                          sequence:
+                            - action: number.set_value
+                              continue_on_error: true
+                              target:
+                                entity_id: "number.marstek_m{{ bat_idx }}_forcible_charge_power"
+                              data: { value: "{{ share }}" }
+                            - action: number.set_value
+                              continue_on_error: true
+                              target:
+                                entity_id: "number.marstek_m{{ bat_idx }}_forcible_discharge_power"
+                              data: { value: 0 }
+                            - action: select.select_option
+                              continue_on_error: true
+                              target:
+                                entity_id: "select.marstek_m{{ bat_idx }}_forcible_charge_discharge"
+                              data: { option: "charge" }
+                            - action: input_datetime.set_datetime
+                              target:
+                                entity_id: "input_datetime.hba_last_active_m{{ bat_idx }}"
+                              data: { datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}" }
+                      default:
+                        - action: number.set_value
+                          continue_on_error: true
+                          target:
+                            entity_id: "number.marstek_m{{ bat_idx }}_forcible_charge_power"
+                          data: { value: 0 }
+                        - action: number.set_value
+                          continue_on_error: true
+                          target:
+                            entity_id: "number.marstek_m{{ bat_idx }}_forcible_discharge_power"
+                          data: { value: 0 }
+                        - action: select.select_option
+                          continue_on_error: true
+                          target:
+                            entity_id: "select.marstek_m{{ bat_idx }}_forcible_charge_discharge"
+                          data: { option: "stop" }
+          # DISCHARGE
+          - conditions: "{{ mode == 'discharge' or (mode == 'auto' and desired < 0) }}"
+            sequence:
+              - variables:
+                  priority_bat: "{{ states('input_number.hba_control_prioritize_battery') | int(1) }}"
+              - variables:
+                  shares_json: >-
+                    {%- set ns = namespace(remaining=desired | abs, shares={}) -%}
+                    {%- set order = [priority_bat] -%}
+                    {%- for i in range(1, count + 1) -%}
+                      {%- if i != priority_bat -%}
+                        {%- set order = order + [i] -%}
+                      {%- endif -%}
+                    {%- endfor -%}
+                    {%- for bat in order -%}
+                      {%- set soc = states('sensor.marstek_m' ~ bat ~ '_battery_state_of_charge') | float(0) -%}
+                      {%- set soc_min = states('input_number.hba_marstek_m' ~ bat ~ '_discharging_cutoff_capacity') | float(13) -%}
+                      {%- set hw_max = states('number.marstek_m' ~ bat ~ '_max_discharge_power') | float(2500) | int -%}
+                      {%- set inv = states('sensor.marstek_m' ~ bat ~ '_inverter_state') -%}
+                      {%- set eligible = soc > soc_min + 0.5 and inv not in ['Fault','unknown','unavailable'] -%}
+                      {%- if eligible -%}
+                        {%- set share = [ns.remaining, hw_max] | min | round(0) | int -%}
+                        {%- set ns.remaining = ns.remaining - share -%}
+                        {%- set ns.shares = ns.shares | combine({bat | string: share}) -%}
+                      {%- else -%}
+                        {%- set ns.shares = ns.shares | combine({bat | string: 0}) -%}
+                      {%- endif -%}
+                    {%- endfor -%}
+                    {{ ns.shares | tojson }}
+              - repeat:
+                  count: "{{ count }}"
+                  sequence:
+                    - variables:
+                        bat_idx: "{{ repeat.index }}"
+                        soc: "{{ states('sensor.marstek_m' ~ repeat.index ~ '_battery_state_of_charge') | float(0) }}"
+                        soc_min: "{{ states('input_number.hba_marstek_m' ~ repeat.index ~ '_discharging_cutoff_capacity') | float(13) }}"
+                        share: "{{ (shares_json | trim | from_json).get(repeat.index | string, 0) }}"
+                    - choose:
+                        - conditions: "{{ soc > soc_min + 0.5 and share > 0 }}"
+                          sequence:
+                            - action: number.set_value
+                              continue_on_error: true
+                              target:
+                                entity_id: "number.marstek_m{{ bat_idx }}_forcible_charge_power"
+                              data: { value: 0 }
+                            - action: number.set_value
+                              continue_on_error: true
+                              target:
+                                entity_id: "number.marstek_m{{ bat_idx }}_forcible_discharge_power"
+                              data: { value: "{{ share }}" }
+                            - action: select.select_option
+                              continue_on_error: true
+                              target:
+                                entity_id: "select.marstek_m{{ bat_idx }}_forcible_charge_discharge"
+                              data: { option: "discharge" }
+                            - action: input_datetime.set_datetime
+                              target:
+                                entity_id: "input_datetime.hba_last_active_m{{ bat_idx }}"
+                              data: { datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}" }
+                      default:
+                        - action: number.set_value
+                          continue_on_error: true
+                          target:
+                            entity_id: "number.marstek_m{{ bat_idx }}_forcible_charge_power"
+                          data: { value: 0 }
+                        - action: number.set_value
+                          continue_on_error: true
+                          target:
+                            entity_id: "number.marstek_m{{ bat_idx }}_forcible_discharge_power"
+                          data: { value: 0 }
+                        - action: select.select_option
+                          continue_on_error: true
+                          target:
+                            entity_id: "select.marstek_m{{ bat_idx }}_forcible_charge_discharge"
+                          data: { option: "stop" }
+
+  # ── Priority rotation ─────────────────────────────────────────────────────────
+  # Advances hba_control_prioritize_battery by 1 (wraps around at battery_count).
+  # Called by hba_cycle_priority automation.
+  hba_advance_priority:
+    alias: "HBA: Advance priority battery"
+    sequence:
+      - variables:
+          count: "{{ states('input_number.hba_battery_count') | int(1) }}"
+          current: "{{ states('input_number.hba_control_prioritize_battery') | int(1) }}"
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_control_prioritize_battery }
+        data: { value: "{{ (current % count) + 1 }}" }
+
+  # ── Factory defaults ──────────────────────────────────────────────────────────
+  # Writes sensible starting values to all user-configurable helpers.
+  # Safe to re-run at any time; never touches internal state (i_term, timestamps, etc.).
+  # Run once after fresh install via Developer Tools → Services → script.turn_on →
+  # script.hba_apply_defaults, or via a button card on the dashboard.
+  hba_apply_defaults:
+    alias: "HBA: Apply default settings"
+    description: >
+      Sets all user-configurable helpers to factory defaults.
+      Run once after fresh install to avoid HA minimums as starting values.
+      Safe to re-run at any time — does not touch internal state helpers
+      (i_term, pid_output, timestamps, etc.).
+    sequence:
+      # ── Master mode & strategy ────────────────────────────────────────────────
+      - action: input_select.select_option
+        target: { entity_id: input_select.hba_marstek_master_battery_mode }
+        data: { option: "Full control" }
+      - action: input_select.select_option
+        target: { entity_id: input_select.hba_strategy }
+        data: { option: "Self-consumption" }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_battery_count }
+        data: { value: 1 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_control_prioritize_battery }
+        data: { value: 1 }
+      - action: input_select.select_option
+        target: { entity_id: input_select.hba_control_priority_change_interval }
+        data: { option: "Auto balance" }
+      # ── PID parameters ────────────────────────────────────────────────────────
+      - action: input_select.select_option
+        target: { entity_id: input_select.hba_control_pid_presets }
+        data: { option: "Very safe" }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_target_grid_consumption_in_w }
+        data: { value: 0 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_control_kp }
+        data: { value: 0.1 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_control_ki }
+        data: { value: 0.1 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_control_kd }
+        data: { value: 0 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_control_pid_output_dampening }
+        data: { value: 10 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_control_error_signal_dampening }
+        data: { value: 0 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_control_hysteresis_in_w }
+        data: { value: 20 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_control_idle_time }
+        data: { value: 5 }
+      # ── Peak shaving ──────────────────────────────────────────────────────────
+      - action: input_boolean.turn_off
+        target:
+          entity_id:
+            - input_boolean.hba_control_has_power_limit_import
+            - input_boolean.hba_control_has_power_limit_export
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_control_power_limit_import }
+        data: { value: 5000 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_control_power_limit_export }
+        data: { value: 5000 }
+      # ── Slow charge limits ────────────────────────────────────────────────────
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_control_slow_charge_soc_threshold_1 }
+        data: { value: 95 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_control_slow_charge_power_limit_1 }
+        data: { value: 1500 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_control_slow_charge_power_limit_2 }
+        data: { value: 1000 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_control_slow_charge_soc_threshold_2 }
+        data: { value: 99 }
+      # ── Charge/Sell targets ───────────────────────────────────────────────────
+      - action: input_select.select_option
+        target: { entity_id: input_select.hba_strategy_charge_goal }
+        data: { option: "batteries are full" }
+      - action: input_select.select_option
+        target: { entity_id: input_select.hba_strategy_charge_goal_reached }
+        data: { option: "Full stop" }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_strategy_charge_target_energy }
+        data: { value: 5 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_strategy_charge_target_soc }
+        data: { value: 90 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_solar_reserved_for_house }
+        data: { value: 0 }
+      - action: input_select.select_option
+        target: { entity_id: input_select.hba_strategy_sell_goal }
+        data: { option: "batteries are empty" }
+      - action: input_select.select_option
+        target: { entity_id: input_select.hba_strategy_sell_goal_reached }
+        data: { option: "Full stop" }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_strategy_sell_target_energy }
+        data: { value: 2 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_strategy_sell_target_soc }
+        data: { value: 20 }
+      # ── Timed strategy ────────────────────────────────────────────────────────
+      - action: input_boolean.turn_off
+        target:
+          entity_id:
+            - input_boolean.hba_strategy_timed_has_period_b
+            - input_boolean.hba_strategy_timed_has_period_c
+      - action: input_select.select_option
+        target: { entity_id: input_select.hba_strategy_timed_strat_0 }
+        data: { option: "Self-consumption" }
+      - action: input_select.select_option
+        target: { entity_id: input_select.hba_strategy_timed_strat_a }
+        data: { option: "Charge" }
+      - action: input_select.select_option
+        target: { entity_id: input_select.hba_strategy_timed_strat_b }
+        data: { option: "Sell" }
+      - action: input_select.select_option
+        target: { entity_id: input_select.hba_strategy_timed_strat_c }
+        data: { option: "Self-consumption" }
+      # ── Dynamic strategy ──────────────────────────────────────────────────────
+      - action: input_select.select_option
+        target: { entity_id: input_select.hba_strategy_dynamic_data_source }
+        data: { option: "Frank Energie" }
+      - action: input_select.select_option
+        target: { entity_id: input_select.hba_strategy_dynamic_default }
+        data: { option: "Self-consumption" }
+      - action: input_select.select_option
+        target: { entity_id: input_select.hba_strategy_dynamic_cheapest }
+        data: { option: "Charge" }
+      - action: input_select.select_option
+        target: { entity_id: input_select.hba_strategy_dynamic_expensive }
+        data: { option: "Self-consumption" }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_strategy_dynamic_cheapest_hrs }
+        data: { value: 4 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_strategy_dynamic_expensive_hrs }
+        data: { value: 2 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_strategy_dynamic_threshold_cheapest_period }
+        data: { value: 5 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_strategy_dynamic_threshold_delta }
+        data: { value: 5 }
+      # ── Dynamic v2 ────────────────────────────────────────────────────────────
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_strategy_dynamic_v2_max_cheap_hours_per_day }
+        data: { value: 0 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_strategy_dynamic_v2_max_expensive_hours_per_day }
+        data: { value: 0 }
+      # ── Per-battery SoC cutoffs (all 6 slots) ────────────────────────────────
+      - action: input_number.set_value
+        target:
+          entity_id:
+            - input_number.hba_marstek_m1_charging_cutoff_capacity
+            - input_number.hba_marstek_m2_charging_cutoff_capacity
+            - input_number.hba_marstek_m3_charging_cutoff_capacity
+            - input_number.hba_marstek_m4_charging_cutoff_capacity
+            - input_number.hba_marstek_m5_charging_cutoff_capacity
+            - input_number.hba_marstek_m6_charging_cutoff_capacity
+        data: { value: 100 }
+      - action: input_number.set_value
+        target:
+          entity_id:
+            - input_number.hba_marstek_m1_discharging_cutoff_capacity
+            - input_number.hba_marstek_m2_discharging_cutoff_capacity
+            - input_number.hba_marstek_m3_discharging_cutoff_capacity
+            - input_number.hba_marstek_m4_discharging_cutoff_capacity
+            - input_number.hba_marstek_m5_discharging_cutoff_capacity
+            - input_number.hba_marstek_m6_discharging_cutoff_capacity
+        # Default 12% works for Venus E v1/v2/v3. Venus E v3.0 users may prefer 13%:
+        # the v3.0 firmware has a ~2% hysteresis and won't discharge below ~13% in practice.
+        data: { value: 12 }
+      # ── Solar forecast entity IDs (Solcast integration) ───────────────────────
+      - action: input_text.set_value
+        target: { entity_id: input_text.hba_strategy_solar_forecast_entity_id }
+        data: { value: "sensor.solcast_pv_forecast_forecast_today" }
+      - action: input_text.set_value
+        target: { entity_id: input_text.hba_strategy_solar_forecast_tomorrow_entity_id }
+        data: { value: "sensor.solcast_pv_forecast_forecast_tomorrow" }
+      # ── Frank Energie entity ID ───────────────────────────────────────────────
+      - action: input_text.set_value
+        target: { entity_id: input_text.hba_strategy_dynamic_frank_sensor_entity_id }
+        data: { value: "sensor.frank_energie_prijzen_gemiddelde_elektriciteitsprijs_alle_uren_all_in" }
+      # ── Misc ──────────────────────────────────────────────────────────────────
+      - action: input_boolean.turn_off
+        target: { entity_id: input_boolean.hba_control_is_debug_mode }
+      - action: input_boolean.turn_off
+        target: { entity_id: input_boolean.hba_control_has_power_limit_during_ev_charge }
+      - action: input_text.set_value
+        target: { entity_id: input_text.hba_strategy_ev_sensor_entity_id }
+        data: { value: "" }
+      # ── HBC coexistence ───────────────────────────────────────────────────────
+      - action: input_text.set_value
+        target: { entity_id: input_text.hba_hbc_nodered_addon_slug }
+        data: { value: "a0d7b954_nodered" }
