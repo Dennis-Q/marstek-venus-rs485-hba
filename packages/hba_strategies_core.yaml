@@ -143,8 +143,6 @@ automation:
 
   # ── Auto-cycle priority battery ───────────────────────────────────────────────
   # Rotates hba_control_prioritize_battery to spread wear across batteries.
-  # Rate-limited: uses states.input_number.hba_control_prioritize_battery.last_updated
-  # so no extra helper is needed to enforce a 1-hour minimum between rotations.
   - id: hba_cycle_priority
     alias: "HBA: Auto-cycle priority battery"
     mode: single
@@ -153,7 +151,7 @@ automation:
         at: "00:00:00"
         id: midnight
       - trigger: time_pattern
-        minutes: "/15"
+        minutes: "/30"
         id: periodic
     actions:
       - variables:
@@ -162,12 +160,7 @@ automation:
           priority_soc: "{{ states('sensor.marstek_m' ~ states('input_number.hba_control_prioritize_battery') | int(1) ~ '_battery_state_of_charge') | float(0) }}"
           charge_cutoff: "{{ states('input_number.hba_marstek_m' ~ states('input_number.hba_control_prioritize_battery') | int(1) ~ '_charging_cutoff_capacity') | float(100) }}"
           discharge_cutoff: "{{ states('input_number.hba_marstek_m' ~ states('input_number.hba_control_prioritize_battery') | int(1) ~ '_discharging_cutoff_capacity') | float(13) }}"
-          # Auto balance: rotate when priority battery has reached a SoC limit (nearly full or nearly empty)
           priority_at_limit: "{{ priority_soc >= charge_cutoff - 1 or priority_soc <= discharge_cutoff + 1 }}"
-          secs_since_last_change: >
-            {{ (as_timestamp(now()) - as_timestamp(
-               states.input_number.hba_control_prioritize_battery.last_updated
-            )) | int(0) }}
       - choose:
           - conditions: "{{ interval == 'Daily' and trigger.id == 'midnight' }}"
             sequence:
@@ -177,9 +170,7 @@ automation:
             sequence:
               - action: script.hba_advance_priority
                 data: {}
-          - conditions: >
-              {{ interval == 'Auto balance' and trigger.id == 'periodic'
-                 and priority_at_limit and secs_since_last_change > 3600 }}
+          - conditions: "{{ interval == 'Auto balance' and trigger.id == 'periodic' and priority_at_limit }}"
             sequence:
               - action: script.hba_advance_priority
                 data: {}
@@ -377,14 +368,13 @@ script:
                   priority_bat: "{{ states('input_number.hba_control_prioritize_battery') | int(1) }}"
               - variables:
                   shares_json: >-
-                    {%- set ns = namespace(remaining=desired | abs, shares={}) -%}
-                    {%- set order = [priority_bat] -%}
+                    {%- set ns = namespace(remaining=desired | abs, shares={}, order=[priority_bat]) -%}
                     {%- for i in range(1, count + 1) -%}
                       {%- if i != priority_bat -%}
-                        {%- set order = order + [i] -%}
+                        {%- set ns.order = ns.order + [i] -%}
                       {%- endif -%}
                     {%- endfor -%}
-                    {%- for bat in order -%}
+                    {%- for bat in ns.order -%}
                       {%- set soc = states('sensor.marstek_m' ~ bat ~ '_battery_state_of_charge') | float(0) -%}
                       {%- set soc_max = states('input_number.hba_marstek_m' ~ bat ~ '_charging_cutoff_capacity') | float(100) -%}
                       {%- set hw_max = states('number.marstek_m' ~ bat ~ '_max_charge_power') | float(2500) | int -%}
@@ -458,14 +448,13 @@ script:
                   priority_bat: "{{ states('input_number.hba_control_prioritize_battery') | int(1) }}"
               - variables:
                   shares_json: >-
-                    {%- set ns = namespace(remaining=desired | abs, shares={}) -%}
-                    {%- set order = [priority_bat] -%}
+                    {%- set ns = namespace(remaining=desired | abs, shares={}, order=[priority_bat]) -%}
                     {%- for i in range(1, count + 1) -%}
                       {%- if i != priority_bat -%}
-                        {%- set order = order + [i] -%}
+                        {%- set ns.order = ns.order + [i] -%}
                       {%- endif -%}
                     {%- endfor -%}
-                    {%- for bat in order -%}
+                    {%- for bat in ns.order -%}
                       {%- set soc = states('sensor.marstek_m' ~ bat ~ '_battery_state_of_charge') | float(0) -%}
                       {%- set soc_min = states('input_number.hba_marstek_m' ~ bat ~ '_discharging_cutoff_capacity') | float(13) -%}
                       {%- set hw_max = states('number.marstek_m' ~ bat ~ '_max_discharge_power') | float(2500) | int -%}

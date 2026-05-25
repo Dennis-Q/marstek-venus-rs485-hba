@@ -1877,7 +1877,7 @@ views:
               {%- set power = 0 -%}
               {%- set hw_max = 0 -%}
               {%- endif %}
-              **M{{ idx }}**{{ ' ★' if idx == priority else '' }} | RS485: {{ rs485 }} | idle {{ idle_str }}{{ ' ⏹ timeout' if over_idle else '' }}
+              **M{{ idx }}**{{ ' ★' if idx == priority else '' }} | RS485: {{ rs485 }} | idle {{ idle_str }}{{ ' ⏸ resting' if over_idle else '' }}
               {{ soc }}% SoC (min: {{ soc_min }}%, max: {{ soc_max }}%)
               {%- if mode == 'stop' %} → **stop**
               {%- else %} → **{{ mode }}** {{ power }}W / {{ hw_max }}W max{% if mode == 'charge' %}{% if lim2 > 0 and soc >= thr2 %} ⚠ slow: {{ lim2 }}W cap{% elif lim1 > 0 and soc >= thr1 %} ⚠ slow: {{ lim1 }}W cap{% endif %}{% endif %}

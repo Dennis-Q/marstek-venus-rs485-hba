@@ -11,6 +11,31 @@ This document covers HBA-specific changes only.
 
 ---
 
+## v4.10.1-r1 — May 2026
+
+Aligns with HBC v4.10.1. Neither bug fixed in HBC v4.10.1 affects HBA — the midnight
+price rollover and decimal kWh display issues were already handled correctly. This release
+ships two bugs found during initial testing.
+
+### Bug fixes
+
+- **Multi-battery distribution: only priority battery received power** *(critical)* —
+  A Jinja2 for-loop scoping bug in `hba_set_batteries` caused only the priority battery to
+  receive charge or discharge commands; all other batteries always got 0 W. Affected all
+  strategies (Sell, Charge, Self-consumption, etc.).
+
+- **Auto balance cycling every ~75 min instead of 30 min** — The rotation check ran every
+  15 min with a hard 1-hour gate, giving worst-case 75-min intervals. Aligned with original
+  HBC: checks every 30 min, no time gate (the SoC-limit condition prevents redundant rotations).
+
+### Dashboard
+
+- **Idle state label** — Batteries past their idle timeout now show "⏸ resting" instead of
+  "⏹ timeout" in the Insights debug view. The stop state after `idle_time` expires is
+  expected; the previous label looked like an error.
+
+---
+
 ## v4.10.0-r1 — May 2026
 
 Initial release of Home Battery Assistant. Full native HA port of HBC v4.10.0 —
