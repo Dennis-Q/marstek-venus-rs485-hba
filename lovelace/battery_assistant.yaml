@@ -33,6 +33,22 @@ views:
               {% endfor %}
               <ha-alert alert-type="error">Battery {{ ns.offline | join(', ') }} offline — check connectivity or reduce battery count in settings.</ha-alert>
 
+      # Version mismatch warning — full width, hidden when versions match
+      - type: grid
+        column_span: 3
+        visibility:
+          - condition: template
+            value_template: >
+              {{ states('sensor.hba_version') not in ['unavailable', 'unknown', '']
+                 and states('sensor.hba_version') != 'dev' }}
+        cards:
+          - type: markdown
+            content: >
+              <ha-alert alert-type="warning">**HBA version mismatch** — Dashboard is
+              dev but loaded packages report
+              {{ states('sensor.hba_version') }}. Reload YAML to apply the update:
+              Developer Tools → YAML → Reload All YAML.</ha-alert>
+
       # Onboarding (hidden once dismissed)
       - type: grid
         visibility:

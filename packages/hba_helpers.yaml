@@ -671,6 +671,11 @@ input_select:
 
 template:
   - sensor:
+      - name: "HBA Version"
+        unique_id: hba_version
+        icon: mdi:tag
+        state: "dev"
+
       - name: "HBA Active strategy"
         unique_id: hba_strategy_active_sub_strategy
         icon: mdi:list-status
