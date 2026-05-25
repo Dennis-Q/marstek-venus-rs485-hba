@@ -807,7 +807,7 @@ template:
         unique_id: hba_solar_forecast_today
         unit_of_measurement: kWh
         device_class: energy
-        state_class: measurement
+        state_class: total
         icon: mdi:weather-sunny
         state: >
           {% set e = states('input_text.hba_strategy_solar_forecast_entity_id') | trim %}
@@ -817,7 +817,7 @@ template:
         unique_id: hba_solar_forecast_tomorrow
         unit_of_measurement: kWh
         device_class: energy
-        state_class: measurement
+        state_class: total
         icon: mdi:weather-sunny
         state: >
           {% set e = states('input_text.hba_strategy_solar_forecast_tomorrow_entity_id') | trim %}
@@ -827,7 +827,7 @@ template:
         unique_id: hba_solar_forecast_surplus_today
         unit_of_measurement: kWh
         device_class: energy
-        state_class: measurement
+        state_class: total
         icon: mdi:solar-power-variant
         state: >
           {% set e = states('input_text.hba_strategy_solar_forecast_entity_id') | trim %}
@@ -839,7 +839,7 @@ template:
         unique_id: hba_solar_forecast_surplus_tomorrow
         unit_of_measurement: kWh
         device_class: energy
-        state_class: measurement
+        state_class: total
         icon: mdi:solar-power-variant
         state: >
           {% set e = states('input_text.hba_strategy_solar_forecast_tomorrow_entity_id') | trim %}

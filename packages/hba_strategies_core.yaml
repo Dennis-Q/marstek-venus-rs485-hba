@@ -29,6 +29,7 @@ automation:
       Node-RED behaviour. mode: single drops updates that arrive while a
       previous cycle is still running (Modbus writes), preventing queue buildup.
     mode: single
+    max_exceeded: silent
     triggers:
       - trigger: state
         entity_id: sensor.p1_meter_power

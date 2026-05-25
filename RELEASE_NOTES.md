@@ -11,6 +11,22 @@ This document covers HBA-specific changes only.
 
 ---
 
+## v4.10.1-r2 — May 2026
+
+Minor fixes to reduce log noise and correct HA validation warnings.
+
+### Fixes
+
+- **Solar forecast sensors: invalid `state_class`** — `device_class: energy` requires
+  `state_class: total` or `total_increasing`, not `measurement`. Fixed on all four
+  solar forecast sensors (`hba_solar_forecast_today/tomorrow` and the surplus variants).
+
+- **Control loop log noise** — `mode: single` on the P1-triggered control loop logs
+  "Already running" on every dropped trigger (~1/s during normal operation). Added
+  `max_exceeded: silent` to suppress it — behaviour is unchanged, drops still occur.
+
+---
+
 ## v4.10.1-r1 — May 2026
 
 Aligns with HBC v4.10.1. Neither bug fixed in HBC v4.10.1 affects HBA — the midnight
