@@ -5,7 +5,10 @@
 #   bash <(curl -fsSL https://raw.githubusercontent.com/Dennis-Q/marstek-venus-rs485-hba/main/install.sh)
 #
 # To install a specific version:
-#   HBA_VERSION=v4.10.0-r1 bash <(curl -fsSL https://raw.githubusercontent.com/Dennis-Q/marstek-venus-rs485-hba/main/install.sh)
+#   HBA_VERSION=v4.10.1-r2 bash <(curl -fsSL https://raw.githubusercontent.com/Dennis-Q/marstek-venus-rs485-hba/main/install.sh)
+#
+# To install from a branch (e.g. dev):
+#   HBA_BRANCH=dev bash <(curl -fsSL https://raw.githubusercontent.com/Dennis-Q/marstek-venus-rs485-hba/main/install.sh)
 #
 # Tip: use the SSH add-on (community) to get a terminal on your HA instance.
 
@@ -13,6 +16,7 @@ set -euo pipefail
 
 REPO="Dennis-Q/marstek-venus-rs485-hba"
 VERSION="${HBA_VERSION:-}"
+BRANCH="${HBA_BRANCH:-}"
 CONFIG_DIR="$(pwd)"
 
 # ── Colour / output helpers ───────────────────────────────────────────────────
@@ -37,21 +41,28 @@ if [ ! -f "${CONFIG_DIR}/configuration.yaml" ]; then
     exit 1
 fi
 
-# ── Version resolution ────────────────────────────────────────────────────────
+# ── Version / branch resolution ───────────────────────────────────────────────
 
-if [ -z "$VERSION" ]; then
-    LATEST=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
-             | grep '"tag_name"' | cut -d'"' -f4 2>/dev/null || true)
-    if [ -n "$LATEST" ]; then
-        VERSION="$LATEST"
-    else
-        VERSION="main"
-        warn "No releases found — installing from main branch."
-        echo ""
+if [ -n "$BRANCH" ]; then
+    BASE_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}"
+    DISPLAY_REF="branch : ${BRANCH}"
+    warn "Installing from branch '${BRANCH}' — this may be unstable."
+    echo ""
+else
+    if [ -z "$VERSION" ]; then
+        LATEST=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
+                 | grep '"tag_name"' | cut -d'"' -f4 2>/dev/null || true)
+        if [ -n "$LATEST" ]; then
+            VERSION="$LATEST"
+        else
+            VERSION="main"
+            warn "No releases found — installing from main branch."
+            echo ""
+        fi
     fi
+    BASE_URL="https://raw.githubusercontent.com/${REPO}/${VERSION}"
+    DISPLAY_REF="version : ${VERSION}"
 fi
-
-BASE_URL="https://raw.githubusercontent.com/${REPO}/${VERSION}"
 
 # ── Download helper ───────────────────────────────────────────────────────────
 
@@ -65,7 +76,7 @@ download() {
 echo ""
 hr
 echo "  Home Battery Assistant — installer"
-echo "  Version : ${VERSION}"
+echo "  ${DISPLAY_REF}"
 echo "  Target  : ${CONFIG_DIR}"
 hr
 echo ""
