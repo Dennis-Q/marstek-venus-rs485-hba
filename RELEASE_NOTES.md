@@ -11,6 +11,30 @@ This document covers HBA-specific changes only.
 
 ---
 
+## v4.10.1-r3 — May 2026
+
+### Bug fixes
+
+- **Auto balance priority rotation** — Rotation did not occur under certain circumstances
+  (e.g. all batteries charging at mid-range SoC). Fixed to rotate every 30 minutes
+  as intended.
+
+### Dashboard
+
+- **Version mismatch warning** — A full-width error banner appears at the top of the
+  dashboard when the loaded packages report a different version than the dashboard expects.
+  Prompts to reload YAML. Requires `sensor.hba_version` (added in this release).
+
+- **View headers updated** — All view headers now show the current HBA version. Previously
+  stuck on v4.10.0-r1.
+
+### New entities
+
+- `sensor.hba_version` — reports the version of the currently loaded HBA packages.
+  Used by the dashboard mismatch check; also useful to verify what version is running.
+
+---
+
 ## v4.10.1-r2 — May 2026
 
 Minor fixes to reduce log noise and correct HA validation warnings.

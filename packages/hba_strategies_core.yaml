@@ -157,11 +157,6 @@ automation:
     actions:
       - variables:
           interval: "{{ states('input_select.hba_control_priority_change_interval') }}"
-          priority_bat: "{{ states('input_number.hba_control_prioritize_battery') | int(1) }}"
-          priority_soc: "{{ states('sensor.marstek_m' ~ states('input_number.hba_control_prioritize_battery') | int(1) ~ '_battery_state_of_charge') | float(0) }}"
-          charge_cutoff: "{{ states('input_number.hba_marstek_m' ~ states('input_number.hba_control_prioritize_battery') | int(1) ~ '_charging_cutoff_capacity') | float(100) }}"
-          discharge_cutoff: "{{ states('input_number.hba_marstek_m' ~ states('input_number.hba_control_prioritize_battery') | int(1) ~ '_discharging_cutoff_capacity') | float(13) }}"
-          priority_at_limit: "{{ priority_soc >= charge_cutoff - 1 or priority_soc <= discharge_cutoff + 1 }}"
       - choose:
           - conditions: "{{ interval == 'Daily' and trigger.id == 'midnight' }}"
             sequence:
@@ -171,7 +166,7 @@ automation:
             sequence:
               - action: script.hba_advance_priority
                 data: {}
-          - conditions: "{{ interval == 'Auto balance' and trigger.id == 'periodic' and priority_at_limit }}"
+          - conditions: "{{ interval == 'Auto balance' and trigger.id == 'periodic' }}"
             sequence:
               - action: script.hba_advance_priority
                 data: {}
