@@ -13,40 +13,6 @@ views:
     cards: []
     sections:
 
-      # Battery offline warning — full width, hidden when all batteries are online
-      - type: grid
-        column_span: 3
-        visibility:
-          - condition: state
-            entity: binary_sensor.hba_any_battery_offline
-            state: "on"
-        cards:
-          - type: markdown
-            content: >
-              {% set count = states('input_number.hba_battery_count') | int(1) %}
-              {% set ns = namespace(offline=[]) %}
-              {% for i in range(1, count + 1) %}
-                {% set inv = states('sensor.marstek_m' ~ i ~ '_inverter_state') %}
-                {% if inv in ['unavailable', 'unknown', ''] %}
-                  {% set ns.offline = ns.offline + ['M' ~ i] %}
-                {% endif %}
-              {% endfor %}
-              <ha-alert alert-type="error">Battery {{ ns.offline | join(', ') }} offline — check connectivity or reduce battery count in settings.</ha-alert>
-
-      # Version mismatch warning — full width, hidden when versions match
-      - type: grid
-        column_span: 3
-        visibility:
-          - condition: template
-            value_template: "{{ states('sensor.hba_version') not in ['unavailable', 'unknown', ''] and states('sensor.hba_version') != 'v4.10.1-r3' }}"
-        cards:
-          - type: markdown
-            content: >
-              <ha-alert alert-type="warning">**HBA version mismatch** — Dashboard is
-              v4.10.1-r3 but loaded packages report
-              {{ states('sensor.hba_version') }}. Reload YAML to apply the update:
-              Developer Tools → YAML → Reload All YAML.</ha-alert>
-
       # Onboarding (hidden once dismissed)
       - type: grid
         visibility:
@@ -260,6 +226,37 @@ views:
       # Master Battery Control
       - type: grid
         cards:
+          - type: markdown
+            grid_options:
+              columns: full
+            visibility:
+              - condition: not
+                conditions:
+                  - condition: state
+                    entity: sensor.hba_version
+                    state: "v4.10.1-r3"
+            content: >
+              <ha-alert alert-type="error">**HBA version mismatch** — Dashboard is
+              v4.10.1-r3 but loaded packages report
+              {{ states('sensor.hba_version') }}. Reload YAML to apply the update:
+              Developer Tools → YAML → Reload All YAML.</ha-alert>
+          - type: markdown
+            grid_options:
+              columns: full
+            visibility:
+              - condition: state
+                entity: binary_sensor.hba_any_battery_offline
+                state: "on"
+            content: >
+              {% set count = states('input_number.hba_battery_count') | int(1) %}
+              {% set ns = namespace(offline=[]) %}
+              {% for i in range(1, count + 1) %}
+                {% set inv = states('sensor.marstek_m' ~ i ~ '_inverter_state') %}
+                {% if inv in ['unavailable', 'unknown', ''] %}
+                  {% set ns.offline = ns.offline + ['M' ~ i] %}
+                {% endif %}
+              {% endfor %}
+              <ha-alert alert-type="error">Battery {{ ns.offline | join(', ') }} offline — check connectivity or reduce battery count in settings.</ha-alert>
           - type: heading
             heading: Master Battery Control
             heading_style: title
@@ -839,7 +836,7 @@ views:
             heading_style: subtitle
             tap_action:
               action: url
-              url_path: https://github.com/Dennis-Q/home-battery-assistant
+              url_path: https://github.com/Dennis-Q/marstek-venus-rs485-hba
           - type: heading
             icon: mdi:spider
             heading: Problem solver
@@ -856,11 +853,11 @@ views:
             heading_style: subtitle
             tap_action:
               action: url
-              url_path: https://github.com/Dennis-Q/home-battery-assistant
+              url_path: https://github.com/Dennis-Q/marstek-venus-rs485-hba
           - type: markdown
             content: >-
               [![GitHub
-              stars](https://img.shields.io/github/stars/Dennis-Q/home-battery-assistant?style=social)](https://github.com/Dennis-Q/home-battery-assistant)
+              stars](https://img.shields.io/github/stars/Dennis-Q/marstek-venus-rs485-hba?style=social)](https://github.com/Dennis-Q/marstek-venus-rs485-hba)
             text_only: true
           - type: heading
             icon: mdi:heart-outline
@@ -1975,7 +1972,6 @@ views:
     sections:
       # Battery offline warning — full width, hidden when all batteries are online
       - type: grid
-        column_span: 3
         visibility:
           - condition: state
             entity: binary_sensor.hba_any_battery_offline
