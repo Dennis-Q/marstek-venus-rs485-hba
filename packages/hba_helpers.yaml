@@ -674,7 +674,7 @@ template:
       - name: "HBA Version"
         unique_id: hba_version
         icon: mdi:tag
-        state: "v4.10.1-r3"
+        state: "v4.10.1-r4"
 
       - name: "HBA Active strategy"
         unique_id: hba_strategy_active_sub_strategy
@@ -1044,12 +1044,21 @@ template:
 recorder:
   exclude:
     entity_globs:
+      # All HBA scripts — run at ~1 Hz, generate on/off per execution, history is not useful
+      - script.hba_*
       # PID control terms and deviations (updated every ~1 s during operation)
       - input_number.hba_control_*_term
       - input_number.hba_control_*_deviation
+      # Per-battery idle timestamps — updated on every battery write (~1 s)
+      - input_datetime.hba_last_active_m*
       # Dynamic strategy calculated averages (updated hourly)
       - input_number.hba_strategy_dynamic_*_avg_*
     entities:
+      # Control loop automation — triggers every ~1 s, history is not useful
+      - automation.hba_control_loop_p1_meter_triggered
+      # Flow trace helpers — updated every control cycle
+      - input_text.hba_strategy_active_flow
+      - input_text.hba_control_cycle_state
       # Debug value (updated frequently when debug mode is active)
       - input_number.hba_control_debug
       # Commanded power — updates on every battery write (~1 s during active control)

@@ -11,6 +11,16 @@ This document covers HBA-specific changes only.
 
 ---
 
+## v4.10.1-r4 — May 2026
+
+### Improvements
+
+- **Reduced database writes** — HBA scripts, the control loop automation, per-battery
+  idle timestamps, and flow-trace helpers are now excluded from the recorder. Eliminates
+  tens of thousands of low-value state writes per day.
+
+---
+
 ## v4.10.1-r3 — May 2026
 
 ### Bug fixes

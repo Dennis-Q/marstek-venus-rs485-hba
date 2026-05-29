@@ -1,4 +1,4 @@
-# Home Battery Assistant (HBA) — v4.10.1-r3
+# Home Battery Assistant (HBA) — v4.10.1-r4
 
 A native Home Assistant replacement for the Node-RED battery control flows in
 [gitcodebob/marstek-venus-rs485-node-red](https://github.com/gitcodebob/marstek-venus-rs485-node-red).
@@ -172,7 +172,7 @@ The script downloads all HBA files, skips files you have already configured (P1 
 
 > **Tip:** The [SSH & Web Terminal add-on](https://github.com/hassio-addons/addon-ssh) gives you a terminal on your HA instance. Run the command above from `/config`.
 
-To install a specific version: `HBA_VERSION=v4.10.1-r3 bash <(curl -fsSL ...)`
+To install a specific version: `HBA_VERSION=v4.10.1-r4 bash <(curl -fsSL ...)`
 
 **Option B — Manual**
 
