@@ -172,17 +172,18 @@ automation:
                 data: {}
 
   # ── Insights debug mode auto-off ──────────────────────────────────────────────
-  # Mirrors original Node-RED: debug mode turns itself off after 5 minutes to avoid
-  # leaving ~1 Hz history writes running indefinitely.
+  # Turns debug mode off after 15 minutes to avoid leaving ~1 Hz history writes
+  # running indefinitely. Original Node-RED used 5 minutes; raised to 15 to give
+  # longer observation windows during PID tuning. Recorder protection still applies.
   - id: hba_insights_mode_auto_off
-    alias: "HBA: Insights mode — auto-off after 5 minutes"
-    description: "Mirrors original Node-RED behaviour: debug mode turns itself off after 5 minutes to avoid leaving history writes running indefinitely."
+    alias: "HBA: Insights mode — auto-off after 15 minutes"
+    description: "Turns debug mode off after 15 minutes to avoid leaving history writes running indefinitely."
     triggers:
       - trigger: state
         entity_id: input_boolean.hba_control_is_debug_mode
         to: "on"
         for:
-          minutes: 5
+          minutes: 15
     actions:
       - action: input_boolean.turn_off
         target: { entity_id: input_boolean.hba_control_is_debug_mode }
