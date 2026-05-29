@@ -333,6 +333,12 @@ views:
                   perform_action: script.turn_on
                   target:
                     entity_id: script.hba_take_control
+                  confirmation:
+                    text: >-
+                      HBA will take control: switches to Full control mode and
+                      stops Node-RED so HBC can no longer drive the batteries.
+                      These buttons will hide afterwards — you can find them
+                      again under Advanced settings → HBA ↔ HBC handoff.
               - type: button
                 name: Yield to HBC
                 icon: mdi:transit-connection-variant
@@ -343,6 +349,31 @@ views:
                   perform_action: script.turn_on
                   target:
                     entity_id: script.hba_yield_to_hbc
+                  confirmation:
+                    text: >-
+                      HBA will yield: starts Node-RED so HBC can take over,
+                      and HBA stops driving the batteries.
+            visibility:
+              - condition: or
+                conditions:
+                  - condition: state
+                    entity: binary_sensor.hba_hbc_node_red_running
+                    state: 'on'
+                  - condition: state
+                    entity: input_boolean.hba_safety_lockout
+                    state: 'on'
+                  - condition: state
+                    entity: binary_sensor.hba_hbc_automations_active
+                    state: 'on'
+                  - condition: state
+                    entity: input_select.marstek_master_battery_mode
+                    state: Full control
+          - type: markdown
+            content: >-
+              _After **Take control**, these buttons hide automatically
+              (Node-RED is stopped). You can find them again under **Advanced
+              settings → HBA ↔ HBC handoff**._
+            text_only: true
             visibility:
               - condition: or
                 conditions:
@@ -407,6 +438,10 @@ views:
             tap_action:
               action: url
               url_path: https://docs.homebatterycontrol.com/03-strategies.html
+              confirmation:
+                text: >-
+                  Opens HBC documentation or video. HBA is closely based on HBC,
+                  so most content also applies.
           - type: entities
             entities:
               - entity: sensor.hba_active_strategy
@@ -431,8 +466,6 @@ views:
                 name: Chosen strategy
               - entity: sensor.hba_active_strategy
                 name: Executing
-              - entity: input_text.hba_strategy_active_flow
-                name: Flow
             visibility:
               - condition: state
                 entity: input_select.hba_marstek_master_battery_mode
@@ -817,11 +850,15 @@ views:
             icon: mdi:book-open-page-variant
           - type: heading
             icon: mdi:information-slab-circle
-            heading: Online documentation
+            heading: Documentation (HBC)
             heading_style: subtitle
             tap_action:
               action: url
               url_path: https://docs.homebatterycontrol.com/
+              confirmation:
+                text: >-
+                  Opens HBC documentation or video. HBA is closely based on HBC,
+                  so most content also applies.
           - type: heading
             icon: mdi:youtube-subscription
             heading: Youtube (playlist)
@@ -830,6 +867,10 @@ views:
               action: url
               url_path: >-
                 https://www.youtube.com/playlist?list=PL9wonDMnFmzvm-ln2iHdRE5niDD3ikrKn
+              confirmation:
+                text: >-
+                  Opens HBC documentation or video. HBA is closely based on HBC,
+                  so most content also applies.
           - type: heading
             icon: mdi:source-branch
             heading: GitHub — Home Battery Assistant
@@ -866,6 +907,10 @@ views:
             tap_action:
               action: url
               url_path: https://github.com/gitcodebob/marstek-venus-rs485-node-red
+              confirmation:
+                text: >-
+                  Opens HBC documentation or video. HBA is closely based on HBC,
+                  so most content also applies.
           - type: markdown
             content: >-
               [![GitHub
@@ -895,13 +940,6 @@ views:
         entity: sensor.hba_active_strategy
         show_entity_picture: false
         name: Executing
-      - type: entity
-        show_name: true
-        show_state: true
-        show_icon: true
-        entity: input_text.hba_strategy_active_flow
-        show_entity_picture: false
-        name: Flow
     header:
       layout: center
       badges_position: top
@@ -943,6 +981,10 @@ views:
               action: url
               url_path: >-
                 https://docs.homebatterycontrol.com/04-setup-self-consumption.html
+              confirmation:
+                text: >-
+                  Opens HBC documentation or video. HBA is closely based on HBC,
+                  so most content also applies.
           - type: markdown
             content: >-
               <ha-alert alert-type="warning">High controller sensitivity,
@@ -1066,13 +1108,6 @@ views:
         entity: sensor.hba_active_strategy
         show_entity_picture: false
         name: Executing
-      - type: entity
-        show_name: true
-        show_state: true
-        show_icon: true
-        entity: input_text.hba_strategy_active_flow
-        show_entity_picture: false
-        name: Flow
     sections:
       - type: grid
         cards:
@@ -1088,6 +1123,10 @@ views:
               action: url
               url_path: >-
                 https://docs.homebatterycontrol.com/03-strategies.html#charge-from-grid
+              confirmation:
+                text: >-
+                  Opens HBC documentation or video. HBA is closely based on HBC,
+                  so most content also applies.
           - type: entities
             entities:
               - entity: input_select.hba_strategy_charge_goal
@@ -1210,6 +1249,10 @@ views:
             tap_action:
               action: url
               url_path: https://docs.homebatterycontrol.com/04-setup-solar-forecast
+              confirmation:
+                text: >-
+                  Opens HBC documentation or video. HBA is closely based on HBC,
+                  so most content also applies.
             visibility:
               - condition: state
                 entity: input_select.hba_strategy_charge_goal
@@ -1249,6 +1292,10 @@ views:
               action: url
               url_path: >-
                 https://docs.homebatterycontrol.com/03-strategies.html#charge-from-grid
+              confirmation:
+                text: >-
+                  Opens HBC documentation or video. HBA is closely based on HBC,
+                  so most content also applies.
           - type: entities
             entities:
               - entity: input_select.hba_strategy_charge_goal_reached
@@ -1274,6 +1321,10 @@ views:
               action: url
               url_path: >-
                 https://docs.homebatterycontrol.com/03-strategies.html#charge-from-grid
+              confirmation:
+                text: >-
+                  Opens HBC documentation or video. HBA is closely based on HBC,
+                  so most content also applies.
           - type: entities
             entities:
               - entity: input_select.hba_strategy_sell_goal
@@ -1310,6 +1361,10 @@ views:
               action: url
               url_path: >-
                 https://docs.homebatterycontrol.com/03-strategies.html#charge-from-grid
+              confirmation:
+                text: >-
+                  Opens HBC documentation or video. HBA is closely based on HBC,
+                  so most content also applies.
           - type: entities
             entities:
               - entity: input_select.hba_strategy_sell_goal_reached
@@ -1345,13 +1400,6 @@ views:
         entity: sensor.hba_active_strategy
         show_entity_picture: false
         name: Executing
-      - type: entity
-        show_name: true
-        show_state: true
-        show_icon: true
-        entity: input_text.hba_strategy_active_flow
-        show_entity_picture: false
-        name: Flow
     header:
       layout: center
       badges_position: top
@@ -1373,6 +1421,10 @@ views:
             tap_action:
               action: url
               url_path: https://youtu.be/UbeJaRjFK_o?t=53s
+              confirmation:
+                text: >-
+                  Opens HBC documentation or video. HBA is closely based on HBC,
+                  so most content also applies.
           - type: entities
             entities:
               - entity: input_select.hba_strategy_timed_strat_0
@@ -1500,6 +1552,10 @@ views:
               action: url
               url_path: >-
                 https://docs.homebatterycontrol.com/05-setup-dynamic.html#use-the-dynamic-strategy
+              confirmation:
+                text: >-
+                  Opens HBC documentation or video. HBA is closely based on HBC,
+                  so most content also applies.
           - type: entities
             entities:
               - entity: input_select.hba_strategy_dynamic_data_source
@@ -1650,6 +1706,10 @@ views:
               action: url
               url_path: >-
                 https://docs.homebatterycontrol.com/05-setup-dynamic.html#period-startend-times-read-only
+              confirmation:
+                text: >-
+                  Opens HBC documentation or video. HBA is closely based on HBC,
+                  so most content also applies.
             visibility:
               - condition: state
                 entity: input_select.hba_strategy
@@ -1704,13 +1764,6 @@ views:
         entity: sensor.hba_active_strategy
         show_entity_picture: false
         name: Executing
-      - type: entity
-        show_name: true
-        show_state: true
-        show_icon: true
-        entity: input_text.hba_strategy_active_flow
-        show_entity_picture: false
-        name: Flow
     header:
       layout: center
       badges_position: top
@@ -1724,8 +1777,8 @@ views:
           Need help figuring out what is going on?
 
           Hit **Insights mode** to toggle debug entities.
-          📘 [Troubleshooting
-          documentation](https://docs.homebatterycontrol.com/07-troubleshooting.html)
+          📘 [Troubleshooting documentation
+          (HBC)](https://docs.homebatterycontrol.com/07-troubleshooting.html)
     sections:
       - type: grid
         cards:
@@ -1954,13 +2007,6 @@ views:
         entity: sensor.hba_active_strategy
         show_entity_picture: false
         name: Executing
-      - type: entity
-        show_name: true
-        show_state: true
-        show_icon: true
-        entity: input_text.hba_strategy_active_flow
-        show_entity_picture: false
-        name: Flow
     header:
       layout: center
       badges_position: top
@@ -2025,6 +2071,10 @@ views:
               action: url
               url_path: >-
                 https://docs.homebatterycontrol.com/06-advanced-features.html#battery-life
+              confirmation:
+                text: >-
+                  Opens HBC documentation or video. HBA is closely based on HBC,
+                  so most content also applies.
           - show_name: true
             show_icon: true
             show_state: true
@@ -2043,6 +2093,10 @@ views:
               action: url
               url_path: >-
                 https://docs.homebatterycontrol.com/06-advanced-features.html#battery-life
+              confirmation:
+                text: >-
+                  Opens HBC documentation or video. HBA is closely based on HBC,
+                  so most content also applies.
           - type: entities
             entities:
               - entity: input_number.hba_control_idle_time
@@ -2130,6 +2184,10 @@ views:
               action: url
               url_path: >-
                 https://docs.homebatterycontrol.com/06-advanced-features.html#peak-shaving
+              confirmation:
+                text: >-
+                  Opens HBC documentation or video. HBA is closely based on HBC,
+                  so most content also applies.
           - type: markdown
             content: >-
               <font color=grey><i>Use your batteries to reduce peak loads and
@@ -2332,6 +2390,10 @@ views:
               action: url
               url_path: >-
                 https://docs.homebatterycontrol.com/06-advanced-features.html#chargingdischarging-limits
+              confirmation:
+                text: >-
+                  Opens HBC documentation or video. HBA is closely based on HBC,
+                  so most content also applies.
 
       # Per-battery settings M2
       - type: grid
@@ -2537,6 +2599,10 @@ views:
               action: url
               url_path: >-
                 https://docs.homebatterycontrol.com/06-advanced-features.html#chargingdischarging-limits
+              confirmation:
+                text: >-
+                  Opens HBC documentation or video. HBA is closely based on HBC,
+                  so most content also applies.
         visibility:
           - condition: numeric_state
             entity: input_number.hba_battery_count
@@ -2612,6 +2678,10 @@ views:
               action: url
               url_path: >-
                 https://docs.homebatterycontrol.com/06-advanced-features.html#chargingdischarging-limits
+              confirmation:
+                text: >-
+                  Opens HBC documentation or video. HBA is closely based on HBC,
+                  so most content also applies.
         visibility:
           - condition: numeric_state
             entity: input_number.hba_battery_count
@@ -2687,6 +2757,10 @@ views:
               action: url
               url_path: >-
                 https://docs.homebatterycontrol.com/06-advanced-features.html#chargingdischarging-limits
+              confirmation:
+                text: >-
+                  Opens HBC documentation or video. HBA is closely based on HBC,
+                  so most content also applies.
         visibility:
           - condition: numeric_state
             entity: input_number.hba_battery_count
@@ -2714,6 +2788,10 @@ views:
                   perform_action: script.turn_on
                   target:
                     entity_id: script.hba_take_control
+                  confirmation:
+                    text: >-
+                      HBA will take control: switches to Full control mode and
+                      stops Node-RED so HBC can no longer drive the batteries.
               - type: button
                 name: Yield to HBC
                 icon: mdi:transit-connection-variant
@@ -2724,6 +2802,10 @@ views:
                   perform_action: script.turn_on
                   target:
                     entity_id: script.hba_yield_to_hbc
+                  confirmation:
+                    text: >-
+                      HBA will yield: starts Node-RED so HBC can take over,
+                      and HBA stops driving the batteries.
           - type: entities
             entities:
               - entity: input_text.hba_hbc_nodered_addon_slug
@@ -2802,13 +2884,6 @@ views:
         entity: sensor.hba_active_strategy
         show_entity_picture: false
         name: Executing
-      - type: entity
-        show_name: true
-        show_state: true
-        show_icon: true
-        entity: input_text.hba_strategy_active_flow
-        show_entity_picture: false
-        name: Flow
     header:
       card:
         type: markdown
@@ -2835,6 +2910,10 @@ views:
               action: url
               url_path: >-
                 https://docs.homebatterycontrol.com/05-setup-dynamic.html#strategy-configuration
+              confirmation:
+                text: >-
+                  Opens HBC documentation or video. HBA is closely based on HBC,
+                  so most content also applies.
           - type: entities
             entities:
               - entity: input_select.hba_strategy_dynamic_data_source

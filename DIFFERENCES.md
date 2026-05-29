@@ -75,7 +75,6 @@ recommendations.
 | Derivative term | On measurement: `Kd × -(P1 − P1_last)` | On error: `Kd × (err − prev_err)` — mathematically equivalent for a constant setpoint |
 | Direction-flip guard when triggered | Locks to previous direction at full PID magnitude | Sets output to 0; battery idles at 1 W hold |
 | SoC cutoff boundary | Exact: `soc >= soc_max` | ±0.5% buffer to prevent relay chatter at the exact boundary |
-| Slow charge thresholds | Hard-coded: ≥ 95% → 1500 W; ≥ 99% → 1000 W | Configurable in Advanced Settings (same defaults) |
 
 ---
 
@@ -90,7 +89,12 @@ These are features HBA has that are not in HBC:
 | **Conflict detection** | Fires automatically if HBA and HBC both end up in Full control simultaneously; disables HBA and creates a persistent HA notification |
 | **HBC coexistence panel** | Dashboard buttons to hand control between HBA and HBC (Take control / Yield to HBC) |
 | **Configurable Frank Energie entity ID** | Set in Advanced Settings — see [Dynamic pricing](#dynamic-pricing) below |
-| **Insights view** | Live flow trace showing the active strategy chain (e.g. `Dynamic → Charge PV → Self-consumption (charge only)`). Replaces HBC's Node-RED context trace |
+| **Configurable slow-charge thresholds** | HBC hard-codes the near-full slowdown at ≥ 95% → 1500 W and ≥ 99% → 1000 W. HBA exposes both SoC thresholds *and* both power limits as individual helpers in Advanced Settings — defaults match HBC, but you can change either pair or disable a step by setting its power limit to 0 |
+| **Reset to defaults button** | `script.hba_apply_defaults` is surfaced as a one-click button in onboarding Step 1 and again in Advanced Settings. Resets every user-configurable helper to a sensible starting value without touching internal PID state. HBC has no equivalent factory reset |
+| **Version mismatch banner** | The dashboard compares `sensor.hba_version` against a hard-coded version string baked into the YAML and warns when they diverge — i.e. when only one half of the install was updated. Prevents silent drift between dashboard and backend |
+| **Battery offline banner** | `binary_sensor.hba_any_battery_offline` drives a banner on the overview that lists which M-slots dropped off Modbus. HBC has no offline detection at the dashboard level |
+| **Onboarding Step 6** | HBA's onboarding ends with an explicit "Set Master Battery Control to Full control" step plus a button to hide the wizard once the user is up and running. HBC's onboarding ends at Step 5 |
+| **Insights view** | See [Insights view](#insights-view) below for what it actually contains — it's substantially richer than a single flow-trace card |
 | **Peak shaving — all strategies** | HBC applies peak shaving only in the partials flow (Charge PV, Zero import, Standby). HBA integrates it into `self_consumption`, so Timed and Dynamic also inherit it automatically |
 
 ---
@@ -123,11 +127,29 @@ This applies to both v1 and v2.
 HBC's Insights view shows a live Node-RED flow trace via `sensor.home_battery_control_trace`
 and a log table via `sensor.home_battery_control_log` — both Node-RED-only sensors.
 
-HBA replaces this with a custom HA-native view: the active strategy chain is stored in
-`input_text.hba_strategy_active_flow` (e.g. `Timed → Full stop`) and displayed as an
-indented flow tree. A Controller State card shows the current PID phase (Deadband,
-Direction guard, Active, Idle hold, Idle stop). These update at P1 frequency with
-debug mode on.
+HBA replaces this with a custom HA-native view that is substantially more detailed than
+HBC's. The cards on it:
+
+- **Flows used** — indented tree rendered from `input_text.hba_strategy_active_flow`
+  (e.g. `Control loop → Dynamic → Charge PV → Self-consumption (charge only)`)
+- **Controller state** — grid power vs setpoint, current error, deadband indicator,
+  P1 sensor age, peak-shaving clamp status per side (🟢/🔴), EV-stop entity state,
+  and the current PID phase from `input_text.hba_control_cycle_state` (Deadband,
+  Direction guard, Active, Idle hold, Idle stop)
+- **System state** — `binary_sensor.hba_is_charging`, `binary_sensor.hba_charge_goal_reached`,
+  current priority battery
+- **Battery connectivity** — per-battery 🟢/🔴 with `inverter_state`
+- **Battery aggregates** — measured total power alongside `sensor.hba_total_commanded_power`
+  (the last value HBA wrote to the batteries), plus max charge/discharge and time remaining
+- **Power history** — 1-hour graph of P1 vs total battery power
+- **PID controller breakdown** *(debug mode)* — P/I/D term values with gains and the I-term
+  anti-windup cap, plus a per-battery load-distribution dump showing SoC, cutoffs, mode,
+  current command, slow-charge cap warnings, and per-battery idle timer state
+- **Dynamic pricing now** *(debug mode)* — `mark_now`, cheap/expensive threshold-met flags,
+  the dispatched sub-strategy, and the active time windows
+
+All of the above update at P1 frequency. Debug-only cards are gated behind
+`input_boolean.hba_control_is_debug_mode` to avoid history bloat at ~1 Hz.
 
 ### Dynamic v2 price marks table — vertical layout
 
