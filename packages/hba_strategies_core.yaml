@@ -276,17 +276,34 @@ script:
       - variables:
           mode: "{{ states('input_select.hba_marstek_master_battery_mode') }}"
           count: "{{ states('input_number.hba_battery_count') | int(1) }}"
-      # Top-level automation gate: 'Disabled' stops the P1-triggered control
-      # loop firing entirely (~1 Hz). All other modes keep it on; the loop's
-      # own condition still gates dispatch to 'Full control' only.
+      # Top-level automation + PID-state handling.
+      # 'Disabled' stops the P1-triggered control loop firing entirely (~1 Hz),
+      # also stops the priority-cycle automation, and clears the PID memory
+      # (i_term + pid_output) so a future re-enable starts clean instead of
+      # resuming with a stale integrator. Matches hba_strategy_full_stop's
+      # reset choice.
+      # Any other mode re-enables both automations; PID memory is left alone.
+      # The control loop's own condition still gates dispatch to 'Full control'.
       - choose:
           - conditions: "{{ mode == 'Disabled' }}"
             sequence:
               - action: automation.turn_off
-                target: { entity_id: automation.hba_control_loop_p1_meter_triggered }
+                target:
+                  entity_id:
+                    - automation.hba_control_loop_p1_meter_triggered
+                    - automation.hba_auto_cycle_priority_battery
+              - action: input_number.set_value
+                target: { entity_id: input_number.hba_control_i_term }
+                data: { value: 0 }
+              - action: input_number.set_value
+                target: { entity_id: input_number.hba_control_pid_output }
+                data: { value: 0 }
         default:
           - action: automation.turn_on
-            target: { entity_id: automation.hba_control_loop_p1_meter_triggered }
+            target:
+              entity_id:
+                - automation.hba_control_loop_p1_meter_triggered
+                - automation.hba_auto_cycle_priority_battery
       - repeat:
           count: "{{ count }}"
           sequence:
