@@ -276,11 +276,50 @@ script:
       - variables:
           mode: "{{ states('input_select.hba_marstek_master_battery_mode') }}"
           count: "{{ states('input_number.hba_battery_count') | int(1) }}"
+      # Top-level automation gate: 'Disabled' stops the P1-triggered control
+      # loop firing entirely (~1 Hz). All other modes keep it on; the loop's
+      # own condition still gates dispatch to 'Full control' only.
+      - choose:
+          - conditions: "{{ mode == 'Disabled' }}"
+            sequence:
+              - action: automation.turn_off
+                target: { entity_id: automation.hba_control_loop_p1_meter_triggered }
+        default:
+          - action: automation.turn_on
+            target: { entity_id: automation.hba_control_loop_p1_meter_triggered }
       - repeat:
           count: "{{ count }}"
           sequence:
             - variables:
                 bat: "m{{ repeat.index }}"
+                # Don't write to unreachable entities — generates log spam
+                # with no effect.
+                bat_available: "{{ states('select.marstek_' ~ bat ~ '_forcible_charge_discharge') not in ['unavailable', 'unknown', 'none'] }}"
+            # Stop any in-flight forcible charge/discharge BEFORE changing mode,
+            # for any mode that doesn't actively keep commanding (everything
+            # except Full control). Has to run while RS485 is still enabled so
+            # the battery accepts the stop — that's why this comes before the
+            # Marstek-control branch flips RS485 off.
+            - choose:
+                - conditions:
+                    - "{{ mode in ['Disabled', 'Manual control', 'Marstek control'] }}"
+                    - "{{ bat_available }}"
+                  sequence:
+                    - action: number.set_value
+                      continue_on_error: true
+                      target:
+                        entity_id: "number.marstek_{{ bat }}_forcible_charge_power"
+                      data: { value: 0 }
+                    - action: number.set_value
+                      continue_on_error: true
+                      target:
+                        entity_id: "number.marstek_{{ bat }}_forcible_discharge_power"
+                      data: { value: 0 }
+                    - action: select.select_option
+                      continue_on_error: true
+                      target:
+                        entity_id: "select.marstek_{{ bat }}_forcible_charge_discharge"
+                      data: { option: "stop" }
             - choose:
                 - conditions: "{{ mode == 'Manual control' }}"
                   sequence:
@@ -306,6 +345,11 @@ script:
                       target:
                         entity_id: "select.marstek_{{ bat }}_rs485_control_mode"
                       data: { option: "disable" }
+                # 'Disabled' deliberately does NOT touch RS485 or work mode —
+                # it's a soft kill-switch (control loop automation off only),
+                # so the batteries keep whatever state the previous mode left
+                # them in. Re-selecting Full control / Marstek control re-applies
+                # that mode's settings.
 
   # ── Battery power distribution ────────────────────────────────────────────────
   # Distributes a target power across N batteries using priority-first waterfall fill:

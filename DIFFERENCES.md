@@ -96,6 +96,7 @@ These are features HBA has that are not in HBC:
 | **Onboarding Step 6** | HBA's onboarding ends with an explicit "Set Master Battery Control to Full control" step plus a button to hide the wizard once the user is up and running. HBC's onboarding ends at Step 5 |
 | **Insights view** | See [Insights view](#insights-view) below for what it actually contains — it's substantially richer than a single flow-trace card |
 | **Peak shaving — all strategies** | HBC applies peak shaving only in the partials flow (Charge PV, Zero import, Standby). HBA integrates it into `self_consumption`, so Timed and Dynamic also inherit it automatically |
+| **"Disabled" master mode** | HBA adds a fourth option to the Master Battery Mode dropdown alongside the three HBC carries (Manual / Marstek / Full): **Disabled**. Picking it turns off `automation.hba_control_loop_p1_meter_triggered` entirely — no more P1-triggered control loop firing (no ~1 Hz trigger overhead, no dispatch attempts). It also sends a one-shot stop to every reachable battery first (zero force-power + select `stop`, while RS485 is still enabled) so nothing keeps charging/discharging at the last commanded level. Deliberately does NOT change `user_work_mode` or `rs485_control_mode` — it's a pure soft kill-switch; whatever state the previous mode left the batteries in stays. Re-selecting any other mode flips the control loop automation back on. Useful for staging instances, troubleshooting, or any time you want HBA "off" without renaming Modbus YAML files |
 
 ---
 

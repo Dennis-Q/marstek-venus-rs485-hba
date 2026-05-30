@@ -521,6 +521,7 @@ input_select:
       - "Manual control"
       - "Marstek control"
       - "Full control"
+      - "Disabled"
     icon: mdi:battery-sync
   hba_strategy:
     name: "Active strategy"
