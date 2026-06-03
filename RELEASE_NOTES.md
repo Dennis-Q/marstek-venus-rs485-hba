@@ -11,6 +11,27 @@ This document covers HBA-specific changes only.
 
 ---
 
+## v4.10.1-r5 — June 2026
+
+### Improvements
+
+- **Packages moved to `packages/hba/` subdirectory** — HBA files now live under
+  `packages/hba/` instead of directly in `packages/`. The installer migrates
+  existing installs automatically (asks before moving old files). No HA config
+  change required — `!include_dir_named packages` recurses into subdirectories.
+
+---
+
+## v4.10.1-r4 — May 2026
+
+### Improvements
+
+- **Reduced database writes** — HBA scripts, the control loop automation, per-battery
+  idle timestamps, and flow-trace helpers are now excluded from the recorder. Eliminates
+  tens of thousands of low-value state writes per day.
+
+---
+
 ## v4.10.1-r3 — May 2026
 
 ### Bug fixes

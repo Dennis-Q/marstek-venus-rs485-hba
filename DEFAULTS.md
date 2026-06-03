@@ -1,4 +1,4 @@
-# HBA Factory Defaults — v4.10.1-r3
+# HBA Factory Defaults — v4.10.1-r5
 
 All values set by `script.hba_apply_defaults`. Run once after fresh install via
 Developer Tools → Services → `script.turn_on` → `script.hba_apply_defaults`.
