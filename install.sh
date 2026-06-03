@@ -83,8 +83,48 @@ echo ""
 
 # ── Create directories ────────────────────────────────────────────────────────
 
-mkdir -p "${CONFIG_DIR}/packages"
+mkdir -p "${CONFIG_DIR}/packages/hba"
 mkdir -p "${CONFIG_DIR}/lovelace"
+
+# ── Migration: old-location HBA files ────────────────────────────────────────
+# Before v4.11, HBA files lived directly in packages/. They now live in
+# packages/hba/. If both locations contain files HA loads them twice —
+# duplicate entity definitions cause YAML to silently drop one block.
+
+shopt -s nullglob
+OLD_HBA=(
+    "${CONFIG_DIR}"/packages/hba_*.yaml
+    "${CONFIG_DIR}"/packages/marstek_m*.yaml
+)
+shopt -u nullglob
+
+if [ ${#OLD_HBA[@]} -gt 0 ]; then
+    warn "Old-location HBA files found directly in packages/:"
+    echo ""
+    for _f in "${OLD_HBA[@]}"; do
+        say "  $_f"
+    done
+    echo ""
+    warn "These will clash with packages/hba/ (HA loads both → duplicate entities)."
+    echo ""
+    if ask "Move them to packages/hba/ now?"; then
+        for _f in "${OLD_HBA[@]}"; do
+            _name=$(basename "$_f")
+            _dst="${CONFIG_DIR}/packages/hba/${_name}"
+            if [ -f "$_dst" ]; then
+                rm "$_f"
+                say "  removed old ${_name} (already exists at packages/hba/)"
+            else
+                mv "$_f" "$_dst"
+                say "  moved: ${_name} → packages/hba/"
+            fi
+        done
+        ok "Migration complete."
+    else
+        warn "Skipped — HA will load files from both locations. Re-run to fix."
+    fi
+    echo ""
+fi
 
 # ── Core HBA files — always overwrite ────────────────────────────────────────
 # Safe to overwrite on every update; no user-editable content in these files.
@@ -92,15 +132,15 @@ mkdir -p "${CONFIG_DIR}/lovelace"
 echo "Core files:"
 
 CORE_FILES=(
-    packages/hba_helpers.yaml
-    packages/hba_strategies_core.yaml
-    packages/hba_strategy_charge_pv.yaml
-    packages/hba_strategy_charge_sell.yaml
-    packages/hba_strategy_dynamic.yaml
-    packages/hba_strategy_dynamic_v2.yaml
-    packages/hba_strategy_others.yaml
-    packages/hba_strategy_self_consumption.yaml
-    packages/hba_strategy_timed.yaml
+    packages/hba/hba_helpers.yaml
+    packages/hba/hba_strategies_core.yaml
+    packages/hba/hba_strategy_charge_pv.yaml
+    packages/hba/hba_strategy_charge_sell.yaml
+    packages/hba/hba_strategy_dynamic.yaml
+    packages/hba/hba_strategy_dynamic_v2.yaml
+    packages/hba/hba_strategy_others.yaml
+    packages/hba/hba_strategy_self_consumption.yaml
+    packages/hba/hba_strategy_timed.yaml
     lovelace/battery_assistant.yaml
 )
 
@@ -115,7 +155,7 @@ echo ""
 # Overwrite if already present (must stay in sync with core files on update).
 # Ask on fresh install — only needed if HBC / Node-RED is or was installed.
 
-COEX="packages/hba_hbc_coexistence.yaml"
+COEX="packages/hba/hba_hbc_coexistence.yaml"
 if [ -f "${CONFIG_DIR}/${COEX}" ]; then
     download "$COEX" "${CONFIG_DIR}/${COEX}"
     ok "${COEX} (updated)"
@@ -130,14 +170,14 @@ fi
 # Contains the user's P1 sensor definition. Never overwritten after initial
 # install to avoid losing their configuration.
 
-CONFIG_PKG="packages/hba_config.yaml"
+CONFIG_PKG="packages/hba/hba_config.yaml"
 if [ ! -f "${CONFIG_DIR}/${CONFIG_PKG}" ]; then
     download "$CONFIG_PKG" "${CONFIG_DIR}/${CONFIG_PKG}"
     ok "${CONFIG_PKG} (created)"
-    warn "Edit packages/hba_config.yaml to define your P1 meter sensor."
+    warn "Edit packages/hba/hba_config.yaml to define your P1 meter sensor."
     echo ""
 else
-    say "packages/hba_config.yaml already exists — skipped (your config is preserved)."
+    say "packages/hba/hba_config.yaml already exists — skipped (your config is preserved)."
     echo ""
 fi
 
@@ -146,13 +186,13 @@ fi
 # On a fresh install, offer to download them and prompt for battery count.
 
 MARSTEK_FOUND=false
-for _f in "${CONFIG_DIR}"/packages/marstek_m*.yaml; do
+for _f in "${CONFIG_DIR}"/packages/hba/marstek_m*.yaml; do
     [ -f "$_f" ] && MARSTEK_FOUND=true && break
 done
 
 if [ "$MARSTEK_FOUND" = false ]; then
     echo "Marstek battery files:"
-    say "No marstek_m*.yaml files found."
+    say "No marstek_m*.yaml files found in packages/hba/."
     echo ""
     if ask "Download Marstek Modbus TCP files?"; then
         BAT_COUNT=0
@@ -162,12 +202,12 @@ if [ "$MARSTEK_FOUND" = false ]; then
         done
         echo ""
         for n in $(seq 1 "$BAT_COUNT"); do
-            download "packages/marstek_m${n}_modbus_tcp.yaml" \
-                     "${CONFIG_DIR}/packages/marstek_m${n}_modbus_tcp.yaml"
-            ok "packages/marstek_m${n}_modbus_tcp.yaml"
+            download "packages/hba/marstek_m${n}_modbus_tcp.yaml" \
+                     "${CONFIG_DIR}/packages/hba/marstek_m${n}_modbus_tcp.yaml"
+            ok "packages/hba/marstek_m${n}_modbus_tcp.yaml"
         done
         echo ""
-        warn "Edit each marstek_m*.yaml and replace the IP placeholder with your battery's IP."
+        warn "Edit each packages/hba/marstek_m*.yaml and replace the IP placeholder with your battery's IP."
         echo ""
     fi
 else
@@ -210,12 +250,12 @@ echo "  Done! Next steps:"
 echo ""
 if [ "$NEEDS_ACTION" = true ]; then
 echo "  1. Update configuration.yaml (see warnings above)"
-echo "  2. Edit packages/hba_config.yaml — define your P1 meter sensor"
-echo "  3. Edit packages/marstek_m*.yaml — set your battery IP addresses"
+echo "  2. Edit packages/hba/hba_config.yaml — define your P1 meter sensor"
+echo "  3. Edit packages/hba/marstek_m*.yaml — set your battery IP addresses"
 echo "  4. Restart Home Assistant"
 echo "  5. Open the Home Battery Assistant dashboard and run onboarding"
 else
-echo "  1. Edit packages/hba_config.yaml if you changed your P1 sensor setup"
+echo "  1. Edit packages/hba/hba_config.yaml if you changed your P1 sensor setup"
 echo "  2. Restart Home Assistant (or reload YAML)"
 echo "  3. Check the dashboard — run onboarding if this is a fresh install"
 fi

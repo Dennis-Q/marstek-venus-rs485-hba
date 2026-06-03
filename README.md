@@ -176,15 +176,15 @@ To install a specific version: `HBA_VERSION=v4.10.1-r4 bash <(curl -fsSL ...)`
 
 **Option B — Manual**
 
-Copy the entire `packages/` directory and `lovelace/battery_assistant.yaml` to your HA config root, then add to `configuration.yaml`:
+Copy the `packages/hba/` directory (keep it as `packages/hba/` under your HA config root) and `lovelace/battery_assistant.yaml`, then add to `configuration.yaml`:
 
 ```yaml
 homeassistant:
   packages: !include_dir_named packages
 ```
 
-> **Which files to edit:** only `hba_config.yaml` (Step 3) and the
-> `marstek_m*.yaml` battery files (Step 4). All other `hba_*.yaml` files
+> **Which files to edit:** only `packages/hba/hba_config.yaml` (Step 3) and the
+> `packages/hba/marstek_m*.yaml` battery files (Step 4). All other `hba_*.yaml` files
 > work without modification. `hba_hbc_coexistence.yaml` can be skipped on
 > a clean install with no HBC — it polls the Supervisor API every 10 s for
 > the Node-RED addon, which is unnecessary overhead if Node-RED is not
@@ -193,14 +193,14 @@ homeassistant:
 
 ### Step 3 — Configure your grid power sensor
 
-Edit `packages/hba_config.yaml` to define `sensor.p1_meter_power` for your setup.
+Edit `packages/hba/hba_config.yaml` to define `sensor.p1_meter_power` for your setup.
 The file ships with commented examples. The sensor must be **positive when importing**
 from the grid and negative when exporting. Entity names depend on your DSMR reader —
 check **Developer Tools → States** to find the correct ones.
 
 ### Step 4 — Set battery IPs
 
-Edit each `packages/marstek_m*.yaml` for the batteries you have and replace the
+Edit each `packages/hba/marstek_m*.yaml` for the batteries you have and replace the
 placeholder IP with the actual IP of that battery. Only configure the files for
 batteries you physically have; unused files can be left as-is or deleted.
 
