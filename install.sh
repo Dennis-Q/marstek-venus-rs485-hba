@@ -223,8 +223,8 @@ NEEDS_ACTION=false
 if ! grep -q "include_dir_named packages" "$CONF" 2>/dev/null; then
     warn "Packages directory not included in configuration.yaml. Add:"
     echo ""
-    echo "      homeassistant:"
-    echo "        packages: !include_dir_named packages"
+    echo "homeassistant:"
+    echo "  packages: !include_dir_named packages"
     echo ""
     NEEDS_ACTION=true
 fi
@@ -232,13 +232,13 @@ fi
 if ! grep -q "home-battery-assistant" "$CONF" 2>/dev/null; then
     warn "Dashboard not registered in configuration.yaml. Add:"
     echo ""
-    echo "      lovelace:"
-    echo "        dashboards:"
-    echo "          home-battery-assistant:"
-    echo "            mode: yaml"
-    echo "            title: Home Battery Assistant"
-    echo "            icon: mdi:battery-charging"
-    echo "            filename: lovelace/battery_assistant.yaml"
+    echo "lovelace:"
+    echo "  dashboards:"
+    echo "    home-battery-assistant:"
+    echo "      mode: yaml"
+    echo "      title: Home Battery Assistant"
+    echo "      icon: mdi:battery-charging"
+    echo "      filename: lovelace/battery_assistant.yaml"
     echo ""
     NEEDS_ACTION=true
 fi
