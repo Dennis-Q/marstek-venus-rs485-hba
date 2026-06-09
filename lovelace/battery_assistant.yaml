@@ -2165,6 +2165,64 @@ views:
             text_only: true
 
       - type: grid
+        cards:
+          - type: heading
+            icon: mdi:battery-arrow-up
+            heading: Battery Assist (morning EV discharge)
+            heading_style: title
+          - type: markdown
+            content: '---'
+            grid_options:
+              columns: full
+            text_only: true
+          - type: markdown
+            content: >-
+              <font color=grey><i>Forcibly discharges batteries into the EV
+              charger during a configured morning window — useful to empty
+              remaining overnight capacity before solar starts producing.
+              Stops automatically when SoC drops below the configured
+              minimum.</i></font>
+            text_only: true
+          - type: tile
+            entity: input_boolean.hba_battery_assist_enabled
+            name: Battery assist enabled
+            color: blue
+            vertical: false
+            hide_state: true
+            features_position: bottom
+            grid_options:
+              columns: full
+          - type: tile
+            entity: binary_sensor.hba_battery_assist_active
+            name: Battery assist active (now)
+            vertical: false
+            features_position: bottom
+            grid_options:
+              columns: full
+          - type: entities
+            entities:
+              - entity: input_datetime.hba_battery_assist_start_time
+                name: Start time
+              - entity: input_datetime.hba_battery_assist_end_time
+                name: End time
+              - entity: input_number.hba_battery_assist_min_soc_pct
+                name: Minimum SoC (stop threshold)
+          - type: tile
+            entity: binary_sensor.hba_grid_exporting_sustained
+            name: Grid exporting sustained (overflow guard)
+            vertical: false
+            features_position: bottom
+            grid_options:
+              columns: full
+          - type: markdown
+            content: >-
+              <font color=grey>When <b>Grid exporting sustained</b> turns on
+              (grid export >1 kW for 2+ min with batteries discharging), the
+              assist temporarily switches to self-consumption to avoid
+              unnecessary grid feed-in.</font>
+            text_only: true
+
+      - type: grid
         column_span: 3
         cards:
           - type: heading
