@@ -20,6 +20,9 @@ input_boolean:
   hba_control_has_power_limit_during_ev_charge:
     name: "Keep peak shaving during EV stop"
     icon: mdi:car-electric-outline
+  hba_battery_assist_enabled:
+    name: "Battery assist enabled"
+    icon: mdi:battery-arrow-up
 
 input_datetime:
   hba_strategy_timed_period_a1:
@@ -85,6 +88,14 @@ input_datetime:
   hba_last_active_m6:
     name: "Battery M6 last active"
     has_date: true
+    has_time: true
+  hba_battery_assist_start_time:
+    name: "Battery assist start time"
+    has_date: false
+    has_time: true
+  hba_battery_assist_end_time:
+    name: "Battery assist end time"
+    has_date: false
     has_time: true
 
 input_number:
@@ -488,6 +499,14 @@ input_number:
     mode: box
     unit_of_measurement: "%"
     icon: mdi:battery-alert
+  hba_battery_assist_min_soc_pct:
+    name: "Battery assist minimum SoC"
+    min: 5
+    max: 80
+    step: 1
+    mode: box
+    unit_of_measurement: "%"
+    icon: mdi:battery-low
 
 input_text:
   hba_strategy_active_flow:
@@ -799,6 +818,20 @@ template:
           {% endfor %}
           {{ ns.total | int }}
 
+      - name: "HBA Average Battery SoC"
+        unique_id: hba_average_battery_soc
+        unit_of_measurement: "%"
+        device_class: battery
+        state_class: measurement
+        icon: mdi:battery-half
+        state: >
+          {% set count = states('input_number.hba_battery_count') | int(1) %}
+          {% set ns = namespace(total=0) %}
+          {% for i in range(1, count + 1) %}
+            {% set ns.total = ns.total + states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') | float(0) %}
+          {% endfor %}
+          {{ (ns.total / count) | round(1) }}
+
       - name: "Estimated Profit per kWh"
         unique_id: hba_estimated_profit_per_kwh
         unit_of_measurement: "ct/kWh"
@@ -1037,6 +1070,26 @@ template:
             {% endif %}
           {% endfor %}
           {{ ns.offline }}
+
+      - name: "HBA Battery Assist Active"
+        unique_id: hba_battery_assist_active
+        icon: mdi:battery-arrow-up
+        state: >
+          {% set enabled  = is_state('input_boolean.hba_battery_assist_enabled', 'on') %}
+          {% set soc      = states('sensor.hba_average_battery_soc') | float(0) %}
+          {% set min_soc  = states('input_number.hba_battery_assist_min_soc_pct') | float(20) %}
+          {% set start_dt = today_at(states('input_datetime.hba_battery_assist_start_time')) %}
+          {% set end_dt   = today_at(states('input_datetime.hba_battery_assist_end_time')) %}
+          {{ enabled and soc > min_soc and start_dt <= now() < end_dt }}
+
+      - name: "HBA Grid Exporting Sustained"
+        unique_id: hba_grid_exporting_sustained
+        icon: mdi:transmission-tower-export
+        state: >
+          {{ states('sensor.p1_meter_power') | float(0) < -1000
+             and states('sensor.hba_total_battery_power') | float(0) < -500 }}
+        delay_on: "00:02:00"
+        delay_off: "00:00:30"
 
 ######################################################################################################
 # RECORDER — LOGBOOK FILTERING

@@ -171,6 +171,31 @@ automation:
               - action: script.hba_advance_priority
                 data: {}
 
+  # ── Unexpected sustained export notification ──────────────────────────────────
+  # Fires only when battery assist is OFF — if battery assist is active, sustained
+  # export is expected (batteries discharging into EV charger).
+  - id: hba_unexpected_export_notify
+    alias: "HBA: Notify on unexpected sustained grid export"
+    description: "Alerts when grid export >1 kW sustains for 2+ min with batteries discharging but battery assist is off."
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_grid_exporting_sustained
+        to: "on"
+    conditions:
+      - condition: state
+        entity_id: binary_sensor.hba_battery_assist_active
+        state: "off"
+    actions:
+      - action: notify.persistent_notification
+        data:
+          title: "HBA: Unexpected grid export"
+          message: >
+            Grid has been exporting >1 kW for over 2 minutes while batteries are discharging
+            (P1: {{ states('sensor.p1_meter_power') | int }} W,
+            batteries: {{ states('sensor.hba_total_battery_power') | int }} W).
+            Check strategy configuration.
+          notification_id: hba_unexpected_export
+
   # ── Insights debug mode auto-off ──────────────────────────────────────────────
   # Turns debug mode off after 15 minutes to avoid leaving ~1 Hz history writes
   # running indefinitely. Original Node-RED used 5 minutes; raised to 15 to give
@@ -207,6 +232,25 @@ script:
       - variables:
           ev_peak_shave: "{{ is_state('input_boolean.hba_control_has_power_limit_during_ev_charge', 'on') }}"
       - choose:
+          # Battery assist — forcible discharge into EV charger
+          - conditions: "{{ is_state('binary_sensor.hba_battery_assist_active', 'on') }}"
+            sequence:
+              - choose:
+                  - conditions: "{{ is_state('binary_sensor.hba_grid_exporting_sustained', 'on') }}"
+                    sequence:
+                      - action: input_text.set_value
+                        target: { entity_id: input_text.hba_strategy_active_flow }
+                        data: { value: "Battery assist → self-consumption (grid overflow)" }
+                      - action: script.hba_strategy_self_consumption
+                        data: { skip_label: true }
+                default:
+                  - action: input_text.set_value
+                    target: { entity_id: input_text.hba_strategy_active_flow }
+                    data: { value: "Battery assist → discharge" }
+                  - action: script.hba_set_batteries
+                    data:
+                      desired_power_w: "{{ -(states('sensor.hba_total_max_discharge_power') | float(2500)) | int }}"
+                      mode: "discharge"
           # EV stop trigger overrides all strategies
           - conditions: "{{ ev_active and ev_peak_shave }}"
             sequence:
@@ -789,6 +833,18 @@ script:
       - action: input_text.set_value
         target: { entity_id: input_text.hba_strategy_ev_sensor_entity_id }
         data: { value: "" }
+      # ── Battery assist ────────────────────────────────────────────────────────
+      - action: input_boolean.turn_off
+        target: { entity_id: input_boolean.hba_battery_assist_enabled }
+      - action: input_datetime.set_datetime
+        target: { entity_id: input_datetime.hba_battery_assist_start_time }
+        data: { time: "06:00:00" }
+      - action: input_datetime.set_datetime
+        target: { entity_id: input_datetime.hba_battery_assist_end_time }
+        data: { time: "09:00:00" }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_battery_assist_min_soc_pct }
+        data: { value: 20 }
       # ── HBC coexistence ───────────────────────────────────────────────────────
       - action: input_text.set_value
         target: { entity_id: input_text.hba_hbc_nodered_addon_slug }
