@@ -2168,7 +2168,7 @@ views:
         cards:
           - type: heading
             icon: mdi:battery-arrow-up
-            heading: Battery Assist (morning EV discharge)
+            heading: Battery Assisted EV Charging
             heading_style: title
           - type: markdown
             content: '---'
@@ -2177,11 +2177,16 @@ views:
             text_only: true
           - type: markdown
             content: >-
-              <font color=grey><i>Forcibly discharges batteries into the EV
-              charger during a configured morning window — useful to empty
-              remaining overnight capacity before solar starts producing.
-              Stops automatically when SoC drops below the configured
-              minimum.</i></font>
+              <font color=grey><i>Discharges batteries during a configured time
+              window to direct that capacity to an EV charger — useful when you
+              have excess battery reserves and want to maximize EV charge before
+              the car is needed. Stops automatically when SoC drops below the
+              configured minimum.</i>
+
+
+              <b>To start/stop EV charging:</b> create an automation triggered
+              by <code>binary_sensor.hba_battery_assist_active</code> turning
+              <b>on</b> (start charging) and <b>off</b> (stop charging).</font>
             text_only: true
           - type: tile
             entity: input_boolean.hba_battery_assist_enabled
