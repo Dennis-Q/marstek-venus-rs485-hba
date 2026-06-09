@@ -186,7 +186,7 @@ automation:
         entity_id: binary_sensor.hba_battery_assist_active
         state: "off"
     actions:
-      - action: notify.persistent_notification
+      - action: script.hba_notify_dispatch
         data:
           title: "HBA: Unexpected grid export"
           message: >
@@ -194,7 +194,7 @@ automation:
             (P1: {{ states('sensor.p1_meter_power') | int }} W,
             batteries: {{ states('sensor.hba_total_battery_power') | int }} W).
             Check strategy configuration.
-          notification_id: hba_unexpected_export
+          tag: hba_unexpected_export
 
   # ── Insights debug mode auto-off ──────────────────────────────────────────────
   # Turns debug mode off after 15 minutes to avoid leaving ~1 Hz history writes
@@ -631,6 +631,71 @@ script:
         target: { entity_id: input_number.hba_control_prioritize_battery }
         data: { value: "{{ (current % count) + 1 }}" }
 
+  # ── Notification dispatch ─────────────────────────────────────────────────────
+  # Central notification script. Routes to the configured notify action when
+  # hba_notifications_enabled is on, falling back to notify.persistent_notification
+  # when no custom entity ID is configured.
+  hba_notify_dispatch:
+    alias: "HBA: Notify dispatch"
+    fields:
+      title:
+        description: "Notification title"
+      message:
+        description: "Notification body"
+      tag:
+        default: hba_notification
+      color:
+        default: blue
+      priority:
+        default: normal
+    sequence:
+      - condition: state
+        entity_id: input_boolean.hba_notifications_enabled
+        state: "on"
+      - action: >-
+          {{ states('input_text.hba_notify_entity_id')
+             if states('input_text.hba_notify_entity_id') | trim
+                not in ['', 'unknown', 'unavailable']
+             else 'notify.persistent_notification' }}
+        data:
+          title: "{{ title }}"
+          message: "{{ message }}"
+          data:
+            priority: "{{ priority }}"
+            tag: "{{ tag }}"
+            color: "{{ color }}"
+
+  hba_notify_test:
+    alias: "HBA: Send test notification"
+    sequence:
+      - action: script.hba_notify_dispatch
+        data:
+          title: "Home Battery Assistant — test notification"
+          message: "Notifications are working correctly."
+          tag: hba_notify_test
+
+  # ── Battery assist section defaults ──────────────────────────────────────────
+  # Narrow reset for battery assist helpers only — leaves all other HBA settings
+  # untouched. Surfaced as a button in the Battery Assisted EV Charging section
+  # of Advanced Settings, useful after an update that added the feature.
+  hba_apply_battery_assist_defaults:
+    alias: "HBA: Apply battery assist defaults"
+    description: >-
+      Resets only the battery assist helpers to their default values.
+      Leaves every other HBA setting untouched.
+    sequence:
+      - action: input_boolean.turn_off
+        target: { entity_id: input_boolean.hba_battery_assist_enabled }
+      - action: input_datetime.set_datetime
+        target: { entity_id: input_datetime.hba_battery_assist_start_time }
+        data: { time: "05:00:00" }
+      - action: input_datetime.set_datetime
+        target: { entity_id: input_datetime.hba_battery_assist_end_time }
+        data: { time: "07:00:00" }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_battery_assist_min_soc_pct }
+        data: { value: 20 }
+
   # ── Factory defaults ──────────────────────────────────────────────────────────
   # Writes sensible starting values to all user-configurable helpers.
   # Safe to re-run at any time; never touches internal state (i_term, timestamps, etc.).
@@ -833,15 +898,21 @@ script:
       - action: input_text.set_value
         target: { entity_id: input_text.hba_strategy_ev_sensor_entity_id }
         data: { value: "" }
+      # ── Notifications ─────────────────────────────────────────────────────────
+      - action: input_boolean.turn_on
+        target: { entity_id: input_boolean.hba_notifications_enabled }
+      - action: input_text.set_value
+        target: { entity_id: input_text.hba_notify_entity_id }
+        data: { value: "" }
       # ── Battery assist ────────────────────────────────────────────────────────
       - action: input_boolean.turn_off
         target: { entity_id: input_boolean.hba_battery_assist_enabled }
       - action: input_datetime.set_datetime
         target: { entity_id: input_datetime.hba_battery_assist_start_time }
-        data: { time: "06:00:00" }
+        data: { time: "05:00:00" }
       - action: input_datetime.set_datetime
         target: { entity_id: input_datetime.hba_battery_assist_end_time }
-        data: { time: "09:00:00" }
+        data: { time: "07:00:00" }
       - action: input_number.set_value
         target: { entity_id: input_number.hba_battery_assist_min_soc_pct }
         data: { value: 20 }

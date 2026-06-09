@@ -11,6 +11,32 @@ This document covers HBA-specific changes only.
 
 ---
 
+## v4.10.1-r6 — June 2026
+
+### New feature: Battery Assisted EV Charging
+
+Discharges batteries during a configured time window to direct that capacity to an EV
+charger — useful when you have excess battery reserves and want to maximize EV charge
+before the car is needed.
+
+**New helpers:**
+- `input_boolean.hba_battery_assist_enabled` — master on/off toggle
+- `input_datetime.hba_battery_assist_start_time` / `hba_battery_assist_end_time` — discharge window
+- `input_number.hba_battery_assist_min_soc_pct` — SoC floor; assist stops when average SoC drops below this
+
+**New sensors:**
+- `sensor.hba_average_battery_soc` — average SoC across all configured batteries (also used internally by the Charge and Sell strategy goal checks, replacing inline loops)
+- `binary_sensor.hba_battery_assist_active` — true when enabled, within the time window, and SoC above the floor; use this in an automation to start/stop EV charging
+- `binary_sensor.hba_grid_exporting_sustained` — true when grid export exceeds 1 kW sustained for 2+ minutes with batteries discharging; used as an overflow guard to fall back to self-consumption
+
+**Strategy dispatch:** the battery assist branch is evaluated above the EV stop trigger in `hba_run_strategy`. When active, batteries discharge at max power via `hba_set_batteries`; falls back to self-consumption if the overflow guard fires.
+
+**Notification:** `automation.hba_unexpected_export_notify` fires a persistent notification when the grid exports unexpectedly (overflow guard active but battery assist is off).
+
+**Dashboard:** new Battery Assisted EV Charging section in Advanced Settings with all controls and status tiles.
+
+---
+
 ## v4.10.1-r5 — June 2026
 
 ### Improvements

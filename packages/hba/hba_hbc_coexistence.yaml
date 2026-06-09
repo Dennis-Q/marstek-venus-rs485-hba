@@ -103,7 +103,7 @@ automation:
         data: {}
       - action: input_boolean.turn_on
         target: { entity_id: input_boolean.hba_safety_lockout }
-      - action: persistent_notification.create
+      - action: script.hba_notify_dispatch
         data:
           title: "HBA: Conflict — HBA disabled"
           message: >
@@ -111,7 +111,7 @@ automation:
             sending conflicting commands to the batteries. HBA has been disabled
             and batteries set to Manual control. Use the dashboard buttons to
             resume the desired controller.
-          notification_id: hba_hbc_conflict
+          tag: hba_hbc_conflict
 
 script:
   hba_take_control:

@@ -1,4 +1,4 @@
-# Home Battery Assistant (HBA) — v4.10.1-r5
+# Home Battery Assistant (HBA) — v4.10.1-r6
 
 A native Home Assistant replacement for the Node-RED battery control flows in
 [gitcodebob/marstek-venus-rs485-node-red](https://github.com/gitcodebob/marstek-venus-rs485-node-red).
@@ -172,7 +172,7 @@ The script downloads all HBA files, skips files you have already configured (P1 
 
 > **Tip:** The [SSH & Web Terminal add-on](https://github.com/hassio-addons/addon-ssh) gives you a terminal on your HA instance. Run the command above from `/config`.
 
-To install a specific version: `HBA_VERSION=v4.10.1-r5 bash <(curl -fsSL ...)`
+To install a specific version: `HBA_VERSION=v4.10.1-r6 bash <(curl -fsSL ...)`
 
 **Option B — Manual**
 
@@ -303,6 +303,23 @@ recover cleanly.
 `apply_defaults` sets the Node-RED addon slug to `a0d7b954_nodered` (the standard HAOS
 slug). If your Node-RED addon uses a different slug, update
 `input_text.hba_hbc_nodered_addon_slug` in Advanced Settings.
+
+### Battery Assisted EV Charging
+
+Battery assist discharges batteries during a configured time window to direct that capacity
+to an EV charger — useful when you have excess battery reserves and want to maximize EV
+charge before the car is needed.
+
+Configure it in **Advanced Settings → Battery Assisted EV Charging**:
+
+- Enable the toggle and set a start/end time window
+- Set a minimum SoC floor — assist stops automatically when average battery SoC drops below it
+- `binary_sensor.hba_battery_assist_active` is the live gate: create an automation triggered
+  by it turning **on** (start charging) and **off** (stop charging)
+
+The overflow guard (`binary_sensor.hba_grid_exporting_sustained`) watches for sustained
+export >1 kW with batteries discharging. If triggered, assist temporarily falls back to
+self-consumption to prevent unnecessary grid feed-in.
 
 ### Dynamic pricing
 

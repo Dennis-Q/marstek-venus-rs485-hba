@@ -23,6 +23,9 @@ input_boolean:
   hba_battery_assist_enabled:
     name: "Battery assist enabled"
     icon: mdi:battery-arrow-up
+  hba_notifications_enabled:
+    name: "Notifications enabled"
+    icon: mdi:bell
 
 input_datetime:
   hba_strategy_timed_period_a1:
@@ -533,6 +536,10 @@ input_text:
     name: "Solar forecast tomorrow (entity_id)"
     max: 100
     icon: mdi:solar-power-variant
+  hba_notify_entity_id:
+    name: "Notify entity_id"
+    max: 100
+    icon: mdi:bell-outline
 input_select:
   hba_marstek_master_battery_mode:
     name: "Master battery mode"
@@ -694,7 +701,7 @@ template:
       - name: "HBA Version"
         unique_id: hba_version
         icon: mdi:tag
-        state: "v4.10.1-r5"
+        state: "v4.10.1-r6"
 
       - name: "HBA Active strategy"
         unique_id: hba_strategy_active_sub_strategy

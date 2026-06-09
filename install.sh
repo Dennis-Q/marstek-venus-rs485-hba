@@ -257,7 +257,9 @@ echo "  5. Open the Home Battery Assistant dashboard and run onboarding"
 else
 echo "  1. Edit packages/hba/hba_config.yaml if you changed your P1 sensor setup"
 echo "  2. Restart Home Assistant (or reload YAML)"
-echo "  3. Check the dashboard — run onboarding if this is a fresh install"
+echo "  3. Check Advanced Settings on the dashboard — new features added in this"
+echo "     release have individual 'Apply section defaults' buttons to initialize"
+echo "     their settings without touching the rest of your configuration"
 fi
 echo ""
 hr
