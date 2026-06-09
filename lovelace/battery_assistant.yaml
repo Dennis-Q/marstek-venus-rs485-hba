@@ -8,7 +8,7 @@ views:
     header:
       card:
         type: markdown
-        content: '### Home Battery Assistant *(HBA v4.10.1-r6)*'
+        content: '### Home Battery Assistant *(HBA v4.10.1-r7)*'
         text_only: true
     cards: []
     sections:
@@ -234,10 +234,10 @@ views:
                 conditions:
                   - condition: state
                     entity: sensor.hba_version
-                    state: "v4.10.1-r6"
+                    state: "v4.10.1-r7"
             content: >
               <ha-alert alert-type="error">**HBA version mismatch** — Dashboard is
-              v4.10.1-r6 but loaded packages report
+              v4.10.1-r7 but loaded packages report
               {{ states('sensor.hba_version') }}. Reload YAML to apply the update:
               Developer Tools → YAML → Reload All YAML.</ha-alert>
           - type: markdown
@@ -947,7 +947,7 @@ views:
       card:
         type: markdown
         content: >-
-          ### Self-consumption strategy *(HBA v4.10.1-r6)*
+          ### Self-consumption strategy *(HBA v4.10.1-r7)*
 
           The **PID controller** steers your batteries to keep grid usage near
           target, _e.g. 0 Watt_, and is used by:
@@ -1090,7 +1090,7 @@ views:
       card:
         type: markdown
         text_only: true
-        content: '### Charge / Sell *(HBA v4.10.1-r6)*'
+        content: '### Charge / Sell *(HBA v4.10.1-r7)*'
     cards: []
     badges:
       - type: entity
@@ -1407,7 +1407,7 @@ views:
       card:
         type: markdown
         text_only: true
-        content: '### Timed / Dynamic *(HBA v4.10.1-r6)*'
+        content: '### Timed / Dynamic *(HBA v4.10.1-r7)*'
     sections:
       - type: grid
         cards:
@@ -1772,7 +1772,7 @@ views:
         type: markdown
         text_only: true
         content: >-
-          ### Insights *(HBA v4.10.1-r6)*
+          ### Insights *(HBA v4.10.1-r7)*
 
           Need help figuring out what is going on?
 
@@ -2014,7 +2014,7 @@ views:
       card:
         type: markdown
         text_only: true
-        content: '### Advanced settings *(HBA v4.10.1-r6)*'
+        content: '### Advanced settings *(HBA v4.10.1-r7)*'
     sections:
       # Battery offline warning — full width, hidden when all batteries are online
       - type: grid
@@ -3007,7 +3007,7 @@ views:
         type: markdown
         text_only: true
         content: >-
-          ### Lab features *(HBA v4.10.1-r6)*
+          ### Lab features *(HBA v4.10.1-r7)*
 
           These features are experimental. Use at your own discretion.
       layout: center

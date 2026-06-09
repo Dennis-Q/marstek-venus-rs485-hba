@@ -11,6 +11,17 @@ This document covers HBA-specific changes only.
 
 ---
 
+## v4.10.1-r7 — June 2026
+
+### Fixed
+
+- **`hba_grid_exporting_sustained` overflow guard sign error** — the battery power
+  condition was `< -500` but `sensor.hba_total_battery_power` is positive when
+  discharging. Changed to `> 500`. Previously the overflow guard in battery assist mode
+  never triggered, allowing batteries to discharge into the grid unchecked.
+
+---
+
 ## v4.10.1-r6 — June 2026
 
 ### New feature: Battery Assisted EV Charging
