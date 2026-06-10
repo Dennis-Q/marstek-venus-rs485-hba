@@ -3345,3 +3345,20 @@ views:
               perform_action: script.turn_on
               target:
                 entity_id: script.hba_notify_test
+          - type: heading
+            heading: Notification automations
+            heading_style: subtitle
+            icon: mdi:robot-outline
+            grid_options:
+              columns: full
+          - type: custom:auto-entities
+            card:
+              type: entities
+              show_header_toggle: false
+            filter:
+              include:
+                - entity_id: "automation.hba_*notif*"
+            sort:
+              method: friendly_name
+            grid_options:
+              columns: full
