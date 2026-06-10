@@ -1,4 +1,4 @@
-# HBA Factory Defaults — v4.10.1-r8
+# HBA Factory Defaults — v4.10.1-r9
 
 All values set by `script.hba_apply_defaults`. Run once after fresh install via
 Developer Tools → Services → `script.turn_on` → `script.hba_apply_defaults`.
@@ -159,7 +159,7 @@ or set these manually in Advanced Settings before using the solar forecast charg
 | `input_boolean.hba_notifications_enabled` | `on` | Master on/off for all HBA notifications |
 | `input_text.hba_notify_entity_id` | `""` (empty) | Target notify action — empty falls back to HA persistent notifications |
 
-## Battery Assisted EV Charging
+## Timed EV Charge
 
 | Helper | Default | Notes |
 |---|---|---|
