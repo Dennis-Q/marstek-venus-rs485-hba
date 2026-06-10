@@ -727,7 +727,7 @@ template:
           {% endif %}
 
       - name: "HBA Total Battery Power"
-        unique_id: hba_total_battery_power_in_w
+        unique_id: hba_total_battery_power
         unit_of_measurement: W
         device_class: power
         state_class: measurement
