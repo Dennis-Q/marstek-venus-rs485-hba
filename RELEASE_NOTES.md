@@ -61,8 +61,10 @@ from the ID. Update any automations or templates that reference these directly.
 
 - **Notify validator: modern notify entities rejected** — `notify.xyz` names that correspond to
   a registered HA notify entity silently fail as legacy service calls. The validator now flags
-  them as invalid. `available_notify_services` attribute shows the correct `notify.mobile_app_*`
-  legacy service names.
+  them as invalid using a `notify.mobile_app_` prefix check (more reliable than the previous
+  `states.notify` lookup, which HA may not re-evaluate when notify entities change).
+  `available_notify_services` attribute correctly shows `notify.mobile_app_*` legacy service names
+  (previous `map('replace', ...)` call was silently a no-op in HA's Jinja2).
 
 - **`sensor.hba_battery_assist_reserved_energy` formula** — hardware-locked energy (below
   `discharging_cutoff_capacity`) was included, making the sensor misleadingly high when
@@ -76,13 +78,16 @@ from the ID. Update any automations or templates that reference these directly.
 
 ### Dashboard
 
-- **Dedicated views** — Timed EV Charge and Notifications moved out of Advanced Settings into
-  their own views (tabs). Both note they are HBA-specific features not part of HBC.
+- **EV Charge view** — EV Stop Trigger and Timed EV Charge combined into a single "EV Charge"
+  view (path: `ev-charge`). EV Stop Trigger is shown first; Timed EV Charge below it. Advanced
+  Settings has two subtitle nav links (EV Stop Trigger, Timed EV Charge) both pointing to this view.
+- **Notifications view** — moved out of Advanced Settings into its own view (tab). Notes it is
+  an HBA-specific feature not part of HBC.
 - **Auto-entities list of notification automations** — Notifications view shows all
   `automation.hba_*notif*` automations with enable/disable toggles.
 - **Compact defaults buttons** — "Apply section defaults" and "Reset to defaults" are now
   inline entities rows with `last-triggered` timestamp.
-- **Timed EV Charge view** — shows average SoC, reserved energy, and max discharge power.
+- **Timed EV Charge section** — shows average SoC, reserved energy, and max discharge power.
 - **Send test notification** — inline entities row instead of full-width button card.
 
 ---
