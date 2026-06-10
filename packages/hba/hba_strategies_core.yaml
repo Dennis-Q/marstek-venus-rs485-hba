@@ -240,13 +240,13 @@ script:
                     sequence:
                       - action: input_text.set_value
                         target: { entity_id: input_text.hba_strategy_active_flow }
-                        data: { value: "Battery assist → self-consumption (grid overflow)" }
+                        data: { value: "Battery assist → Self-consumption (grid overflow)" }
                       - action: script.hba_strategy_self_consumption
                         data: { skip_label: true }
                 default:
                   - action: input_text.set_value
                     target: { entity_id: input_text.hba_strategy_active_flow }
-                    data: { value: "Battery assist → discharge" }
+                    data: { value: "Battery assist → EV discharge" }
                   - action: script.hba_set_batteries
                     data:
                       desired_power_w: "{{ -(states('sensor.hba_total_max_discharge_power') | float(2500)) | int }}"
