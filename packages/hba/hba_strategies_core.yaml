@@ -232,6 +232,41 @@ automation:
             data:
               notification_id: hba_notify_target_invalid
 
+  # ── Timed EV Charge: PID reset on transitions ────────────────────────────────
+  - id: hba_battery_assist_pid_reset
+    alias: "HBA: Reset PID on Timed EV Charge transitions"
+    description: >-
+      Resets PID output to 0 when Timed EV Charge starts, stops, or when the
+      self-consumption overflow guard releases while assist is active. Prevents
+      PID state from a previous mode bleeding into the next cycle.
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_battery_assist_active
+        to: "on"
+        id: assist_on
+      - trigger: state
+        entity_id: binary_sensor.hba_battery_assist_active
+        to: "off"
+        id: assist_off
+      - trigger: state
+        entity_id: binary_sensor.hba_grid_exporting_sustained
+        to: "off"
+        id: overflow_release
+    actions:
+      - choose:
+          - conditions:
+              - condition: trigger
+                id: overflow_release
+              - condition: state
+                entity_id: binary_sensor.hba_battery_assist_active
+                state: "off"
+            sequence: []  # overflow released but assist wasn't active — no-op
+        default:
+          - action: input_number.set_value
+            target: { entity_id: input_number.hba_control_pid_output }
+            data: { value: 0 }
+
   # ── Insights debug mode auto-off ──────────────────────────────────────────────
   # Turns debug mode off after 15 minutes to avoid leaving ~1 Hz history writes
   # running indefinitely. Original Node-RED used 5 minutes; raised to 15 to give
@@ -285,7 +320,10 @@ script:
                     data: { value: "Timed EV charge → Discharge to EV" }
                   - action: script.hba_set_batteries
                     data:
-                      desired_power_w: "{{ -(states('sensor.hba_total_max_discharge_power') | float(2500)) | int }}"
+                      desired_power_w: >-
+                        {% set hw_max = states('sensor.hba_total_max_discharge_power') | float(2500) %}
+                        {% set cap = states('input_number.hba_battery_assist_max_discharge_power_w') | float(0) %}
+                        {{ -([hw_max, cap] | min | int) if cap > 0 else -(hw_max | int) }}
                       mode: "discharge"
           # EV stop trigger overrides all strategies
           - conditions: "{{ ev_active and ev_peak_shave }}"
@@ -734,6 +772,9 @@ script:
       - action: input_text.set_value
         target: { entity_id: input_text.hba_battery_assist_car_connected_entity }
         data: { value: "" }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_battery_assist_max_discharge_power_w }
+        data: { value: 0 }
 
   # ── Factory defaults ──────────────────────────────────────────────────────────
   # Writes sensible starting values to all user-configurable helpers.
@@ -958,6 +999,9 @@ script:
       - action: input_text.set_value
         target: { entity_id: input_text.hba_battery_assist_car_connected_entity }
         data: { value: "" }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_battery_assist_max_discharge_power_w }
+        data: { value: 0 }
       # ── HBC coexistence ───────────────────────────────────────────────────────
       - action: input_text.set_value
         target: { entity_id: input_text.hba_hbc_nodered_addon_slug }

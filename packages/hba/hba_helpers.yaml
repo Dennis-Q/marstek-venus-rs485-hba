@@ -510,6 +510,14 @@ input_number:
     mode: box
     unit_of_measurement: "%"
     icon: mdi:battery-low
+  hba_battery_assist_max_discharge_power_w:
+    name: "Timed EV Charge max discharge power"
+    min: 0
+    max: 10000
+    step: 100
+    mode: box
+    unit_of_measurement: "W"
+    icon: mdi:lightning-bolt-circle
 
 input_text:
   hba_strategy_active_flow:
@@ -796,6 +804,22 @@ template:
             {% set cap = states('sensor.marstek_m' ~ i ~ '_battery_total_energy') | float(0) %}
             {% set soc_min = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) %}
             {% set ns.total = ns.total + ([((soc - soc_min) / 100) * cap, 0] | max) %}
+          {% endfor %}
+          {{ ns.total | round(2) }}
+
+      - name: "HBA Battery Assist Reserved Energy"
+        unique_id: hba_battery_assist_reserved_energy
+        unit_of_measurement: kWh
+        device_class: energy_storage
+        state_class: measurement
+        icon: mdi:battery-lock
+        state: >
+          {% set count = states('input_number.hba_battery_count') | int(1) %}
+          {% set min_soc = states('input_number.hba_battery_assist_min_soc_pct') | float(20) %}
+          {% set ns = namespace(total=0) %}
+          {% for i in range(1, count + 1) %}
+            {% set cap = states('sensor.marstek_m' ~ i ~ '_battery_total_energy') | float(0) %}
+            {% set ns.total = ns.total + (min_soc / 100) * cap %}
           {% endfor %}
           {{ ns.total | round(2) }}
 

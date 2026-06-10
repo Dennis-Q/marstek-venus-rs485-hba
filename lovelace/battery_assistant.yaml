@@ -3218,6 +3218,15 @@ views:
                 name: End time
               - entity: input_number.hba_battery_assist_min_soc_pct
                 name: Minimum SoC (stop threshold)
+              - entity: sensor.hba_average_battery_soc
+                name: Current average SoC
+                secondary_info: none
+              - entity: sensor.hba_battery_assist_reserved_energy
+                name: Energy reserved for home (at min SoC)
+                secondary_info: none
+              - entity: input_number.hba_battery_assist_max_discharge_power_w
+                name: Max discharge power (0 = battery maximum)
+                secondary_info: none
               - entity: input_text.hba_battery_assist_car_connected_entity
                 name: Car connected entity (optional)
                 secondary_info: none
