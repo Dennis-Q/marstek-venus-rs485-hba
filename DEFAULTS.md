@@ -24,13 +24,13 @@ are always consistent with "Very safe" so the preset selector is not misleading.
 | Helper | Default | Notes |
 |---|---|---|
 | `input_select.hba_control_pid_presets` | `Very safe` | |
-| `input_number.hba_target_grid_consumption_in_w` | `0` W | Keep grid import at 0 W |
+| `input_number.hba_target_grid_consumption` | `0` W | Keep grid import at 0 W |
 | `input_number.hba_control_kp` | `0.1` | Matches Very safe preset |
 | `input_number.hba_control_ki` | `0.1` | Matches Very safe preset |
 | `input_number.hba_control_kd` | `0` | Matches Very safe preset (D-term off) |
 | `input_number.hba_control_pid_output_dampening` | `10` % | Matches Very safe preset |
 | `input_number.hba_control_error_signal_dampening` | `0` % | Matches Very safe preset (no error smoothing) |
-| `input_number.hba_control_hysteresis_in_w` | `20` W | Direction-flip guard threshold |
+| `input_number.hba_control_hysteresis` | `20` W | Direction-flip guard threshold |
 | `input_number.hba_control_idle_time` | `5` min | Per-battery idle hold before relay disconnect |
 
 ### PID Presets

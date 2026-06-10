@@ -47,7 +47,7 @@
 #   skip_label        — caller manages active_flow label (default: false)
 #   discharge_disabled — clamp PID to ≥0; Charge PV mode (default: false)
 #   charge_disabled    — clamp PID to ≤0; Zero import mode (default: false)
-#   setpoint_override  — override target_grid_consumption_in_w in W (Standby / peak shave)
+#   setpoint_override  — override hba_target_grid_consumption in W (Standby / peak shave)
 
 script:
   hba_strategy_self_consumption:
@@ -63,7 +63,7 @@ script:
         description: "Pass true to prevent the PID from issuing charge commands (Zero import mode)"
         default: false
       setpoint_override:
-        description: "Override the grid consumption setpoint in W (used by Zero import and Standby; omit to use input_number.hba_target_grid_consumption_in_w)"
+        description: "Override the grid consumption setpoint in W (used by Zero import and Standby; omit to use input_number.hba_target_grid_consumption)"
     sequence:
       # Capture script field values as plain variables immediately.
       # Script fields are accessible in `variables:` steps but can fail to resolve
@@ -77,11 +77,11 @@ script:
           grid_power: "{{ states('sensor.p1_meter_power') | float(0) }}"
           target: >
             {{ _setpoint_override | float(0) if _setpoint_override is not none
-               else states('input_number.hba_target_grid_consumption_in_w') | float(0) }}
+               else states('input_number.hba_target_grid_consumption') | float(0) }}
           kp: "{{ states('input_number.hba_control_kp') | float(0.5) }}"
           ki: "{{ states('input_number.hba_control_ki') | float(0.05) }}"
           kd: "{{ states('input_number.hba_control_kd') | float(0) }}"
-          hysteresis: "{{ states('input_number.hba_control_hysteresis_in_w') | float(20) }}"
+          hysteresis: "{{ states('input_number.hba_control_hysteresis') | float(20) }}"
           out_damp_pct: "{{ states('input_number.hba_control_pid_output_dampening') | float(30) }}"
           err_damp_pct: "{{ states('input_number.hba_control_error_signal_dampening') | float(0) }}"
           prev_i: "{{ states('input_number.hba_control_i_term') | float(0) }}"

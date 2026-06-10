@@ -810,7 +810,7 @@ script:
         target: { entity_id: input_select.hba_control_pid_presets }
         data: { option: "Very safe" }
       - action: input_number.set_value
-        target: { entity_id: input_number.hba_target_grid_consumption_in_w }
+        target: { entity_id: input_number.hba_target_grid_consumption }
         data: { value: 0 }
       - action: input_number.set_value
         target: { entity_id: input_number.hba_control_kp }
@@ -828,7 +828,7 @@ script:
         target: { entity_id: input_number.hba_control_error_signal_dampening }
         data: { value: 0 }
       - action: input_number.set_value
-        target: { entity_id: input_number.hba_control_hysteresis_in_w }
+        target: { entity_id: input_number.hba_control_hysteresis }
         data: { value: 20 }
       - action: input_number.set_value
         target: { entity_id: input_number.hba_control_idle_time }

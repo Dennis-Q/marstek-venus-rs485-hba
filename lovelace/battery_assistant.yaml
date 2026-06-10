@@ -1026,7 +1026,7 @@ views:
                 secondary_info: none
               - entity: input_number.hba_control_pid_output_dampening
                 name: Output smoothing
-              - entity: input_number.hba_target_grid_consumption_in_w
+              - entity: input_number.hba_target_grid_consumption
                 name: Target grid consumption
       - type: grid
         column_span: 2
@@ -1808,7 +1808,7 @@ views:
           - type: markdown
             content: |-
               {% set grid = states('sensor.p1_meter_power') | float(0) -%}
-              {% set target = states('input_number.hba_target_grid_consumption_in_w') | float(0) -%}
+              {% set target = states('input_number.hba_target_grid_consumption') | float(0) -%}
               {% set err = grid - target -%}
               {% set ev_e = states('input_text.hba_strategy_ev_sensor_entity_id') | trim -%}
               {% set p1_age = (as_timestamp(now()) - as_timestamp(states['sensor.p1_meter_power'].last_changed)) | int -%}
@@ -2104,7 +2104,7 @@ views:
             entities:
               - entity: input_number.hba_control_idle_time
                 name: Stop after Idle for
-              - entity: input_number.hba_control_hysteresis_in_w
+              - entity: input_number.hba_control_hysteresis
                 name: 'Hysteresis '
                 secondary_info: none
           - type: markdown
