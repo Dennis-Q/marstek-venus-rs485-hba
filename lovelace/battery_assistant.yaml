@@ -2857,32 +2857,21 @@ views:
               your integration uses English entity names or you prefer market
               price over all-in.</i></font>
             text_only: true
-          - type: heading
-            heading: Reset to defaults
-            heading_style: subtitle
-            icon: mdi:cog-refresh
-          - type: markdown
-            content: >-
-              <ha-alert alert-type="warning">Resets all HBA parameters to safe
-              starting values. Any values you have configured will be
-              overwritten.</ha-alert>
-            text_only: true
-            grid_options:
-              columns: full
-          - type: button
-            name: Reset to defaults
-            icon: mdi:cog-refresh
-            show_name: true
-            show_icon: true
-            tap_action:
-              action: perform-action
-              perform_action: script.turn_on
-              target:
-                entity_id: script.hba_apply_defaults
-              confirmation:
-                text: >-
-                  This will reset all HBA parameters to safe starting values.
-                  Any values you have configured will be overwritten. Continue?
+          - type: entities
+            entities:
+              - entity: script.hba_apply_defaults
+                name: Reset to defaults
+                icon: mdi:cog-refresh
+                secondary_info: last-triggered
+                tap_action:
+                  action: perform-action
+                  perform_action: script.turn_on
+                  target:
+                    entity_id: script.hba_apply_defaults
+                  confirmation:
+                    text: >-
+                      This will reset all HBA parameters to safe starting values.
+                      Any values you have configured will be overwritten. Continue?
 
   # ── VIEW 7: LAB FEATURES ────────────────────────────────────────────────────
   - type: sections
@@ -3230,20 +3219,20 @@ views:
               - entity: input_text.hba_battery_assist_car_connected_entity
                 name: Car connected entity (optional)
                 secondary_info: none
-          - type: button
-            name: Apply section defaults
-            icon: mdi:cog-refresh
-            show_name: true
-            show_icon: true
-            tap_action:
-              action: perform-action
-              perform_action: script.turn_on
-              target:
-                entity_id: script.hba_apply_battery_assist_defaults
-              confirmation:
-                text: >-
-                  Reset Timed EV Charge settings to defaults? Your other HBA
-                  settings will not be affected.
+              - type: divider
+              - entity: script.hba_apply_battery_assist_defaults
+                name: Apply section defaults
+                icon: mdi:cog-refresh
+                secondary_info: last-triggered
+                tap_action:
+                  action: perform-action
+                  perform_action: script.turn_on
+                  target:
+                    entity_id: script.hba_apply_battery_assist_defaults
+                  confirmation:
+                    text: >-
+                      Reset Timed EV Charge settings to defaults? Your other HBA
+                      settings will not be affected.
           - type: tile
             entity: binary_sensor.hba_grid_exporting_sustained
             name: Grid exporting sustained (overflow guard)
