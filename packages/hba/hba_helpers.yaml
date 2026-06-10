@@ -1098,6 +1098,24 @@ template:
         delay_on: "00:02:00"
         delay_off: "00:00:30"
 
+      - name: "HBA Notify Target Invalid"
+        unique_id: hba_notify_target_invalid
+        device_class: problem
+        icon: mdi:bell-alert-outline
+        state: >-
+          {%- set v = states('input_text.hba_notify_entity_id') | trim -%}
+          {%- if v in ['', 'unknown', 'unavailable'] -%}
+            false
+          {%- elif not v.startswith('notify.') -%}
+            true
+          {%- else -%}
+            false
+          {%- endif -%}
+        attributes:
+          notify_target: "{{ states('input_text.hba_notify_entity_id') }}"
+          available_notify_services: >-
+            {{ states.notify | map(attribute='entity_id') | list }}
+
 ######################################################################################################
 # RECORDER — LOGBOOK FILTERING
 ######################################################################################################

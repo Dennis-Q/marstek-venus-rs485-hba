@@ -3277,6 +3277,25 @@ views:
             grid_options:
               columns: full
             text_only: true
+          - type: markdown
+            content: >-
+              <ha-alert alert-type="warning"><strong>Notify action
+              invalid</strong><br>The value in
+              <code>input_text.hba_notify_entity_id</code> doesn't look like a
+              valid <code>notify.*</code> action. HBA notifications fall back to
+              persistent notifications until you correct it.<br><br>Current
+              value: <code>{{ states('input_text.hba_notify_entity_id')
+              }}</code><br>Available targets: <code>{{
+              state_attr('binary_sensor.hba_notify_target_invalid',
+              'available_notify_services') | join(', ') or '(none found)'
+              }}</code></ha-alert>
+            text_only: true
+            grid_options:
+              columns: full
+            visibility:
+              - condition: state
+                entity: binary_sensor.hba_notify_target_invalid
+                state: "on"
           - type: tile
             entity: input_boolean.hba_notifications_enabled
             name: Notifications enabled
@@ -3290,11 +3309,19 @@ views:
             entities:
               - entity: input_text.hba_notify_entity_id
                 secondary_info: none
+                name: Notify action
+              - entity: binary_sensor.hba_notify_target_invalid
+                name: Validation
+                icon: mdi:check-decagram
           - type: markdown
             content: >-
               <font color=grey>Enter a <code>notify.*</code> action to send
               notifications to a mobile device or other target. Leave empty to
-              use persistent notifications (HA notification bell).</font>
+              use persistent notifications (HA notification bell).<br>Available:
+              <code>{{
+              state_attr('binary_sensor.hba_notify_target_invalid',
+              'available_notify_services') | join(', ') or 'none found'
+              }}</code></font>
             text_only: true
           - type: button
             name: Send test notification
