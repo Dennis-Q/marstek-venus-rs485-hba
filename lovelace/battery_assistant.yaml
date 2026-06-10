@@ -3216,7 +3216,7 @@ views:
                 name: Start time
               - entity: input_datetime.hba_battery_assist_end_time
                 name: End time
-              - entity: input_number.hba_battery_assist_min_soc_pct
+              - entity: input_number.hba_battery_assist_min_soc
                 name: Minimum SoC (stop threshold)
               - entity: sensor.hba_average_battery_soc
                 name: Current average SoC

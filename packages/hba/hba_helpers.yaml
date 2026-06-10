@@ -502,7 +502,7 @@ input_number:
     mode: box
     unit_of_measurement: "%"
     icon: mdi:battery-alert
-  hba_battery_assist_min_soc_pct:
+  hba_battery_assist_min_soc:
     name: "Battery assist minimum SoC"
     min: 5
     max: 80
@@ -815,7 +815,7 @@ template:
         icon: mdi:battery-lock
         state: >
           {% set count = states('input_number.hba_battery_count') | int(1) %}
-          {% set min_soc = states('input_number.hba_battery_assist_min_soc_pct') | float(20) %}
+          {% set min_soc = states('input_number.hba_battery_assist_min_soc') | float(20) %}
           {% set ns = namespace(total=0) %}
           {% for i in range(1, count + 1) %}
             {% set cap = states('sensor.marstek_m' ~ i ~ '_battery_total_energy') | float(0) %}
@@ -1112,7 +1112,7 @@ template:
         state: >
           {% set enabled  = is_state('input_boolean.hba_battery_assist_enabled', 'on') %}
           {% set soc      = states('sensor.hba_average_battery_soc') | float(0) %}
-          {% set min_soc  = states('input_number.hba_battery_assist_min_soc_pct') | float(20) %}
+          {% set min_soc  = states('input_number.hba_battery_assist_min_soc') | float(20) %}
           {% set start_dt = today_at(states('input_datetime.hba_battery_assist_start_time')) %}
           {% set end_dt   = today_at(states('input_datetime.hba_battery_assist_end_time')) %}
           {% set car_e    = states('input_text.hba_battery_assist_car_connected_entity') | trim %}

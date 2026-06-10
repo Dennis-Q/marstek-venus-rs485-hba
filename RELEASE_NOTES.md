@@ -51,7 +51,7 @@ before the car is needed.
 **New helpers:**
 - `input_boolean.hba_battery_assist_enabled` — master on/off toggle
 - `input_datetime.hba_battery_assist_start_time` / `hba_battery_assist_end_time` — discharge window
-- `input_number.hba_battery_assist_min_soc_pct` — SoC floor; assist stops when average SoC drops below this
+- `input_number.hba_battery_assist_min_soc` — SoC floor; assist stops when average SoC drops below this
 
 **New sensors:**
 - `sensor.hba_average_battery_soc` — average SoC across all configured batteries (also used internally by the Charge and Sell strategy goal checks, replacing inline loops)

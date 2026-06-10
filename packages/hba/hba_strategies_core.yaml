@@ -767,7 +767,7 @@ script:
         target: { entity_id: input_datetime.hba_battery_assist_end_time }
         data: { time: "07:00:00" }
       - action: input_number.set_value
-        target: { entity_id: input_number.hba_battery_assist_min_soc_pct }
+        target: { entity_id: input_number.hba_battery_assist_min_soc }
         data: { value: 20 }
       - action: input_text.set_value
         target: { entity_id: input_text.hba_battery_assist_car_connected_entity }
@@ -994,7 +994,7 @@ script:
         target: { entity_id: input_datetime.hba_battery_assist_end_time }
         data: { time: "07:00:00" }
       - action: input_number.set_value
-        target: { entity_id: input_number.hba_battery_assist_min_soc_pct }
+        target: { entity_id: input_number.hba_battery_assist_min_soc }
         data: { value: 20 }
       - action: input_text.set_value
         target: { entity_id: input_text.hba_battery_assist_car_connected_entity }
