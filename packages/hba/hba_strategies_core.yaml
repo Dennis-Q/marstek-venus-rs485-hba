@@ -605,21 +605,49 @@ script:
                                 entity_id: "input_datetime.hba_last_active_m{{ bat_idx }}"
                               data: { datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}" }
                       default:
-                        - action: number.set_value
-                          continue_on_error: true
-                          target:
-                            entity_id: "number.marstek_m{{ bat_idx }}_forcible_charge_power"
-                          data: { value: 0 }
-                        - action: number.set_value
-                          continue_on_error: true
-                          target:
-                            entity_id: "number.marstek_m{{ bat_idx }}_forcible_discharge_power"
-                          data: { value: 0 }
-                        - action: select.select_option
-                          continue_on_error: true
-                          target:
-                            entity_id: "select.marstek_m{{ bat_idx }}_forcible_charge_discharge"
-                          data: { option: "stop" }
+                        # Idle-timer check mirrors Node-RED getStopSolution():
+                        # keep relay engaged at 1 W (charge direction) while the
+                        # battery was recently active; hard-stop only after idle_time.
+                        - variables:
+                            bat_last_ts: >
+                              {% set ts = as_timestamp(states('input_datetime.hba_last_active_m' ~ bat_idx), 0) | float(0) %}
+                              {{ ts if ts > 0 else as_timestamp(now()) }}
+                            bat_time_idle: "{{ as_timestamp(now()) - bat_last_ts }}"
+                            idle_secs: "{{ states('input_number.hba_control_idle_time') | float(5) * 60 }}"
+                        - choose:
+                            - conditions: "{{ bat_time_idle < idle_secs }}"
+                              sequence:
+                                - action: number.set_value
+                                  continue_on_error: true
+                                  target:
+                                    entity_id: "number.marstek_m{{ bat_idx }}_forcible_charge_power"
+                                  data: { value: 1 }
+                                - action: number.set_value
+                                  continue_on_error: true
+                                  target:
+                                    entity_id: "number.marstek_m{{ bat_idx }}_forcible_discharge_power"
+                                  data: { value: 0 }
+                                - action: select.select_option
+                                  continue_on_error: true
+                                  target:
+                                    entity_id: "select.marstek_m{{ bat_idx }}_forcible_charge_discharge"
+                                  data: { option: "charge" }
+                          default:
+                            - action: number.set_value
+                              continue_on_error: true
+                              target:
+                                entity_id: "number.marstek_m{{ bat_idx }}_forcible_charge_power"
+                              data: { value: 0 }
+                            - action: number.set_value
+                              continue_on_error: true
+                              target:
+                                entity_id: "number.marstek_m{{ bat_idx }}_forcible_discharge_power"
+                              data: { value: 0 }
+                            - action: select.select_option
+                              continue_on_error: true
+                              target:
+                                entity_id: "select.marstek_m{{ bat_idx }}_forcible_charge_discharge"
+                              data: { option: "stop" }
           # DISCHARGE
           - conditions: "{{ mode == 'discharge' or (mode == 'auto' and desired < 0) }}"
             sequence:
@@ -679,21 +707,49 @@ script:
                                 entity_id: "input_datetime.hba_last_active_m{{ bat_idx }}"
                               data: { datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}" }
                       default:
-                        - action: number.set_value
-                          continue_on_error: true
-                          target:
-                            entity_id: "number.marstek_m{{ bat_idx }}_forcible_charge_power"
-                          data: { value: 0 }
-                        - action: number.set_value
-                          continue_on_error: true
-                          target:
-                            entity_id: "number.marstek_m{{ bat_idx }}_forcible_discharge_power"
-                          data: { value: 0 }
-                        - action: select.select_option
-                          continue_on_error: true
-                          target:
-                            entity_id: "select.marstek_m{{ bat_idx }}_forcible_charge_discharge"
-                          data: { option: "stop" }
+                        # Idle-timer check mirrors Node-RED getStopSolution():
+                        # keep relay engaged at 1 W (discharge direction) while
+                        # the battery was recently active; hard-stop after idle_time.
+                        - variables:
+                            bat_last_ts: >
+                              {% set ts = as_timestamp(states('input_datetime.hba_last_active_m' ~ bat_idx), 0) | float(0) %}
+                              {{ ts if ts > 0 else as_timestamp(now()) }}
+                            bat_time_idle: "{{ as_timestamp(now()) - bat_last_ts }}"
+                            idle_secs: "{{ states('input_number.hba_control_idle_time') | float(5) * 60 }}"
+                        - choose:
+                            - conditions: "{{ bat_time_idle < idle_secs }}"
+                              sequence:
+                                - action: number.set_value
+                                  continue_on_error: true
+                                  target:
+                                    entity_id: "number.marstek_m{{ bat_idx }}_forcible_charge_power"
+                                  data: { value: 0 }
+                                - action: number.set_value
+                                  continue_on_error: true
+                                  target:
+                                    entity_id: "number.marstek_m{{ bat_idx }}_forcible_discharge_power"
+                                  data: { value: 1 }
+                                - action: select.select_option
+                                  continue_on_error: true
+                                  target:
+                                    entity_id: "select.marstek_m{{ bat_idx }}_forcible_charge_discharge"
+                                  data: { option: "discharge" }
+                          default:
+                            - action: number.set_value
+                              continue_on_error: true
+                              target:
+                                entity_id: "number.marstek_m{{ bat_idx }}_forcible_charge_power"
+                              data: { value: 0 }
+                            - action: number.set_value
+                              continue_on_error: true
+                              target:
+                                entity_id: "number.marstek_m{{ bat_idx }}_forcible_discharge_power"
+                              data: { value: 0 }
+                            - action: select.select_option
+                              continue_on_error: true
+                              target:
+                                entity_id: "select.marstek_m{{ bat_idx }}_forcible_charge_discharge"
+                              data: { option: "stop" }
 
   # ── Priority rotation ─────────────────────────────────────────────────────────
   # Advances hba_control_prioritize_battery by 1 (wraps around at battery_count).
