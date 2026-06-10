@@ -73,7 +73,7 @@ recommendations.
 | Aspect | HBC | HBA |
 |---|---|---|
 | Derivative term | On measurement: `Kd × -(P1 − P1_last)` | On error: `Kd × (err − prev_err)` — mathematically equivalent for a constant setpoint |
-| Direction-flip guard when triggered | Locks to previous direction at full PID magnitude | Sets output to 0; battery idles at 1 W hold |
+| Direction-flip guard when triggered | Locks to previous direction at full PID magnitude | Same: mirrors magnitude into previous direction (`\|output\| × prev_sign`) |
 | SoC cutoff boundary | Exact: `soc >= soc_max` | ±0.5% buffer to prevent relay chatter at the exact boundary |
 
 ---

@@ -11,6 +11,31 @@ This document covers HBA-specific changes only.
 
 ---
 
+## v4.10.1-r9 — June 2026
+
+### Fixed
+
+- **`hba_set_batteries` default branch: missing idle-timer hold** — when a battery's PID share
+  dropped to 0 (e.g. total load < priority battery max), the default branch immediately sent a
+  hard stop (`select = stop`) with no idle-timer check. The battery relay disengaged on the very
+  next cycle. Fixed: the default branch now mirrors `getStopSolution()` from Node-RED — sends a
+  1 W directed hold while `time_idle < idle_time`, hard stop only after the timer expires.
+
+- **Write-symmetry: both power registers always equal** — in all active and idle-hold paths,
+  `forcible_charge_power` and `forcible_discharge_power` are now written to the same value
+  (`share` W or 1 W). Previously the non-active register was zeroed, risking relay disengagement
+  if the battery processed the 0 W write before the `select` mode change. Only full stop and
+  idle-stop (`select = stop`) paths still write 0 to both registers — those are the only
+  intentional relay-disconnect points. Matches HBC behaviour.
+
+- **Direction-flip guard: redirect to previous direction** — when the direction-flip guard fires
+  (PID wants to flip charge↔discharge but magnitude < hysteresis), the output is now mirrored
+  into the previous direction at the same magnitude (`|output| × prev_sign`) instead of being
+  zeroed. Zeroing caused an unnecessary 1 W idle hold on every boundary crossing; the redirected
+  output keeps the battery actively working near the setpoint. Matches Node-RED HBC behaviour.
+
+---
+
 ## v4.10.1-r8 — June 2026
 
 ### Breaking: entity renames
