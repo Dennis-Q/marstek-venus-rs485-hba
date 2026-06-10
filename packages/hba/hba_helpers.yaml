@@ -819,9 +819,9 @@ template:
           {% set ns = namespace(total=0) %}
           {% for i in range(1, count + 1) %}
             {% set cutoff = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(12) %}
-            {% set floor = [min_soc, cutoff] | max %}
+            {% set extra = [0, min_soc - cutoff] | max %}
             {% set cap = states('sensor.marstek_m' ~ i ~ '_battery_total_energy') | float(0) %}
-            {% set ns.total = ns.total + (floor / 100) * cap %}
+            {% set ns.total = ns.total + (extra / 100) * cap %}
           {% endfor %}
           {{ ns.total | round(2) }}
 
