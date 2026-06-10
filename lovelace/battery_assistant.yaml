@@ -3218,6 +3218,9 @@ views:
                 name: End time
               - entity: input_number.hba_battery_assist_min_soc_pct
                 name: Minimum SoC (stop threshold)
+              - entity: input_text.hba_battery_assist_car_connected_entity
+                name: Car connected entity (optional)
+                secondary_info: none
           - type: button
             name: Apply section defaults
             icon: mdi:cog-refresh

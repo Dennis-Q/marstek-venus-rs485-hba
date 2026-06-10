@@ -540,6 +540,10 @@ input_text:
     name: "Notify entity_id"
     max: 100
     icon: mdi:bell-outline
+  hba_battery_assist_car_connected_entity:
+    name: "Car connected entity"
+    max: 100
+    icon: mdi:car-connected
 input_select:
   hba_marstek_master_battery_mode:
     name: "Master battery mode"
@@ -1087,7 +1091,9 @@ template:
           {% set min_soc  = states('input_number.hba_battery_assist_min_soc_pct') | float(20) %}
           {% set start_dt = today_at(states('input_datetime.hba_battery_assist_start_time')) %}
           {% set end_dt   = today_at(states('input_datetime.hba_battery_assist_end_time')) %}
-          {{ enabled and soc > min_soc and start_dt <= now() < end_dt }}
+          {% set car_e    = states('input_text.hba_battery_assist_car_connected_entity') | trim %}
+          {% set car_ok   = car_e in ['', 'unknown', 'unavailable'] or is_state(car_e, 'on') %}
+          {{ enabled and soc > min_soc and start_dt <= now() < end_dt and car_ok }}
 
       - name: "HBA Grid Exporting Sustained"
         unique_id: hba_grid_exporting_sustained

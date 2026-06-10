@@ -731,6 +731,9 @@ script:
       - action: input_number.set_value
         target: { entity_id: input_number.hba_battery_assist_min_soc_pct }
         data: { value: 20 }
+      - action: input_text.set_value
+        target: { entity_id: input_text.hba_battery_assist_car_connected_entity }
+        data: { value: "" }
 
   # ── Factory defaults ──────────────────────────────────────────────────────────
   # Writes sensible starting values to all user-configurable helpers.
@@ -952,6 +955,9 @@ script:
       - action: input_number.set_value
         target: { entity_id: input_number.hba_battery_assist_min_soc_pct }
         data: { value: 20 }
+      - action: input_text.set_value
+        target: { entity_id: input_text.hba_battery_assist_car_connected_entity }
+        data: { value: "" }
       # ── HBC coexistence ───────────────────────────────────────────────────────
       - action: input_text.set_value
         target: { entity_id: input_text.hba_hbc_nodered_addon_slug }
