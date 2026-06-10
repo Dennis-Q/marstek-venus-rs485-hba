@@ -1843,6 +1843,40 @@ views:
               - entity: input_number.hba_control_prioritize_battery
                 name: Priority battery
             show_header_toggle: false
+          - type: heading
+            heading: Timed EV Charge
+            heading_style: title
+            icon: mdi:battery-arrow-up
+            visibility:
+              - condition: state
+                entity: input_boolean.hba_battery_assist_enabled
+                state: "on"
+          - type: markdown
+            content: |-
+              {% set soc      = states('sensor.hba_average_battery_soc') | float(0) -%}
+              {% set min_soc  = states('input_number.hba_battery_assist_min_soc') | float(20) -%}
+              {% set start_s  = states('input_datetime.hba_battery_assist_start_time') -%}
+              {% set end_s    = states('input_datetime.hba_battery_assist_end_time') -%}
+              {% set start_dt = today_at(start_s) -%}
+              {% set end_dt   = today_at(end_s) -%}
+              {% set in_window = start_dt <= now() < end_dt -%}
+              {% set car_e    = states('input_text.hba_battery_assist_car_connected_entity') | trim -%}
+              {% set skip     = ['', 'unknown', 'unavailable'] -%}
+              {% set car_conf = car_e not in skip -%}
+              {% set car_ok   = not car_conf or is_state(car_e, 'on') -%}
+              {% set overflow = is_state('binary_sensor.hba_grid_exporting_sustained', 'on') -%}
+              {% set active   = is_state('binary_sensor.hba_battery_assist_active', 'on') -%}
+              **{{ '🟢 Active' if active else '🔴 Inactive' }}**
+
+              {{ '✅' if is_state('input_boolean.hba_battery_assist_enabled', 'on') else '❌' }} Enabled
+              {{ '✅' if in_window else '❌' }} Time window: {{ start_s[:5] }}–{{ end_s[:5] }}{% if not in_window %} *({{ now().strftime('%H:%M') }} outside)*{% endif %}
+              {{ '✅' if soc > min_soc else '🔴' }} SoC: {{ soc | round(1) }}% / {{ min_soc | int }}% min{% if soc <= min_soc %} — **minimum reached, stopped**{% endif %}
+              {{ '✅' if car_ok else '❌' }} Car: {% if not car_conf %}not configured{% elif car_ok %}connected ({{ car_e }}){% else %}not connected ({{ car_e }}){% endif %}
+              {{ '⚠️' if overflow else '✅' }} Overflow guard: {{ '**sustained export — paused**' if overflow else 'OK' }}
+            visibility:
+              - condition: state
+                entity: input_boolean.hba_battery_assist_enabled
+                state: "on"
 
       - type: grid
         cards:
