@@ -2128,54 +2128,12 @@ views:
       - type: grid
         cards:
           - type: heading
-            heading: EV Stop Trigger
-            heading_style: title
             icon: mdi:power-plug-off
-          - type: markdown
-            content: >-
-              <font color=grey>The Stop Trigger will OVERRULE ALL active
-              strategies.
-
-              _E.g. use to disengage your home batteries when EV is
-              charging_</font>
-            text_only: true
-          - type: entities
-            entities:
-              - entity: input_text.hba_strategy_ev_sensor_entity_id
-                secondary_info: none
-          - type: markdown
-            content: >-
-              <font color=grey>Enter the `entity_id` of an `input_boolean` or
-              `on/off template_sensor` in the field above</font>
-            text_only: true
-          - type: tile
-            entity: binary_sensor.hba_ev_is_active
-            name: EV stop trigger
-            vertical: false
-            features_position: bottom
-            grid_options:
-              columns: full
-          - type: markdown
-            content: >-
-              <font color=grey>The EV stop trigger should indicate whether a
-              Full Stop has been triggered. Trigger **on** = batteries in Full
-              stop.</font>
-            text_only: true
-          - type: tile
-            entity: input_boolean.hba_control_has_power_limit_during_ev_charge
-            name: Keep peak shaving active during EV stop
-            color: blue
-            vertical: false
-            hide_state: true
-            features_position: bottom
-            grid_options:
-              columns: full
-          - type: markdown
-            content: >-
-              <font color=grey>When enabled, batteries still respond to import/export
-              power limits while the EV stop trigger is active (uses Standby / peak
-              shave strategy instead of Full stop).</font>
-            text_only: true
+            heading: EV Stop Trigger
+            heading_style: subtitle
+            tap_action:
+              action: navigate
+              navigation_path: /home-battery-assistant/ev-charge
 
       - type: grid
         cards:
@@ -2185,7 +2143,7 @@ views:
             heading_style: subtitle
             tap_action:
               action: navigate
-              navigation_path: /home-battery-assistant/timed-ev-charge
+              navigation_path: /home-battery-assistant/ev-charge
 
       - type: grid
         column_span: 3
@@ -3120,11 +3078,11 @@ views:
                       : (colours[iv.mark] || '#9e9e9e')
                   }));
 
-  # ── VIEW 8: TIMED EV CHARGE ──────────────────────────────────────────────────
+  # ── VIEW 8: EV CHARGE ────────────────────────────────────────────────────────
   - type: sections
     max_columns: 3
-    title: Timed EV Charge
-    path: timed-ev-charge
+    title: EV Charge
+    path: ev-charge
     icon: mdi:car-electric
     cards: []
     badges:
@@ -3149,16 +3107,72 @@ views:
         type: markdown
         text_only: true
         content: >-
-          ### Timed EV Charge *(HBA v4.10.1-r8)*
+          ### EV Charge *(HBA v4.10.1-r8)*
 
 
-          **HBA-specific feature** — not part of HBC. Discharges batteries
-          during a configured time window to direct that capacity to an EV
-          charger.
+          **HBA-specific feature** — not part of HBC. Configures the EV stop
+          trigger and timed battery discharge to support EV charging.
       layout: center
       badges_position: top
       badges_wrap: scroll
     sections:
+      - type: grid
+        cards:
+          - type: heading
+            icon: mdi:power-plug-off
+            heading: EV Stop Trigger
+            heading_style: title
+          - type: markdown
+            content: '---'
+            grid_options:
+              columns: full
+            text_only: true
+          - type: markdown
+            content: >-
+              <font color=grey>The Stop Trigger will OVERRULE ALL active
+              strategies.
+
+              _E.g. use to disengage your home batteries when EV is
+              charging_</font>
+            text_only: true
+          - type: entities
+            entities:
+              - entity: input_text.hba_strategy_ev_sensor_entity_id
+                secondary_info: none
+          - type: markdown
+            content: >-
+              <font color=grey>Enter the `entity_id` of an `input_boolean` or
+              `on/off template_sensor` in the field above</font>
+            text_only: true
+          - type: tile
+            entity: binary_sensor.hba_ev_is_active
+            name: EV stop trigger
+            vertical: false
+            features_position: bottom
+            grid_options:
+              columns: full
+          - type: markdown
+            content: >-
+              <font color=grey>The EV stop trigger should indicate whether a
+              Full Stop has been triggered. Trigger **on** = batteries in Full
+              stop.</font>
+            text_only: true
+          - type: tile
+            entity: input_boolean.hba_control_has_power_limit_during_ev_charge
+            name: Keep peak shaving active during EV stop
+            color: blue
+            vertical: false
+            hide_state: true
+            features_position: bottom
+            grid_options:
+              columns: full
+          - type: markdown
+            content: >-
+              <font color=grey>When enabled, batteries still respond to import/export
+              power limits while the EV stop trigger is active (uses Standby / peak
+              shave strategy instead of Full stop).</font>
+            text_only: true
+
       - type: grid
         cards:
           - type: heading
