@@ -3325,6 +3325,16 @@ views:
               - entity: binary_sensor.hba_notify_target_invalid
                 name: Validation
                 icon: mdi:check-decagram
+              - type: divider
+              - type: button
+                name: Send test notification
+                icon: mdi:bell-ring-outline
+                action_name: Send
+                tap_action:
+                  action: perform-action
+                  perform_action: script.turn_on
+                  target:
+                    entity_id: script.hba_notify_test
           - type: markdown
             content: >-
               <font color=grey>Enter a <code>notify.*</code> action to send
@@ -3335,16 +3345,6 @@ views:
               'available_notify_services') | join(', ') or 'none found'
               }}</code></font>
             text_only: true
-          - type: button
-            name: Send test notification
-            icon: mdi:bell-ring-outline
-            show_name: true
-            show_icon: true
-            tap_action:
-              action: perform-action
-              perform_action: script.turn_on
-              target:
-                entity_id: script.hba_notify_test
           - type: heading
             heading: Notification automations
             heading_style: subtitle
