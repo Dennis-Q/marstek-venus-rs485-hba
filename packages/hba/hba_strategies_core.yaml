@@ -322,7 +322,7 @@ script:
                     data:
                       desired_power_w: >-
                         {% set hw_max = states('sensor.hba_total_max_discharge_power') | float(2500) %}
-                        {% set cap = states('input_number.hba_battery_assist_max_discharge_power_w') | float(0) %}
+                        {% set cap = states('input_number.hba_battery_assist_max_discharge_power') | float(0) %}
                         {{ -([hw_max, cap] | min | int) if cap > 0 else -(hw_max | int) }}
                       mode: "discharge"
           # EV stop trigger overrides all strategies
@@ -773,7 +773,7 @@ script:
         target: { entity_id: input_text.hba_battery_assist_car_connected_entity }
         data: { value: "" }
       - action: input_number.set_value
-        target: { entity_id: input_number.hba_battery_assist_max_discharge_power_w }
+        target: { entity_id: input_number.hba_battery_assist_max_discharge_power }
         data: { value: 0 }
 
   # ── Factory defaults ──────────────────────────────────────────────────────────
@@ -1000,7 +1000,7 @@ script:
         target: { entity_id: input_text.hba_battery_assist_car_connected_entity }
         data: { value: "" }
       - action: input_number.set_value
-        target: { entity_id: input_number.hba_battery_assist_max_discharge_power_w }
+        target: { entity_id: input_number.hba_battery_assist_max_discharge_power }
         data: { value: 0 }
       # ── HBC coexistence ───────────────────────────────────────────────────────
       - action: input_text.set_value

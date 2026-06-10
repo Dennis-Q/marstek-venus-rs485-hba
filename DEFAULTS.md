@@ -167,5 +167,5 @@ or set these manually in Advanced Settings before using the solar forecast charg
 | `input_datetime.hba_battery_assist_start_time` | `05:00:00` | Start of discharge window |
 | `input_datetime.hba_battery_assist_end_time` | `07:00:00` | End of discharge window |
 | `input_number.hba_battery_assist_min_soc_pct` | `20` % | SoC floor — assist stops when average SoC drops below this |
-| `input_number.hba_battery_assist_max_discharge_power_w` | `0` W | Max discharge power during assist; `0` = use battery hardware maximum |
+| `input_number.hba_battery_assist_max_discharge_power` | `0` W | Max discharge power during assist; `0` = use battery hardware maximum |
 | `input_text.hba_battery_assist_car_connected_entity` | *(empty)* | Optional: entity (`on` = car connected). If empty, condition is ignored |

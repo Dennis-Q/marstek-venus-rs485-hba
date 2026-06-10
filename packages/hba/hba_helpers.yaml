@@ -510,10 +510,10 @@ input_number:
     mode: box
     unit_of_measurement: "%"
     icon: mdi:battery-low
-  hba_battery_assist_max_discharge_power_w:
+  hba_battery_assist_max_discharge_power:
     name: "Timed EV Charge max discharge power"
     min: 0
-    max: 10000
+    max: 25000
     step: 100
     mode: box
     unit_of_measurement: "W"
