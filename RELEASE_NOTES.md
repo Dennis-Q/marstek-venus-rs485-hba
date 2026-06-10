@@ -11,7 +11,7 @@ This document covers HBA-specific changes only.
 
 ---
 
-## v4.10.1-r9 — June 2026
+## v4.10.1-r8 — June 2026
 
 ### Breaking: entity renames
 
@@ -25,71 +25,65 @@ from the ID. Update any automations or templates that reference these directly.
 | `input_number.hba_battery_assist_min_soc_pct` | `input_number.hba_battery_assist_min_soc` |
 
 `sensor.hba_total_battery_power` unique_id also updated (`hba_total_battery_power_in_w` →
-`hba_total_battery_power`) — HA will treat this as a new entity, so history from before r9 will
-not be linked.
+`hba_total_battery_power`) — HA will treat this as a new entity and history will not be linked.
 
 ### New features
 
-- **Timed EV Charge: max discharge power** — new `input_number.hba_battery_assist_max_discharge_power`
-  caps discharge power during the window. `0` (default) means use the battery hardware maximum.
-  Range 0–25 000 W to cover up to 6 batteries at single-phase max.
+- **"Battery Assisted EV Charging" renamed to "Timed EV Charge"** — clearer name; entity IDs
+  (`hba_battery_assist_*`) are unchanged to preserve HA history.
 
 - **Timed EV Charge: car connected condition** — new optional `input_text.hba_battery_assist_car_connected_entity`.
   When set, `binary_sensor.hba_battery_assist_active` only activates if that entity is `on`.
   Leave empty to ignore (default).
 
+- **Timed EV Charge: max discharge power** — new `input_number.hba_battery_assist_max_discharge_power`
+  caps discharge power during the window. `0` (default) means use the battery hardware maximum.
+  Range 0–25 000 W to cover up to 6 batteries at single-phase max.
+
 - **Timed EV Charge: reserved energy sensor** — new `sensor.hba_battery_assist_reserved_energy`
-  shows how much energy the home can still use after assist stops — the band between
-  `hba_battery_assist_min_soc` and each battery's `discharging_cutoff_capacity`. Reads `0 kWh`
-  when `min_soc ≤ cutoff` (hardware stops at the same point, no extra home reserve).
+  shows how much energy the home can still use after assist stops: `max(0, min_soc − cutoff) × capacity`
+  per battery. Reads `0 kWh` when `min_soc ≤ cutoff` (hardware stops at the same point).
 
 - **Timed EV Charge: PID reset** — new `automation.hba_battery_assist_pid_reset` clears
   `input_number.hba_control_pid_output` to 0 when assist starts, stops, or when the
-  self-consumption overflow guard releases while assist is active. Prevents PID state from
-  a previous mode bleeding into the next cycle.
+  self-consumption overflow guard releases while assist is active.
+
+- **Notifications framework** — `script.hba_notify_dispatch` routes notifications to a
+  configurable legacy `notify.mobile_app_*` service, falling back to persistent notifications
+  when the helper is empty. `binary_sensor.hba_notify_target_invalid` validates the configured
+  target; `automation.hba_notify_target_validation` surfaces a persistent notification when
+  misconfigured. New `input_boolean.hba_notifications_enabled` master switch.
 
 ### Fixed
 
-- **Notify validator: modern notify entities now rejected** — `notify.xyz` style names that
-  correspond to a registered HA notify entity silently fail as legacy service calls. The
-  validator now flags them as invalid (mirroring the fix already in the EV charging project).
-  `available_notify_services` attribute now shows the correct `notify.mobile_app_*` legacy
-  service names.
+- **`hba_grid_exporting_sustained` overflow guard sign error** — battery power condition was
+  `< -500` but `sensor.hba_total_battery_power` is positive when discharging. Changed to `> 500`.
 
-- **`sensor.hba_battery_assist_reserved_energy` formula** — previously used
-  `max(min_soc, cutoff) × capacity`, which still showed ~2 kWh when `min_soc = cutoff = 13%`
-  because hardware-locked energy was included. Correct formula:
-  `max(0, min_soc − cutoff) × capacity` — only the energy the home can genuinely draw on.
+- **Notify validator: modern notify entities rejected** — `notify.xyz` names that correspond to
+  a registered HA notify entity silently fail as legacy service calls. The validator now flags
+  them as invalid. `available_notify_services` attribute shows the correct `notify.mobile_app_*`
+  legacy service names.
 
-### Dashboard
-
-- **Auto-entities list of notification automations** — the Notifications view now shows all
-  `automation.hba_*notif*` automations with enable/disable toggles.
-- **Compact defaults buttons** — "Apply section defaults" (Timed EV Charge) and "Reset to
-  defaults" (Advanced Settings) are now inline entities rows with `last-triggered` timestamp,
-  consistent with the EV charging project style.
-- **Timed EV Charge view** — added `sensor.hba_average_battery_soc`,
-  `sensor.hba_battery_assist_reserved_energy`, and
-  `input_number.hba_battery_assist_max_discharge_power` entity rows.
-- **Send test notification** — now an inline entities row (was a full-width button card).
-
----
-
-## v4.10.1-r8 — June 2026
+- **`sensor.hba_battery_assist_reserved_energy` formula** — hardware-locked energy (below
+  `discharging_cutoff_capacity`) was included, making the sensor misleadingly high when
+  `min_soc ≤ cutoff`. Fixed to `max(0, min_soc − cutoff) × capacity`.
 
 ### Changed
 
-- **"Battery Assisted EV Charging" renamed to "Timed EV Charge"** — clearer name; entity IDs
-  (`hba_battery_assist_*`) are unchanged to preserve HA history.
 - **Flow label rename** — `Battery assist → EV discharge` → `Timed EV charge → Discharge to EV`.
-  Sub-label "Discharge to EV" avoids the ambiguous "EV discharge" (which sounds like draining the
-  car). Overflow label changed to `Timed EV charge — Grid overflow → Self-consumption` (dash
-  separator, consistent with EV stop trigger label style).
-- **Dashboard: dedicated views** — Timed EV Charge and Notifications moved out of Advanced
-  Settings into their own dashboard views (tabs). Both views note they are HBA-specific features
-  not part of HBC. Advanced Settings retains navigation headings linking to each view.
-- **Label consistency fix** — `Standby / peak shave` sub-label casing now consistently lowercase
-  everywhere.
+  Overflow label: `Timed EV charge — Grid overflow → Self-consumption`.
+- **Label consistency** — `Standby / peak shave` sub-label casing consistently lowercase everywhere.
+
+### Dashboard
+
+- **Dedicated views** — Timed EV Charge and Notifications moved out of Advanced Settings into
+  their own views (tabs). Both note they are HBA-specific features not part of HBC.
+- **Auto-entities list of notification automations** — Notifications view shows all
+  `automation.hba_*notif*` automations with enable/disable toggles.
+- **Compact defaults buttons** — "Apply section defaults" and "Reset to defaults" are now
+  inline entities rows with `last-triggered` timestamp.
+- **Timed EV Charge view** — shows average SoC, reserved energy, and max discharge power.
+- **Send test notification** — inline entities row instead of full-width button card.
 
 ---
 
