@@ -275,6 +275,9 @@ views:
               - condition: state
                 entity: input_select.hba_marstek_master_battery_mode
                 state: Full control
+              - condition: state
+                entity: binary_sensor.hba_battery_assist_active
+                state: 'off'
           - type: markdown
             content: >-
               <ha-alert alert-type="error">HBA disabled — conflict with HBC was
