@@ -8,7 +8,7 @@ views:
     header:
       card:
         type: markdown
-        content: '### Home Battery Assistant *(HBA v4.10.1-r7)*'
+        content: '### Home Battery Assistant *(HBA v4.10.1-r8)*'
         text_only: true
     cards: []
     sections:
@@ -234,10 +234,10 @@ views:
                 conditions:
                   - condition: state
                     entity: sensor.hba_version
-                    state: "v4.10.1-r7"
+                    state: "v4.10.1-r8"
             content: >
               <ha-alert alert-type="error">**HBA version mismatch** — Dashboard is
-              v4.10.1-r7 but loaded packages report
+              v4.10.1-r8 but loaded packages report
               {{ states('sensor.hba_version') }}. Reload YAML to apply the update:
               Developer Tools → YAML → Reload All YAML.</ha-alert>
           - type: markdown
@@ -950,7 +950,7 @@ views:
       card:
         type: markdown
         content: >-
-          ### Self-consumption strategy *(HBA v4.10.1-r7)*
+          ### Self-consumption strategy *(HBA v4.10.1-r8)*
 
           The **PID controller** steers your batteries to keep grid usage near
           target, _e.g. 0 Watt_, and is used by:
@@ -1093,7 +1093,7 @@ views:
       card:
         type: markdown
         text_only: true
-        content: '### Charge / Sell *(HBA v4.10.1-r7)*'
+        content: '### Charge / Sell *(HBA v4.10.1-r8)*'
     cards: []
     badges:
       - type: entity
@@ -1410,7 +1410,7 @@ views:
       card:
         type: markdown
         text_only: true
-        content: '### Timed / Dynamic *(HBA v4.10.1-r7)*'
+        content: '### Timed / Dynamic *(HBA v4.10.1-r8)*'
     sections:
       - type: grid
         cards:
@@ -1775,7 +1775,7 @@ views:
         type: markdown
         text_only: true
         content: >-
-          ### Insights *(HBA v4.10.1-r7)*
+          ### Insights *(HBA v4.10.1-r8)*
 
           Need help figuring out what is going on?
 
@@ -2017,7 +2017,7 @@ views:
       card:
         type: markdown
         text_only: true
-        content: '### Advanced settings *(HBA v4.10.1-r7)*'
+        content: '### Advanced settings *(HBA v4.10.1-r8)*'
     sections:
       # Battery offline warning — full width, hidden when all batteries are online
       - type: grid
@@ -2118,43 +2118,12 @@ views:
       - type: grid
         cards:
           - type: heading
-            heading: Notifications
-            heading_style: title
             icon: mdi:bell-outline
-          - type: markdown
-            content: '---'
-            grid_options:
-              columns: full
-            text_only: true
-          - type: tile
-            entity: input_boolean.hba_notifications_enabled
-            name: Notifications enabled
-            color: blue
-            vertical: false
-            hide_state: true
-            features_position: bottom
-            grid_options:
-              columns: full
-          - type: entities
-            entities:
-              - entity: input_text.hba_notify_entity_id
-                secondary_info: none
-          - type: markdown
-            content: >-
-              <font color=grey>Enter a <code>notify.*</code> action to send
-              notifications to a mobile device or other target. Leave empty to
-              use persistent notifications (HA notification bell).</font>
-            text_only: true
-          - type: button
-            name: Send test notification
-            icon: mdi:bell-ring-outline
-            show_name: true
-            show_icon: true
+            heading: Notifications
+            heading_style: subtitle
             tap_action:
-              action: perform-action
-              perform_action: script.turn_on
-              target:
-                entity_id: script.hba_notify_test
+              action: navigate
+              navigation_path: /home-battery-assistant/notifications
 
       - type: grid
         cards:
@@ -2211,79 +2180,12 @@ views:
       - type: grid
         cards:
           - type: heading
-            icon: mdi:battery-arrow-up
-            heading: Battery Assisted EV Charging
-            heading_style: title
-          - type: markdown
-            content: '---'
-            grid_options:
-              columns: full
-            text_only: true
-          - type: markdown
-            content: >-
-              <font color=grey><i>Discharges batteries during a configured time
-              window to direct that capacity to an EV charger — useful when you
-              have excess battery reserves and want to maximize EV charge before
-              the car is needed. Stops automatically when SoC drops below the
-              configured minimum.</i>
-
-
-              <b>To start/stop EV charging:</b> create an automation triggered
-              by <code>binary_sensor.hba_battery_assist_active</code> turning
-              <b>on</b> (start charging) and <b>off</b> (stop charging).</font>
-            text_only: true
-          - type: tile
-            entity: input_boolean.hba_battery_assist_enabled
-            name: Battery assist enabled
-            color: blue
-            vertical: false
-            hide_state: true
-            features_position: bottom
-            grid_options:
-              columns: full
-          - type: tile
-            entity: binary_sensor.hba_battery_assist_active
-            name: Battery assist active (now)
-            vertical: false
-            features_position: bottom
-            grid_options:
-              columns: full
-          - type: entities
-            entities:
-              - entity: input_datetime.hba_battery_assist_start_time
-                name: Start time
-              - entity: input_datetime.hba_battery_assist_end_time
-                name: End time
-              - entity: input_number.hba_battery_assist_min_soc_pct
-                name: Minimum SoC (stop threshold)
-          - type: button
-            name: Apply section defaults
-            icon: mdi:cog-refresh
-            show_name: true
-            show_icon: true
+            icon: mdi:car-electric
+            heading: Timed EV Charge
+            heading_style: subtitle
             tap_action:
-              action: perform-action
-              perform_action: script.turn_on
-              target:
-                entity_id: script.hba_apply_battery_assist_defaults
-              confirmation:
-                text: >-
-                  Reset battery assist settings to defaults? Your other HBA
-                  settings will not be affected.
-          - type: tile
-            entity: binary_sensor.hba_grid_exporting_sustained
-            name: Grid exporting sustained (overflow guard)
-            vertical: false
-            features_position: bottom
-            grid_options:
-              columns: full
-          - type: markdown
-            content: >-
-              <font color=grey>When <b>Grid exporting sustained</b> turns on
-              (grid export >1 kW for 2+ min with batteries discharging), the
-              assist temporarily switches to self-consumption to avoid
-              unnecessary grid feed-in.</font>
-            text_only: true
+              action: navigate
+              navigation_path: /home-battery-assistant/timed-ev-charge
 
       - type: grid
         column_span: 3
@@ -3010,7 +2912,7 @@ views:
         type: markdown
         text_only: true
         content: >-
-          ### Lab features *(HBA v4.10.1-r7)*
+          ### Lab features *(HBA v4.10.1-r8)*
 
           These features are experimental. Use at your own discretion.
       layout: center
@@ -3228,3 +3130,179 @@ views:
                       ? '#009ac7'
                       : (colours[iv.mark] || '#9e9e9e')
                   }));
+
+  # ── VIEW 8: TIMED EV CHARGE ──────────────────────────────────────────────────
+  - type: sections
+    max_columns: 3
+    title: Timed EV Charge
+    path: timed-ev-charge
+    icon: mdi:car-electric
+    cards: []
+    badges:
+      - type: entity
+        show_name: true
+        show_state: true
+        show_icon: true
+        entity: input_boolean.hba_battery_assist_enabled
+        name: Enabled
+        tap_action:
+          action: more-info
+      - type: entity
+        show_name: true
+        show_state: true
+        show_icon: true
+        entity: binary_sensor.hba_battery_assist_active
+        name: Active now
+        tap_action:
+          action: more-info
+    header:
+      card:
+        type: markdown
+        text_only: true
+        content: >-
+          ### Timed EV Charge *(HBA v4.10.1-r8)*
+
+
+          **HBA-specific feature** — not part of HBC. Discharges batteries
+          during a configured time window to direct that capacity to an EV
+          charger.
+      layout: center
+      badges_position: top
+      badges_wrap: scroll
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            icon: mdi:car-electric
+            heading: Timed EV Charge
+            heading_style: title
+          - type: markdown
+            content: '---'
+            grid_options:
+              columns: full
+            text_only: true
+          - type: markdown
+            content: >-
+              <font color=grey><i>Discharges batteries during a configured time
+              window to direct that capacity to an EV charger — useful when you
+              have excess battery reserves and want to maximize EV charge before
+              the car is needed. Stops automatically when SoC drops below the
+              configured minimum.</i>
+
+
+              <b>To start/stop EV charging:</b> create an automation triggered
+              by <code>binary_sensor.hba_battery_assist_active</code> turning
+              <b>on</b> (start charging) and <b>off</b> (stop charging).</font>
+            text_only: true
+          - type: tile
+            entity: input_boolean.hba_battery_assist_enabled
+            name: Timed EV Charge enabled
+            color: blue
+            vertical: false
+            hide_state: true
+            features_position: bottom
+            grid_options:
+              columns: full
+          - type: tile
+            entity: binary_sensor.hba_battery_assist_active
+            name: Timed EV Charge active (now)
+            vertical: false
+            features_position: bottom
+            grid_options:
+              columns: full
+          - type: entities
+            entities:
+              - entity: input_datetime.hba_battery_assist_start_time
+                name: Start time
+              - entity: input_datetime.hba_battery_assist_end_time
+                name: End time
+              - entity: input_number.hba_battery_assist_min_soc_pct
+                name: Minimum SoC (stop threshold)
+          - type: button
+            name: Apply section defaults
+            icon: mdi:cog-refresh
+            show_name: true
+            show_icon: true
+            tap_action:
+              action: perform-action
+              perform_action: script.turn_on
+              target:
+                entity_id: script.hba_apply_battery_assist_defaults
+              confirmation:
+                text: >-
+                  Reset Timed EV Charge settings to defaults? Your other HBA
+                  settings will not be affected.
+          - type: tile
+            entity: binary_sensor.hba_grid_exporting_sustained
+            name: Grid exporting sustained (overflow guard)
+            vertical: false
+            features_position: bottom
+            grid_options:
+              columns: full
+          - type: markdown
+            content: >-
+              <font color=grey>When <b>Grid exporting sustained</b> turns on
+              (grid export >1 kW for 2+ min with batteries discharging), the
+              timed EV charge temporarily switches to self-consumption to avoid
+              unnecessary grid feed-in.</font>
+            text_only: true
+
+  # ── VIEW 9: NOTIFICATIONS ────────────────────────────────────────────────────
+  - type: sections
+    max_columns: 3
+    title: Notifications
+    path: notifications
+    icon: mdi:bell-outline
+    cards: []
+    header:
+      card:
+        type: markdown
+        text_only: true
+        content: >-
+          ### Notifications *(HBA v4.10.1-r8)*
+
+
+          **HBA-specific feature** — not part of HBC. Configure where HBA
+          sends notifications (unexpected grid export, HBC conflicts, etc.).
+      layout: center
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Notifications
+            heading_style: title
+            icon: mdi:bell-outline
+          - type: markdown
+            content: '---'
+            grid_options:
+              columns: full
+            text_only: true
+          - type: tile
+            entity: input_boolean.hba_notifications_enabled
+            name: Notifications enabled
+            color: blue
+            vertical: false
+            hide_state: true
+            features_position: bottom
+            grid_options:
+              columns: full
+          - type: entities
+            entities:
+              - entity: input_text.hba_notify_entity_id
+                secondary_info: none
+          - type: markdown
+            content: >-
+              <font color=grey>Enter a <code>notify.*</code> action to send
+              notifications to a mobile device or other target. Leave empty to
+              use persistent notifications (HA notification bell).</font>
+            text_only: true
+          - type: button
+            name: Send test notification
+            icon: mdi:bell-ring-outline
+            show_name: true
+            show_icon: true
+            tap_action:
+              action: perform-action
+              perform_action: script.turn_on
+              target:
+                entity_id: script.hba_notify_test

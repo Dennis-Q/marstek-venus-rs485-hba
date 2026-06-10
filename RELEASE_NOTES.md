@@ -11,6 +11,24 @@ This document covers HBA-specific changes only.
 
 ---
 
+## v4.10.1-r8 — June 2026
+
+### Changed
+
+- **"Battery Assisted EV Charging" renamed to "Timed EV Charge"** — clearer name; entity IDs
+  (`hba_battery_assist_*`) are unchanged to preserve HA history.
+- **Flow label rename** — `Battery assist → EV discharge` → `Timed EV charge → Discharge to EV`.
+  Sub-label "Discharge to EV" avoids the ambiguous "EV discharge" (which sounds like draining the
+  car). Overflow label changed to `Timed EV charge — Grid overflow → Self-consumption` (dash
+  separator, consistent with EV stop trigger label style).
+- **Dashboard: dedicated views** — Timed EV Charge and Notifications moved out of Advanced
+  Settings into their own dashboard views (tabs). Both views note they are HBA-specific features
+  not part of HBC. Advanced Settings retains navigation headings linking to each view.
+- **Label consistency fix** — `Standby / peak shave` sub-label casing now consistently lowercase
+  everywhere.
+
+---
+
 ## v4.10.1-r7 — June 2026
 
 ### Fixed

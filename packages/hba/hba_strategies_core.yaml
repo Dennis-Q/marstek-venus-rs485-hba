@@ -232,7 +232,7 @@ script:
       - variables:
           ev_peak_shave: "{{ is_state('input_boolean.hba_control_has_power_limit_during_ev_charge', 'on') }}"
       - choose:
-          # Battery assist — forcible discharge into EV charger
+          # Timed EV charge — forcible discharge to EV charger
           - conditions: "{{ is_state('binary_sensor.hba_battery_assist_active', 'on') }}"
             sequence:
               - choose:
@@ -240,13 +240,13 @@ script:
                     sequence:
                       - action: input_text.set_value
                         target: { entity_id: input_text.hba_strategy_active_flow }
-                        data: { value: "Battery assist → Self-consumption (grid overflow)" }
+                        data: { value: "Timed EV charge — Grid overflow → Self-consumption" }
                       - action: script.hba_strategy_self_consumption
                         data: { skip_label: true }
                 default:
                   - action: input_text.set_value
                     target: { entity_id: input_text.hba_strategy_active_flow }
-                    data: { value: "Battery assist → EV discharge" }
+                    data: { value: "Timed EV charge → Discharge to EV" }
                   - action: script.hba_set_batteries
                     data:
                       desired_power_w: "{{ -(states('sensor.hba_total_max_discharge_power') | float(2500)) | int }}"
@@ -674,12 +674,12 @@ script:
           message: "Notifications are working correctly."
           tag: hba_notify_test
 
-  # ── Battery assist section defaults ──────────────────────────────────────────
-  # Narrow reset for battery assist helpers only — leaves all other HBA settings
-  # untouched. Surfaced as a button in the Battery Assisted EV Charging section
-  # of Advanced Settings, useful after an update that added the feature.
+  # ── Timed EV Charge section defaults ─────────────────────────────────────────
+  # Narrow reset for timed EV charge helpers only — leaves all other HBA settings
+  # untouched. Surfaced as a button in the Timed EV Charge view, useful after an
+  # update that added the feature.
   hba_apply_battery_assist_defaults:
-    alias: "HBA: Apply battery assist defaults"
+    alias: "HBA: Apply Timed EV Charge defaults"
     description: >-
       Resets only the battery assist helpers to their default values.
       Leaves every other HBA setting untouched.
