@@ -155,14 +155,15 @@ script:
             {% set hi = 0 if _charge_disabled else total_max_charge %}
             {{ [[lo, effective_output] | max, hi] | min | round(0) | int }}
       - variables:
-          # Direction-flip guard (layer 2): suppress a direction change when new magnitude < hysteresis.
+          # Direction-flip guard (layer 2): redirect a direction change when new magnitude < hysteresis.
+          # Mirrors the previous direction at the same magnitude (matches Node-RED HBC behaviour).
           # Bypassed when a mode flag forces the direction (charge_disabled / discharge_disabled) —
           # those are constraint-driven flips, not PID ambiguity near the setpoint.
           guarded_output: >
             {% if not _charge_disabled and not _discharge_disabled
                  and (clamped_output > 0) != is_charging_last
                  and (clamped_output | abs) < hysteresis %}
-              0
+              {{ (clamped_output | abs) * (1 if is_charging_last else -1) }}
             {% else %}
               {{ clamped_output }}
             {% endif %}
