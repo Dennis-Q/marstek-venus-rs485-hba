@@ -1136,9 +1136,12 @@ template:
         icon: mdi:bell-alert-outline
         state: >-
           {%- set v = states('input_text.hba_notify_entity_id') | trim -%}
+          {%- set notify_entities = states.notify | map(attribute='entity_id') | list -%}
           {%- if v in ['', 'unknown', 'unavailable'] -%}
             false
           {%- elif not v.startswith('notify.') -%}
+            true
+          {%- elif v in notify_entities -%}
             true
           {%- else -%}
             false
@@ -1146,7 +1149,10 @@ template:
         attributes:
           notify_target: "{{ states('input_text.hba_notify_entity_id') }}"
           available_notify_services: >-
-            {{ states.notify | map(attribute='entity_id') | list }}
+            {{ states.notify
+               | map(attribute='entity_id')
+               | map('replace', 'notify.', 'notify.mobile_app_')
+               | list }}
 
 ######################################################################################################
 # RECORDER — LOGBOOK FILTERING

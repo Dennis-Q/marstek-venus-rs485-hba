@@ -3282,11 +3282,12 @@ views:
             content: >-
               <ha-alert alert-type="warning"><strong>Notify action
               invalid</strong><br>The value in
-              <code>input_text.hba_notify_entity_id</code> doesn't look like a
-              valid <code>notify.*</code> action. HBA notifications fall back to
-              persistent notifications until you correct it.<br><br>Current
-              value: <code>{{ states('input_text.hba_notify_entity_id')
-              }}</code><br>Available targets: <code>{{
+              <code>input_text.hba_notify_entity_id</code> is not a valid legacy
+              notify service. Use <code>notify.mobile_app_*</code> — not a
+              modern notify entity. HBA notifications fall back to persistent
+              notifications until you correct it.<br><br>Current value:
+              <code>{{ states('input_text.hba_notify_entity_id') }}</code><br>
+              Available: <code>{{
               state_attr('binary_sensor.hba_notify_target_invalid',
               'available_notify_services') | join(', ') or '(none found)'
               }}</code></ha-alert>
@@ -3326,9 +3327,10 @@ views:
                     entity_id: script.hba_notify_test
           - type: markdown
             content: >-
-              <font color=grey>Enter a <code>notify.*</code> action to send
-              notifications to a mobile device or other target. Leave empty to
-              use persistent notifications (HA notification bell).<br>Available:
+              <font color=grey>Enter a legacy <code>notify.mobile_app_*</code>
+              service name. Leave empty to use persistent notifications (HA
+              notification bell). Do not enter a modern notify entity — use the
+              <code>mobile_app_</code> service name instead.<br>Available:
               <code>{{
               state_attr('binary_sensor.hba_notify_target_invalid',
               'available_notify_services') | join(', ') or 'none found'

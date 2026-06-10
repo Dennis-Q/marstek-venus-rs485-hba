@@ -220,13 +220,16 @@ automation:
                   notification_id: hba_notify_target_invalid
                   title: "HBA: Notify action invalid"
                   message: >-
-                    The **Notify entity_id** helper
-                    (`input_text.hba_notify_entity_id`) is set but doesn't look
-                    like a valid `notify.*` action. HBA notifications fall back
-                    to persistent notifications.
+                    The **Notify action** helper
+                    (`input_text.hba_notify_entity_id`) is set to an invalid
+                    value. HBA notifications fall back to persistent
+                    notifications.
 
-                    Set it under **HBA → Notifications** to a valid notify
-                    action, for example `notify.mobile_app_my_phone`.
+                    Use a legacy `notify.mobile_app_*` service name, **not**
+                    a modern notify entity. For example:
+                    `notify.mobile_app_my_phone`.
+
+                    Set it under **HBA → Notifications**.
         default:
           - action: persistent_notification.dismiss
             data:
