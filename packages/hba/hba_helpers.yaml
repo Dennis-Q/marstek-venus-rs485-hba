@@ -713,7 +713,7 @@ template:
       - name: "HBA Version"
         unique_id: hba_version
         icon: mdi:tag
-        state: "v4.10.1-r9"
+        state: "v4.10.1-r10"
 
       - name: "HBA Active strategy"
         unique_id: hba_strategy_active_sub_strategy
@@ -1159,7 +1159,7 @@ template:
             {{ ns.result }}
 
 ######################################################################################################
-# RECORDER — LOGBOOK FILTERING
+# RECORDER
 ######################################################################################################
 # Exclude high-frequency technical entities from the recorder to reduce database size.
 recorder:
@@ -1167,6 +1167,10 @@ recorder:
     entity_globs:
       # All HBA scripts — run at ~1 Hz, generate on/off per execution, history is not useful
       - script.hba_*
+      # Battery control outputs — written every ~1 s by hba_set_batteries
+      - number.marstek_m*_forcible_charge_power
+      - number.marstek_m*_forcible_discharge_power
+      - select.marstek_m*_forcible_charge_discharge
       # PID control terms and deviations (updated every ~1 s during operation)
       - input_number.hba_control_*_term
       - input_number.hba_control_*_deviation
@@ -1189,3 +1193,42 @@ recorder:
       # Uncomment hba_control_pid_output to exclude (useful for PID graph in self-consumption view)
       - input_number.hba_control_error_signal    # updated every ~1 s during operation
       # - input_number.hba_control_pid_output      # useful for debugging PID behaviour
+
+######################################################################################################
+# LOGBOOK
+######################################################################################################
+# Suppress HBA/Marstek control-loop entities from the HA logbook.
+# These are written every ~1 s during operation; logbook entries are not useful.
+#
+# NOTE: the modbus domain exclusion is intentionally absent here — other packages
+# (e.g. an EV charger) may also use Modbus and should not be silently suppressed.
+# Add it to configuration.yaml instead (install.sh checks for this):
+#
+#   logbook:
+#     exclude:
+#       domains:
+#         - modbus   # suppresses ~280 000 write_register entries/day from HBA
+logbook:
+  exclude:
+    entity_globs:
+      # Battery control outputs — written every ~1 s by hba_set_batteries
+      - number.marstek_m*_forcible_charge_power
+      - number.marstek_m*_forcible_discharge_power
+      - select.marstek_m*_forcible_charge_discharge
+      # HBA scripts — dispatched every ~1 s
+      - script.hba_*
+      # PID internal state (terms + deviations) — updated every ~1 s
+      - input_number.hba_control_*_term
+      - input_number.hba_control_*_deviation
+      # Per-battery idle timestamps
+      - input_datetime.hba_last_active_m*
+    entities:
+      # PID signal and output — updated every ~1 s during operation
+      - input_number.hba_control_error_signal
+      - input_number.hba_control_pid_output
+      - input_number.hba_control_debug
+      # Control loop automation — triggers every ~1 s
+      - automation.hba_control_loop_p1_meter_triggered
+      # Flow trace helpers — updated every control cycle
+      - input_text.hba_strategy_active_flow
+      - input_text.hba_control_cycle_state

@@ -243,6 +243,22 @@ if ! grep -q "home-battery-assistant" "$CONF" 2>/dev/null; then
     NEEDS_ACTION=true
 fi
 
+if ! grep -qE "^\s*- modbus" "$CONF" 2>/dev/null; then
+    warn "Modbus domain not excluded from logbook in configuration.yaml."
+    say "HBA writes ~280 000 Modbus register entries/day — without this the logbook"
+    say "is flooded with internal battery control calls."
+    echo ""
+    echo "logbook:"
+    echo "  exclude:"
+    echo "    domains:"
+    echo "      - modbus"
+    echo ""
+    say "Skip this if you have other Modbus integrations whose service calls"
+    say "you want to keep visible in the logbook."
+    echo ""
+    NEEDS_ACTION=true
+fi
+
 # ── Done ──────────────────────────────────────────────────────────────────────
 
 hr

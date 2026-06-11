@@ -11,6 +11,25 @@ This document covers HBA-specific changes only.
 
 ---
 
+## v4.10.1-r10 — June 2026
+
+### Added
+
+- **Logbook noise suppression** — new `logbook: exclude:` block in `hba_helpers.yaml`
+  hides all high-frequency HBA/Marstek control-loop entities (battery power/mode selects,
+  scripts, PID state, idle timestamps, flow-trace helpers) from the HA logbook. Without
+  this, the logbook accumulates ~800 000 entries/day from internal battery control calls.
+- **Recorder: Marstek control outputs now excluded** — `number.marstek_m*_forcible_charge_power`,
+  `number.marstek_m*_forcible_discharge_power`, and `select.marstek_m*_forcible_charge_discharge`
+  added to `recorder: exclude:`. These were generating ~136 000 state changes/day with no
+  diagnostic value.
+- **`install.sh`: logbook Modbus domain check** — installer now warns if `configuration.yaml`
+  is missing the Modbus domain logbook exclusion and shows the snippet to add. The exclusion
+  is kept out of `hba_helpers.yaml` itself because other packages (e.g. EV charger) also use
+  Modbus and should not be silently suppressed.
+
+---
+
 ## v4.10.1-r9 — June 2026
 
 ### Fixed
