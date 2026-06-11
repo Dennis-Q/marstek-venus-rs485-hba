@@ -243,6 +243,22 @@ if ! grep -q "home-battery-assistant" "$CONF" 2>/dev/null; then
     NEEDS_ACTION=true
 fi
 
+if ! grep -qE "^\s*- modbus" "$CONF" 2>/dev/null; then
+    warn "Modbus domain not excluded from logbook in configuration.yaml."
+    say "HBA writes ~280 000 Modbus register entries/day — without this the logbook"
+    say "is flooded with internal battery control calls."
+    echo ""
+    echo "logbook:"
+    echo "  exclude:"
+    echo "    domains:"
+    echo "      - modbus"
+    echo ""
+    say "Skip this if you have other Modbus integrations whose service calls"
+    say "you want to keep visible in the logbook."
+    echo ""
+    NEEDS_ACTION=true
+fi
+
 # ── Done ──────────────────────────────────────────────────────────────────────
 
 hr
@@ -257,7 +273,9 @@ echo "  5. Open the Home Battery Assistant dashboard and run onboarding"
 else
 echo "  1. Edit packages/hba/hba_config.yaml if you changed your P1 sensor setup"
 echo "  2. Restart Home Assistant (or reload YAML)"
-echo "  3. Check the dashboard — run onboarding if this is a fresh install"
+echo "  3. Check Advanced Settings on the dashboard — new features added in this"
+echo "     release have individual 'Apply section defaults' buttons to initialize"
+echo "     their settings without touching the rest of your configuration"
 fi
 echo ""
 hr

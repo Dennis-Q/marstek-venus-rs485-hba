@@ -47,7 +47,7 @@
 #   skip_label        — caller manages active_flow label (default: false)
 #   discharge_disabled — clamp PID to ≥0; Charge PV mode (default: false)
 #   charge_disabled    — clamp PID to ≤0; Zero import mode (default: false)
-#   setpoint_override  — override target_grid_consumption_in_w in W (Standby / peak shave)
+#   setpoint_override  — override hba_target_grid_consumption in W (Standby / peak shave)
 
 script:
   hba_strategy_self_consumption:
@@ -63,7 +63,7 @@ script:
         description: "Pass true to prevent the PID from issuing charge commands (Zero import mode)"
         default: false
       setpoint_override:
-        description: "Override the grid consumption setpoint in W (used by Zero import and Standby; omit to use input_number.hba_target_grid_consumption_in_w)"
+        description: "Override the grid consumption setpoint in W (used by Zero import and Standby; omit to use input_number.hba_target_grid_consumption)"
     sequence:
       # Capture script field values as plain variables immediately.
       # Script fields are accessible in `variables:` steps but can fail to resolve
@@ -77,11 +77,11 @@ script:
           grid_power: "{{ states('sensor.p1_meter_power') | float(0) }}"
           target: >
             {{ _setpoint_override | float(0) if _setpoint_override is not none
-               else states('input_number.hba_target_grid_consumption_in_w') | float(0) }}
+               else states('input_number.hba_target_grid_consumption') | float(0) }}
           kp: "{{ states('input_number.hba_control_kp') | float(0.5) }}"
           ki: "{{ states('input_number.hba_control_ki') | float(0.05) }}"
           kd: "{{ states('input_number.hba_control_kd') | float(0) }}"
-          hysteresis: "{{ states('input_number.hba_control_hysteresis_in_w') | float(20) }}"
+          hysteresis: "{{ states('input_number.hba_control_hysteresis') | float(20) }}"
           out_damp_pct: "{{ states('input_number.hba_control_pid_output_dampening') | float(30) }}"
           err_damp_pct: "{{ states('input_number.hba_control_error_signal_dampening') | float(0) }}"
           prev_i: "{{ states('input_number.hba_control_i_term') | float(0) }}"
@@ -155,14 +155,15 @@ script:
             {% set hi = 0 if _charge_disabled else total_max_charge %}
             {{ [[lo, effective_output] | max, hi] | min | round(0) | int }}
       - variables:
-          # Direction-flip guard (layer 2): suppress a direction change when new magnitude < hysteresis.
+          # Direction-flip guard (layer 2): redirect a direction change when new magnitude < hysteresis.
+          # Mirrors the previous direction at the same magnitude (matches Node-RED HBC behaviour).
           # Bypassed when a mode flag forces the direction (charge_disabled / discharge_disabled) —
           # those are constraint-driven flips, not PID ambiguity near the setpoint.
           guarded_output: >
             {% if not _charge_disabled and not _discharge_disabled
                  and (clamped_output > 0) != is_charging_last
                  and (clamped_output | abs) < hysteresis %}
-              0
+              {{ (clamped_output | abs) * (1 if is_charging_last else -1) }}
             {% else %}
               {{ clamped_output }}
             {% endif %}
@@ -259,12 +260,12 @@ script:
                               continue_on_error: true
                               target:
                                 entity_id: "number.marstek_m{{ repeat.index }}_forcible_charge_power"
-                              data: { value: "{{ 1 if is_charging_idle else 0 }}" }
+                              data: { value: 1 }
                             - action: number.set_value
                               continue_on_error: true
                               target:
                                 entity_id: "number.marstek_m{{ repeat.index }}_forcible_discharge_power"
-                              data: { value: "{{ 0 if is_charging_idle else 1 }}" }
+                              data: { value: 1 }
                             - action: select.select_option
                               continue_on_error: true
                               target:

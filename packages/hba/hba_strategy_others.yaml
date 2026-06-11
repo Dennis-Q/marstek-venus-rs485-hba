@@ -98,7 +98,7 @@ script:
   #
   # skip_label: caller manages the label (e.g. "EV stop trigger — Peak shave active").
   hba_strategy_standby:
-    alias: "HBA: Strategy - Standby / Peak shave"
+    alias: "HBA: Strategy - Standby / peak shave"
     fields:
       skip_label:
         description: "Pass true when the caller manages its own sub-strategy label"
@@ -120,7 +120,7 @@ script:
                     sequence:
                       - action: input_text.set_value
                         target: { entity_id: input_text.hba_strategy_active_flow }
-                        data: { value: "Standby / Peak shave → Self-consumption (import)" }
+                        data: { value: "Standby / peak shave → Self-consumption (import)" }
               - action: script.hba_strategy_self_consumption
                 data:
                   skip_label: true
@@ -132,7 +132,7 @@ script:
                     sequence:
                       - action: input_text.set_value
                         target: { entity_id: input_text.hba_strategy_active_flow }
-                        data: { value: "Standby / Peak shave → Self-consumption (export)" }
+                        data: { value: "Standby / peak shave → Self-consumption (export)" }
               - action: script.hba_strategy_self_consumption
                 data:
                   skip_label: true
@@ -143,7 +143,7 @@ script:
                 sequence:
                   - action: input_text.set_value
                     target: { entity_id: input_text.hba_strategy_active_flow }
-                    data: { value: "Standby / Peak shave" }
+                    data: { value: "Standby / peak shave" }
           # Both directions disabled → self-consumption sends a 1 W idle hold so the relay
           # stays engaged (soft stop). Avoids relay click when peak shaving later activates.
           - action: script.hba_strategy_self_consumption

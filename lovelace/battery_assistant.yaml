@@ -8,7 +8,7 @@ views:
     header:
       card:
         type: markdown
-        content: '### Home Battery Assistant *(HBA v4.10.1-r5)*'
+        content: '### Home Battery Assistant *(HBA v4.10.1-r10)*'
         text_only: true
     cards: []
     sections:
@@ -234,10 +234,10 @@ views:
                 conditions:
                   - condition: state
                     entity: sensor.hba_version
-                    state: "v4.10.1-r5"
+                    state: "v4.10.1-r10"
             content: >
               <ha-alert alert-type="error">**HBA version mismatch** — Dashboard is
-              v4.10.1-r5 but loaded packages report
+              v4.10.1-r10 but loaded packages report
               {{ states('sensor.hba_version') }}. Reload YAML to apply the update:
               Developer Tools → YAML → Reload All YAML.</ha-alert>
           - type: markdown
@@ -275,6 +275,9 @@ views:
               - condition: state
                 entity: input_select.hba_marstek_master_battery_mode
                 state: Full control
+              - condition: state
+                entity: binary_sensor.hba_battery_assist_active
+                state: 'off'
           - type: markdown
             content: >-
               <ha-alert alert-type="error">HBA disabled — conflict with HBC was
@@ -947,7 +950,7 @@ views:
       card:
         type: markdown
         content: >-
-          ### Self-consumption strategy *(HBA v4.10.1-r5)*
+          ### Self-consumption strategy *(HBA v4.10.1-r10)*
 
           The **PID controller** steers your batteries to keep grid usage near
           target, _e.g. 0 Watt_, and is used by:
@@ -1023,7 +1026,7 @@ views:
                 secondary_info: none
               - entity: input_number.hba_control_pid_output_dampening
                 name: Output smoothing
-              - entity: input_number.hba_target_grid_consumption_in_w
+              - entity: input_number.hba_target_grid_consumption
                 name: Target grid consumption
       - type: grid
         column_span: 2
@@ -1090,7 +1093,7 @@ views:
       card:
         type: markdown
         text_only: true
-        content: '### Charge / Sell *(HBA v4.10.1-r5)*'
+        content: '### Charge / Sell *(HBA v4.10.1-r10)*'
     cards: []
     badges:
       - type: entity
@@ -1407,7 +1410,7 @@ views:
       card:
         type: markdown
         text_only: true
-        content: '### Timed / Dynamic *(HBA v4.10.1-r5)*'
+        content: '### Timed / Dynamic *(HBA v4.10.1-r10)*'
     sections:
       - type: grid
         cards:
@@ -1772,7 +1775,7 @@ views:
         type: markdown
         text_only: true
         content: >-
-          ### Insights *(HBA v4.10.1-r5)*
+          ### Insights *(HBA v4.10.1-r10)*
 
           Need help figuring out what is going on?
 
@@ -1805,7 +1808,7 @@ views:
           - type: markdown
             content: |-
               {% set grid = states('sensor.p1_meter_power') | float(0) -%}
-              {% set target = states('input_number.hba_target_grid_consumption_in_w') | float(0) -%}
+              {% set target = states('input_number.hba_target_grid_consumption') | float(0) -%}
               {% set err = grid - target -%}
               {% set ev_e = states('input_text.hba_strategy_ev_sensor_entity_id') | trim -%}
               {% set p1_age = (as_timestamp(now()) - as_timestamp(states['sensor.p1_meter_power'].last_changed)) | int -%}
@@ -1840,6 +1843,41 @@ views:
               - entity: input_number.hba_control_prioritize_battery
                 name: Priority battery
             show_header_toggle: false
+          - type: heading
+            heading: Timed EV Charge
+            heading_style: title
+            icon: mdi:battery-arrow-up
+            visibility:
+              - condition: state
+                entity: input_boolean.hba_battery_assist_enabled
+                state: "on"
+          - type: markdown
+            content: |-
+              {% set soc      = states('sensor.hba_average_battery_soc') | float(0) -%}
+              {% set min_soc  = states('input_number.hba_battery_assist_min_soc') | float(20) -%}
+              {% set start_s  = states('input_datetime.hba_battery_assist_start_time') -%}
+              {% set end_s    = states('input_datetime.hba_battery_assist_end_time') -%}
+              {% set start_dt  = today_at(start_s) -%}
+              {% set end_dt    = today_at(end_s) -%}
+              {% set overnight = end_s[:5] < start_s[:5] -%}
+              {% set in_window = (now() >= start_dt or now() < end_dt) if overnight else (start_dt <= now() < end_dt) -%}
+              {% set car_e    = states('input_text.hba_battery_assist_car_connected_entity') | trim -%}
+              {% set skip     = ['', 'unknown', 'unavailable'] -%}
+              {% set car_conf = car_e not in skip -%}
+              {% set car_ok   = not car_conf or is_state(car_e, 'on') -%}
+              {% set overflow = is_state('binary_sensor.hba_grid_exporting_sustained', 'on') -%}
+              {% set active   = is_state('binary_sensor.hba_battery_assist_active', 'on') -%}
+              **{{ '🟢 Active' if active else '🔴 Inactive' }}**
+
+              {{ '✅' if is_state('input_boolean.hba_battery_assist_enabled', 'on') else '❌' }} Enabled
+              {{ '✅' if in_window else '❌' }} Time window: {{ start_s[:5] }}–{{ end_s[:5] }}{% if not in_window %} *({{ now().strftime('%H:%M') }} outside)*{% endif %}
+              {{ '✅' if soc > min_soc else '🔴' }} SoC: {{ soc | round(1) }}% / {{ min_soc | int }}% min{% if soc <= min_soc %} — **minimum reached, stopped**{% endif %}
+              {{ '✅' if car_ok else '❌' }} Car: {% if not car_conf %}not configured{% elif car_ok %}connected ({{ car_e }}){% else %}not connected ({{ car_e }}){% endif %}
+              {{ '⚠️' if overflow else '✅' }} Overflow guard: {{ '**sustained export — paused**' if overflow else 'OK' }}
+            visibility:
+              - condition: state
+                entity: input_boolean.hba_battery_assist_enabled
+                state: "on"
 
       - type: grid
         cards:
@@ -2014,7 +2052,7 @@ views:
       card:
         type: markdown
         text_only: true
-        content: '### Advanced settings *(HBA v4.10.1-r5)*'
+        content: '### Advanced settings *(HBA v4.10.1-r10)*'
     sections:
       # Battery offline warning — full width, hidden when all batteries are online
       - type: grid
@@ -2101,7 +2139,7 @@ views:
             entities:
               - entity: input_number.hba_control_idle_time
                 name: Stop after Idle for
-              - entity: input_number.hba_control_hysteresis_in_w
+              - entity: input_number.hba_control_hysteresis
                 name: 'Hysteresis '
                 secondary_info: none
           - type: markdown
@@ -2115,54 +2153,32 @@ views:
       - type: grid
         cards:
           - type: heading
-            heading: EV Stop Trigger
-            heading_style: title
-            icon: mdi:power-plug-off
-          - type: markdown
-            content: >-
-              <font color=grey>The Stop Trigger will OVERRULE ALL active
-              strategies.
+            icon: mdi:bell-outline
+            heading: Notifications
+            heading_style: subtitle
+            tap_action:
+              action: navigate
+              navigation_path: /home-battery-assistant/notifications
 
-              _E.g. use to disengage your home batteries when EV is
-              charging_</font>
-            text_only: true
-          - type: entities
-            entities:
-              - entity: input_text.hba_strategy_ev_sensor_entity_id
-                secondary_info: none
-          - type: markdown
-            content: >-
-              <font color=grey>Enter the `entity_id` of an `input_boolean` or
-              `on/off template_sensor` in the field above</font>
-            text_only: true
-          - type: tile
-            entity: binary_sensor.hba_ev_is_active
-            name: EV stop trigger
-            vertical: false
-            features_position: bottom
-            grid_options:
-              columns: full
-          - type: markdown
-            content: >-
-              <font color=grey>The EV stop trigger should indicate whether a
-              Full Stop has been triggered. Trigger **on** = batteries in Full
-              stop.</font>
-            text_only: true
-          - type: tile
-            entity: input_boolean.hba_control_has_power_limit_during_ev_charge
-            name: Keep peak shaving active during EV stop
-            color: blue
-            vertical: false
-            hide_state: true
-            features_position: bottom
-            grid_options:
-              columns: full
-          - type: markdown
-            content: >-
-              <font color=grey>When enabled, batteries still respond to import/export
-              power limits while the EV stop trigger is active (uses Standby / peak
-              shave strategy instead of Full stop).</font>
-            text_only: true
+      - type: grid
+        cards:
+          - type: heading
+            icon: mdi:power-plug-off
+            heading: EV Stop Trigger
+            heading_style: subtitle
+            tap_action:
+              action: navigate
+              navigation_path: /home-battery-assistant/ev-charge
+
+      - type: grid
+        cards:
+          - type: heading
+            icon: mdi:car-electric
+            heading: Timed EV Charge
+            heading_style: subtitle
+            tap_action:
+              action: navigate
+              navigation_path: /home-battery-assistant/ev-charge
 
       - type: grid
         column_span: 3
@@ -2834,32 +2850,21 @@ views:
               your integration uses English entity names or you prefer market
               price over all-in.</i></font>
             text_only: true
-          - type: heading
-            heading: Reset to defaults
-            heading_style: subtitle
-            icon: mdi:cog-refresh
-          - type: markdown
-            content: >-
-              <ha-alert alert-type="warning">Resets all HBA parameters to safe
-              starting values. Any values you have configured will be
-              overwritten.</ha-alert>
-            text_only: true
-            grid_options:
-              columns: full
-          - type: button
-            name: Reset to defaults
-            icon: mdi:cog-refresh
-            show_name: true
-            show_icon: true
-            tap_action:
-              action: perform-action
-              perform_action: script.turn_on
-              target:
-                entity_id: script.hba_apply_defaults
-              confirmation:
-                text: >-
-                  This will reset all HBA parameters to safe starting values.
-                  Any values you have configured will be overwritten. Continue?
+          - type: entities
+            entities:
+              - entity: script.hba_apply_defaults
+                name: Reset to defaults
+                icon: mdi:cog-refresh
+                secondary_info: last-triggered
+                tap_action:
+                  action: perform-action
+                  perform_action: script.turn_on
+                  target:
+                    entity_id: script.hba_apply_defaults
+                  confirmation:
+                    text: >-
+                      This will reset all HBA parameters to safe starting values.
+                      Any values you have configured will be overwritten. Continue?
 
   # ── VIEW 7: LAB FEATURES ────────────────────────────────────────────────────
   - type: sections
@@ -2889,7 +2894,7 @@ views:
         type: markdown
         text_only: true
         content: >-
-          ### Lab features *(HBA v4.10.1-r5)*
+          ### Lab features *(HBA v4.10.1-r10)*
 
           These features are experimental. Use at your own discretion.
       layout: center
@@ -3107,3 +3112,293 @@ views:
                       ? '#009ac7'
                       : (colours[iv.mark] || '#9e9e9e')
                   }));
+
+  # ── VIEW 8: EV CHARGE ────────────────────────────────────────────────────────
+  - type: sections
+    max_columns: 3
+    title: EV Charge
+    path: ev-charge
+    icon: mdi:car-electric
+    cards: []
+    badges:
+      - type: entity
+        show_name: true
+        show_state: true
+        show_icon: true
+        entity: input_boolean.hba_battery_assist_enabled
+        name: Enabled
+        tap_action:
+          action: more-info
+      - type: entity
+        show_name: true
+        show_state: true
+        show_icon: true
+        entity: binary_sensor.hba_battery_assist_active
+        name: Active now
+        tap_action:
+          action: more-info
+    header:
+      card:
+        type: markdown
+        text_only: true
+        content: >-
+          ### EV Charge *(HBA v4.10.1-r10)*
+
+
+          **HBA-specific feature** — not part of HBC. Configures the EV stop
+          trigger and timed battery discharge to support EV charging.
+      layout: center
+      badges_position: top
+      badges_wrap: scroll
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            icon: mdi:power-plug-off
+            heading: EV Stop Trigger
+            heading_style: title
+          - type: markdown
+            content: '---'
+            grid_options:
+              columns: full
+            text_only: true
+          - type: markdown
+            content: >-
+              <font color=grey>The Stop Trigger will OVERRULE ALL active
+              strategies.
+
+              _E.g. use to disengage your home batteries when EV is
+              charging_</font>
+            text_only: true
+          - type: entities
+            entities:
+              - entity: input_text.hba_strategy_ev_sensor_entity_id
+                secondary_info: none
+          - type: markdown
+            content: >-
+              <font color=grey>Enter the `entity_id` of an `input_boolean` or
+              `on/off template_sensor` in the field above</font>
+            text_only: true
+          - type: tile
+            entity: binary_sensor.hba_ev_is_active
+            name: EV stop trigger
+            vertical: false
+            features_position: bottom
+            grid_options:
+              columns: full
+          - type: markdown
+            content: >-
+              <font color=grey>The EV stop trigger should indicate whether a
+              Full Stop has been triggered. Trigger **on** = batteries in Full
+              stop.</font>
+            text_only: true
+          - type: tile
+            entity: input_boolean.hba_control_has_power_limit_during_ev_charge
+            name: Keep peak shaving active during EV stop
+            color: blue
+            vertical: false
+            hide_state: true
+            features_position: bottom
+            grid_options:
+              columns: full
+          - type: markdown
+            content: >-
+              <font color=grey>When enabled, batteries still respond to import/export
+              power limits while the EV stop trigger is active (uses Standby / peak
+              shave strategy instead of Full stop).</font>
+            text_only: true
+
+      - type: grid
+        cards:
+          - type: heading
+            icon: mdi:car-electric
+            heading: Timed EV Charge
+            heading_style: title
+          - type: markdown
+            content: '---'
+            grid_options:
+              columns: full
+            text_only: true
+          - type: markdown
+            content: >-
+              <font color=grey><i>Discharges batteries during a configured time
+              window to direct that capacity to an EV charger — useful when you
+              have excess battery reserves and want to maximize EV charge before
+              the car is needed. Stops automatically when SoC drops below the
+              configured minimum.</i>
+
+
+              <b>To start/stop EV charging:</b> create an automation triggered
+              by <code>binary_sensor.hba_battery_assist_active</code> turning
+              <b>on</b> (start charging) and <b>off</b> (stop charging).</font>
+            text_only: true
+          - type: tile
+            entity: input_boolean.hba_battery_assist_enabled
+            name: Timed EV Charge enabled
+            color: blue
+            vertical: false
+            hide_state: true
+            features_position: bottom
+            grid_options:
+              columns: full
+          - type: tile
+            entity: binary_sensor.hba_battery_assist_active
+            name: Timed EV Charge active (now)
+            vertical: false
+            features_position: bottom
+            grid_options:
+              columns: full
+          - type: entities
+            entities:
+              - entity: input_datetime.hba_battery_assist_start_time
+                name: Start time
+              - entity: input_datetime.hba_battery_assist_end_time
+                name: End time
+              - entity: input_number.hba_battery_assist_min_soc
+                name: Minimum SoC (stop threshold)
+              - entity: sensor.hba_average_battery_soc
+                name: Current average SoC
+                secondary_info: none
+              - entity: sensor.hba_battery_assist_reserved_energy
+                name: Energy reserved for home (above hardware cutoff)
+                secondary_info: none
+              - entity: input_number.hba_battery_assist_max_discharge_power
+                name: Max discharge power (0 = battery maximum)
+                secondary_info: none
+              - entity: input_text.hba_battery_assist_car_connected_entity
+                name: Car connected entity (optional)
+                secondary_info: none
+              - type: divider
+              - entity: script.hba_apply_battery_assist_defaults
+                name: Apply section defaults
+                icon: mdi:cog-refresh
+                secondary_info: last-triggered
+                tap_action:
+                  action: perform-action
+                  perform_action: script.turn_on
+                  target:
+                    entity_id: script.hba_apply_battery_assist_defaults
+                  confirmation:
+                    text: >-
+                      Reset Timed EV Charge settings to defaults? Your other HBA
+                      settings will not be affected.
+          - type: tile
+            entity: binary_sensor.hba_grid_exporting_sustained
+            name: Grid exporting sustained (overflow guard)
+            vertical: false
+            features_position: bottom
+            grid_options:
+              columns: full
+          - type: markdown
+            content: >-
+              <font color=grey>When <b>Grid exporting sustained</b> turns on
+              (grid export >1 kW for 2+ min with batteries discharging), the
+              timed EV charge temporarily switches to self-consumption to avoid
+              unnecessary grid feed-in.</font>
+            text_only: true
+
+  # ── VIEW 9: NOTIFICATIONS ────────────────────────────────────────────────────
+  - type: sections
+    max_columns: 3
+    title: Notifications
+    path: notifications
+    icon: mdi:bell-outline
+    cards: []
+    header:
+      card:
+        type: markdown
+        text_only: true
+        content: >-
+          ### Notifications *(HBA v4.10.1-r10)*
+
+
+          **HBA-specific feature** — not part of HBC. Configure where HBA
+          sends notifications (unexpected grid export, HBC conflicts, etc.).
+      layout: center
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Notifications
+            heading_style: title
+            icon: mdi:bell-outline
+          - type: markdown
+            content: '---'
+            grid_options:
+              columns: full
+            text_only: true
+          - type: markdown
+            content: >-
+              <ha-alert alert-type="warning"><strong>Notify action
+              invalid</strong><br>The value in
+              <code>input_text.hba_notify_entity_id</code> is not a valid legacy
+              notify service. Use <code>notify.mobile_app_*</code> — not a
+              modern notify entity. HBA notifications fall back to persistent
+              notifications until you correct it.<br><br>Current value:
+              <code>{{ states('input_text.hba_notify_entity_id') }}</code><br>
+              Available: <code>{{
+              state_attr('binary_sensor.hba_notify_target_invalid',
+              'available_notify_services') | join(', ') or '(none found)'
+              }}</code></ha-alert>
+            text_only: true
+            grid_options:
+              columns: full
+            visibility:
+              - condition: state
+                entity: binary_sensor.hba_notify_target_invalid
+                state: "on"
+          - type: tile
+            entity: input_boolean.hba_notifications_enabled
+            name: Notifications enabled
+            color: blue
+            vertical: false
+            hide_state: true
+            features_position: bottom
+            grid_options:
+              columns: full
+          - type: entities
+            entities:
+              - entity: input_text.hba_notify_entity_id
+                secondary_info: none
+                name: Notify action
+              - entity: binary_sensor.hba_notify_target_invalid
+                name: Validation
+                icon: mdi:check-decagram
+              - type: divider
+              - type: button
+                name: Send test notification
+                icon: mdi:bell-ring-outline
+                action_name: Send
+                tap_action:
+                  action: perform-action
+                  perform_action: script.turn_on
+                  target:
+                    entity_id: script.hba_notify_test
+          - type: markdown
+            content: >-
+              <font color=grey>Enter a legacy <code>notify.mobile_app_*</code>
+              service name. Leave empty to use persistent notifications (HA
+              notification bell). Do not enter a modern notify entity — use the
+              <code>mobile_app_</code> service name instead.<br>Available:
+              <code>{{
+              state_attr('binary_sensor.hba_notify_target_invalid',
+              'available_notify_services') | join(', ') or 'none found'
+              }}</code></font>
+            text_only: true
+          - type: heading
+            heading: Notification automations
+            heading_style: subtitle
+            icon: mdi:robot-outline
+            grid_options:
+              columns: full
+          - type: custom:auto-entities
+            card:
+              type: entities
+              show_header_toggle: false
+            filter:
+              include:
+                - entity_id: "automation.hba_*notif*"
+            sort:
+              method: friendly_name
+            grid_options:
+              columns: full

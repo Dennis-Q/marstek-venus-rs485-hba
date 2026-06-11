@@ -11,6 +11,168 @@ This document covers HBA-specific changes only.
 
 ---
 
+## v4.10.1-r10 — June 2026
+
+### Added
+
+- **Logbook noise suppression** — new `logbook: exclude:` block in `hba_helpers.yaml`
+  hides all high-frequency HBA/Marstek control-loop entities (battery power/mode selects,
+  scripts, PID state, idle timestamps, flow-trace helpers) from the HA logbook. Without
+  this, the logbook accumulates ~800 000 entries/day from internal battery control calls.
+- **Recorder: Marstek control outputs now excluded** — `number.marstek_m*_forcible_charge_power`,
+  `number.marstek_m*_forcible_discharge_power`, and `select.marstek_m*_forcible_charge_discharge`
+  added to `recorder: exclude:`. These were generating ~136 000 state changes/day with no
+  diagnostic value.
+- **`install.sh`: logbook Modbus domain check** — installer now warns if `configuration.yaml`
+  is missing the Modbus domain logbook exclusion and shows the snippet to add. The exclusion
+  is kept out of `hba_helpers.yaml` itself because other packages (e.g. EV charger) also use
+  Modbus and should not be silently suppressed.
+
+---
+
+## v4.10.1-r9 — June 2026
+
+### Fixed
+
+- **`hba_set_batteries` default branch: missing idle-timer hold** — when a battery's PID share
+  dropped to 0 (e.g. total load < priority battery max), the default branch immediately sent a
+  hard stop (`select = stop`) with no idle-timer check. The battery relay disengaged on the very
+  next cycle. Fixed: the default branch now mirrors `getStopSolution()` from Node-RED — sends a
+  1 W directed hold while `time_idle < idle_time`, hard stop only after the timer expires.
+
+- **Write-symmetry: both power registers always equal** — in all active and idle-hold paths,
+  `forcible_charge_power` and `forcible_discharge_power` are now written to the same value
+  (`share` W or 1 W). Previously the non-active register was zeroed, risking relay disengagement
+  if the battery processed the 0 W write before the `select` mode change. Only full stop and
+  idle-stop (`select = stop`) paths still write 0 to both registers — those are the only
+  intentional relay-disconnect points. Matches HBC behaviour.
+
+- **Direction-flip guard: redirect to previous direction** — when the direction-flip guard fires
+  (PID wants to flip charge↔discharge but magnitude < hysteresis), the output is now mirrored
+  into the previous direction at the same magnitude (`|output| × prev_sign`) instead of being
+  zeroed. Zeroing caused an unnecessary 1 W idle hold on every boundary crossing; the redirected
+  output keeps the battery actively working near the setpoint. Matches Node-RED HBC behaviour.
+
+---
+
+## v4.10.1-r8 — June 2026
+
+### Breaking: entity renames
+
+Unit suffixes removed from entity IDs for consistency — all other HBA helpers omit the unit
+from the ID. Update any automations or templates that reference these directly.
+
+| Old | New |
+|---|---|
+| `input_number.hba_target_grid_consumption_in_w` | `input_number.hba_target_grid_consumption` |
+| `input_number.hba_control_hysteresis_in_w` | `input_number.hba_control_hysteresis` |
+| `input_number.hba_battery_assist_min_soc_pct` | `input_number.hba_battery_assist_min_soc` |
+
+`sensor.hba_total_battery_power` unique_id also updated (`hba_total_battery_power_in_w` →
+`hba_total_battery_power`) — HA will treat this as a new entity and history will not be linked.
+
+### New features
+
+- **"Battery Assisted EV Charging" renamed to "Timed EV Charge"** — clearer name; entity IDs
+  (`hba_battery_assist_*`) are unchanged to preserve HA history.
+
+- **Timed EV Charge: car connected condition** — new optional `input_text.hba_battery_assist_car_connected_entity`.
+  When set, `binary_sensor.hba_battery_assist_active` only activates if that entity is `on`.
+  Leave empty to ignore (default).
+
+- **Timed EV Charge: max discharge power** — new `input_number.hba_battery_assist_max_discharge_power`
+  caps discharge power during the window. `0` (default) means use the battery hardware maximum.
+  Range 0–25 000 W to cover up to 6 batteries at single-phase max.
+
+- **Timed EV Charge: reserved energy sensor** — new `sensor.hba_battery_assist_reserved_energy`
+  shows how much energy the home can still use after assist stops: `max(0, min_soc − cutoff) × capacity`
+  per battery. Reads `0 kWh` when `min_soc ≤ cutoff` (hardware stops at the same point).
+
+- **Timed EV Charge: PID reset** — new `automation.hba_battery_assist_pid_reset` clears
+  `input_number.hba_control_pid_output` to 0 when assist starts, stops, or when the
+  self-consumption overflow guard releases while assist is active.
+
+- **Notifications framework** — `script.hba_notify_dispatch` routes notifications to a
+  configurable legacy `notify.mobile_app_*` service, falling back to persistent notifications
+  when the helper is empty. `binary_sensor.hba_notify_target_invalid` validates the configured
+  target; `automation.hba_notify_target_validation` surfaces a persistent notification when
+  misconfigured. New `input_boolean.hba_notifications_enabled` master switch.
+
+### Fixed
+
+- **`hba_grid_exporting_sustained` overflow guard sign error** — battery power condition was
+  `< -500` but `sensor.hba_total_battery_power` is positive when discharging. Changed to `> 500`.
+
+- **Notify validator: modern notify entities rejected** — `notify.xyz` names that correspond to
+  a registered HA notify entity silently fail as legacy service calls. The validator now flags
+  them as invalid using a `notify.mobile_app_` prefix check (more reliable than the previous
+  `states.notify` lookup, which HA may not re-evaluate when notify entities change).
+  `available_notify_services` attribute correctly shows `notify.mobile_app_*` legacy service names
+  (previous `map('replace', ...)` call was silently a no-op in HA's Jinja2).
+
+- **`sensor.hba_battery_assist_reserved_energy` formula** — hardware-locked energy (below
+  `discharging_cutoff_capacity`) was included, making the sensor misleadingly high when
+  `min_soc ≤ cutoff`. Fixed to `max(0, min_soc − cutoff) × capacity`.
+
+### Changed
+
+- **Flow label rename** — `Battery assist → EV discharge` → `Timed EV charge → Discharge to EV`.
+  Overflow label: `Timed EV charge — Grid overflow → Self-consumption`.
+- **Label consistency** — `Standby / peak shave` sub-label casing consistently lowercase everywhere.
+
+### Dashboard
+
+- **EV Charge view** — EV Stop Trigger and Timed EV Charge combined into a single "EV Charge"
+  view (path: `ev-charge`). EV Stop Trigger is shown first; Timed EV Charge below it. Advanced
+  Settings has two subtitle nav links (EV Stop Trigger, Timed EV Charge) both pointing to this view.
+- **Notifications view** — moved out of Advanced Settings into its own view (tab). Notes it is
+  an HBA-specific feature not part of HBC.
+- **Auto-entities list of notification automations** — Notifications view shows all
+  `automation.hba_*notif*` automations with enable/disable toggles.
+- **Compact defaults buttons** — "Apply section defaults" and "Reset to defaults" are now
+  inline entities rows with `last-triggered` timestamp.
+- **Timed EV Charge section** — shows average SoC, reserved energy, and max discharge power.
+- **Send test notification** — inline entities row instead of full-width button card.
+
+---
+
+## v4.10.1-r7 — June 2026
+
+### Fixed
+
+- **`hba_grid_exporting_sustained` overflow guard sign error** — the battery power
+  condition was `< -500` but `sensor.hba_total_battery_power` is positive when
+  discharging. Changed to `> 500`. Previously the overflow guard in battery assist mode
+  never triggered, allowing batteries to discharge into the grid unchecked.
+
+---
+
+## v4.10.1-r6 — June 2026
+
+### New feature: Battery Assisted EV Charging
+
+Discharges batteries during a configured time window to direct that capacity to an EV
+charger — useful when you have excess battery reserves and want to maximize EV charge
+before the car is needed.
+
+**New helpers:**
+- `input_boolean.hba_battery_assist_enabled` — master on/off toggle
+- `input_datetime.hba_battery_assist_start_time` / `hba_battery_assist_end_time` — discharge window
+- `input_number.hba_battery_assist_min_soc` — SoC floor; assist stops when average SoC drops below this
+
+**New sensors:**
+- `sensor.hba_average_battery_soc` — average SoC across all configured batteries (also used internally by the Charge and Sell strategy goal checks, replacing inline loops)
+- `binary_sensor.hba_battery_assist_active` — true when enabled, within the time window, and SoC above the floor; use this in an automation to start/stop EV charging
+- `binary_sensor.hba_grid_exporting_sustained` — true when grid export exceeds 1 kW sustained for 2+ minutes with batteries discharging; used as an overflow guard to fall back to self-consumption
+
+**Strategy dispatch:** the battery assist branch is evaluated above the EV stop trigger in `hba_run_strategy`. When active, batteries discharge at max power via `hba_set_batteries`; falls back to self-consumption if the overflow guard fires.
+
+**Notification:** `automation.hba_unexpected_export_notify` fires a persistent notification when the grid exports unexpectedly (overflow guard active but battery assist is off).
+
+**Dashboard:** new Battery Assisted EV Charging section in Advanced Settings with all controls and status tiles.
+
+---
+
 ## v4.10.1-r5 — June 2026
 
 ### Improvements

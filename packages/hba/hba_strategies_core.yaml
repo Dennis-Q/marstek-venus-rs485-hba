@@ -171,6 +171,105 @@ automation:
               - action: script.hba_advance_priority
                 data: {}
 
+  # ── Unexpected sustained export notification ──────────────────────────────────
+  # Fires only when battery assist is OFF — if battery assist is active, sustained
+  # export is expected (batteries discharging into EV charger).
+  - id: hba_unexpected_export_notify
+    alias: "HBA: Notify on unexpected sustained grid export"
+    description: "Alerts when grid export >1 kW sustains for 2+ min with batteries discharging but battery assist is off."
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_grid_exporting_sustained
+        to: "on"
+    conditions:
+      - condition: state
+        entity_id: binary_sensor.hba_battery_assist_active
+        state: "off"
+    actions:
+      - action: script.hba_notify_dispatch
+        data:
+          title: "HBA: Unexpected grid export"
+          message: >
+            Grid has been exporting >1 kW for over 2 minutes while batteries are discharging
+            (P1: {{ states('sensor.p1_meter_power') | int }} W,
+            batteries: {{ states('sensor.hba_total_battery_power') | int }} W).
+            Check strategy configuration.
+          tag: hba_unexpected_export
+
+  - id: hba_notify_target_validation
+    alias: "HBA: Validate notify target"
+    description: >-
+      Creates a persistent notification when input_text.hba_notify_entity_id
+      is set but doesn't look like a valid notify.* action.
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_notify_target_invalid
+        to: "on"
+      - trigger: state
+        entity_id: binary_sensor.hba_notify_target_invalid
+        to: "off"
+      - trigger: homeassistant
+        event: start
+    actions:
+      - choose:
+          - conditions: "{{ is_state('binary_sensor.hba_notify_target_invalid', 'on') }}"
+            sequence:
+              - action: persistent_notification.create
+                data:
+                  notification_id: hba_notify_target_invalid
+                  title: "HBA: Notify action invalid"
+                  message: >-
+                    The **Notify action** helper
+                    (`input_text.hba_notify_entity_id`) is set to an invalid
+                    value. HBA notifications fall back to persistent
+                    notifications.
+
+                    Use a legacy `notify.mobile_app_*` service name, **not**
+                    a modern notify entity. For example:
+                    `notify.mobile_app_my_phone`.
+
+                    Set it under **HBA → Notifications**.
+        default:
+          - action: persistent_notification.dismiss
+            data:
+              notification_id: hba_notify_target_invalid
+
+  # ── Timed EV Charge: PID reset on transitions ────────────────────────────────
+  - id: hba_battery_assist_pid_reset
+    alias: "HBA: Reset PID on Timed EV Charge transitions"
+    description: >-
+      Resets PID output to 0 when Timed EV Charge starts, stops, or when the
+      self-consumption overflow guard releases while assist is active. Prevents
+      PID state from a previous mode bleeding into the next cycle.
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_battery_assist_active
+        to: "on"
+        id: assist_on
+      - trigger: state
+        entity_id: binary_sensor.hba_battery_assist_active
+        to: "off"
+        id: assist_off
+      - trigger: state
+        entity_id: binary_sensor.hba_grid_exporting_sustained
+        to: "off"
+        id: overflow_release
+    actions:
+      - choose:
+          - conditions:
+              - condition: trigger
+                id: overflow_release
+              - condition: state
+                entity_id: binary_sensor.hba_battery_assist_active
+                state: "off"
+            sequence: []  # overflow released but assist wasn't active — no-op
+        default:
+          - action: input_number.set_value
+            target: { entity_id: input_number.hba_control_pid_output }
+            data: { value: 0 }
+
   # ── Insights debug mode auto-off ──────────────────────────────────────────────
   # Turns debug mode off after 15 minutes to avoid leaving ~1 Hz history writes
   # running indefinitely. Original Node-RED used 5 minutes; raised to 15 to give
@@ -207,6 +306,28 @@ script:
       - variables:
           ev_peak_shave: "{{ is_state('input_boolean.hba_control_has_power_limit_during_ev_charge', 'on') }}"
       - choose:
+          # Timed EV charge — forcible discharge to EV charger
+          - conditions: "{{ is_state('binary_sensor.hba_battery_assist_active', 'on') }}"
+            sequence:
+              - choose:
+                  - conditions: "{{ is_state('binary_sensor.hba_grid_exporting_sustained', 'on') }}"
+                    sequence:
+                      - action: input_text.set_value
+                        target: { entity_id: input_text.hba_strategy_active_flow }
+                        data: { value: "Timed EV charge — Grid overflow → Self-consumption" }
+                      - action: script.hba_strategy_self_consumption
+                        data: { skip_label: true }
+                default:
+                  - action: input_text.set_value
+                    target: { entity_id: input_text.hba_strategy_active_flow }
+                    data: { value: "Timed EV charge → Discharge to EV" }
+                  - action: script.hba_set_batteries
+                    data:
+                      desired_power_w: >-
+                        {% set hw_max = states('sensor.hba_total_max_discharge_power') | float(2500) %}
+                        {% set cap = states('input_number.hba_battery_assist_max_discharge_power') | float(0) %}
+                        {{ -([hw_max, cap] | min | int) if cap > 0 else -(hw_max | int) }}
+                      mode: "discharge"
           # EV stop trigger overrides all strategies
           - conditions: "{{ ev_active and ev_peak_shave }}"
             sequence:
@@ -473,7 +594,7 @@ script:
                               continue_on_error: true
                               target:
                                 entity_id: "number.marstek_m{{ bat_idx }}_forcible_discharge_power"
-                              data: { value: 0 }
+                              data: { value: "{{ share }}" }
                             - action: select.select_option
                               continue_on_error: true
                               target:
@@ -484,21 +605,49 @@ script:
                                 entity_id: "input_datetime.hba_last_active_m{{ bat_idx }}"
                               data: { datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}" }
                       default:
-                        - action: number.set_value
-                          continue_on_error: true
-                          target:
-                            entity_id: "number.marstek_m{{ bat_idx }}_forcible_charge_power"
-                          data: { value: 0 }
-                        - action: number.set_value
-                          continue_on_error: true
-                          target:
-                            entity_id: "number.marstek_m{{ bat_idx }}_forcible_discharge_power"
-                          data: { value: 0 }
-                        - action: select.select_option
-                          continue_on_error: true
-                          target:
-                            entity_id: "select.marstek_m{{ bat_idx }}_forcible_charge_discharge"
-                          data: { option: "stop" }
+                        # Idle-timer check mirrors Node-RED getStopSolution():
+                        # keep relay engaged at 1 W (charge direction) while the
+                        # battery was recently active; hard-stop only after idle_time.
+                        - variables:
+                            bat_last_ts: >
+                              {% set ts = as_timestamp(states('input_datetime.hba_last_active_m' ~ bat_idx), 0) | float(0) %}
+                              {{ ts if ts > 0 else as_timestamp(now()) }}
+                            bat_time_idle: "{{ as_timestamp(now()) - bat_last_ts }}"
+                            idle_secs: "{{ states('input_number.hba_control_idle_time') | float(5) * 60 }}"
+                        - choose:
+                            - conditions: "{{ bat_time_idle < idle_secs }}"
+                              sequence:
+                                - action: number.set_value
+                                  continue_on_error: true
+                                  target:
+                                    entity_id: "number.marstek_m{{ bat_idx }}_forcible_charge_power"
+                                  data: { value: 1 }
+                                - action: number.set_value
+                                  continue_on_error: true
+                                  target:
+                                    entity_id: "number.marstek_m{{ bat_idx }}_forcible_discharge_power"
+                                  data: { value: 1 }
+                                - action: select.select_option
+                                  continue_on_error: true
+                                  target:
+                                    entity_id: "select.marstek_m{{ bat_idx }}_forcible_charge_discharge"
+                                  data: { option: "charge" }
+                          default:
+                            - action: number.set_value
+                              continue_on_error: true
+                              target:
+                                entity_id: "number.marstek_m{{ bat_idx }}_forcible_charge_power"
+                              data: { value: 0 }
+                            - action: number.set_value
+                              continue_on_error: true
+                              target:
+                                entity_id: "number.marstek_m{{ bat_idx }}_forcible_discharge_power"
+                              data: { value: 0 }
+                            - action: select.select_option
+                              continue_on_error: true
+                              target:
+                                entity_id: "select.marstek_m{{ bat_idx }}_forcible_charge_discharge"
+                              data: { option: "stop" }
           # DISCHARGE
           - conditions: "{{ mode == 'discharge' or (mode == 'auto' and desired < 0) }}"
             sequence:
@@ -542,7 +691,7 @@ script:
                               continue_on_error: true
                               target:
                                 entity_id: "number.marstek_m{{ bat_idx }}_forcible_charge_power"
-                              data: { value: 0 }
+                              data: { value: "{{ share }}" }
                             - action: number.set_value
                               continue_on_error: true
                               target:
@@ -558,21 +707,49 @@ script:
                                 entity_id: "input_datetime.hba_last_active_m{{ bat_idx }}"
                               data: { datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}" }
                       default:
-                        - action: number.set_value
-                          continue_on_error: true
-                          target:
-                            entity_id: "number.marstek_m{{ bat_idx }}_forcible_charge_power"
-                          data: { value: 0 }
-                        - action: number.set_value
-                          continue_on_error: true
-                          target:
-                            entity_id: "number.marstek_m{{ bat_idx }}_forcible_discharge_power"
-                          data: { value: 0 }
-                        - action: select.select_option
-                          continue_on_error: true
-                          target:
-                            entity_id: "select.marstek_m{{ bat_idx }}_forcible_charge_discharge"
-                          data: { option: "stop" }
+                        # Idle-timer check mirrors Node-RED getStopSolution():
+                        # keep relay engaged at 1 W (discharge direction) while
+                        # the battery was recently active; hard-stop after idle_time.
+                        - variables:
+                            bat_last_ts: >
+                              {% set ts = as_timestamp(states('input_datetime.hba_last_active_m' ~ bat_idx), 0) | float(0) %}
+                              {{ ts if ts > 0 else as_timestamp(now()) }}
+                            bat_time_idle: "{{ as_timestamp(now()) - bat_last_ts }}"
+                            idle_secs: "{{ states('input_number.hba_control_idle_time') | float(5) * 60 }}"
+                        - choose:
+                            - conditions: "{{ bat_time_idle < idle_secs }}"
+                              sequence:
+                                - action: number.set_value
+                                  continue_on_error: true
+                                  target:
+                                    entity_id: "number.marstek_m{{ bat_idx }}_forcible_charge_power"
+                                  data: { value: 1 }
+                                - action: number.set_value
+                                  continue_on_error: true
+                                  target:
+                                    entity_id: "number.marstek_m{{ bat_idx }}_forcible_discharge_power"
+                                  data: { value: 1 }
+                                - action: select.select_option
+                                  continue_on_error: true
+                                  target:
+                                    entity_id: "select.marstek_m{{ bat_idx }}_forcible_charge_discharge"
+                                  data: { option: "discharge" }
+                          default:
+                            - action: number.set_value
+                              continue_on_error: true
+                              target:
+                                entity_id: "number.marstek_m{{ bat_idx }}_forcible_charge_power"
+                              data: { value: 0 }
+                            - action: number.set_value
+                              continue_on_error: true
+                              target:
+                                entity_id: "number.marstek_m{{ bat_idx }}_forcible_discharge_power"
+                              data: { value: 0 }
+                            - action: select.select_option
+                              continue_on_error: true
+                              target:
+                                entity_id: "select.marstek_m{{ bat_idx }}_forcible_charge_discharge"
+                              data: { option: "stop" }
 
   # ── Priority rotation ─────────────────────────────────────────────────────────
   # Advances hba_control_prioritize_battery by 1 (wraps around at battery_count).
@@ -586,6 +763,77 @@ script:
       - action: input_number.set_value
         target: { entity_id: input_number.hba_control_prioritize_battery }
         data: { value: "{{ (current % count) + 1 }}" }
+
+  # ── Notification dispatch ─────────────────────────────────────────────────────
+  # Central notification script. Routes to the configured notify action when
+  # hba_notifications_enabled is on, falling back to notify.persistent_notification
+  # when no custom entity ID is configured.
+  hba_notify_dispatch:
+    alias: "HBA: Notify dispatch"
+    fields:
+      title:
+        description: "Notification title"
+      message:
+        description: "Notification body"
+      tag:
+        default: hba_notification
+      color:
+        default: blue
+      priority:
+        default: normal
+    sequence:
+      - condition: state
+        entity_id: input_boolean.hba_notifications_enabled
+        state: "on"
+      - action: >-
+          {{ states('input_text.hba_notify_entity_id')
+             if states('input_text.hba_notify_entity_id') | trim
+                not in ['', 'unknown', 'unavailable']
+             else 'notify.persistent_notification' }}
+        data:
+          title: "{{ title }}"
+          message: "{{ message }}"
+          data:
+            priority: "{{ priority }}"
+            tag: "{{ tag }}"
+            color: "{{ color }}"
+
+  hba_notify_test:
+    alias: "HBA: Send test notification"
+    sequence:
+      - action: script.hba_notify_dispatch
+        data:
+          title: "Home Battery Assistant — test notification"
+          message: "Notifications are working correctly."
+          tag: hba_notify_test
+
+  # ── Timed EV Charge section defaults ─────────────────────────────────────────
+  # Narrow reset for timed EV charge helpers only — leaves all other HBA settings
+  # untouched. Surfaced as a button in the Timed EV Charge view, useful after an
+  # update that added the feature.
+  hba_apply_battery_assist_defaults:
+    alias: "HBA: Apply Timed EV Charge defaults"
+    description: >-
+      Resets only the battery assist helpers to their default values.
+      Leaves every other HBA setting untouched.
+    sequence:
+      - action: input_boolean.turn_off
+        target: { entity_id: input_boolean.hba_battery_assist_enabled }
+      - action: input_datetime.set_datetime
+        target: { entity_id: input_datetime.hba_battery_assist_start_time }
+        data: { time: "05:00:00" }
+      - action: input_datetime.set_datetime
+        target: { entity_id: input_datetime.hba_battery_assist_end_time }
+        data: { time: "07:00:00" }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_battery_assist_min_soc }
+        data: { value: 20 }
+      - action: input_text.set_value
+        target: { entity_id: input_text.hba_battery_assist_car_connected_entity }
+        data: { value: "" }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_battery_assist_max_discharge_power }
+        data: { value: 0 }
 
   # ── Factory defaults ──────────────────────────────────────────────────────────
   # Writes sensible starting values to all user-configurable helpers.
@@ -621,7 +869,7 @@ script:
         target: { entity_id: input_select.hba_control_pid_presets }
         data: { option: "Very safe" }
       - action: input_number.set_value
-        target: { entity_id: input_number.hba_target_grid_consumption_in_w }
+        target: { entity_id: input_number.hba_target_grid_consumption }
         data: { value: 0 }
       - action: input_number.set_value
         target: { entity_id: input_number.hba_control_kp }
@@ -639,7 +887,7 @@ script:
         target: { entity_id: input_number.hba_control_error_signal_dampening }
         data: { value: 0 }
       - action: input_number.set_value
-        target: { entity_id: input_number.hba_control_hysteresis_in_w }
+        target: { entity_id: input_number.hba_control_hysteresis }
         data: { value: 20 }
       - action: input_number.set_value
         target: { entity_id: input_number.hba_control_idle_time }
@@ -789,6 +1037,30 @@ script:
       - action: input_text.set_value
         target: { entity_id: input_text.hba_strategy_ev_sensor_entity_id }
         data: { value: "" }
+      # ── Notifications ─────────────────────────────────────────────────────────
+      - action: input_boolean.turn_on
+        target: { entity_id: input_boolean.hba_notifications_enabled }
+      - action: input_text.set_value
+        target: { entity_id: input_text.hba_notify_entity_id }
+        data: { value: "" }
+      # ── Battery assist ────────────────────────────────────────────────────────
+      - action: input_boolean.turn_off
+        target: { entity_id: input_boolean.hba_battery_assist_enabled }
+      - action: input_datetime.set_datetime
+        target: { entity_id: input_datetime.hba_battery_assist_start_time }
+        data: { time: "05:00:00" }
+      - action: input_datetime.set_datetime
+        target: { entity_id: input_datetime.hba_battery_assist_end_time }
+        data: { time: "07:00:00" }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_battery_assist_min_soc }
+        data: { value: 20 }
+      - action: input_text.set_value
+        target: { entity_id: input_text.hba_battery_assist_car_connected_entity }
+        data: { value: "" }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_battery_assist_max_discharge_power }
+        data: { value: 0 }
       # ── HBC coexistence ───────────────────────────────────────────────────────
       - action: input_text.set_value
         target: { entity_id: input_text.hba_hbc_nodered_addon_slug }

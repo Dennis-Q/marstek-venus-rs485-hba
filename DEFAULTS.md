@@ -1,4 +1,4 @@
-# HBA Factory Defaults — v4.10.1-r5
+# HBA Factory Defaults — v4.10.1-r8
 
 All values set by `script.hba_apply_defaults`. Run once after fresh install via
 Developer Tools → Services → `script.turn_on` → `script.hba_apply_defaults`.
@@ -24,13 +24,13 @@ are always consistent with "Very safe" so the preset selector is not misleading.
 | Helper | Default | Notes |
 |---|---|---|
 | `input_select.hba_control_pid_presets` | `Very safe` | |
-| `input_number.hba_target_grid_consumption_in_w` | `0` W | Keep grid import at 0 W |
+| `input_number.hba_target_grid_consumption` | `0` W | Keep grid import at 0 W |
 | `input_number.hba_control_kp` | `0.1` | Matches Very safe preset |
 | `input_number.hba_control_ki` | `0.1` | Matches Very safe preset |
 | `input_number.hba_control_kd` | `0` | Matches Very safe preset (D-term off) |
 | `input_number.hba_control_pid_output_dampening` | `10` % | Matches Very safe preset |
 | `input_number.hba_control_error_signal_dampening` | `0` % | Matches Very safe preset (no error smoothing) |
-| `input_number.hba_control_hysteresis_in_w` | `20` W | Direction-flip guard threshold |
+| `input_number.hba_control_hysteresis` | `20` W | Direction-flip guard threshold |
 | `input_number.hba_control_idle_time` | `5` min | Per-battery idle hold before relay disconnect |
 
 ### PID Presets
@@ -151,3 +151,21 @@ or set these manually in Advanced Settings before using the solar forecast charg
 | `input_boolean.hba_control_is_debug_mode` | `off` |
 | `input_boolean.hba_control_has_power_limit_during_ev_charge` | `off` |
 | `input_text.hba_strategy_ev_sensor_entity_id` | `""` (empty) |
+
+## Notifications
+
+| Helper | Default | Notes |
+|---|---|---|
+| `input_boolean.hba_notifications_enabled` | `on` | Master on/off for all HBA notifications |
+| `input_text.hba_notify_entity_id` | `""` (empty) | Target notify action — empty falls back to HA persistent notifications |
+
+## Timed EV Charge
+
+| Helper | Default | Notes |
+|---|---|---|
+| `input_boolean.hba_battery_assist_enabled` | `off` | Master on/off toggle |
+| `input_datetime.hba_battery_assist_start_time` | `05:00:00` | Start of discharge window |
+| `input_datetime.hba_battery_assist_end_time` | `07:00:00` | End of discharge window |
+| `input_number.hba_battery_assist_min_soc` | `20` % | SoC floor — assist stops when average SoC drops below this |
+| `input_number.hba_battery_assist_max_discharge_power` | `0` W | Max discharge power during assist; `0` = use battery hardware maximum |
+| `input_text.hba_battery_assist_car_connected_entity` | *(empty)* | Optional: entity (`on` = car connected). If empty, condition is ignored |
