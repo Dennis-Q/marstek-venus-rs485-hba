@@ -1167,10 +1167,9 @@ recorder:
     entity_globs:
       # All HBA scripts — run at ~1 Hz, generate on/off per execution, history is not useful
       - script.hba_*
-      # Battery control outputs — written every ~1 s by hba_set_batteries
+      # Forcible power setpoints — continuous numeric value, changes every ~1 s
       - number.marstek_m*_forcible_charge_power
       - number.marstek_m*_forcible_discharge_power
-      - select.marstek_m*_forcible_charge_discharge
       # PID control terms and deviations (updated every ~1 s during operation)
       - input_number.hba_control_*_term
       - input_number.hba_control_*_deviation
