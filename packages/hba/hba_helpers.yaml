@@ -1177,6 +1177,9 @@ recorder:
       - input_datetime.hba_last_active_m*
       # Dynamic strategy calculated averages (updated hourly)
       - input_number.hba_strategy_dynamic_*_avg_*
+      # Individual cell voltages — 16 cells × 3 batteries ≈ 82 K writes/day; live values
+      # readable in Developer Tools; battery_cell_voltage_delta is the useful chart target
+      - sensor.marstek_m*_battery_cell_*_voltage
     entities:
       # Control loop automation — triggers every ~1 s, history is not useful
       - automation.hba_control_loop_p1_meter_triggered
