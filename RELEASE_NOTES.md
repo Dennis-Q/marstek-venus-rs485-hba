@@ -11,6 +11,28 @@ This document covers HBA-specific changes only.
 
 ---
 
+## v4.10.1-r11 — June 2026
+
+### Changed
+
+- **Recorder: cell voltage sensors excluded** — `sensor.marstek_m*_battery_cell_*_voltage`
+  added to `recorder: exclude:` entity_globs. With three batteries × 16 cells each, these
+  generate ~90 000 state writes/day. Live values remain readable in Developer Tools; the
+  useful chart target is `sensor.marstek_m*_battery_cell_voltage_delta` (min/max spread).
+- **Recorder: raw Modbus sensors excluded** — `sensor.marstek_m*_forcible_charge_power_number`,
+  `sensor.marstek_m*_forcible_discharge_power_number`, and `sensor.marstek_m*_inverter_state_number`
+  added to `recorder: exclude:`. These are the raw Modbus register reads backing the already-excluded
+  template entities and update on every poll (~38 000 writes/day combined).
+- **Recorder: `select.marstek_m*_forcible_charge_discharge` restored** — removed from
+  `recorder: exclude:` so that charge/discharge mode transitions are visible in history.
+  The select changes state infrequently (only on direction changes) and is useful for
+  diagnosing control-loop behaviour.
+- **`input_number.hba_control_pid_output` intent clarified** — explicitly kept in the
+  recorder (useful for PID chart history) and excluded only from the logbook. The previous
+  "uncomment to exclude" comment was ambiguous and has been replaced with an explanatory note.
+
+---
+
 ## v4.10.1-r10 — June 2026
 
 ### Added
