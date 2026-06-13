@@ -1170,6 +1170,9 @@ recorder:
       # Forcible power setpoints — continuous numeric value, changes every ~1 s
       - number.marstek_m*_forcible_charge_power
       - number.marstek_m*_forcible_discharge_power
+      # Raw Modbus sensor backing the forcible power setpoints — also updated every poll
+      - sensor.marstek_m*_forcible_charge_power_number
+      - sensor.marstek_m*_forcible_discharge_power_number
       # PID control terms and deviations (updated every ~1 s during operation)
       - input_number.hba_control_*_term
       - input_number.hba_control_*_deviation
@@ -1180,6 +1183,8 @@ recorder:
       # Individual cell voltages — 16 cells × 3 batteries ≈ 82 K writes/day; live values
       # readable in Developer Tools; battery_cell_voltage_delta is the useful chart target
       - sensor.marstek_m*_battery_cell_*_voltage
+      # Raw Modbus register backing sensor.marstek_m*_inverter_state — updates every poll
+      - sensor.marstek_m*_inverter_state_number
     entities:
       # Control loop automation — triggers every ~1 s, history is not useful
       - automation.hba_control_loop_p1_meter_triggered
@@ -1192,9 +1197,9 @@ recorder:
       - sensor.hba_total_commanded_power
       # Status field (updated every P1 cycle, ~1 s)
       - sensor.hba_time_remaining
-      # Uncomment hba_control_pid_output to exclude (useful for PID graph in self-consumption view)
       - input_number.hba_control_error_signal    # updated every ~1 s during operation
-      # - input_number.hba_control_pid_output      # useful for debugging PID behaviour
+      # input_number.hba_control_pid_output is intentionally kept in the recorder (PID chart history)
+      # but excluded from the logbook below — logbook at 1 Hz is noise, history graph is useful.
 
 ######################################################################################################
 # LOGBOOK
