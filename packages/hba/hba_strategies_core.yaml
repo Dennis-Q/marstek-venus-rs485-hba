@@ -111,7 +111,7 @@ automation:
                 data: { value: 0.35 }
               - action: input_number.set_value
                 target: { entity_id: input_number.hba_control_ki }
-                data: { value: 0.3 }
+                data: { value: 0.05 }  # reduced from 0.3 — at 1 Hz P1 updates, Ki=0.3 fills the anti-windup ceiling in ~25 s at 1000 W error; 0.05 extends that to ~150 s
               - action: input_number.set_value
                 target: { entity_id: input_number.hba_control_kd }
                 data: { value: 0.1 }
@@ -206,23 +206,30 @@ automation:
             target: { entity_id: input_number.hba_control_pid_output }
             data: { value: 0 }
 
-  # ── Zero import: PID reset on entry ──────────────────────────────────────────
-  # Fires once when sensor.hba_strategy_active_sub_strategy transitions TO "Zero import".
-  # Covers both direct entry (hba_strategy = Zero import) and indirect entry via
-  # Solar-aware, Timed, or Dynamic v2. Replaces the per-cycle i_term + pid_output reset
-  # that was previously baked into hba_strategy_zero_import — which prevented I-term
-  # from accumulating and effectively made the PID P-only while in zero_import.
-  - id: hba_zero_import_pid_reset
-    alias: "HBA: Reset PID on Zero import entry"
+  # ── PID reset on direct-mode strategy entry ──────────────────────────────────
+  # Fires once when sensor.hba_active_strategy transitions TO a direct-control
+  # sub-strategy (Zero import, Sell, or Charge). Clears stale I-term from the
+  # previous sub-strategy so the PID starts fresh without a jolt, while still
+  # allowing self_consumption (called from goal_reached branches) to accumulate
+  # I-term normally across cycles. Each sub-strategy is listed as a separate trigger
+  # so HA logs which transition fired.
+  - id: hba_direct_mode_pid_reset
+    alias: "HBA: Reset PID on Sell / Charge / Zero import entry"
     description: >-
-      Resets i_term and pid_output once when entering Zero import, regardless of
-      which parent strategy dispatched to it. Prevents stale I-term from a previous
-      charging strategy from driving an initial discharge spike.
+      Resets i_term and pid_output once when the active sub-strategy transitions
+      to Sell, Charge, or Zero import, regardless of which parent strategy dispatched
+      to it. Prevents stale integrator carry-over into direct-discharge/charge modes.
     mode: single
     triggers:
       - trigger: state
-        entity_id: sensor.hba_strategy_active_sub_strategy
+        entity_id: sensor.hba_active_strategy
         to: "Zero import"
+      - trigger: state
+        entity_id: sensor.hba_active_strategy
+        to: "Sell"
+      - trigger: state
+        entity_id: sensor.hba_active_strategy
+        to: "Charge"
     actions:
       - action: input_number.set_value
         target: { entity_id: input_number.hba_control_i_term }

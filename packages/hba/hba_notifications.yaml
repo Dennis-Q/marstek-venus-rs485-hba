@@ -27,7 +27,7 @@ automation:
         entity_id: binary_sensor.hba_battery_assist_active
         state: "off"
       - condition: template
-        value_template: "{{ states('sensor.hba_strategy_active_sub_strategy') != 'Sell' }}"
+        value_template: "{{ states('sensor.hba_active_strategy') != 'Sell' }}"
     actions:
       - action: script.hba_notify_dispatch
         data:

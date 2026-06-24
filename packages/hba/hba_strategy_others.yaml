@@ -12,7 +12,7 @@
 # sits inside the charge_disabled clamp range [−assignable_discharge, 0] and is NOT corrected
 # by anti-windup — without a reset it drives a large initial discharge spike.
 # The reset is done by automation hba_zero_import_pid_reset (hba_strategies_core.yaml) which
-# fires once on entry via sensor.hba_strategy_active_sub_strategy → "Zero import", covering
+# fires once on entry via sensor.hba_active_strategy → "Zero import", covering
 # both direct entry and entry via Solar-aware. The script no longer resets per cycle.
 #
 # These four strategies have straightforward logic and do not warrant their own files.
