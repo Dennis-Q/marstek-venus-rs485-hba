@@ -1,11 +1,21 @@
 # hba_strategy_others.yaml
 #
 # Simple / single-purpose strategies:
-#   • hba_strategy_full_stop  — stops all batteries, resets PID state
-#   • hba_strategy_zero_import — prevent grid import; charge disabled; stops when SoC at minimum
-#   • hba_strategy_standby    — soft idle + activates self-consumption when peak limit exceeded
+#   • hba_strategy_full_stop    — stops all batteries, resets PID state (i_term + pid_output → 0)
+#   • hba_strategy_zero_import  — prevent grid import; charge disabled; stops when SoC at minimum
+#   • hba_strategy_standby      — soft idle + activates self-consumption when peak limit exceeded
+#   • hba_strategy_solar_aware  — dispatches Zero import (pre-cheap + sunny) or Self-consumption
 #
-# These three strategies have straightforward logic and do not warrant their own files.
+# PID reset policy: full_stop, Zero import, Charge, and Sell all reset i_term + pid_output on
+# entry. Standby does not reset — it is a soft-idle with per-cycle clamp correction.
+# Zero import resets because the stale I-term from a previous charging sub-strategy (e.g. Dynamic
+# v2 cheap → Charge, then switching to Zero import as default) sits inside the charge_disabled
+# clamp range [−assignable_discharge, 0] and is NOT corrected by anti-windup within 1–2 cycles.
+# Without the reset, the negative I-term drives a large initial discharge spike the moment
+# charge_disabled takes effect — even when P1 is already near zero or about to go negative.
+# Solar-aware inherits this reset via zero_import when it dispatches to Zero import.
+#
+# These four strategies have straightforward logic and do not warrant their own files.
 
 script:
   # ── Full stop ─────────────────────────────────────────────────────────────────
@@ -79,6 +89,12 @@ script:
                   - action: input_text.set_value
                     target: { entity_id: input_text.hba_strategy_active_flow }
                     data: { value: "Zero import" }
+          - action: input_number.set_value
+            target: { entity_id: input_number.hba_control_i_term }
+            data: { value: 0 }
+          - action: input_number.set_value
+            target: { entity_id: input_number.hba_control_pid_output }
+            data: { value: 0 }
           - action: script.hba_strategy_self_consumption
             data:
               skip_label: true
@@ -151,3 +167,75 @@ script:
               skip_label: true
               charge_disabled: true
               discharge_disabled: true
+
+  # ── Solar-aware ───────────────────────────────────────────────────────────────
+  # Pre-cheap window with enough solar forecast → Zero import (export surplus to grid).
+  # Post-cheap or insufficient solar → Self-consumption (absorb solar, handle evening loads).
+  #
+  # Logic:
+  #   cheap_hours_remain: any 'low' mark for today (today-only, not tomorrow) where
+  #                        the hour hasn't fully elapsed yet. ('low' = cheap in marks format)
+  #   solar_remaining:    value of the configured solar forecast entity (kWh remaining today).
+  #   use_zero_import:    cheap_hours_remain AND solar_remaining > threshold.
+  #
+  # When use_zero_import is true the strategy is "pre-cheap, sunny" → export to grid.
+  # Zero import resets PID (stale I-term fix) internally before activating.
+  # When false → Self-consumption absorbs solar and handles loads.
+  #
+  # flow_prefix: caller prefix for active_flow label (e.g. "Dynamic v2 →").
+  hba_strategy_solar_aware:
+    alias: "HBA: Strategy - Solar-aware"
+    fields:
+      flow_prefix:
+        description: "Caller prefix for active_flow label (e.g. 'Dynamic v2 →')"
+        default: ""
+    sequence:
+      - variables:
+          _flow_prefix: "{{ flow_prefix | default('') }}"
+      - variables:
+          now_ts: "{{ as_timestamp(now()) | int }}"
+          today_start: "{{ now().replace(hour=0, minute=0, second=0, microsecond=0) | as_timestamp | int }}"
+          marks_raw: "{{ state_attr('sensor.hba_energy_prices_data', 'marks') }}"
+          solar_entity: "{{ states('input_text.hba_strategy_solar_forecast_entity_id') | trim }}"
+          threshold: "{{ states('input_number.hba_strategy_solar_aware_forecast_threshold_kwh') | float(20) }}"
+      - variables:
+          marks: >-
+            {%- set r = marks_raw -%}
+            {{ (r | trim | from_json) if (r is string and (r | trim)[:1] == '[') else (r if r is sequence else []) }}
+          cheap_hours_remain: >-
+            {%- set tomorrow_start = today_start + 86400 -%}
+            {%- set ns = namespace(found=false) -%}
+            {%- for m in marks -%}
+              {%- set slot_ts = as_timestamp(m.start) | int -%}
+              {%- if m.mark | default('') == 'low'
+                   and slot_ts >= today_start
+                   and slot_ts < tomorrow_start
+                   and slot_ts + 3600 > now_ts -%}
+                {%- set ns.found = true -%}
+              {%- endif -%}
+            {%- endfor -%}
+            {{ ns.found }}
+          solar_remaining: >-
+            {%- if solar_entity and has_value(solar_entity) -%}
+              {{ states(solar_entity) | float(0) }}
+            {%- else -%}
+              0
+            {%- endif -%}
+      - variables:
+          use_zero_import: "{{ (cheap_hours_remain | string) == 'True' and solar_remaining | float(0) > threshold }}"
+      - choose:
+          - conditions: "{{ use_zero_import }}"
+            sequence:
+              - action: input_text.set_value
+                target: { entity_id: input_text.hba_strategy_active_flow }
+                data:
+                  value: "{{ (_flow_prefix ~ ' → ') if _flow_prefix else '' }}Solar-aware → Zero import"
+              - action: script.hba_strategy_zero_import
+                data: { skip_label: true }
+        default:
+          - action: input_text.set_value
+            target: { entity_id: input_text.hba_strategy_active_flow }
+            data:
+              value: "{{ (_flow_prefix ~ ' → ') if _flow_prefix else '' }}Solar-aware → Self-consumption"
+          - action: script.hba_strategy_self_consumption
+            data: { skip_label: true }

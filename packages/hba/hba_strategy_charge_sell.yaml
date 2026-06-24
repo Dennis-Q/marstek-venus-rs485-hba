@@ -26,6 +26,10 @@
 #           setpoint_override = −export_limit)
 #           else → max power via hba_set_batteries (mode: discharge)
 #
+# PID reset: both strategies reset i_term and pid_output on every entry. This ensures a
+# stale integrator from the previous strategy (typically Self-consumption) does not carry
+# over into Charge/Sell or back out when the goal is reached and a new strategy takes over.
+#
 # flow_prefix field: allows caller (Timed, Dynamic) to prepend parent context to all labels
 # so the active_flow chain is complete, e.g. "Timed → Charge → Charge PV → Self-consumption".
 #
@@ -47,6 +51,14 @@ script:
     sequence:
       - variables:
           _flow_prefix: "{{ flow_prefix | default('') }}"
+      # Reset PID state so the integrator from the previous strategy (e.g. Self-consumption)
+      # doesn't carry over into Charge or back out when Charge ends.
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_control_i_term }
+        data: { value: 0 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_control_pid_output }
+        data: { value: 0 }
       - variables:
           count: "{{ states('input_number.hba_battery_count') | int(1) }}"
           goal: "{{ states('input_select.hba_strategy_charge_goal') }}"
@@ -153,6 +165,14 @@ script:
     sequence:
       - variables:
           _flow_prefix: "{{ flow_prefix | default('') }}"
+      # Reset PID state so the integrator from the previous strategy (e.g. Self-consumption)
+      # doesn't carry over into Sell or back out when Sell ends.
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_control_i_term }
+        data: { value: 0 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_control_pid_output }
+        data: { value: 0 }
       - variables:
           count: "{{ states('input_number.hba_battery_count') | int(1) }}"
           goal: "{{ states('input_select.hba_strategy_sell_goal') }}"

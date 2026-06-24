@@ -1,4 +1,4 @@
-# HBA Factory Defaults — v4.10.1-r8
+# HBA Factory Defaults — v4.10.1-r12
 
 All values set by `script.hba_apply_defaults`. Run once after fresh install via
 Developer Tools → Services → `script.turn_on` → `script.hba_apply_defaults`.
@@ -130,13 +130,19 @@ Period times (`input_datetime.hba_strategy_timed_period_a1` etc.) are not set by
 
 | Helper | Default |
 |---|---|
-| `input_text.hba_strategy_solar_forecast_entity_id` | `sensor.solcast_pv_forecast_forecast_today` |
+| `input_text.hba_strategy_solar_forecast_entity_id` | `sensor.solcast_pv_forecast_forecast_remaining_today` |
 | `input_text.hba_strategy_solar_forecast_tomorrow_entity_id` | `sensor.solcast_pv_forecast_forecast_tomorrow` |
 
 When either helper is **empty** (e.g. before `apply_defaults` has run), the forecast
 is treated as **0 kWh** — the solar forecast charge goal will not reduce the charge
 target, so the full battery capacity will be charged from the grid. Run `apply_defaults`
 or set these manually in Advanced Settings before using the solar forecast charge goal.
+
+## Solar-aware Strategy
+
+| Helper | Default | Notes |
+|---|---|---|
+| `input_number.hba_strategy_solar_aware_forecast_threshold_kwh` | `20` kWh | Min. remaining solar forecast to activate Zero import |
 
 ## Frank Energie Entity ID
 

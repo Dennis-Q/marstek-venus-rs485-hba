@@ -8,7 +8,7 @@ views:
     header:
       card:
         type: markdown
-        content: '### Home Battery Assistant *(HBA v4.10.1-r11)*'
+        content: '### Home Battery Assistant *(HBA v4.10.1-r12)*'
         text_only: true
     cards: []
     sections:
@@ -234,10 +234,10 @@ views:
                 conditions:
                   - condition: state
                     entity: sensor.hba_version
-                    state: "v4.10.1-r11"
+                    state: "v4.10.1-r12"
             content: >
               <ha-alert alert-type="error">**HBA version mismatch** — Dashboard is
-              v4.10.1-r11 but loaded packages report
+              v4.10.1-r12 but loaded packages report
               {{ states('sensor.hba_version') }}. Reload YAML to apply the update:
               Developer Tools → YAML → Reload All YAML.</ha-alert>
           - type: markdown
@@ -950,7 +950,7 @@ views:
       card:
         type: markdown
         content: >-
-          ### Self-consumption strategy *(HBA v4.10.1-r11)*
+          ### Self-consumption strategy *(HBA v4.10.1-r12)*
 
           The **PID controller** steers your batteries to keep grid usage near
           target, _e.g. 0 Watt_, and is used by:
@@ -1093,7 +1093,7 @@ views:
       card:
         type: markdown
         text_only: true
-        content: '### Charge / Sell *(HBA v4.10.1-r11)*'
+        content: '### Charge / Sell *(HBA v4.10.1-r12)*'
     cards: []
     badges:
       - type: entity
@@ -1410,7 +1410,7 @@ views:
       card:
         type: markdown
         text_only: true
-        content: '### Timed / Dynamic *(HBA v4.10.1-r11)*'
+        content: '### Timed / Dynamic *(HBA v4.10.1-r12)*'
     sections:
       - type: grid
         cards:
@@ -1579,6 +1579,21 @@ views:
             entities:
               - entity: input_select.hba_strategy_dynamic_default
                 name: Default to
+          - type: conditional
+            conditions:
+              - condition: state
+                entity: input_select.hba_strategy_dynamic_default
+                state: "Solar-aware"
+            card:
+              type: tile
+              entity: input_select.hba_strategy_dynamic_default
+              name: Solar-aware settings →
+              icon: mdi:weather-sunny
+              tap_action:
+                action: navigate
+                navigation_path: /home-battery-assistant/advanced-settings
+              hide_state: true
+              color: amber
           - type: heading
             icon: mdi:timeline-clock-outline
             heading: Cheapest period
@@ -1775,7 +1790,7 @@ views:
         type: markdown
         text_only: true
         content: >-
-          ### Insights *(HBA v4.10.1-r11)*
+          ### Insights *(HBA v4.10.1-r12)*
 
           Need help figuring out what is going on?
 
@@ -2020,6 +2035,58 @@ views:
                   - condition: state
                     entity: input_select.hba_strategy
                     state: "Dynamic v2"
+          - type: markdown
+            content: |-
+              {%- set now_ts = as_timestamp(now()) | int -%}
+              {%- set today_start = now().replace(hour=0, minute=0, second=0, microsecond=0) | as_timestamp | int -%}
+              {%- set tomorrow_start = today_start + 86400 -%}
+              {%- set marks_raw = state_attr('sensor.hba_energy_prices_data', 'marks') -%}
+              {%- set marks = (marks_raw | trim | from_json) if (marks_raw is string and (marks_raw | trim)[:1] == '[') else (marks_raw if marks_raw is sequence else []) -%}
+              {%- set solar_entity = states('input_text.hba_strategy_solar_forecast_entity_id') | trim -%}
+              {%- set solar_ok = solar_entity != '' and not is_state(solar_entity, ['unavailable', 'unknown', 'none']) -%}
+              {%- set solar_remaining = states(solar_entity) | float(0) if solar_ok else 0 -%}
+              {%- set threshold = states('input_number.hba_strategy_solar_aware_forecast_threshold_kwh') | float(20) -%}
+              {%- set ns = namespace(cheap_list=[]) -%}
+              {%- for m in marks -%}
+                {%- set slot_ts = as_timestamp(m.start) | int -%}
+                {%- if m.mark | default('') == 'low'
+                     and slot_ts >= today_start
+                     and slot_ts < tomorrow_start
+                     and slot_ts + 3600 > now_ts -%}
+                  {%- set h = (slot_ts - today_start) // 3600 -%}
+                  {%- set ns.cheap_list = ns.cheap_list + [h ~ ':00'] -%}
+                {%- endif -%}
+              {%- endfor -%}
+              {%- set cheap_hours_remain = ns.cheap_list | length > 0 -%}
+              {%- set use_zero_import = cheap_hours_remain and solar_remaining > threshold -%}
+              **Solar-aware — now**
+              Solar: {{ '✅ ' ~ solar_remaining ~ ' kWh' if solar_ok else '❌ not available (' ~ solar_entity ~ ')' }} | threshold: {{ threshold }} kWh → {{ '✅ above' if solar_remaining > threshold else '❌ below' }}
+              Cheap hrs today remaining: {{ ns.cheap_list | join(', ') if cheap_hours_remain else '— none' }}
+              → **{{ 'Zero import' if use_zero_import else 'Self-consumption' }}**{{ '' if use_zero_import else (' (no cheap hours)' if not cheap_hours_remain else ' (solar below threshold)') }}
+            visibility:
+              - condition: state
+                entity: input_boolean.hba_control_is_debug_mode
+                state: "on"
+              - condition: or
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_strategy
+                    state: "Solar-aware"
+                  - condition: state
+                    entity: input_select.hba_strategy_dynamic_default
+                    state: "Solar-aware"
+                  - condition: state
+                    entity: input_select.hba_strategy_timed_strat_0
+                    state: "Solar-aware"
+                  - condition: state
+                    entity: input_select.hba_strategy_timed_strat_a
+                    state: "Solar-aware"
+                  - condition: state
+                    entity: input_select.hba_strategy_timed_strat_b
+                    state: "Solar-aware"
+                  - condition: state
+                    entity: input_select.hba_strategy_timed_strat_c
+                    state: "Solar-aware"
 
 
   # ── VIEW 6: ADVANCED SETTINGS ───────────────────────────────────────────────
@@ -2052,7 +2119,7 @@ views:
       card:
         type: markdown
         text_only: true
-        content: '### Advanced settings *(HBA v4.10.1-r11)*'
+        content: '### Advanced settings *(HBA v4.10.1-r12)*'
     sections:
       # Battery offline warning — full width, hidden when all batteries are online
       - type: grid
@@ -2179,6 +2246,47 @@ views:
             tap_action:
               action: navigate
               navigation_path: /home-battery-assistant/ev-charge
+
+      - type: grid
+        cards:
+          - type: heading
+            icon: mdi:weather-sunny
+            heading: Solar-aware strategy
+            heading_style: title
+          - type: markdown
+            content: >-
+              Controls how the **Solar-aware** default strategy decides between
+              *Zero import* (export solar to grid) and *Self-consumption*
+              (absorb solar and cover home loads).
+
+              When cheap hours remain today **and** the remaining solar forecast
+              exceeds the threshold, it uses Zero import — letting all solar go
+              to the grid for maximum export revenue. After the cheap window has
+              passed (or on a cloudy day), it switches to Self-consumption.
+
+              ⚠️ **Advanced feature** — requires Dynamic v2 prices and a solar
+              forecast entity. Without these it silently falls back to
+              Self-consumption.
+            text_only: true
+            grid_options:
+              columns: full
+          - type: markdown
+            content: >
+              {%- set solar_eid = states('input_text.hba_strategy_solar_forecast_entity_id') | trim -%}
+              {%- set solar_miss = solar_eid == '' or is_state(solar_eid, ['unavailable', 'unknown', 'none']) -%}
+              {%- set prices_miss = is_state('sensor.hba_energy_prices_data', ['unavailable', 'unknown', 'none']) -%}
+              {%- if solar_miss or prices_miss -%}
+              <ha-alert alert-type="warning">**Solar-aware not fully configured**
+              {%- if solar_miss %} — Solar forecast entity is not set or unavailable (configure it under Charge / Sell settings or point `input_text.hba_strategy_solar_forecast_entity_id` to your Solcast sensor).{%- endif -%}
+              {%- if prices_miss %} — Dynamic v2 prices (`sensor.hba_energy_prices_data`) unavailable; set up Dynamic v2 or wait for first price publish.{%- endif %}
+              Until resolved, Solar-aware will always use Self-consumption.</ha-alert>
+              {%- endif -%}
+            grid_options:
+              columns: full
+          - type: entities
+            entities:
+              - entity: input_number.hba_strategy_solar_aware_forecast_threshold_kwh
+                name: Min. solar forecast for Zero import
 
       - type: grid
         column_span: 3
@@ -2894,7 +3002,7 @@ views:
         type: markdown
         text_only: true
         content: >-
-          ### Lab features *(HBA v4.10.1-r11)*
+          ### Lab features *(HBA v4.10.1-r12)*
 
           These features are experimental. Use at your own discretion.
       layout: center
@@ -2960,6 +3068,21 @@ views:
             entities:
               - entity: input_select.hba_strategy_dynamic_default
                 name: Default to
+          - type: conditional
+            conditions:
+              - condition: state
+                entity: input_select.hba_strategy_dynamic_default
+                state: "Solar-aware"
+            card:
+              type: tile
+              entity: input_select.hba_strategy_dynamic_default
+              name: Solar-aware settings →
+              icon: mdi:weather-sunny
+              tap_action:
+                action: navigate
+                navigation_path: /home-battery-assistant/advanced-settings
+              hide_state: true
+              color: amber
           - type: heading
             icon: mdi:timeline-clock-outline
             heading: Cheap periods
@@ -3142,7 +3265,7 @@ views:
         type: markdown
         text_only: true
         content: >-
-          ### EV Charge *(HBA v4.10.1-r11)*
+          ### EV Charge *(HBA v4.10.1-r12)*
 
 
           **HBA-specific feature** — not part of HBC. Configures the EV stop
@@ -3309,7 +3432,7 @@ views:
         type: markdown
         text_only: true
         content: >-
-          ### Notifications *(HBA v4.10.1-r11)*
+          ### Notifications *(HBA v4.10.1-r12)*
 
 
           **HBA-specific feature** — not part of HBC. Configure where HBA

@@ -367,6 +367,14 @@ input_number:
     unit_of_measurement: h
     mode: box
     icon: mdi:clock-plus-outline
+  hba_strategy_solar_aware_forecast_threshold_kwh:
+    name: "Solar-aware forecast threshold"
+    min: 0
+    max: 100
+    step: 1
+    unit_of_measurement: kWh
+    mode: box
+    icon: mdi:weather-sunny
   hba_strategy_dynamic_threshold_cheapest_period:
     name: "Cheap period max tariff"
     min: 0
@@ -647,6 +655,7 @@ input_select:
       - "Self-consumption"
       - "Zero import"
       - "Standby / peak shave"
+      - "Solar-aware"
       - "Full stop"
     icon: mdi:battery-sync
   hba_strategy_dynamic_cheapest:
@@ -688,6 +697,7 @@ input_select:
       - "Sell"
       - "Zero import"
       - "Standby / peak shave"
+      - "Solar-aware"
     icon: mdi:battery-check-outline
   hba_strategy_sell_goal_reached:
     name: "When done selling, switch to"
@@ -698,6 +708,7 @@ input_select:
       - "Zero import"
       - "Charge"
       - "Standby / peak shave"
+      - "Solar-aware"
     icon: mdi:battery-arrow-down-outline
   hba_control_priority_change_interval:
     name: "Priority battery change interval"
@@ -713,7 +724,7 @@ template:
       - name: "HBA Version"
         unique_id: hba_version
         icon: mdi:tag
-        state: "v4.10.1-r11"
+        state: "v4.10.1-r12"
 
       - name: "HBA Active strategy"
         unique_id: hba_strategy_active_sub_strategy

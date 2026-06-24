@@ -265,6 +265,10 @@ script:
                 data: { value: "Dynamic v2 → Standby / peak shave" }
               - action: script.hba_strategy_standby
                 data: { skip_label: true }
+          - conditions: "{{ sub | trim == 'Solar-aware' }}"
+            sequence:
+              - action: script.hba_strategy_solar_aware
+                data: { flow_prefix: "Dynamic v2" }
         default:
           - action: input_text.set_value
             target: { entity_id: input_text.hba_strategy_active_flow }

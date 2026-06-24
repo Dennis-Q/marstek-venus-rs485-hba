@@ -11,6 +11,45 @@ This document covers HBA-specific changes only.
 
 ---
 
+## v4.10.1-r12 — June 2026
+
+### Added
+
+- **Solar-aware strategy** — new `hba_strategy_solar_aware` dispatches between *Zero import*
+  and *Self-consumption* based on whether cheap hours remain today and the remaining solar
+  forecast exceeds a configurable threshold (default 20 kWh).
+  - **Before the cheap window on a sunny day** → Zero import: all solar production exports
+    to the grid for maximum revenue. Charging happens during the configured cheap window
+    (e.g. Dynamic v2 → Charge PV).
+  - **After the cheap window, or on a cloudy day** → Self-consumption: batteries absorb
+    solar surplus and cover evening loads.
+  - Selectable as the default sub-strategy for Dynamic v2 and Timed; also available as a
+    standalone strategy.
+  - One new helper: `input_number.hba_strategy_solar_aware_forecast_threshold_kwh`
+    (default: 20 kWh via `hba_apply_defaults`).
+  - Cheap-hours detection is today-only — tomorrow's prices published mid-afternoon by
+    Frank Energie don't incorrectly keep the strategy in Zero import mode all evening.
+  - Falls back silently to Self-consumption when the solar forecast entity is not configured
+    or when Dynamic v2 prices are unavailable.
+  - Dashboard: conditional "Solar-aware settings →" navigation tile appears in the
+    timed-dynamic and Dynamic v2 views when the default is set to Solar-aware; a dedicated
+    section in Advanced Settings shows the threshold helper, a description, and a
+    configuration warning when the solar entity or prices are missing.
+
+### Fixed
+
+- **Zero import: discharge spike on strategy switch** — Zero import now resets PID state
+  (`input_number.hba_control_i_term` and `hba_control_pid_output` to 0) on entry. Previously,
+  a stale I-term carried over from a prior charging sub-strategy (e.g. Dynamic v2 cheap →
+  Charge PV, then transitioning to Zero import as the default) sat inside the
+  `charge_disabled` anti-windup clamp range `[−assignable_discharge, 0]` and was not
+  corrected within 1–2 cycles. This caused an immediate discharge spike the moment
+  `charge_disabled` took effect — even when P1 was already near zero or about to go
+  negative from solar surplus. The fix aligns Zero import's on-entry PID reset with the
+  existing reset policy already applied by the Charge and Sell strategies.
+
+---
+
 ## v4.10.1-r11 — June 2026
 
 ### Changed

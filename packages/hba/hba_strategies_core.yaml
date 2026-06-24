@@ -172,11 +172,14 @@ automation:
                 data: {}
 
   # ── Unexpected sustained export notification ──────────────────────────────────
-  # Fires only when battery assist is OFF — if battery assist is active, sustained
-  # export is expected (batteries discharging into EV charger).
+  # Fires only when battery assist is OFF and the active sub-strategy is not Sell.
+  # Battery assist active: batteries discharging into EV charger (expected).
+  # active_sub_strategy == Sell: batteries intentionally discharging to grid (expected).
+  # Using active_sub_strategy (not active_flow) so a Sell→Full stop transition
+  # (SoC limit reached) correctly allows the notification to fire.
   - id: hba_unexpected_export_notify
     alias: "HBA: Notify on unexpected sustained grid export"
-    description: "Alerts when grid export >1 kW sustains for 2+ min with batteries discharging but battery assist is off."
+    description: "Alerts when grid export >1 kW sustains for 2+ min with batteries discharging but neither battery assist nor Sell strategy is active."
     triggers:
       - trigger: state
         entity_id: binary_sensor.hba_grid_exporting_sustained
@@ -185,6 +188,8 @@ automation:
       - condition: state
         entity_id: binary_sensor.hba_battery_assist_active
         state: "off"
+      - condition: template
+        value_template: "{{ states('sensor.hba_strategy_active_sub_strategy') != 'Sell' }}"
     actions:
       - action: script.hba_notify_dispatch
         data:
@@ -1021,10 +1026,13 @@ script:
       # ── Solar forecast entity IDs (Solcast integration) ───────────────────────
       - action: input_text.set_value
         target: { entity_id: input_text.hba_strategy_solar_forecast_entity_id }
-        data: { value: "sensor.solcast_pv_forecast_forecast_today" }
+        data: { value: "sensor.solcast_pv_forecast_forecast_remaining_today" }
       - action: input_text.set_value
         target: { entity_id: input_text.hba_strategy_solar_forecast_tomorrow_entity_id }
         data: { value: "sensor.solcast_pv_forecast_forecast_tomorrow" }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_strategy_solar_aware_forecast_threshold_kwh }
+        data: { value: 20 }
       # ── Frank Energie entity ID ───────────────────────────────────────────────
       - action: input_text.set_value
         target: { entity_id: input_text.hba_strategy_dynamic_frank_sensor_entity_id }
