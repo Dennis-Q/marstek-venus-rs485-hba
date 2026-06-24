@@ -8,12 +8,12 @@
 #
 # PID reset policy: full_stop, Zero import, Charge, and Sell all reset i_term + pid_output on
 # entry. Standby does not reset — it is a soft-idle with per-cycle clamp correction.
-# Zero import resets because the stale I-term from a previous charging sub-strategy (e.g. Dynamic
-# v2 cheap → Charge, then switching to Zero import as default) sits inside the charge_disabled
-# clamp range [−assignable_discharge, 0] and is NOT corrected by anti-windup within 1–2 cycles.
-# Without the reset, the negative I-term drives a large initial discharge spike the moment
-# charge_disabled takes effect — even when P1 is already near zero or about to go negative.
-# Solar-aware inherits this reset via zero_import when it dispatches to Zero import.
+# Zero import resets because a stale (negative) I-term from a previous charging sub-strategy
+# sits inside the charge_disabled clamp range [−assignable_discharge, 0] and is NOT corrected
+# by anti-windup — without a reset it drives a large initial discharge spike.
+# The reset is done by automation hba_zero_import_pid_reset (hba_strategies_core.yaml) which
+# fires once on entry via sensor.hba_strategy_active_sub_strategy → "Zero import", covering
+# both direct entry and entry via Solar-aware. The script no longer resets per cycle.
 #
 # These four strategies have straightforward logic and do not warrant their own files.
 
@@ -89,12 +89,6 @@ script:
                   - action: input_text.set_value
                     target: { entity_id: input_text.hba_strategy_active_flow }
                     data: { value: "Zero import" }
-          - action: input_number.set_value
-            target: { entity_id: input_number.hba_control_i_term }
-            data: { value: 0 }
-          - action: input_number.set_value
-            target: { entity_id: input_number.hba_control_pid_output }
-            data: { value: 0 }
           - action: script.hba_strategy_self_consumption
             data:
               skip_label: true
@@ -179,7 +173,7 @@ script:
   #   use_zero_import:    cheap_hours_remain AND solar_remaining > threshold.
   #
   # When use_zero_import is true the strategy is "pre-cheap, sunny" → export to grid.
-  # Zero import resets PID (stale I-term fix) internally before activating.
+  # Zero import PID reset is handled by automation hba_zero_import_pid_reset on entry.
   # When false → Self-consumption absorbs solar and handles loads.
   #
   # flow_prefix: caller prefix for active_flow label (e.g. "Dynamic v2 →").

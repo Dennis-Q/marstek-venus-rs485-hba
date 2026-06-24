@@ -171,75 +171,6 @@ automation:
               - action: script.hba_advance_priority
                 data: {}
 
-  # ── Unexpected sustained export notification ──────────────────────────────────
-  # Fires only when battery assist is OFF and the active sub-strategy is not Sell.
-  # Battery assist active: batteries discharging into EV charger (expected).
-  # active_sub_strategy == Sell: batteries intentionally discharging to grid (expected).
-  # Using active_sub_strategy (not active_flow) so a Sell→Full stop transition
-  # (SoC limit reached) correctly allows the notification to fire.
-  - id: hba_unexpected_export_notify
-    alias: "HBA: Notify on unexpected sustained grid export"
-    description: "Alerts when grid export >1 kW sustains for 2+ min with batteries discharging but neither battery assist nor Sell strategy is active."
-    triggers:
-      - trigger: state
-        entity_id: binary_sensor.hba_grid_exporting_sustained
-        to: "on"
-    conditions:
-      - condition: state
-        entity_id: binary_sensor.hba_battery_assist_active
-        state: "off"
-      - condition: template
-        value_template: "{{ states('sensor.hba_strategy_active_sub_strategy') != 'Sell' }}"
-    actions:
-      - action: script.hba_notify_dispatch
-        data:
-          title: "HBA: Unexpected grid export"
-          message: >
-            Grid has been exporting >1 kW for over 2 minutes while batteries are discharging
-            (P1: {{ states('sensor.p1_meter_power') | int }} W,
-            batteries: {{ states('sensor.hba_total_battery_power') | int }} W).
-            Check strategy configuration.
-          tag: hba_unexpected_export
-
-  - id: hba_notify_target_validation
-    alias: "HBA: Validate notify target"
-    description: >-
-      Creates a persistent notification when input_text.hba_notify_entity_id
-      is set but doesn't look like a valid notify.* action.
-    mode: single
-    triggers:
-      - trigger: state
-        entity_id: binary_sensor.hba_notify_target_invalid
-        to: "on"
-      - trigger: state
-        entity_id: binary_sensor.hba_notify_target_invalid
-        to: "off"
-      - trigger: homeassistant
-        event: start
-    actions:
-      - choose:
-          - conditions: "{{ is_state('binary_sensor.hba_notify_target_invalid', 'on') }}"
-            sequence:
-              - action: persistent_notification.create
-                data:
-                  notification_id: hba_notify_target_invalid
-                  title: "HBA: Notify action invalid"
-                  message: >-
-                    The **Notify action** helper
-                    (`input_text.hba_notify_entity_id`) is set to an invalid
-                    value. HBA notifications fall back to persistent
-                    notifications.
-
-                    Use a legacy `notify.mobile_app_*` service name, **not**
-                    a modern notify entity. For example:
-                    `notify.mobile_app_my_phone`.
-
-                    Set it under **HBA → Notifications**.
-        default:
-          - action: persistent_notification.dismiss
-            data:
-              notification_id: hba_notify_target_invalid
-
   # ── Timed EV Charge: PID reset on transitions ────────────────────────────────
   - id: hba_battery_assist_pid_reset
     alias: "HBA: Reset PID on Timed EV Charge transitions"
@@ -274,6 +205,31 @@ automation:
           - action: input_number.set_value
             target: { entity_id: input_number.hba_control_pid_output }
             data: { value: 0 }
+
+  # ── Zero import: PID reset on entry ──────────────────────────────────────────
+  # Fires once when sensor.hba_strategy_active_sub_strategy transitions TO "Zero import".
+  # Covers both direct entry (hba_strategy = Zero import) and indirect entry via
+  # Solar-aware, Timed, or Dynamic v2. Replaces the per-cycle i_term + pid_output reset
+  # that was previously baked into hba_strategy_zero_import — which prevented I-term
+  # from accumulating and effectively made the PID P-only while in zero_import.
+  - id: hba_zero_import_pid_reset
+    alias: "HBA: Reset PID on Zero import entry"
+    description: >-
+      Resets i_term and pid_output once when entering Zero import, regardless of
+      which parent strategy dispatched to it. Prevents stale I-term from a previous
+      charging strategy from driving an initial discharge spike.
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: sensor.hba_strategy_active_sub_strategy
+        to: "Zero import"
+    actions:
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_control_i_term }
+        data: { value: 0 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_control_pid_output }
+        data: { value: 0 }
 
   # ── Insights debug mode auto-off ──────────────────────────────────────────────
   # Turns debug mode off after 15 minutes to avoid leaving ~1 Hz history writes
@@ -768,49 +724,6 @@ script:
       - action: input_number.set_value
         target: { entity_id: input_number.hba_control_prioritize_battery }
         data: { value: "{{ (current % count) + 1 }}" }
-
-  # ── Notification dispatch ─────────────────────────────────────────────────────
-  # Central notification script. Routes to the configured notify action when
-  # hba_notifications_enabled is on, falling back to notify.persistent_notification
-  # when no custom entity ID is configured.
-  hba_notify_dispatch:
-    alias: "HBA: Notify dispatch"
-    fields:
-      title:
-        description: "Notification title"
-      message:
-        description: "Notification body"
-      tag:
-        default: hba_notification
-      color:
-        default: blue
-      priority:
-        default: normal
-    sequence:
-      - condition: state
-        entity_id: input_boolean.hba_notifications_enabled
-        state: "on"
-      - action: >-
-          {{ states('input_text.hba_notify_entity_id')
-             if states('input_text.hba_notify_entity_id') | trim
-                not in ['', 'unknown', 'unavailable']
-             else 'notify.persistent_notification' }}
-        data:
-          title: "{{ title }}"
-          message: "{{ message }}"
-          data:
-            priority: "{{ priority }}"
-            tag: "{{ tag }}"
-            color: "{{ color }}"
-
-  hba_notify_test:
-    alias: "HBA: Send test notification"
-    sequence:
-      - action: script.hba_notify_dispatch
-        data:
-          title: "Home Battery Assistant — test notification"
-          message: "Notifications are working correctly."
-          tag: hba_notify_test
 
   # ── Timed EV Charge section defaults ─────────────────────────────────────────
   # Narrow reset for timed EV charge helpers only — leaves all other HBA settings
