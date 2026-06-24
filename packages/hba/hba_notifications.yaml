@@ -1,12 +1,13 @@
 # hba_notifications.yaml
 #
 # All HBA notification logic in one place:
-#   • hba_notify_dispatch       — central script; routes to configured notify action
-#   • hba_notify_test           — sends a test notification
-#   • hba_notify_target_validation — persistent alert when notify entity_id is invalid
-#   • hba_unexpected_export_notify — alerts on sustained grid export while discharging
+#   • hba_notify_dispatch             — central script; routes to configured notify action
+#   • hba_notify_test                 — sends a test notification
+#   • hba_notify_target_validation    — persistent alert when notify entity_id is invalid
+#   • hba_unexpected_export_notify    — alerts on sustained grid export while discharging
 #   • hba_notify_battery_not_responding / _resolved — RS485 non-response per battery
 #   • hba_notify_rs485_mode_mismatch / _resolved    — Full control vs RS485 state
+#   • hba_notify_battery_overtemperature / _resolved — internal temp ≥ 60 °C per battery
 
 automation:
   # ── Unexpected sustained export notification ──────────────────────────────────
@@ -246,6 +247,121 @@ automation:
           title: "HBA: RS485 mismatch resolved"
           message: "All configured batteries are now in RS485 Full control mode."
           tag: hba_rs485_mode_mismatch
+          color: green
+
+  # ── Battery overtemperature ───────────────────────────────────────────────────
+  # Fires when any battery's internal temperature sustains ≥60 °C for 2 minutes.
+  # The BMS typically trips at ~70 °C; 60 °C gives ~10 °C of warning margin.
+  # Triggers for all 6 slots; M4-M6 sensors are unavailable when not installed
+  # so their triggers never fire on systems with fewer batteries.
+  - id: hba_notify_battery_overtemperature
+    alias: "HBA: Notify battery overtemperature"
+    description: >-
+      Fires when any battery's internal temperature stays ≥60 °C for 2+ minutes.
+      Sends push + persistent notification with battery identity and current temp.
+    mode: parallel
+    max: 6
+    triggers:
+      - trigger: numeric_state
+        entity_id: sensor.marstek_m1_internal_temperature
+        above: 60
+        for: "00:02:00"
+      - trigger: numeric_state
+        entity_id: sensor.marstek_m2_internal_temperature
+        above: 60
+        for: "00:02:00"
+      - trigger: numeric_state
+        entity_id: sensor.marstek_m3_internal_temperature
+        above: 60
+        for: "00:02:00"
+      - trigger: numeric_state
+        entity_id: sensor.marstek_m4_internal_temperature
+        above: 60
+        for: "00:02:00"
+      - trigger: numeric_state
+        entity_id: sensor.marstek_m5_internal_temperature
+        above: 60
+        for: "00:02:00"
+      - trigger: numeric_state
+        entity_id: sensor.marstek_m6_internal_temperature
+        above: 60
+        for: "00:02:00"
+    actions:
+      - variables:
+          batt: >-
+            {{ trigger.entity_id
+               | replace('sensor.marstek_', '')
+               | replace('_internal_temperature', '') }}
+          temp: "{{ trigger.to_state.state | float(0) | round(1) }}"
+      - action: script.hba_notify_dispatch
+        data:
+          title: "HBA: Battery {{ batt | upper }} overtemperature"
+          message: >-
+            Battery {{ batt | upper }} internal temperature is {{ temp }} °C
+            (BMS thermal protection triggers at ~70 °C).
+            Discharge may be reduced or stopped automatically.
+            Check ventilation around the battery.
+          tag: "hba_battery_overtemperature_{{ batt }}"
+          color: orange
+          priority: high
+      - action: persistent_notification.create
+        data:
+          notification_id: "hba_battery_overtemperature_{{ batt }}"
+          title: "HBA: Battery {{ batt | upper }} overtemperature"
+          message: >-
+            Battery **{{ batt | upper }}** internal temperature: **{{ temp }} °C**
+
+            The BMS thermal protection triggers at ~70 °C — discharge may be
+            reduced or stopped. Check ventilation around the battery.
+
+  - id: hba_notify_battery_overtemperature_resolved
+    alias: "HBA: Battery overtemperature — resolved"
+    description: "Dismisses persistent notification and sends push when a battery cools below 55 °C."
+    mode: parallel
+    max: 6
+    triggers:
+      - trigger: numeric_state
+        entity_id: sensor.marstek_m1_internal_temperature
+        below: 55
+        for: "00:05:00"
+      - trigger: numeric_state
+        entity_id: sensor.marstek_m2_internal_temperature
+        below: 55
+        for: "00:05:00"
+      - trigger: numeric_state
+        entity_id: sensor.marstek_m3_internal_temperature
+        below: 55
+        for: "00:05:00"
+      - trigger: numeric_state
+        entity_id: sensor.marstek_m4_internal_temperature
+        below: 55
+        for: "00:05:00"
+      - trigger: numeric_state
+        entity_id: sensor.marstek_m5_internal_temperature
+        below: 55
+        for: "00:05:00"
+      - trigger: numeric_state
+        entity_id: sensor.marstek_m6_internal_temperature
+        below: 55
+        for: "00:05:00"
+    conditions:
+      - condition: template
+        value_template: "{{ trigger.from_state is not none and trigger.from_state.state | float(0) >= 60 }}"
+    actions:
+      - variables:
+          batt: >-
+            {{ trigger.entity_id
+               | replace('sensor.marstek_', '')
+               | replace('_internal_temperature', '') }}
+          temp: "{{ trigger.to_state.state | float(0) | round(1) }}"
+      - action: persistent_notification.dismiss
+        data:
+          notification_id: "hba_battery_overtemperature_{{ batt }}"
+      - action: script.hba_notify_dispatch
+        data:
+          title: "HBA: Battery {{ batt | upper }} temperature normal"
+          message: "Battery {{ batt | upper }} temperature is now {{ temp }} °C."
+          tag: "hba_battery_overtemperature_{{ batt }}"
           color: green
 
 script:
