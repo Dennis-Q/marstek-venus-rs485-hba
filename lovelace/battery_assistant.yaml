@@ -13,6 +13,31 @@ views:
     cards: []
     sections:
 
+      # Entity health alert (only shown when binary_sensor.hba_entity_health is on)
+      - type: grid
+        visibility:
+          - condition: state
+            entity: binary_sensor.hba_entity_health
+            state: 'on'
+        cards:
+          - type: markdown
+            grid_options:
+              columns: full
+            content: >-
+              <ha-alert alert-type="error" title="HBA entity ID mismatch">
+
+              One or more HBA entities are registered under the wrong entity ID,
+              causing silent failures (notifications not sent, anti-windup disabled).
+
+              **Missing entity IDs:**
+              {{ state_attr('binary_sensor.hba_entity_health', 'missing_entity_ids')
+                 | replace(', ', '\n- ') | trim }}
+
+              **How to fix:** go to **Settings → Entities**, search for the entity
+              by friendly name, click it, and rename the entity ID to match the
+              expected value shown above.
+              </ha-alert>
+
       # Onboarding (hidden once dismissed)
       - type: grid
         visibility:

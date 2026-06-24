@@ -727,7 +727,7 @@ template:
         state: "v4.10.1-r13"
 
       - name: "HBA Active strategy"
-        unique_id: hba_strategy_active_sub_strategy
+        unique_id: hba_active_strategy
         icon: mdi:list-status
         state: >
           {% set flow = states('input_text.hba_strategy_active_flow') %}
@@ -1024,7 +1024,7 @@ template:
           {% set threshold = states('input_number.hba_strategy_dynamic_threshold_delta') | float(0) %}
           {{ delta >= threshold }}
       - name: "HBA Is Charging"
-        unique_id: hba_control_is_charging
+        unique_id: hba_is_charging
         device_class: battery_charging
         icon: mdi:battery-charging
         state: "{{ states('sensor.hba_total_commanded_power') | float(0) > 0 }}"
@@ -1063,7 +1063,7 @@ template:
           {% set solar_surplus = [forecast - threshold, 0] | max %}
           {{ solar_surplus >= ns.energy_max }}
       - name: "HBA Charge Goal Reached"
-        unique_id: hba_strategy_charge_goal_reached
+        unique_id: hba_charge_goal_reached
         icon: mdi:battery-check
         state: >
           {% if states('input_select.hba_strategy') != 'Charge' %}
@@ -1358,6 +1358,50 @@ template:
               {% endif %}
             {% endfor %}
             {{ ns.result | join(', ') if ns.result else 'none' }}
+
+      # ── Entity health check ───────────────────────────────────────────────────
+      # Detects when HBA-managed entities are registered under the wrong entity_id.
+      # This typically happens on existing installs after an entity was renamed in a
+      # newer version: the entity registry keeps the old entity_id (derived from the
+      # previous name) and code references the new expected entity_id, causing silent
+      # failures. Fix by going to Settings → Entities and renaming the listed entities.
+      - name: "HBA Entity Health"
+        unique_id: hba_entity_health
+        device_class: problem
+        icon: mdi:stethoscope
+        state: >
+          {% set expected = [
+            'sensor.hba_active_strategy',
+            'binary_sensor.hba_is_charging',
+            'binary_sensor.hba_charge_goal_reached',
+            'sensor.hba_estimated_profit_per_kwh',
+            'binary_sensor.hba_marstek_m1_not_responding',
+            'binary_sensor.hba_marstek_m2_not_responding',
+            'binary_sensor.hba_marstek_m3_not_responding',
+            'binary_sensor.hba_marstek_m4_not_responding',
+            'binary_sensor.hba_marstek_m5_not_responding',
+            'binary_sensor.hba_marstek_m6_not_responding',
+          ] %}
+          {{ expected | reject('has_value') | list | length > 0 }}
+        attributes:
+          missing_entity_ids: >
+            {% set expected = [
+              'sensor.hba_active_strategy',
+              'binary_sensor.hba_is_charging',
+              'binary_sensor.hba_charge_goal_reached',
+              'sensor.hba_estimated_profit_per_kwh',
+              'binary_sensor.hba_marstek_m1_not_responding',
+              'binary_sensor.hba_marstek_m2_not_responding',
+              'binary_sensor.hba_marstek_m3_not_responding',
+              'binary_sensor.hba_marstek_m4_not_responding',
+              'binary_sensor.hba_marstek_m5_not_responding',
+              'binary_sensor.hba_marstek_m6_not_responding',
+            ] %}
+            {% set ns = namespace(missing=[]) %}
+            {% for e in expected %}
+              {% if not has_value(e) %}{% set ns.missing = ns.missing + [e] %}{% endif %}
+            {% endfor %}
+            {{ ns.missing | join(', ') if ns.missing else '' }}
 
 ######################################################################################################
 # RECORDER
