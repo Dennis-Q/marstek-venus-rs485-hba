@@ -1698,7 +1698,7 @@ views:
                     entity: input_select.hba_strategy_dynamic_expensive
                     state: "Sell"
                 row:
-                  entity: sensor.estimated_profit_per_kwh
+                  entity: sensor.hba_estimated_profit_per_kwh
                   name: Estimated profit per kWh
                   type: simple-entity
                   icon: mdi:currency-eur

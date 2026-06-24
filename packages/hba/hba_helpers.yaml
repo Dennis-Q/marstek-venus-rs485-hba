@@ -880,7 +880,7 @@ template:
           {% endfor %}
           {{ (ns.total / count) | round(1) }}
 
-      - name: "Estimated Profit per kWh"
+      - name: "HBA Estimated Profit per kWh"
         unique_id: hba_estimated_profit_per_kwh
         unit_of_measurement: "ct/kWh"
         icon: mdi:currency-eur
@@ -1175,7 +1175,7 @@ template:
       # value by more than 15%. Typical causes: BMS blocking near SoC cutoff, or the
       # battery silently rejecting a Modbus write (e.g. after a BMS fault).
       # Notification: see hba_notify_battery_not_responding in hba_strategies_core.yaml.
-      - name: "HBA M1 Battery Not Responding"
+      - name: "HBA Marstek M1 Not Responding"
         unique_id: hba_marstek_m1_not_responding
         device_class: problem
         icon: mdi:battery-alert
@@ -1199,7 +1199,7 @@ template:
             {% endif %}
           {% endif %}
 
-      - name: "HBA M2 Battery Not Responding"
+      - name: "HBA Marstek M2 Not Responding"
         unique_id: hba_marstek_m2_not_responding
         device_class: problem
         icon: mdi:battery-alert
@@ -1224,7 +1224,7 @@ template:
             {% endif %}
           {% endif %}
 
-      - name: "HBA M3 Battery Not Responding"
+      - name: "HBA Marstek M3 Not Responding"
         unique_id: hba_marstek_m3_not_responding
         device_class: problem
         icon: mdi:battery-alert
@@ -1249,7 +1249,7 @@ template:
             {% endif %}
           {% endif %}
 
-      - name: "HBA M4 Battery Not Responding"
+      - name: "HBA Marstek M4 Not Responding"
         unique_id: hba_marstek_m4_not_responding
         device_class: problem
         icon: mdi:battery-alert
@@ -1274,7 +1274,7 @@ template:
             {% endif %}
           {% endif %}
 
-      - name: "HBA M5 Battery Not Responding"
+      - name: "HBA Marstek M5 Not Responding"
         unique_id: hba_marstek_m5_not_responding
         device_class: problem
         icon: mdi:battery-alert
@@ -1299,7 +1299,7 @@ template:
             {% endif %}
           {% endif %}
 
-      - name: "HBA M6 Battery Not Responding"
+      - name: "HBA Marstek M6 Not Responding"
         unique_id: hba_marstek_m6_not_responding
         device_class: problem
         icon: mdi:battery-alert
