@@ -9,6 +9,8 @@
 #   1. Run script.hba_apply_defaults to set the Node-RED addon slug.
 #   2. Use the "Take control" / "Yield to HBC" buttons on the dashboard to
 #      hand off between HBA and Node-RED cleanly.
+#      "Take control" also sets Node-RED boot mode to "manual" so it no longer
+#      auto-starts after a host reboot. "Yield to HBC" restores boot mode to "auto".
 #   3. If both accidentally run simultaneously, the conflict guard auto-disables
 #      HBA, sets Manual control, and creates a persistent notification.
 #
@@ -119,7 +121,8 @@ script:
     icon: mdi:home-battery
     description: >
       Safely hands battery control from HBC to HBA.
-      Disables HBC native automations, stops Node-RED, runs Full stop,
+      Disables HBC native automations, stops Node-RED and sets its boot mode to
+      "manual" (so it stays stopped after host reboots), runs Full stop,
       then enables HBA loop and sets Full control.
     sequence:
       - variables:
@@ -149,6 +152,13 @@ script:
       - action: hassio.addon_stop
         continue_on_error: true
         data: { addon: "{{ nr_slug }}" }
+      - if: "{{ nr_slug | length > 0 }}"
+        then:
+          - action: shell_command.hba_hbc_nodered_set_boot
+            continue_on_error: true
+            data:
+              boot: manual
+              slug: "{{ nr_slug }}"
       - wait_for_trigger:
           - trigger: state
             entity_id: binary_sensor.hba_hbc_node_red_running
@@ -168,8 +178,8 @@ script:
     icon: mdi:transit-connection-variant
     description: >
       Safely hands battery control from HBA back to HBC.
-      Disables HBA loop, runs Full stop, starts Node-RED,
-      then re-enables HBC native automations and sets Full control.
+      Disables HBA loop, runs Full stop, restores Node-RED boot mode to "auto",
+      starts Node-RED, then re-enables HBC native automations.
     sequence:
       - variables:
           nr_slug: "{{ states('input_text.hba_hbc_nodered_addon_slug') | trim }}"
@@ -181,6 +191,13 @@ script:
       - action: script.hba_strategy_full_stop
         data: {}
       - delay: { seconds: 2 }
+      - if: "{{ nr_slug | length > 0 }}"
+        then:
+          - action: shell_command.hba_hbc_nodered_set_boot
+            continue_on_error: true
+            data:
+              boot: auto
+              slug: "{{ nr_slug }}"
       - action: hassio.addon_start
         continue_on_error: true
         data: { addon: "{{ nr_slug }}" }
@@ -196,3 +213,16 @@ script:
       - action: input_select.select_option
         target: { entity_id: input_select.hba_marstek_master_battery_mode }
         data: { option: "Manual control" }
+
+# Sets Node-RED addon boot mode via the Supervisor REST API.
+# SUPERVISOR_TOKEN is inherited from HA's process environment (always set by HAOS).
+# $slug and $boot are injected as environment variables from the service call data —
+# HA scripts render templates in data fields before the call, so the slug is resolved
+# there rather than relying on template rendering inside the shell_command string.
+shell_command:
+  hba_hbc_nodered_set_boot: >-
+    curl -sf -X POST
+    -H "Authorization: Bearer $SUPERVISOR_TOKEN"
+    -H "Content-Type: application/json"
+    -d "{\"boot\":\"$boot\"}"
+    "http://supervisor/addons/$slug/options"

@@ -365,6 +365,9 @@ views:
                     text: >-
                       HBA will take control: switches to Full control mode and
                       stops Node-RED so HBC can no longer drive the batteries.
+                      Node-RED auto-start will also be set to manual so it stays
+                      stopped after reboots. To skip this, clear the Node-RED
+                      addon slug field first.
                       These buttons will hide afterwards — you can find them
                       again under Advanced settings → HBA ↔ HBC handoff.
               - type: button
@@ -2941,6 +2944,9 @@ views:
                     text: >-
                       HBA will take control: switches to Full control mode and
                       stops Node-RED so HBC can no longer drive the batteries.
+                      Node-RED auto-start will also be set to manual so it stays
+                      stopped after reboots. To skip this, clear the Node-RED
+                      addon slug field first.
               - type: button
                 name: Yield to HBC
                 icon: mdi:transit-connection-variant
