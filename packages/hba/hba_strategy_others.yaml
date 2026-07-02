@@ -4,7 +4,7 @@
 #   • hba_strategy_full_stop    — stops all batteries, resets PID state (i_term + pid_output → 0)
 #   • hba_strategy_zero_import  — prevent grid import; charge disabled; stops when SoC at minimum
 #   • hba_strategy_standby      — soft idle + activates self-consumption when peak limit exceeded
-#   • hba_strategy_solar_aware  — dispatches Zero import (pre-cheap + sunny) or Self-consumption
+#   • hba_strategy_solar_aware  — dispatches Zero import or Self-consumption based on solar outlook
 #
 # PID reset policy: full_stop, Zero import, Charge, and Sell all reset i_term + pid_output on
 # entry. Standby does not reset — it is a soft-idle with per-cycle clamp correction.
@@ -16,6 +16,181 @@
 # both direct entry and entry via Solar-aware. The script no longer resets per cycle.
 #
 # These four strategies have straightforward logic and do not warrant their own files.
+#
+# sensor.hba_solar_charge_outlook (template sensor below):
+#   Pre-computes solar kWh expected during today's upcoming cheap slots (from Solcast
+#   detailedForecast × overlap with cheap slot timestamps) minus configurable house load.
+#   Exposes solar_covers_charge (boolean) and self_consume_deadline (ISO UTC string) for
+#   the solar-aware script to read. Updates on price data change and every 15 minutes.
+#   Falls back gracefully when Solcast is unavailable (state = "No data").
+
+template:
+  # ── Solar charge outlook ──────────────────────────────────────────────────────
+  # Triggered on price data change and every 15 minutes to track the deadline.
+  # Solcast detailedForecast entries are 30-min periods with pv_estimate in kW.
+  # Each cheap slot overlaps with one or two Solcast periods; overlap is proportional.
+  # house_load_kw is subtracted per slot to give net solar available for charging.
+  - trigger:
+      - trigger: state
+        entity_id: sensor.hba_energy_prices_data
+      - trigger: time_pattern
+        minutes: "/15"
+    sensor:
+      - name: "HBA Solar Charge Outlook"
+        unique_id: hba_solar_charge_outlook
+        icon: mdi:solar-power-variant
+        state: >-
+          {%- set solar_entity = states('input_text.hba_strategy_solar_forecast_entity_id') | trim -%}
+          {%- set detailed = state_attr(solar_entity, 'detailedForecast') if solar_entity | has_value else none -%}
+          {%- set marks_raw = state_attr('sensor.hba_energy_prices_data', 'marks') -%}
+          {%- set marks = (marks_raw | from_json) if marks_raw is string and (marks_raw | trim)[:1] == '[' else (marks_raw if marks_raw is sequence else []) -%}
+          {%- if not (detailed is sequence and detailed | length > 0) or marks | length == 0 -%}No data
+          {%- else -%}
+            {%- set now_ts = as_timestamp(now()) | int -%}
+            {%- set today_end_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0)) | int + 86400 -%}
+            {%- set house_kw = states('input_number.hba_strategy_solar_aware_house_load_kw') | float(0.4) -%}
+            {%- set ns_slots = namespace(slots=[]) -%}
+            {%- for m in marks -%}
+              {%- if m.mark | default('') == 'low' and as_timestamp(m.end) | int > now_ts and as_timestamp(m.start) | int < today_end_ts -%}
+                {%- set ns_slots.slots = ns_slots.slots + [{'start': as_timestamp(m.start) | int, 'end': as_timestamp(m.end) | int}] -%}
+              {%- endif -%}
+            {%- endfor -%}
+            {%- if ns_slots.slots | length == 0 -%}No cheap slots
+            {%- else -%}
+              {%- set ns_solar = namespace(kwh=0.0) -%}
+              {%- for slot in ns_slots.slots -%}
+                {%- set ns_solar.kwh = ns_solar.kwh - house_kw * ((slot.end - slot.start) / 3600) -%}
+                {%- for period in detailed -%}
+                  {%- set p_start = as_timestamp(period.period_start) | int -%}
+                  {%- set ov_h = ([slot.end, p_start + 1800] | min - [slot.start, p_start] | max) / 3600 -%}
+                  {%- if ov_h > 0 -%}{%- set ns_solar.kwh = ns_solar.kwh + period.pv_estimate | float(0) * ov_h -%}{%- endif -%}
+                {%- endfor -%}
+              {%- endfor -%}
+              {%- if [ns_solar.kwh, 0] | max >= states('sensor.hba_charge_remaining_energy') | float(0) -%}Covered
+              {%- else -%}Insufficient
+              {%- endif -%}
+            {%- endif -%}
+          {%- endif -%}
+        attributes:
+          solar_in_cheap_slots_kwh: >-
+            {%- set solar_entity = states('input_text.hba_strategy_solar_forecast_entity_id') | trim -%}
+            {%- set detailed = state_attr(solar_entity, 'detailedForecast') if solar_entity | has_value else none -%}
+            {%- set marks_raw = state_attr('sensor.hba_energy_prices_data', 'marks') -%}
+            {%- set marks = (marks_raw | from_json) if marks_raw is string and (marks_raw | trim)[:1] == '[' else (marks_raw if marks_raw is sequence else []) -%}
+            {%- if not (detailed is sequence) or marks | length == 0 -%}0
+            {%- else -%}
+              {%- set now_ts = as_timestamp(now()) | int -%}
+              {%- set today_end_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0)) | int + 86400 -%}
+              {%- set house_kw = states('input_number.hba_strategy_solar_aware_house_load_kw') | float(0.4) -%}
+              {%- set ns_slots = namespace(slots=[]) -%}
+              {%- for m in marks -%}
+                {%- if m.mark | default('') == 'low' and as_timestamp(m.end) | int > now_ts and as_timestamp(m.start) | int < today_end_ts -%}
+                  {%- set ns_slots.slots = ns_slots.slots + [{'start': as_timestamp(m.start) | int, 'end': as_timestamp(m.end) | int}] -%}
+                {%- endif -%}
+              {%- endfor -%}
+              {%- set ns_solar = namespace(kwh=0.0) -%}
+              {%- for slot in ns_slots.slots -%}
+                {%- set ns_solar.kwh = ns_solar.kwh - house_kw * ((slot.end - slot.start) / 3600) -%}
+                {%- for period in detailed -%}
+                  {%- set p_start = as_timestamp(period.period_start) | int -%}
+                  {%- set ov_h = ([slot.end, p_start + 1800] | min - [slot.start, p_start] | max) / 3600 -%}
+                  {%- if ov_h > 0 -%}{%- set ns_solar.kwh = ns_solar.kwh + period.pv_estimate | float(0) * ov_h -%}{%- endif -%}
+                {%- endfor -%}
+              {%- endfor -%}
+              {{ [ns_solar.kwh, 0] | max | round(3) }}
+            {%- endif -%}
+          needed_kwh: "{{ states('sensor.hba_charge_remaining_energy') | float(0) | round(3) }}"
+          solar_covers_charge: >-
+            {%- set solar_entity = states('input_text.hba_strategy_solar_forecast_entity_id') | trim -%}
+            {%- set detailed = state_attr(solar_entity, 'detailedForecast') if solar_entity | has_value else none -%}
+            {%- set marks_raw = state_attr('sensor.hba_energy_prices_data', 'marks') -%}
+            {%- set marks = (marks_raw | from_json) if marks_raw is string and (marks_raw | trim)[:1] == '[' else (marks_raw if marks_raw is sequence else []) -%}
+            {%- if not (detailed is sequence) or marks | length == 0 -%}false
+            {%- else -%}
+              {%- set now_ts = as_timestamp(now()) | int -%}
+              {%- set today_end_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0)) | int + 86400 -%}
+              {%- set house_kw = states('input_number.hba_strategy_solar_aware_house_load_kw') | float(0.4) -%}
+              {%- set ns_slots = namespace(slots=[]) -%}
+              {%- for m in marks -%}
+                {%- if m.mark | default('') == 'low' and as_timestamp(m.end) | int > now_ts and as_timestamp(m.start) | int < today_end_ts -%}
+                  {%- set ns_slots.slots = ns_slots.slots + [{'start': as_timestamp(m.start) | int, 'end': as_timestamp(m.end) | int}] -%}
+                {%- endif -%}
+              {%- endfor -%}
+              {%- set ns_solar = namespace(kwh=0.0) -%}
+              {%- for slot in ns_slots.slots -%}
+                {%- set ns_solar.kwh = ns_solar.kwh - house_kw * ((slot.end - slot.start) / 3600) -%}
+                {%- for period in detailed -%}
+                  {%- set p_start = as_timestamp(period.period_start) | int -%}
+                  {%- set ov_h = ([slot.end, p_start + 1800] | min - [slot.start, p_start] | max) / 3600 -%}
+                  {%- if ov_h > 0 -%}{%- set ns_solar.kwh = ns_solar.kwh + period.pv_estimate | float(0) * ov_h -%}{%- endif -%}
+                {%- endfor -%}
+              {%- endfor -%}
+              {{ [ns_solar.kwh, 0] | max >= states('sensor.hba_charge_remaining_energy') | float(0) }}
+            {%- endif -%}
+          cheap_slots_remaining: >-
+            {%- set marks_raw = state_attr('sensor.hba_energy_prices_data', 'marks') -%}
+            {%- set marks = (marks_raw | from_json) if marks_raw is string and (marks_raw | trim)[:1] == '[' else (marks_raw if marks_raw is sequence else []) -%}
+            {%- set now_ts = as_timestamp(now()) | int -%}
+            {%- set today_end_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0)) | int + 86400 -%}
+            {%- set ns = namespace(count=0) -%}
+            {%- for m in marks -%}
+              {%- if m.mark | default('') == 'low' and as_timestamp(m.end) | int > now_ts and as_timestamp(m.start) | int < today_end_ts -%}
+                {%- set ns.count = ns.count + 1 -%}
+              {%- endif -%}
+            {%- endfor -%}
+            {{ ns.count }}
+          last_cheap_slot_ts: >-
+            {%- set marks_raw = state_attr('sensor.hba_energy_prices_data', 'marks') -%}
+            {%- set marks = (marks_raw | from_json) if marks_raw is string and (marks_raw | trim)[:1] == '[' else (marks_raw if marks_raw is sequence else []) -%}
+            {%- set now_ts = as_timestamp(now()) | int -%}
+            {%- set today_end_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0)) | int + 86400 -%}
+            {%- set ns = namespace(last=0) -%}
+            {%- for m in marks -%}
+              {%- if m.mark | default('') == 'low' and as_timestamp(m.end) | int > now_ts and as_timestamp(m.start) | int < today_end_ts -%}
+                {%- set s = as_timestamp(m.start) | int -%}
+                {%- if s > ns.last -%}{%- set ns.last = s -%}{%- endif -%}
+              {%- endif -%}
+            {%- endfor -%}
+            {{ ns.last }}
+          self_consume_deadline: >-
+            {%- set solar_entity = states('input_text.hba_strategy_solar_forecast_entity_id') | trim -%}
+            {%- set detailed = state_attr(solar_entity, 'detailedForecast') if solar_entity | has_value else none -%}
+            {%- set marks_raw = state_attr('sensor.hba_energy_prices_data', 'marks') -%}
+            {%- set marks = (marks_raw | from_json) if marks_raw is string and (marks_raw | trim)[:1] == '[' else (marks_raw if marks_raw is sequence else []) -%}
+            {%- if not (detailed is sequence) or marks | length == 0 -%}none
+            {%- else -%}
+              {%- set now_ts = as_timestamp(now()) | int -%}
+              {%- set today_end_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0)) | int + 86400 -%}
+              {%- set house_kw = states('input_number.hba_strategy_solar_aware_house_load_kw') | float(0.4) -%}
+              {%- set ns_slots = namespace(slots=[], last_ts=0) -%}
+              {%- for m in marks -%}
+                {%- if m.mark | default('') == 'low' and as_timestamp(m.end) | int > now_ts and as_timestamp(m.start) | int < today_end_ts -%}
+                  {%- set s = as_timestamp(m.start) | int -%}
+                  {%- set ns_slots.slots = ns_slots.slots + [{'start': s, 'end': as_timestamp(m.end) | int}] -%}
+                  {%- if s > ns_slots.last_ts -%}{%- set ns_slots.last_ts = s -%}{%- endif -%}
+                {%- endif -%}
+              {%- endfor -%}
+              {%- if ns_slots.slots | length == 0 -%}none
+              {%- else -%}
+                {%- set ns_solar = namespace(kwh=0.0) -%}
+                {%- for slot in ns_slots.slots -%}
+                  {%- set ns_solar.kwh = ns_solar.kwh - house_kw * ((slot.end - slot.start) / 3600) -%}
+                  {%- for period in detailed -%}
+                    {%- set p_start = as_timestamp(period.period_start) | int -%}
+                    {%- set ov_h = ([slot.end, p_start + 1800] | min - [slot.start, p_start] | max) / 3600 -%}
+                    {%- if ov_h > 0 -%}{%- set ns_solar.kwh = ns_solar.kwh + period.pv_estimate | float(0) * ov_h -%}{%- endif -%}
+                  {%- endfor -%}
+                {%- endfor -%}
+                {%- set needed = states('sensor.hba_charge_remaining_energy') | float(0) -%}
+                {%- set deficit = [needed - [ns_solar.kwh, 0] | max, 0] | max -%}
+                {%- if deficit <= 0 -%}none
+                {%- else -%}
+                  {%- set charge_kw = states('sensor.hba_total_max_charge_power') | float(1) / 1000 -%}
+                  {%- set deadline_ts = ns_slots.last_ts - (deficit / charge_kw * 3600) | int -%}
+                  {{ deadline_ts | timestamp_custom('%Y-%m-%dT%H:%M:%SZ', false) }}
+                {%- endif -%}
+              {%- endif -%}
+            {%- endif -%}
 
 script:
   # ── Full stop ─────────────────────────────────────────────────────────────────
@@ -163,18 +338,16 @@ script:
               discharge_disabled: true
 
   # ── Solar-aware ───────────────────────────────────────────────────────────────
-  # Pre-cheap window with enough solar forecast → Zero import (export surplus to grid).
-  # Post-cheap or insufficient solar → Self-consumption (absorb solar, handle evening loads).
-  #
-  # Logic:
-  #   cheap_hours_remain: any 'low' mark for today (today-only, not tomorrow) where
-  #                        the hour hasn't fully elapsed yet. ('low' = cheap in marks format)
-  #   solar_remaining:    value of the configured solar forecast entity (kWh remaining today).
-  #   use_zero_import:    cheap_hours_remain AND solar_remaining > threshold.
-  #
-  # When use_zero_import is true the strategy is "pre-cheap, sunny" → export to grid.
+  # Dispatches to Zero import or Self-consumption using sensor.hba_solar_charge_outlook.
   # Zero import PID reset is handled by automation hba_zero_import_pid_reset on entry.
-  # When false → Self-consumption absorbs solar and handles loads.
+  #
+  # Decision tree (evaluated in order):
+  #   1. no cheap slots remain today             → Self-consumption (strategy expired)
+  #   2. outlook unavailable / no Solcast data   → Zero import (safe fallback)
+  #   3. total solar forecast today < threshold  → Self-consumption (not a solar day)
+  #   4. solar in cheap slots covers charge need → Zero import (export surplus)
+  #   5. now < self_consume_deadline             → Zero import (still time to export)
+  #   6. else                                    → Self-consumption (switch now)
   #
   # flow_prefix: caller prefix for active_flow label (e.g. "Dynamic v2 →").
   hba_strategy_solar_aware:
@@ -188,37 +361,31 @@ script:
           _flow_prefix: "{{ flow_prefix | default('') }}"
       - variables:
           now_ts: "{{ as_timestamp(now()) | int }}"
-          today_start: "{{ now().replace(hour=0, minute=0, second=0, microsecond=0) | as_timestamp | int }}"
-          marks_raw: "{{ state_attr('sensor.hba_energy_prices_data', 'marks') }}"
           solar_entity: "{{ states('input_text.hba_strategy_solar_forecast_entity_id') | trim }}"
           threshold: "{{ states('input_number.hba_strategy_solar_aware_forecast_threshold_kwh') | float(20) }}"
+          outlook_state: "{{ states('sensor.hba_solar_charge_outlook') }}"
+          cheap_slots: "{{ state_attr('sensor.hba_solar_charge_outlook', 'cheap_slots_remaining') | int(0) }}"
+          solar_covers: "{{ state_attr('sensor.hba_solar_charge_outlook', 'solar_covers_charge') | bool(false) }}"
+          deadline_str: "{{ state_attr('sensor.hba_solar_charge_outlook', 'self_consume_deadline') | default('none') }}"
       - variables:
-          marks: >-
-            {%- set r = marks_raw -%}
-            {{ (r | trim | from_json) if (r is string and (r | trim)[:1] == '[') else (r if r is sequence else []) }}
-          cheap_hours_remain: >-
-            {%- set tomorrow_start = today_start + 86400 -%}
-            {%- set ns = namespace(found=false) -%}
-            {%- for m in marks -%}
-              {%- set slot_ts = as_timestamp(m.start) | int -%}
-              {%- if m.mark | default('') == 'low'
-                   and slot_ts >= today_start
-                   and slot_ts < tomorrow_start
-                   and slot_ts + 3600 > now_ts -%}
-                {%- set ns.found = true -%}
-              {%- endif -%}
-            {%- endfor -%}
-            {{ ns.found }}
-          solar_remaining: >-
-            {%- if solar_entity and has_value(solar_entity) -%}
-              {{ states(solar_entity) | float(0) }}
-            {%- else -%}
-              0
+          solar_today: >-
+            {%- if solar_entity | has_value -%}{{ states(solar_entity) | float(0) }}{%- else -%}0{%- endif -%}
+          deadline_ts: >-
+            {%- if deadline_str not in ['none', '', none] -%}
+              {{ as_timestamp(deadline_str) | int(0) }}
+            {%- else -%}0
             {%- endif -%}
       - variables:
-          use_zero_import: "{{ (cheap_hours_remain | string) == 'True' and solar_remaining | float(0) > threshold }}"
+          use_zero_import: >-
+            {%- if cheap_slots == 0 -%}false
+            {%- elif outlook_state in ['No data', 'unavailable', 'unknown'] -%}true
+            {%- elif threshold > 0 and solar_today > 0 and solar_today < threshold -%}false
+            {%- elif solar_covers -%}true
+            {%- elif deadline_ts > 0 and now_ts < deadline_ts -%}true
+            {%- else -%}false
+            {%- endif -%}
       - choose:
-          - conditions: "{{ use_zero_import }}"
+          - conditions: "{{ use_zero_import == 'true' }}"
             sequence:
               - action: input_text.set_value
                 target: { entity_id: input_text.hba_strategy_active_flow }

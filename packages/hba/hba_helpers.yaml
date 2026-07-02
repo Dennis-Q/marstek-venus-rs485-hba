@@ -375,6 +375,14 @@ input_number:
     unit_of_measurement: kWh
     mode: box
     icon: mdi:weather-sunny
+  hba_strategy_solar_aware_house_load_kw:
+    name: "Solar-aware house load"
+    min: 0
+    max: 5
+    step: 0.1
+    mode: box
+    unit_of_measurement: kW
+    icon: mdi:home-lightning-bolt-outline
   hba_strategy_dynamic_threshold_cheapest_period:
     name: "Cheap period max tariff"
     min: 0
