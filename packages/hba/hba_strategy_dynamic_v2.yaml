@@ -70,22 +70,34 @@ template:
         icon: mdi:cash-clock
         state: "{{ now().strftime('Updated %H:%M') }}"
         attributes:
-          datapoints_per_hour: 1
+          datapoints_per_hour: >-
+            {%- set frank_id = states('input_text.hba_strategy_dynamic_frank_sensor_entity_id') | trim -%}
+            {%- set raw = state_attr(frank_id, 'prices') if frank_id | has_value else [] -%}
+            {%- if raw is sequence and raw | length >= 2 -%}
+              {%- set interval_sec = (as_timestamp(raw[1]['from']) | int - as_timestamp(raw[0]['from']) | int) -%}
+              {{ ((3600 // interval_sec) | int) if interval_sec > 0 else 1 }}
+            {%- else -%}1
+            {%- endif -%}
           mark_now: >-
             {%- set frank_id = states('input_text.hba_strategy_dynamic_frank_sensor_entity_id') | trim -%}
             {%- set raw = state_attr(frank_id, 'prices') if frank_id | has_value else [] -%}
             {%- if raw is not sequence or raw | length == 0 -%}Regular
             {%- else -%}
-              {%- set max_cheap = (states('input_number.hba_strategy_dynamic_v2_max_cheap_hours_per_day') | float(4) | round | int) or 9999 -%}
-              {%- set max_exp = (states('input_number.hba_strategy_dynamic_v2_max_expensive_hours_per_day') | float(4) | round | int) or 9999 -%}
+              {%- set interval_sec = (as_timestamp(raw[1]['from']) | int - as_timestamp(raw[0]['from']) | int) if raw | length >= 2 else 3600 -%}
+              {%- set pph = ((3600 // interval_sec) | int) if interval_sec > 0 else 1 -%}
+              {%- set step_sec = 3600 // pph -%}
+              {%- set max_cheap_hrs = states('input_number.hba_strategy_dynamic_v2_max_cheap_hours_per_day') | float(4) -%}
+              {%- set max_cheap = ((max_cheap_hrs * pph) | round | int) if max_cheap_hrs > 0 else 9999 -%}
+              {%- set max_exp_hrs = states('input_number.hba_strategy_dynamic_v2_max_expensive_hours_per_day') | float(4) -%}
+              {%- set max_exp = ((max_exp_hrs * pph) | round | int) if max_exp_hrs > 0 else 9999 -%}
               {%- set delta_thr = states('input_number.hba_strategy_dynamic_threshold_delta') | float(0) -%}
-              {%- set now_slot_ts = (as_timestamp(now()) | int // 3600) * 3600 -%}
+              {%- set now_slot_ts = (as_timestamp(now()) | int // step_sec) * step_sec -%}
               {%- set today_start_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0)) | int -%}
               {%- set tomorrow_start_ts = today_start_ts + 86400 -%}
               {%- set ns_slots = namespace(today=[]) -%}
               {%- for entry in raw -%}
                 {%- if 'from' in entry and 'price' in entry -%}
-                  {%- set slot_ts = (as_timestamp(entry['from']) | int // 3600) * 3600 -%}
+                  {%- set slot_ts = as_timestamp(entry['from']) | int -%}
                   {%- set pc = (entry.price | float(0) * 100) | round(4) -%}
                   {%- if today_start_ts <= slot_ts < tomorrow_start_ts -%}
                     {%- set ns_slots.today = ns_slots.today + [{'ts': slot_ts, 'pc': pc}] -%}
@@ -122,12 +134,16 @@ template:
             {%- set raw = state_attr(frank_id, 'prices') if frank_id | has_value else [] -%}
             {%- if raw is not sequence or raw | length == 0 -%}[]
             {%- else -%}
+              {%- set today_start_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0)) | int -%}
+              {%- set day_after_ts = today_start_ts + 86400 * 2 -%}
               {%- set ns_out = namespace(out=[]) -%}
               {%- for entry in raw -%}
                 {%- if 'from' in entry and 'price' in entry -%}
-                  {%- set slot_ts = (as_timestamp(entry['from']) | int // 3600) * 3600 -%}
+                  {%- set slot_ts = as_timestamp(entry['from']) | int -%}
                   {%- set pc = (entry.price | float(0) * 100) | round(4) -%}
-                  {%- set ns_out.out = ns_out.out + [{'ts': slot_ts, 'pc': pc}] -%}
+                  {%- if today_start_ts <= slot_ts < day_after_ts -%}
+                    {%- set ns_out.out = ns_out.out + [{'ts': slot_ts, 'pc': pc}] -%}
+                  {%- endif -%}
                 {%- endif -%}
               {%- endfor -%}
               {{ (ns_out.out | sort(attribute='ts') | map(attribute='pc') | list) | tojson }}
@@ -137,17 +153,22 @@ template:
             {%- set raw = state_attr(frank_id, 'prices') if frank_id | has_value else [] -%}
             {%- if raw is not sequence or raw | length == 0 -%}[]
             {%- else -%}
-              {%- set max_cheap = (states('input_number.hba_strategy_dynamic_v2_max_cheap_hours_per_day') | float(4) | round | int) or 9999 -%}
-              {%- set max_exp = (states('input_number.hba_strategy_dynamic_v2_max_expensive_hours_per_day') | float(4) | round | int) or 9999 -%}
+              {%- set interval_sec = (as_timestamp(raw[1]['from']) | int - as_timestamp(raw[0]['from']) | int) if raw | length >= 2 else 3600 -%}
+              {%- set pph = ((3600 // interval_sec) | int) if interval_sec > 0 else 1 -%}
+              {%- set step_sec = 3600 // pph -%}
+              {%- set max_cheap_hrs = states('input_number.hba_strategy_dynamic_v2_max_cheap_hours_per_day') | float(4) -%}
+              {%- set max_cheap = ((max_cheap_hrs * pph) | round | int) if max_cheap_hrs > 0 else 9999 -%}
+              {%- set max_exp_hrs = states('input_number.hba_strategy_dynamic_v2_max_expensive_hours_per_day') | float(4) -%}
+              {%- set max_exp = ((max_exp_hrs * pph) | round | int) if max_exp_hrs > 0 else 9999 -%}
               {%- set delta_thr = states('input_number.hba_strategy_dynamic_threshold_delta') | float(0) -%}
-              {%- set now_slot_ts = (as_timestamp(now()) | int // 3600) * 3600 -%}
+              {%- set now_slot_ts = (as_timestamp(now()) | int // step_sec) * step_sec -%}
               {%- set today_start_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0)) | int -%}
               {%- set tomorrow_start_ts = today_start_ts + 86400 -%}
               {%- set day_after_ts = tomorrow_start_ts + 86400 -%}
               {%- set ns_slots = namespace(today=[], tomorrow=[]) -%}
               {%- for entry in raw -%}
                 {%- if 'from' in entry and 'price' in entry -%}
-                  {%- set slot_ts = (as_timestamp(entry['from']) | int // 3600) * 3600 -%}
+                  {%- set slot_ts = as_timestamp(entry['from']) | int -%}
                   {%- set pc = (entry.price | float(0) * 100) | round(4) -%}
                   {%- if today_start_ts <= slot_ts < tomorrow_start_ts -%}
                     {%- set ns_slots.today = ns_slots.today + [{'ts': slot_ts, 'pc': pc}] -%}
@@ -199,7 +220,7 @@ template:
               {%- for slot in (ns_slots.today + ns_slots.tomorrow) | sort(attribute='ts') -%}
                 {%- set mark = 'low' if slot.ts in ns_marks.cheap else ('high' if slot.ts in ns_marks.exp else none) -%}
                 {%- set start_str = slot.ts | timestamp_custom('%Y-%m-%dT%H:%M:%SZ', false) -%}
-                {%- set end_str = (slot.ts + 3600) | timestamp_custom('%Y-%m-%dT%H:%M:%SZ', false) -%}
+                {%- set end_str = (slot.ts + step_sec) | timestamp_custom('%Y-%m-%dT%H:%M:%SZ', false) -%}
                 {%- set ns_out.out = ns_out.out + [{'start': start_str, 'end': end_str, 'price': slot.pc, 'mark': mark, 'is_now': slot.ts == now_slot_ts}] -%}
               {%- endfor -%}
               {{ ns_out.out | tojson }}
