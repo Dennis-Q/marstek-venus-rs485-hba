@@ -48,7 +48,7 @@ template:
           {%- else -%}
             {%- set now_ts = as_timestamp(now()) | int -%}
             {%- set today_end_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0)) | int + 86400 -%}
-            {%- set house_kw = states('input_number.hba_strategy_solar_aware_house_load') | float(400) / 1000 -%}
+            {%- set house_kw = states('input_number.hba_strategy_solar_aware_house_load') | float(300) / 1000 -%}
             {%- set ns_slots = namespace(slots=[]) -%}
             {%- for m in marks -%}
               {%- if m.mark | default('') == 'low' and as_timestamp(m.end) | int > now_ts and as_timestamp(m.start) | int < today_end_ts -%}
@@ -81,7 +81,7 @@ template:
             {%- else -%}
               {%- set now_ts = as_timestamp(now()) | int -%}
               {%- set today_end_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0)) | int + 86400 -%}
-              {%- set house_kw = states('input_number.hba_strategy_solar_aware_house_load') | float(400) / 1000 -%}
+              {%- set house_kw = states('input_number.hba_strategy_solar_aware_house_load') | float(300) / 1000 -%}
               {%- set ns_slots = namespace(slots=[]) -%}
               {%- for m in marks -%}
                 {%- if m.mark | default('') == 'low' and as_timestamp(m.end) | int > now_ts and as_timestamp(m.start) | int < today_end_ts -%}
@@ -109,7 +109,7 @@ template:
             {%- else -%}
               {%- set now_ts = as_timestamp(now()) | int -%}
               {%- set today_end_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0)) | int + 86400 -%}
-              {%- set house_kw = states('input_number.hba_strategy_solar_aware_house_load') | float(400) / 1000 -%}
+              {%- set house_kw = states('input_number.hba_strategy_solar_aware_house_load') | float(300) / 1000 -%}
               {%- set ns_slots = namespace(slots=[]) -%}
               {%- for m in marks -%}
                 {%- if m.mark | default('') == 'low' and as_timestamp(m.end) | int > now_ts and as_timestamp(m.start) | int < today_end_ts -%}
@@ -161,7 +161,7 @@ template:
             {%- else -%}
               {%- set now_ts = as_timestamp(now()) | int -%}
               {%- set today_end_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0)) | int + 86400 -%}
-              {%- set house_kw = states('input_number.hba_strategy_solar_aware_house_load') | float(400) / 1000 -%}
+              {%- set house_kw = states('input_number.hba_strategy_solar_aware_house_load') | float(300) / 1000 -%}
               {%- set ns_slots = namespace(slots=[], last_ts=0) -%}
               {%- for m in marks -%}
                 {%- if m.mark | default('') == 'low' and as_timestamp(m.end) | int > now_ts and as_timestamp(m.start) | int < today_end_ts -%}
