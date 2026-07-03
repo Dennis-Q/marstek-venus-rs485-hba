@@ -11,6 +11,100 @@ This document covers HBA-specific changes only.
 
 ---
 
+## Unreleased — dev branch
+
+Changes on `dev` that have not yet been merged to `main`.
+
+### Added
+
+- **Solar charge outlook sensor** (`sensor.hba_solar_charge_outlook`, in
+  `hba_strategy_others.yaml`) — trigger-based template sensor that pre-computes net solar
+  energy expected during today's remaining cheap price slots. Reads Solcast's
+  `detailedForecast` attribute (list of 30-min `pv_estimate` periods) and integrates the
+  proportional overlap with each cheap slot, then subtracts the configurable house load.
+  Exposes six attributes: `solar_in_cheap_slots_kwh`, `needed_kwh`, `solar_covers_charge`
+  (bool), `cheap_slots_remaining` (int), `last_cheap_slot_ts` (epoch), and
+  `self_consume_deadline` (ISO UTC string). Falls back gracefully to state `"No data"` when
+  the Solcast entity is unavailable; re-evaluates on every price-data change and every 15
+  minutes. Resolution-aware: works correctly with both PT1H and PT15M price data.
+
+- **Solar-aware house load** (`input_number.hba_strategy_solar_aware_house_load_kw`) — new
+  helper for the average household consumption to subtract from solar production when
+  computing net solar available for charging (default: 0.4 kW).
+
+- **Solar-aware strategy: decision-tree rewrite** — `hba_strategy_solar_aware` now reads
+  from `sensor.hba_solar_charge_outlook` instead of computing inline. Six-step decision
+  tree (evaluated in order): (1) no cheap slots remain today → Self-consumption; (2) Solcast
+  unavailable → Zero import (safe fallback); (3) total solar forecast < threshold →
+  Self-consumption (not a solar day); (4) solar covers full charge need → Zero import; (5)
+  current time before `self_consume_deadline` → Zero import (still time to export); (6) else
+  → Self-consumption. Fixes a 15-min resolution bug where the old code used `slot_ts + 3600`
+  to check slot expiry — now uses `as_timestamp(m.end)` from the marks array.
+
+- **Overtemperature notification** — `automation.hba_notify_battery_overtemperature` fires
+  when any `sensor.marstek_mX_internal_temperature` reaches ≥ 60 °C for 2 minutes (10 °C
+  below BMS thermal-protection trip at ~70 °C). Sends a push notification (orange, high
+  priority) and a persistent HA notification. `automation.hba_notify_battery_overtemperature_resolved`
+  clears it when temperature drops below 55 °C for 5 minutes (5 °C hysteresis). All six
+  battery slots are covered; M4–M6 never fire on 3-battery systems (sensors unavailable).
+
+- **Entity health check** (`binary_sensor.hba_entity_health`, device_class `problem`) —
+  polls ten critical entity IDs with `has_value()` every 5 minutes. Turns `on` (problem)
+  when any are unavailable or missing; `missing_entity_ids` attribute lists them. Dashboard
+  shows an `ha-alert error` banner at the top of the home view when the sensor is `on`.
+
+- **`sensor.hba_assignable_discharge`** — sums max discharge power for all batteries where
+  `binary_sensor.hba_marstek_mX_not_responding` is `off`. Used as the anti-windup upper bound
+  in Self-consumption so the I-term only integrates against batteries that are actually
+  responding to commands.
+
+### Fixed
+
+- **Frank Energie PT15M resolution support** — `sensor.hba_energy_prices_data` hardcoded
+  `datapoints_per_hour = 1` and assumed 3600-second slot intervals. When Frank Energie
+  integration v2026.6.21+ is set to PT15M resolution (`select.frank_energie_settings_resolution`),
+  the sensor now detects the slot interval dynamically (96 entries/day at 15-min intervals)
+  and adjusts all downstream calculations: `now_slot_ts` floors to `step_sec`; cheap/expensive
+  slot caps scale by `pph`; `end_str` uses `step_sec` instead of 3600. The dashboard price
+  table was already resolution-aware and required no changes.
+
+- **Anti-windup Self-consumption I-term clamp** — I-term in `hba_strategy_self_consumption`
+  is now clamped to `[−assignable_discharge, 0]`, using `sensor.hba_assignable_discharge`
+  as the upper bound. Previously the anti-windup used total max charge power — correct for
+  the charge direction, but too wide for the discharge direction when batteries are in thermal
+  protection.
+
+- **PID reset on Zero import entry** — `automation.hba_zero_import_pid_reset` now also fires
+  on entry to Zero import (covers the Solar-aware → Zero import path). Previously only Sell
+  and Charge had on-entry PID resets.
+
+- **Entity names and unique_ids** — all six `not_responding` binary sensors renamed to
+  `"HBA Marstek M{N} Not Responding"` (entity_id `binary_sensor.hba_marstek_mX_not_responding`).
+  `"Estimated Profit per kWh"` → `"HBA Estimated Profit per kWh"` (`sensor.hba_estimated_profit_per_kwh`).
+  Three stale unique_ids corrected: `hba_active_strategy`, `hba_is_charging`, `hba_charge_goal_reached`.
+
+---
+
+## v4.10.1-r13 — June 2026
+
+### Added
+
+- **Battery not-responding sensors** — six `binary_sensor.hba_marstek_mX_not_responding`
+  (delay_on: 30 s) detect when a configured battery stops tracking commanded power: RS485
+  enabled + |commanded power| ≥ 300 W + |actual − commanded| > 15% sustained for 30+ s.
+  Used as availability gates in the anti-windup clamp and to surface per-battery status in
+  the Insights view.
+
+- **RS485 mode mismatch sensor** — `binary_sensor.hba_rs485_mode_mismatch` (delay_on: 30 s)
+  fires when the master mode is Full control but any configured battery has RS485 control
+  disabled. Attribute `mismatched_batteries` lists the affected M-slots.
+
+- **Notifications file** — all notification automations and the `script.hba_notify_dispatch`
+  routing script moved to a dedicated `hba_notifications.yaml` package file, keeping
+  `hba_strategies_core.yaml` focused on strategy dispatch.
+
+---
+
 ## v4.10.1-r12 — June 2026
 
 ### Added
