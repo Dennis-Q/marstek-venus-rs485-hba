@@ -53,10 +53,11 @@ Changes on `dev` that have not yet been merged to `main`.
   when any are unavailable or missing; `missing_entity_ids` attribute lists them. Dashboard
   shows an `ha-alert error` banner at the top of the home view when the sensor is `on`.
 
-- **`sensor.hba_assignable_discharge`** — sums max discharge power for all batteries where
-  `binary_sensor.hba_marstek_mX_not_responding` is `off`. Used as the anti-windup upper bound
-  in Self-consumption so the I-term only integrates against batteries that are actually
-  responding to commands.
+- **Anti-windup: `assignable_discharge` variable** — `hba_strategy_self_consumption` now
+  computes an `assignable_discharge` local variable that sums max discharge power only for
+  batteries where `binary_sensor.hba_marstek_mX_not_responding` is `off`. The I-term clamp
+  lower bound uses this instead of total max discharge power, so batteries in thermal
+  protection or otherwise unresponsive do not inflate the anti-windup ceiling.
 
 ### Fixed
 
@@ -69,10 +70,9 @@ Changes on `dev` that have not yet been merged to `main`.
   table was already resolution-aware and required no changes.
 
 - **Anti-windup Self-consumption I-term clamp** — I-term in `hba_strategy_self_consumption`
-  is now clamped to `[−assignable_discharge, 0]`, using `sensor.hba_assignable_discharge`
-  as the upper bound. Previously the anti-windup used total max charge power — correct for
-  the charge direction, but too wide for the discharge direction when batteries are in thermal
-  protection.
+  is now clamped to `[−assignable_discharge, 0]`, where `assignable_discharge` excludes
+  batteries currently marked `not_responding`. Previously the anti-windup used total max
+  discharge power regardless of which batteries were actually responding.
 
 - **PID reset on Zero import entry** — `automation.hba_zero_import_pid_reset` now also fires
   on entry to Zero import (covers the Solar-aware → Zero import path). Previously only Sell

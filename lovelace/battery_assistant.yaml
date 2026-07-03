@@ -1885,6 +1885,10 @@ views:
                 name: Charge goal reached
               - entity: input_number.hba_control_prioritize_battery
                 name: Priority battery
+              - entity: binary_sensor.hba_entity_health
+                name: Entity health
+              - entity: binary_sensor.hba_rs485_mode_mismatch
+                name: RS485 mode mismatch
             show_header_toggle: false
           - type: heading
             heading: Timed EV Charge
@@ -1933,9 +1937,13 @@ views:
               {% set count = states('input_number.hba_battery_count') | int(1) -%}
               {%- for idx in range(1, count + 1) %}
               {%- set inv = states('sensor.marstek_m' ~ idx ~ '_inverter_state') -%}
-              {%- set ok = inv not in ['unavailable', 'unknown', ''] %}
-              {{ '🟢' if ok else '🔴' }} **M{{ idx }}** — {{ inv if ok else 'offline / unavailable' }}
+              {%- set ok = inv not in ['unavailable', 'unknown', ''] -%}
+              {%- set nr = is_state('binary_sensor.hba_marstek_m' ~ idx ~ '_not_responding', 'on') %}
+              {{ '🟢' if (ok and not nr) else ('⚠️' if (ok and nr) else '🔴') }} **M{{ idx }}** — {{ inv if ok else 'offline / unavailable' }}{{ ' ⚠️ not responding to commands' if nr else '' }}
               {%- endfor %}
+              {%- if is_state('binary_sensor.hba_rs485_mode_mismatch', 'on') %}
+              ⚠️ **RS485 mismatch** — Full control active but RS485 disabled on: {{ state_attr('binary_sensor.hba_rs485_mode_mismatch', 'mismatched_batteries') | join(', ') }}
+              {%- endif %}
           - type: heading
             heading: Battery aggregates
             heading_style: title
@@ -2297,14 +2305,17 @@ views:
               {%- set solar_eid = states('input_text.hba_strategy_solar_forecast_entity_id') | trim -%}
               {%- set solar_miss = solar_eid == '' or is_state(solar_eid, ['unavailable', 'unknown', 'none']) -%}
               {%- set prices_miss = is_state('sensor.hba_energy_prices_data', ['unavailable', 'unknown', 'none']) -%}
-              {%- if solar_miss or prices_miss -%}
               <ha-alert alert-type="warning">**Solar-aware not fully configured**
               {%- if solar_miss %} — Solar forecast entity is not set or unavailable (configure it under Charge / Sell settings or point `input_text.hba_strategy_solar_forecast_entity_id` to your Solcast sensor).{%- endif -%}
               {%- if prices_miss %} — Dynamic v2 prices (`sensor.hba_energy_prices_data`) unavailable; set up Dynamic v2 or wait for first price publish.{%- endif %}
               Until resolved, Solar-aware will always use Self-consumption.</ha-alert>
-              {%- endif -%}
             grid_options:
               columns: full
+            visibility:
+              - condition: template
+                value_template: >-
+                  {%- set solar_eid = states('input_text.hba_strategy_solar_forecast_entity_id') | trim -%}
+                  {{ solar_eid == '' or is_state(solar_eid, ['unavailable', 'unknown', 'none']) or is_state('sensor.hba_energy_prices_data', ['unavailable', 'unknown', 'none']) }}
           - type: entities
             entities:
               - entity: input_number.hba_strategy_solar_aware_forecast_threshold_kwh
