@@ -123,15 +123,15 @@ This applies to both v1 and v2.
 
 ### PT15M resolution (Frank Energie)
 
-Frank Energie integration v2026.6.21+ supports 15-minute resolution pricing
-(`select.frank_energie_settings_resolution = pt15m`). When enabled, the `prices` attribute
+The Frank Energie integration supports a configurable price resolution
+(`select.frank_energie_settings_resolution`). When set to `pt15m`, the `prices` attribute
 contains 96 entries per day instead of 24, with genuine imbalance-market prices per
 15-minute slot.
 
 HBA's `sensor.hba_energy_prices_data` detects the resolution dynamically from the interval
 between the first two raw entries and sets `datapoints_per_hour` accordingly. All
 downstream calculations — slot expiry checks, cheap/expensive caps, mark timestamps —
-scale automatically. HBC does not yet support PT15M resolution (as of May 2026).
+scale automatically. HBC does not support sub-hourly resolution.
 
 ---
 

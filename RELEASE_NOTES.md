@@ -61,8 +61,8 @@ Changes on `dev` that have not yet been merged to `main`.
 ### Fixed
 
 - **Frank Energie PT15M resolution support** — `sensor.hba_energy_prices_data` hardcoded
-  `datapoints_per_hour = 1` and assumed 3600-second slot intervals. When Frank Energie
-  integration v2026.6.21+ is set to PT15M resolution (`select.frank_energie_settings_resolution`),
+  `datapoints_per_hour = 1` and assumed 3600-second slot intervals. When the Frank Energie
+  integration is configured to PT15M resolution (`select.frank_energie_settings_resolution = pt15m`),
   the sensor now detects the slot interval dynamically (96 entries/day at 15-min intervals)
   and adjusts all downstream calculations: `now_slot_ts` floors to `step_sec`; cheap/expensive
   slot caps scale by `pph`; `end_str` uses `step_sec` instead of 3600. The dashboard price
