@@ -28,9 +28,9 @@ Changes on `dev` that have not yet been merged to `main`.
   the Solcast entity is unavailable; re-evaluates on every price-data change and every 15
   minutes. Resolution-aware: works correctly with both PT1H and PT15M price data.
 
-- **Solar-aware house load** (`input_number.hba_strategy_solar_aware_house_load_kw`) — new
+- **Solar-aware house load** (`input_number.hba_strategy_solar_aware_house_load`) — new
   helper for the average household consumption to subtract from solar production when
-  computing net solar available for charging (default: 0.4 kW).
+  computing net solar available for charging (default: 400 W).
 
 - **Solar-aware strategy: decision-tree rewrite** — `hba_strategy_solar_aware` now reads
   from `sensor.hba_solar_charge_outlook` instead of computing inline. Six-step decision

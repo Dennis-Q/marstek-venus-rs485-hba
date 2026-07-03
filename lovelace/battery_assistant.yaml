@@ -2320,7 +2320,7 @@ views:
             entities:
               - entity: input_number.hba_strategy_solar_aware_forecast_threshold_kwh
                 name: Min. solar forecast for Zero import
-              - entity: input_number.hba_strategy_solar_aware_house_load_kw
+              - entity: input_number.hba_strategy_solar_aware_house_load
                 name: Avg. house load during cheap slots
 
       - type: grid
