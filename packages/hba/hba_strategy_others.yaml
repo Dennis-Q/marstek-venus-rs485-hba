@@ -22,7 +22,14 @@
 #   detailedForecast × overlap with cheap slot timestamps) minus configurable house load.
 #   Exposes solar_covers_charge (boolean) and self_consume_deadline (ISO UTC string) for
 #   the solar-aware script to read. Updates on price data change and every 15 minutes.
-#   Falls back gracefully when Solcast is unavailable (state = "No data").
+#   Diagnostic fallback states (each names the missing input, for the debug view):
+#     "No solar entity" — input_text.hba_strategy_solar_forecast_entity_id empty or the
+#                         entity it names does not exist / is unavailable
+#     "No solar detail" — entity exists but has no detailedForecast attribute; point the
+#                         input_text at sensor.solcast_pv_forecast_forecast_today (NOT
+#                         …_remaining_today) and enable the Solcast half-hourly detail
+#                         attribute option
+#     "No price data"   — sensor.hba_energy_prices_data has no marks
 
 template:
   # ── Solar charge outlook ──────────────────────────────────────────────────────
@@ -44,7 +51,9 @@ template:
           {%- set detailed = state_attr(solar_entity, 'detailedForecast') if solar_entity | has_value else none -%}
           {%- set marks_raw = state_attr('sensor.hba_energy_prices_data', 'marks') -%}
           {%- set marks = (marks_raw | from_json) if marks_raw is string and (marks_raw | trim)[:1] == '[' else (marks_raw if marks_raw is sequence else []) -%}
-          {%- if not (detailed is sequence and detailed | length > 0) or marks | length == 0 -%}No data
+          {%- if not (solar_entity != '' and solar_entity | has_value) -%}No solar entity
+          {%- elif not (detailed is sequence and detailed | length > 0) -%}No solar detail
+          {%- elif marks | length == 0 -%}No price data
           {%- else -%}
             {%- set now_ts = as_timestamp(now()) | int -%}
             {%- set today_end_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0)) | int + 86400 -%}
@@ -343,7 +352,9 @@ script:
   #
   # Decision tree (evaluated in order):
   #   1. no cheap slots remain today             → Self-consumption (strategy expired)
-  #   2. outlook unavailable / no Solcast data   → Zero import (safe fallback)
+  #   2. outlook in a diagnostic fallback state  → Zero import (safe fallback)
+  #      ("No solar entity" / "No solar detail" / "No price data" — see the outlook
+  #      sensor comment above; "No data" kept for pre-rename compatibility)
   #   3. total solar forecast today < threshold  → Self-consumption (not a solar day)
   #   4. solar in cheap slots covers charge need → Zero import (export surplus)
   #   5. now < self_consume_deadline             → Zero import (still time to export)
@@ -378,7 +389,7 @@ script:
       - variables:
           use_zero_import: >-
             {%- if cheap_slots == 0 -%}false
-            {%- elif outlook_state in ['No data', 'unavailable', 'unknown'] -%}true
+            {%- elif outlook_state in ['No solar entity', 'No solar detail', 'No price data', 'No data', 'unavailable', 'unknown'] -%}true
             {%- elif threshold > 0 and solar_today > 0 and solar_today < threshold -%}false
             {%- elif solar_covers -%}true
             {%- elif deadline_ts > 0 and now_ts < deadline_ts -%}true
