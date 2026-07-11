@@ -24,9 +24,12 @@ Changes on `dev` that have not yet been merged to `main`.
   proportional overlap with each cheap slot, then subtracts the configurable house load.
   Exposes six attributes: `solar_in_cheap_slots_kwh`, `needed_kwh`, `solar_covers_charge`
   (bool), `cheap_slots_remaining` (int), `last_cheap_slot_ts` (epoch), and
-  `self_consume_deadline` (ISO UTC string). Falls back gracefully to state `"No data"` when
-  the Solcast entity is unavailable; re-evaluates on every price-data change and every 15
-  minutes. Resolution-aware: works correctly with both PT1H and PT15M price data.
+  `self_consume_deadline` (ISO UTC string). Falls back gracefully to a diagnostic state
+  naming the missing input — `"No solar entity"` (configured entity absent/unavailable),
+  `"No solar detail"` (entity lacks the `detailedForecast` attribute — wrong Solcast sensor
+  or half-hourly detail attribute disabled), or `"No price data"` (no price marks);
+  re-evaluates on every price-data change and every 15 minutes. Resolution-aware: works
+  correctly with both PT1H and PT15M price data.
 
 - **Solar-aware house load** (`input_number.hba_strategy_solar_aware_house_load`) — new
   helper for the average household consumption to subtract from solar production when
@@ -34,8 +37,8 @@ Changes on `dev` that have not yet been merged to `main`.
 
 - **Solar-aware strategy: decision-tree rewrite** — `hba_strategy_solar_aware` now reads
   from `sensor.hba_solar_charge_outlook` instead of computing inline. Six-step decision
-  tree (evaluated in order): (1) no cheap slots remain today → Self-consumption; (2) Solcast
-  unavailable → Zero import (safe fallback); (3) total solar forecast < threshold →
+  tree (evaluated in order): (1) no cheap slots remain today → Self-consumption; (2) outlook
+  in a diagnostic fallback state → Zero import (safe fallback); (3) total solar forecast < threshold →
   Self-consumption (not a solar day); (4) solar covers full charge need → Zero import; (5)
   current time before `self_consume_deadline` → Zero import (still time to export); (6) else
   → Self-consumption. Fixes a 15-min resolution bug where the old code used `slot_ts + 3600`
