@@ -17,9 +17,6 @@ input_boolean:
   hba_control_onboarding_finished:
     name: "Finish onboarding"
     icon: mdi:check-circle-outline
-  hba_control_has_power_limit_during_ev_charge:
-    name: "Keep peak shaving during EV stop"
-    icon: mdi:car-electric-outline
   hba_battery_assist_enabled:
     name: "Battery assist enabled"
     icon: mdi:battery-arrow-up
@@ -591,6 +588,24 @@ input_select:
       - "Zero import"
       - "Standby / peak shave"
     icon: mdi:strategy
+  # What the batteries do while the EV stop trigger is active (EV is charging).
+  #   Full stop            — batteries idle (original behaviour)
+  #   Standby / peak shave — batteries idle but still respond to import/export
+  #                          power limits (former behaviour of the removed
+  #                          input_boolean.hba_control_has_power_limit_during_ev_charge;
+  #                          if you had that boolean ON, select this option once)
+  #   Charge PV            — batteries charge the solar residual the EV cannot
+  #                          take (e.g. surplus pinned between 1-phase max and the
+  #                          3-phase switch threshold). Discharge stays disabled,
+  #                          so the batteries can never compete with the charger:
+  #                          they only absorb what the EV leaves on the grid.
+  hba_control_strategy_during_ev_charge:
+    name: "Strategy during EV charge"
+    options:
+      - "Full stop"
+      - "Standby / peak shave"
+      - "Charge PV"
+    icon: mdi:car-electric-outline
   hba_control_pid_presets:
     name: "PID presets"
     options:
