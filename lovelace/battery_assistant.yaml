@@ -3356,24 +3356,26 @@ views:
               columns: full
           - type: markdown
             content: >-
-              <font color=grey>The EV stop trigger should indicate whether a
-              Full Stop has been triggered. Trigger **on** = batteries in Full
-              stop.</font>
+              <font color=grey>The EV stop trigger indicates the EV is charging.
+              Trigger **on** = batteries follow the strategy selected below
+              instead of the active strategy.</font>
             text_only: true
           - type: tile
-            entity: input_boolean.hba_control_has_power_limit_during_ev_charge
-            name: Keep peak shaving active during EV stop
+            entity: input_select.hba_control_strategy_during_ev_charge
+            name: Strategy during EV charge
             color: blue
             vertical: false
-            hide_state: true
             features_position: bottom
             grid_options:
               columns: full
           - type: markdown
             content: >-
-              <font color=grey>When enabled, batteries still respond to import/export
-              power limits while the EV stop trigger is active (uses Standby / peak
-              shave strategy instead of Full stop).</font>
+              <font color=grey>**Full stop** — batteries idle while the EV charges.
+              **Standby / peak shave** — idle, but still respond to import/export
+              power limits. **Charge PV** — charge the solar surplus the EV cannot
+              take (e.g. between 1-phase max and the 3-phase switch threshold);
+              discharge stays disabled, so the batteries never compete with the
+              charger.</font>
             text_only: true
 
       - type: grid
