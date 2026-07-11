@@ -5,6 +5,7 @@
 #   • hba_notify_test                 — sends a test notification
 #   • hba_notify_target_validation    — persistent alert when notify entity_id is invalid
 #   • hba_unexpected_export_notify    — alerts on sustained grid export while discharging
+#   • hba_notify_battery_assist_waiting / _resolved — Timed EV charge armed but EV not drawing
 #   • hba_notify_battery_not_responding / _resolved — RS485 non-response per battery
 #   • hba_notify_rs485_mode_mismatch / _resolved    — Full control vs RS485 state
 #   • hba_notify_battery_overtemperature / _resolved — internal temp ≥ 60 °C per battery
@@ -39,6 +40,60 @@ automation:
             batteries: {{ states('sensor.hba_total_battery_power') | int }} W).
             Check strategy configuration.
           tag: hba_unexpected_export
+
+  # ── Timed EV charge waiting for EV ────────────────────────────────────────────
+  # binary_sensor.hba_battery_assist_waiting turns on 3 min after assist activation
+  # when the EV never started drawing; the extra 2-minute `for:` here filters brief
+  # mid-session car pauses so only a genuinely stalled session notifies.
+  - id: hba_notify_battery_assist_waiting
+    alias: "HBA: Notify Timed EV charge waiting for EV"
+    description: >-
+      Fires when Timed EV charge is armed but the EV has not drawn power
+      (charger possibly waiting for a tag scan, or the car paused itself).
+      The assist push is suspended and batteries follow the configured
+      strategy until the EV starts charging.
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_battery_assist_waiting
+        to: "on"
+        for: "00:02:00"
+    actions:
+      - action: script.hba_notify_dispatch
+        data:
+          title: "HBA: Timed EV charge waiting"
+          message: >-
+            Timed EV charge is active but the car is not drawing power.
+            Scan the charger tag and/or check the car (charge limit,
+            schedule). Batteries follow the normal strategy until charging
+            starts.
+          tag: hba_battery_assist_waiting
+          color: orange
+          priority: high
+
+  - id: hba_notify_battery_assist_waiting_resolved
+    alias: "HBA: Timed EV charge waiting — resolved"
+    description: "Sends push when the EV starts drawing power after a waiting period."
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_battery_assist_waiting
+        to: "off"
+    conditions:
+      - condition: template
+        value_template: "{{ trigger.from_state is not none and trigger.from_state.state == 'on' }}"
+      # Only notify when the EV actually started charging — waiting also clears
+      # when the assist window ends or assist is disabled, which needs no push.
+      - condition: state
+        entity_id: binary_sensor.hba_battery_assist_active
+        state: "on"
+    actions:
+      - action: script.hba_notify_dispatch
+        data:
+          title: "HBA: Timed EV charge resumed"
+          message: "The EV is drawing power — battery discharge to the EV has resumed."
+          tag: hba_battery_assist_waiting
+          color: green
 
   - id: hba_notify_target_validation
     alias: "HBA: Validate notify target"

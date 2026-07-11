@@ -1165,6 +1165,28 @@ template:
           {% set car_ok    = car_e in ['', 'unknown', 'unavailable'] or is_state(car_e, 'on') %}
           {{ enabled and soc > min_soc and in_window and car_ok }}
 
+      # ON when Timed EV charge is armed but the EV has not drawn power for
+      # 3+ minutes since assist activated — charger may need a tag scan, or the
+      # car paused itself (charge limit, schedule, app). While this is on,
+      # hba_run_strategy abstains from the assist push and falls through to the
+      # configured strategy, instead of cycling battery power to the grid via
+      # the overflow guard. Clears (and assist resumes on the next control
+      # cycle) as soon as the EV-charging entity turns on.
+      # Requires input_text.hba_strategy_ev_sensor_entity_id to be configured;
+      # without it this sensor stays off and assist behaves as before.
+      # The 3-minute grace covers session start: the assist push is what
+      # creates the export the EV controller ramps up on.
+      - name: "HBA Battery Assist Waiting"
+        unique_id: hba_battery_assist_waiting
+        icon: mdi:timer-sand
+        state: >
+          {% set ev_e = states('input_text.hba_strategy_ev_sensor_entity_id') | trim %}
+          {% set assist = states.binary_sensor.hba_battery_assist_active %}
+          {{ assist is not none and assist.state == 'on'
+             and ev_e not in ['', 'unknown', 'unavailable']
+             and not is_state(ev_e, 'on')
+             and (now() - assist.last_changed).total_seconds() > 180 }}
+
       - name: "HBA Grid Exporting Sustained"
         unique_id: hba_grid_exporting_sustained
         icon: mdi:transmission-tower-export
