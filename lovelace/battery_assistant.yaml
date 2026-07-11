@@ -1918,12 +1918,17 @@ views:
               {% set car_ok   = not car_conf or is_state(car_e, 'on') -%}
               {% set overflow = is_state('binary_sensor.hba_grid_exporting_sustained', 'on') -%}
               {% set active   = is_state('binary_sensor.hba_battery_assist_active', 'on') -%}
-              **{{ '🟢 Active' if active else '🔴 Inactive' }}**
+              {% set waiting  = is_state('binary_sensor.hba_battery_assist_waiting', 'on') -%}
+              {% set ev_e     = states('input_text.hba_strategy_ev_sensor_entity_id') | trim -%}
+              {% set ev_conf  = ev_e not in skip -%}
+              {% set ev_on    = ev_conf and is_state(ev_e, 'on') -%}
+              **{{ '⏳ Waiting for EV' if waiting else ('🟢 Active' if active else '🔴 Inactive') }}**
 
               {{ '✅' if is_state('input_boolean.hba_battery_assist_enabled', 'on') else '❌' }} Enabled
               {{ '✅' if in_window else '❌' }} Time window: {{ start_s[:5] }}–{{ end_s[:5] }}{% if not in_window %} *({{ now().strftime('%H:%M') }} outside)*{% endif %}
               {{ '✅' if soc > min_soc else '🔴' }} SoC: {{ soc | round(1) }}% / {{ min_soc | int }}% min{% if soc <= min_soc %} — **minimum reached, stopped**{% endif %}
               {{ '✅' if car_ok else '❌' }} Car: {% if not car_conf %}not configured{% elif car_ok %}connected ({{ car_e }}){% else %}not connected ({{ car_e }}){% endif %}
+              {{ '⏳' if waiting else '✅' }} EV charging: {% if not ev_conf %}no EV entity configured — push runs unconditionally{% elif waiting %}**not drawing — push suspended, fallback strategy runs.** Scan the charger tag and/or check the car (charge limit, schedule){% elif ev_on %}drawing ({{ ev_e }}){% elif active %}not drawing yet *(startup grace, pushing)*{% else %}not drawing{% endif %}
               {{ '⚠️' if overflow else '✅' }} Overflow guard: {{ '**sustained export — paused**' if overflow else 'OK' }}
             visibility:
               - condition: state
