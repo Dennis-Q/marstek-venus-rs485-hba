@@ -287,8 +287,8 @@ script:
   # when peak shaving activates. This matches the original Node-RED standby behaviour.
   #
   # When called from hba_run_strategy via the EV stop trigger path
-  # (input_boolean.hba_control_has_power_limit_during_ev_charge is on), this script
-  # acts as a power-limited safe mode while the EV is charging.
+  # (input_select.hba_control_strategy_during_ev_charge = "Standby / peak shave"),
+  # this script acts as a power-limited safe mode while the EV is charging.
   #
   # skip_label: caller manages the label (e.g. "EV stop trigger — Peak shave active").
   hba_strategy_standby:

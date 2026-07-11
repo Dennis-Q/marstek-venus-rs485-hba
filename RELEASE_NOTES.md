@@ -62,6 +62,22 @@ Changes on `dev` that have not yet been merged to `main`.
   lower bound uses this instead of total max discharge power, so batteries in thermal
   protection or otherwise unresponsive do not inflate the anti-windup ceiling.
 
+### Changed
+
+- **EV stop trigger policy: boolean → select** —
+  `input_boolean.hba_control_has_power_limit_during_ev_charge` is replaced by
+  `input_select.hba_control_strategy_during_ev_charge` ("Strategy during EV charge",
+  options: Full stop / Standby / peak shave / Charge PV, default Full stop). The first two
+  options reproduce the old off/on behaviour. The new **Charge PV** option lets the
+  batteries charge the solar residual the EV cannot take — e.g. when surplus sits between
+  the 1-phase 16 A maximum (~3.7 kW) and the 3-phase switch threshold (4.8 kW), up to
+  ~1.1 kW previously exported unused. Discharge stays disabled and Charge PV's setpoint
+  targets ~0 W grid, so the batteries only absorb what the EV leaves exported and never
+  compete with the charger (the EV project adds battery charging power back into its
+  excess signal, keeping battery activity invisible to the charger's phase/amp decisions).
+  **Migration:** if you had the old boolean ON, select "Standby / peak shave" once; the
+  orphaned `input_boolean` entity can be deleted from the UI.
+
 ### Fixed
 
 - **Solar forecast default entity: `forecast_remaining_today` → `forecast_today`** —

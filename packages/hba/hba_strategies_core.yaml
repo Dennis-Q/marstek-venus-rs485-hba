@@ -272,7 +272,7 @@ script:
               false
             {% endif %}
       - variables:
-          ev_peak_shave: "{{ is_state('input_boolean.hba_control_has_power_limit_during_ev_charge', 'on') }}"
+          ev_policy: "{{ states('input_select.hba_control_strategy_during_ev_charge') }}"
       - choose:
           # Timed EV charge — forcible discharge to EV charger
           - conditions: "{{ is_state('binary_sensor.hba_battery_assist_active', 'on') }}"
@@ -296,14 +296,24 @@ script:
                         {% set cap = states('input_number.hba_battery_assist_max_discharge_power') | float(0) %}
                         {{ -([hw_max, cap] | min | int) if cap > 0 else -(hw_max | int) }}
                       mode: "discharge"
-          # EV stop trigger overrides all strategies
-          - conditions: "{{ ev_active and ev_peak_shave }}"
+          # EV stop trigger overrides all strategies. What runs instead is set by
+          # input_select.hba_control_strategy_during_ev_charge.
+          - conditions: "{{ ev_active and ev_policy == 'Standby / peak shave' }}"
             sequence:
               - action: input_text.set_value
                 target: { entity_id: input_text.hba_strategy_active_flow }
                 data: { value: "EV stop trigger — Peak shave active" }
               - action: script.hba_strategy_standby
                 data: { skip_label: true }
+          # Charge PV during EV charge: absorb the solar residual the EV can't take.
+          # No coordination with the EV controller is needed — the EV project adds
+          # battery charging power back into its excess signal, so charging here is
+          # invisible to the EV's phase/amp decisions, and Charge PV (discharge
+          # disabled, setpoint ≈ 0) only eats what the EV leaves exported.
+          - conditions: "{{ ev_active and ev_policy == 'Charge PV' }}"
+            sequence:
+              - action: script.hba_strategy_charge_pv
+                data: { flow_prefix: "During EV charge →" }
           - conditions: "{{ ev_active }}"
             sequence:
               - action: input_text.set_value
@@ -962,8 +972,9 @@ script:
       # ── Misc ──────────────────────────────────────────────────────────────────
       - action: input_boolean.turn_off
         target: { entity_id: input_boolean.hba_control_is_debug_mode }
-      - action: input_boolean.turn_off
-        target: { entity_id: input_boolean.hba_control_has_power_limit_during_ev_charge }
+      - action: input_select.select_option
+        target: { entity_id: input_select.hba_control_strategy_during_ev_charge }
+        data: { option: "Full stop" }
       - action: input_text.set_value
         target: { entity_id: input_text.hba_strategy_ev_sensor_entity_id }
         data: { value: "" }

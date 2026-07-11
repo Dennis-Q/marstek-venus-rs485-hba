@@ -163,7 +163,7 @@ or set these manually in Advanced Settings before using the solar forecast charg
 | Helper | Default |
 |---|---|
 | `input_boolean.hba_control_is_debug_mode` | `off` |
-| `input_boolean.hba_control_has_power_limit_during_ev_charge` | `off` |
+| `input_select.hba_control_strategy_during_ev_charge` | `Full stop` |
 | `input_text.hba_strategy_ev_sensor_entity_id` | `""` (empty) |
 
 ## Notifications
