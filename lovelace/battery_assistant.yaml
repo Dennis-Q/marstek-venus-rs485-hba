@@ -38,6 +38,24 @@ views:
               expected value shown above.
               </ha-alert>
 
+      # Timed EV charge waiting alert (only shown while assist is suspended
+      # because the EV is not drawing power — see binary_sensor.hba_battery_assist_waiting)
+      - type: grid
+        visibility:
+          - condition: state
+            entity: binary_sensor.hba_battery_assist_waiting
+            state: 'on'
+        cards:
+          - type: markdown
+            grid_options:
+              columns: full
+            content: >-
+              <ha-alert alert-type="warning" title="Timed EV charge — waiting for EV">
+              The charger is enabled but the car is not drawing power. Scan the
+              charger tag and/or check the car (charge limit, schedule).
+              Batteries follow the normal strategy until charging starts.
+              </ha-alert>
+
       # Onboarding (hidden once dismissed)
       - type: grid
         visibility:
@@ -3427,22 +3445,6 @@ views:
             features_position: bottom
             grid_options:
               columns: full
-          - type: conditional
-            conditions:
-              - condition: state
-                entity: binary_sensor.hba_battery_assist_waiting
-                state: "on"
-            card:
-              type: markdown
-              content: >-
-                <ha-alert alert-type="warning"><b>Waiting for EV</b> — the
-                charger is enabled but the car is not drawing power. Scan the
-                charger tag and/or check the car (charge limit, schedule).
-                Batteries follow the normal strategy until charging
-                starts.</ha-alert>
-              text_only: true
-              grid_options:
-                columns: full
           - type: entities
             entities:
               - entity: input_datetime.hba_battery_assist_start_time
