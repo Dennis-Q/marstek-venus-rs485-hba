@@ -78,6 +78,10 @@ Changes on `dev` that have not yet been merged to `main`.
   and dashboard alerts (Timed EV Charge section + Insights flow card). The active_flow
   label is deliberately untouched: while waiting, the flow shows the fallback strategy
   that is actually running.
+  **Pairing note:** automatic resume requires ha-smart-ev-charging ≥ 0.2.8, which keeps
+  the charger armed in battery_assist mode while the battery side abstains — older EV
+  versions disarm the charger ~5 minutes into a waiting period, after which the car
+  cannot resume drawing and assist stays suspended until re-toggled.
 
 - **EV stop trigger policy: boolean → select** —
   `input_boolean.hba_control_has_power_limit_during_ev_charge` is replaced by
