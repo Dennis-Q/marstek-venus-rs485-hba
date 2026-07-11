@@ -64,6 +64,16 @@ Changes on `dev` that have not yet been merged to `main`.
 
 ### Fixed
 
+- **Solar forecast default entity: `forecast_remaining_today` → `forecast_today`** —
+  `hba_apply_defaults` (and DEFAULTS.md) pointed
+  `input_text.hba_strategy_solar_forecast_entity_id` at
+  `sensor.solcast_pv_forecast_forecast_remaining_today`, which has no `detailedForecast`
+  attribute — the solar outlook sensor therefore stayed in its fallback state and
+  Solar-aware always chose Zero import. The default is now
+  `sensor.solcast_pv_forecast_forecast_today` (requires the Solcast half-hourly detail
+  attribute option). Existing installs: re-run `apply_defaults` or update the helper
+  manually.
+
 - **Frank Energie PT15M resolution support** — `sensor.hba_energy_prices_data` hardcoded
   `datapoints_per_hour = 1` and assumed 3600-second slot intervals. When the Frank Energie
   integration is configured to PT15M resolution (`select.frank_energie_settings_resolution = pt15m`),
