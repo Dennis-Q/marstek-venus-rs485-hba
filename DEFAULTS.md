@@ -130,8 +130,16 @@ Period times (`input_datetime.hba_strategy_timed_period_a1` etc.) are not set by
 
 | Helper | Default |
 |---|---|
-| `input_text.hba_strategy_solar_forecast_entity_id` | `sensor.solcast_pv_forecast_forecast_remaining_today` |
+| `input_text.hba_strategy_solar_forecast_entity_id` | `sensor.solcast_pv_forecast_forecast_today` |
 | `input_text.hba_strategy_solar_forecast_tomorrow_entity_id` | `sensor.solcast_pv_forecast_forecast_tomorrow` |
+
+> **Why `forecast_today` and not `forecast_remaining_today`:** the Solar-aware outlook
+> sensor needs the `detailedForecast` attribute (half-hourly breakdown), which only
+> `forecast_today` / `forecast_tomorrow` carry — and only when the Solcast integration's
+> half-hourly detail attribute option is enabled. `forecast_remaining_today` has a valid
+> kWh state but no detail attribute, which puts the outlook in the `No solar detail`
+> fallback (permanent Zero import). Earlier releases defaulted to
+> `forecast_remaining_today` — re-run `apply_defaults` or fix the helper manually.
 
 When either helper is **empty** (e.g. before `apply_defaults` has run), the forecast
 is treated as **0 kWh** — the solar forecast charge goal will not reduce the charge
