@@ -599,6 +599,12 @@ input_select:
   #                          3-phase switch threshold). Discharge stays disabled,
   #                          so the batteries can never compete with the charger:
   #                          they only absorb what the EV leaves on the grid.
+  #                          Note: this assumes the EV controller adds battery
+  #                          charging power back into its surplus signal (the
+  #                          ha-smart-ev-charging project does). A solar-tracking
+  #                          charger without battery awareness would see its
+  #                          surplus shrink and back off — pick Full stop or
+  #                          Standby with such a setup.
   hba_control_strategy_during_ev_charge:
     name: "Strategy during EV charge"
     options:
