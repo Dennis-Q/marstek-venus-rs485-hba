@@ -1844,6 +1844,10 @@ views:
               {%- for part in show_parts %}
               {{ '&nbsp;&nbsp;' * loop.index ~ '&nbsp;' }}↳ {{ part }}
               {%- endfor %}
+              {%- if is_state('binary_sensor.hba_battery_assist_waiting', 'on') %}
+
+              ⏳ **Timed EV charge — waiting for EV** (assist push suspended; the flow above is the fallback strategy)
+              {%- endif %}
           - type: heading
             heading: Controller state
             heading_style: title
@@ -3418,6 +3422,22 @@ views:
             features_position: bottom
             grid_options:
               columns: full
+          - type: conditional
+            conditions:
+              - condition: state
+                entity: binary_sensor.hba_battery_assist_waiting
+                state: "on"
+            card:
+              type: markdown
+              content: >-
+                <ha-alert alert-type="warning"><b>Waiting for EV</b> — the
+                charger is enabled but the car is not drawing power. Scan the
+                charger tag and/or check the car (charge limit, schedule).
+                Batteries follow the normal strategy until charging
+                starts.</ha-alert>
+              text_only: true
+              grid_options:
+                columns: full
           - type: entities
             entities:
               - entity: input_datetime.hba_battery_assist_start_time
