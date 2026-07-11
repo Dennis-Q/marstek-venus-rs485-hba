@@ -64,6 +64,21 @@ Changes on `dev` that have not yet been merged to `main`.
 
 ### Changed
 
+- **Timed EV charge: no more grid-dump cycling when the EV won't draw** — when Timed EV
+  charge (battery assist) is armed but the EV has not drawn power for 3+ minutes (charger
+  waiting for a tag scan, car paused via its own limit/schedule, car API dead), the assist
+  push is suspended and the dispatch falls through to the **configured strategy** — instead
+  of the previous behaviour of cycling ~2 min of full battery export against the overflow
+  guard indefinitely. New `binary_sensor.hba_battery_assist_waiting` carries the state
+  (recorded, so waiting periods are visible in history); the assist push resumes on the
+  next control cycle as soon as the EV-charging entity turns on. The 3-minute startup
+  grace exists because the assist push is what creates the export the EV controller ramps
+  up on. Only applies when `input_text.hba_strategy_ev_sensor_entity_id` is configured —
+  installs without it keep the previous behaviour. Includes waiting/resumed notifications
+  and dashboard alerts (Timed EV Charge section + Insights flow card). The active_flow
+  label is deliberately untouched: while waiting, the flow shows the fallback strategy
+  that is actually running.
+
 - **EV stop trigger policy: boolean → select** —
   `input_boolean.hba_control_has_power_limit_during_ev_charge` is replaced by
   `input_select.hba_control_strategy_during_ev_charge` ("Strategy during EV charge",

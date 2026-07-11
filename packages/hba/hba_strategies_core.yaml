@@ -274,8 +274,16 @@ script:
       - variables:
           ev_policy: "{{ states('input_select.hba_control_strategy_during_ev_charge') }}"
       - choose:
-          # Timed EV charge — forcible discharge to EV charger
-          - conditions: "{{ is_state('binary_sensor.hba_battery_assist_active', 'on') }}"
+          # Timed EV charge — forcible discharge to EV charger.
+          # Abstains while binary_sensor.hba_battery_assist_waiting is on (EV not
+          # drawing power 3+ min after activation, e.g. charger waiting for a tag
+          # scan or the car paused itself): the dispatch then falls through to the
+          # configured strategy below (ev_active is false in that state, so the
+          # EV-trigger branches are skipped too). Resumes automatically on the
+          # next cycle once the EV draws power.
+          - conditions: >
+              {{ is_state('binary_sensor.hba_battery_assist_active', 'on')
+                 and not is_state('binary_sensor.hba_battery_assist_waiting', 'on') }}
             sequence:
               - choose:
                   - conditions: "{{ is_state('binary_sensor.hba_grid_exporting_sustained', 'on') }}"
