@@ -75,6 +75,11 @@ Changes on `dev` that have not yet been merged to `main`.
   targets ~0 W grid, so the batteries only absorb what the EV leaves exported and never
   compete with the charger (the EV project adds battery charging power back into its
   excess signal, keeping battery activity invisible to the charger's phase/amp decisions).
+  Charge PV assumes an EV controller with that battery awareness — with a third-party
+  solar-tracking charger that lacks it, the charger would see its surplus shrink and back
+  off; use Full stop or Standby there. HBA remains fully standalone: with no EV sensor
+  configured (`input_text.hba_strategy_ev_sensor_entity_id` empty) this select is never
+  consulted.
   **Migration:** if you had the old boolean ON, select "Standby / peak shave" once; the
   orphaned `input_boolean` entity can be deleted from the UI.
 
