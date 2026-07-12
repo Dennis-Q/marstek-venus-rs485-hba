@@ -1855,13 +1855,27 @@ views:
               {% set strategy = states('input_select.hba_strategy') -%}
               {% set executing = states('input_text.hba_strategy_active_flow') -%}
               {% set parts = executing.split(' → ') if executing not in ['', 'unknown', 'unavailable'] else [] -%}
+              {#- EV/assist overrides preempt the configured strategy entirely — don't
+                  render the configured strategy as their parent node. -#}
+              {% set overridden = parts | length > 0 and (
+                   parts[0].startswith('During EV charge')
+                   or parts[0].startswith('EV stop trigger')
+                   or parts[0].startswith('Timed EV charge')) -%}
               {% set skip_first = parts | length > 0 and parts[0] == strategy -%}
               {% set show_parts = parts[1:] if skip_first else parts -%}
               Control loop
+              {%- if overridden %}
+              {%- for part in parts %}
+              {{ '&nbsp;&nbsp;' * (loop.index - 1) ~ '&nbsp;' }}↳ {{ part }}
+              {%- endfor %}
+
+              _(configured strategy **{{ strategy }}** is overridden while the EV charges)_
+              {%- else %}
               &nbsp;↳ {{ strategy }}
               {%- for part in show_parts %}
               {{ '&nbsp;&nbsp;' * loop.index ~ '&nbsp;' }}↳ {{ part }}
               {%- endfor %}
+              {%- endif %}
               {%- if is_state('binary_sensor.hba_battery_assist_waiting', 'on') %}
 
               ⏳ **Timed EV charge — waiting for EV** (assist push suspended; the flow above is the fallback strategy)
@@ -1886,7 +1900,7 @@ views:
               **Error:** {{ err | round(0) | int }} W (target {{ target | int }} W)
               **Deadband:** {% if err | abs < 15 %}✅ inside ±15 W{% else %}⚡ outside — {{ err | abs | round(0) | int }} W from setpoint{% endif %}
 
-              **{{ states('input_select.hba_strategy') }} strategy** | Executing: **{{ states('sensor.hba_active_strategy') }}** | Flow: **{{ states('input_text.hba_strategy_active_flow') }}**
+              Configured: **{{ states('input_select.hba_strategy') }}** | Executing: **{{ states('sensor.hba_active_strategy') }}** | Flow: **{{ states('input_text.hba_strategy_active_flow') }}**
 
               **PID cycle:** {{ states('input_text.hba_control_cycle_state') }}
 
