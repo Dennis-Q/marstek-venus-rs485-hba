@@ -64,6 +64,16 @@ Changes on `dev` that have not yet been merged to `main`.
 
 ### Changed
 
+- **Insights view: EV-coordination debugging** — the Controller state card shows the
+  during-EV-charge policy and (for Charge PV) the live saturation-gate state
+  (🟢 saturated — absorbing residual / ⏸ not saturated — batteries stand down / no gate
+  configured). The strategy line is relabelled `Configured:` and the "Flows used" tree no
+  longer renders the configured strategy as the parent of EV/assist override flows —
+  overrides now appear directly under Control loop with an "overridden while the EV
+  charges" note. New **Battery response (24 h)** history-graph of all six
+  `hba_marstek_mX_not_responding` sensors to see at a glance if/when batteries stopped
+  tracking commanded power.
+
 - **Timed EV charge: no more grid-dump cycling when the EV won't draw** — when Timed EV
   charge (battery assist) is armed but the EV has not drawn power for 3+ minutes (charger
   waiting for a tag scan, car paused via its own limit/schedule, car API dead), the assist
