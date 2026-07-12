@@ -1894,7 +1894,13 @@ views:
               **Peak shaving:** {% if has_imp %}import ≤ {{ imp_lim }} W{% if grid > imp_lim %} 🔴 clamping{% else %} 🟢{% endif %}{% endif %}{% if has_imp and has_exp %} / {% endif %}{% if has_exp %}export ≤ {{ exp_lim }} W{% if grid < 0 and (grid | abs) > exp_lim %} 🔴 clamping{% else %} 🟢{% endif %}{% endif %}
 
               {% endif -%}
-              **EV stop:** {{ states(ev_e) if ev_e not in ['','unknown','unavailable'] else '_not configured_' }}
+              {%- set ev_policy = states('input_select.hba_control_strategy_during_ev_charge') -%}
+              {%- set sat_e = states('input_text.hba_strategy_ev_saturated_entity_id') | trim -%}
+              {%- set ev_on = ev_e not in ['','unknown','unavailable'] and is_state(ev_e, 'on') %}
+              **EV charging:** {{ states(ev_e) if ev_e not in ['','unknown','unavailable'] else '_not configured_' }} | **policy:** {{ ev_policy }}
+              {%- if ev_policy == 'Charge PV' %}
+              **Charge PV gate:** {% if sat_e in ['','unknown','unavailable'] %}no saturation entity — runs whenever the EV charges{% elif is_state(sat_e, 'on') %}🟢 saturated — absorbing residual{% if not ev_on %} (idle: EV not charging){% endif %}{% else %}⏸ not saturated ({{ states(sat_e) }}) — batteries stand down while the charger regulates{% endif %}
+              {%- endif %}
           - type: heading
             heading: System state
             heading_style: title
