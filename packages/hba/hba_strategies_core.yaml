@@ -273,6 +273,15 @@ script:
             {% endif %}
       - variables:
           ev_policy: "{{ states('input_select.hba_control_strategy_during_ev_charge') }}"
+          # Saturation gate for Charge PV during EV charge. Pointer not
+          # configured → gate is always open (previous behaviour).
+          ev_saturated: >
+            {% set e = states('input_text.hba_strategy_ev_saturated_entity_id') | trim %}
+            {% if e in ['', 'unknown', 'unavailable'] %}
+              true
+            {% else %}
+              {{ states(e) == 'on' }}
+            {% endif %}
       - choose:
           # Timed EV charge — forcible discharge to EV charger.
           # Abstains while binary_sensor.hba_battery_assist_waiting is on (EV not
@@ -317,17 +326,19 @@ script:
           # No coordination with the EV controller is needed — the EV project adds
           # battery charging power back into its excess signal, so charging here is
           # invisible to the EV's phase/amp decisions, and Charge PV only eats what
-          # the EV leaves exported. The setpoint is offset below 0 by
-          # hba_control_ev_charge_pv_export_offset so the battery ignores the noisy
-          # band around 0 W where the EV charger regulates and only skims sustained
-          # export beyond the offset (0 = no offset, PID targets 0 W).
-          - conditions: "{{ ev_active and ev_policy == 'Charge PV' }}"
+          # the EV leaves exported.
+          # When hba_strategy_ev_saturated_entity_id is configured, this branch
+          # additionally requires the EV side to report the charger as saturated
+          # (pinned at its current limit / derated by load balancing) — only then
+          # is there genuinely unconsumable surplus, and the EV controller is a
+          # constant load instead of a competing regulator (two loops regulating
+          # the same grid signal was observed to increase import/export spread).
+          # Not saturated → falls through to the EV-active branch below
+          # (Full stop / Standby per policy).
+          - conditions: "{{ ev_active and ev_policy == 'Charge PV' and ev_saturated }}"
             sequence:
               - action: script.hba_strategy_charge_pv
-                data:
-                  flow_prefix: "During EV charge →"
-                  setpoint_override: >-
-                    {{ -(states('input_number.hba_control_ev_charge_pv_export_offset') | float(0)) }}
+                data: { flow_prefix: "During EV charge →" }
           - conditions: "{{ ev_active }}"
             sequence:
               - action: input_text.set_value
@@ -989,11 +1000,11 @@ script:
       - action: input_select.select_option
         target: { entity_id: input_select.hba_control_strategy_during_ev_charge }
         data: { option: "Full stop" }
-      - action: input_number.set_value
-        target: { entity_id: input_number.hba_control_ev_charge_pv_export_offset }
-        data: { value: 400 }
       - action: input_text.set_value
         target: { entity_id: input_text.hba_strategy_ev_sensor_entity_id }
+        data: { value: "" }
+      - action: input_text.set_value
+        target: { entity_id: input_text.hba_strategy_ev_saturated_entity_id }
         data: { value: "" }
       # ── Notifications ─────────────────────────────────────────────────────────
       - action: input_boolean.turn_on

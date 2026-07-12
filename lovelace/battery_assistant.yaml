@@ -3442,20 +3442,22 @@ views:
             text_only: true
           - type: entities
             entities:
-              - entity: input_number.hba_control_ev_charge_pv_export_offset
-                name: Charge PV export offset
+              - entity: input_text.hba_strategy_ev_saturated_entity_id
+                name: EV charger saturated entity
+                secondary_info: none
             visibility:
               - condition: state
                 entity: input_select.hba_control_strategy_during_ev_charge
                 state: "Charge PV"
           - type: markdown
             content: >-
-              <font color=grey>Export the batteries leave untouched in Charge PV
-              mode. The EV charger's regulation makes grid power noisy around
-              0 W — without an offset the batteries trickle-charge on every
-              export blip, increasing the spread. With the offset they only
-              absorb sustained surplus beyond it. Recommended: 400 W.
-              0 = disabled.</font>
+              <font color=grey>**Saturated entity**: a binary_sensor from the
+              EV side that is on when the charger cannot take more power
+              (pinned at its current limit or derated by load balancing). When
+              set, Charge PV only runs while the charger is saturated, so the
+              batteries never compete with the charger's own regulation.
+              Example: `binary_sensor.ev_charger_saturated`. Leave empty to
+              run Charge PV whenever the EV charges.</font>
             text_only: true
             visibility:
               - condition: state
