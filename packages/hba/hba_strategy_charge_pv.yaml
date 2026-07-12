@@ -24,6 +24,12 @@ script:
       flow_prefix:
         description: "Optional prefix prepended to flow labels (e.g. 'Charge → ' when called from goal-reached dispatch)"
         default: ""
+      setpoint_override:
+        description: >-
+          Optional grid setpoint in W forwarded to self-consumption (negative =
+          export target). Used by the during-EV-charge dispatch to leave an
+          export offset untouched so the battery ignores the noise band around
+          0 W where the EV charger regulates, and only skims sustained surplus.
     sequence:
       - variables:
           _flow_prefix: "{{ flow_prefix | default('') }}"
@@ -49,7 +55,10 @@ script:
           # discharge_disabled clamps PID output to ≥0 inside self_consumption,
           # so no separate discharge-override is needed after the call.
           - action: script.hba_strategy_self_consumption
-            data: { skip_label: true, discharge_disabled: true }
+            data:
+              skip_label: true
+              discharge_disabled: true
+              setpoint_override: "{{ setpoint_override | default(none) }}"
           - action: input_text.set_value
             target: { entity_id: input_text.hba_strategy_active_flow }
             data: { value: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Charge PV → Self-consumption (charge only)" }

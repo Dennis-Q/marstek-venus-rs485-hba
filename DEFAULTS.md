@@ -164,6 +164,7 @@ or set these manually in Advanced Settings before using the solar forecast charg
 |---|---|
 | `input_boolean.hba_control_is_debug_mode` | `off` |
 | `input_select.hba_control_strategy_during_ev_charge` | `Full stop` |
+| `input_number.hba_control_ev_charge_pv_export_offset` | `400` W (0 = disabled; export left untouched in Charge PV during EV charge) |
 | `input_text.hba_strategy_ev_sensor_entity_id` | `""` (empty) |
 
 ## Notifications
