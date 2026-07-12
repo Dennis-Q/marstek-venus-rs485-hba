@@ -253,24 +253,6 @@ input_number:
     unit_of_measurement: W
     icon: mdi:transmission-tower-export
 
-  # Export the batteries leave untouched while charging the solar residual
-  # during an EV charge (strategy-during-EV-charge = Charge PV). The EV
-  # charger's own regulation makes grid power noisy around 0 W; without an
-  # offset the Charge PV PID chases every export blip (observed: battery
-  # trickle-charging 118 W on noise, increasing overall grid spread). With
-  # the offset, the PID targets -offset W, so anything inside the noise band
-  # is left alone (discharge_disabled clamps the "wrong" direction to idle)
-  # and only sustained surplus beyond the offset is absorbed.
-  # 0 = disabled (old behaviour, PID targets 0 W).
-  hba_control_ev_charge_pv_export_offset:
-    name: "EV charge: Charge PV export offset"
-    min: 0
-    max: 1000
-    step: 50
-    mode: box
-    unit_of_measurement: W
-    icon: mdi:sine-wave
-
   # --- Slow charge limits (battery health) ---
   # Two configurable levels: cap charge power when SoC exceeds each threshold.
   # Set power limit to 0 to disable that level (BMS handles the taper instead).
@@ -563,6 +545,18 @@ input_text:
     name: "EV charging entity_id"
     max: 100
     icon: mdi:car-electric
+  # Optional binary_sensor published by the EV side that is 'on' when the
+  # charger cannot take more power (pinned at its current limit or derated
+  # by CT/household load balancing). When configured, "Charge PV" during EV
+  # charge only runs while this is 'on' — the batteries wake up only when
+  # the charger genuinely leaves surplus behind, so the two controllers
+  # never regulate the same watts. Leave empty to run Charge PV whenever
+  # the EV charges (previous behaviour).
+  # Example (ha-smart-ev-charging): binary_sensor.ev_charger_saturated
+  hba_strategy_ev_saturated_entity_id:
+    name: "EV charger saturated entity_id"
+    max: 100
+    icon: mdi:car-speed-limiter
   hba_strategy_dynamic_frank_sensor_entity_id:
     name: "Frank Energie prices sensor entity_id"
     max: 150
