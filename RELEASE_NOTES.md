@@ -104,6 +104,13 @@ Changes on `dev` that have not yet been merged to `main`.
 
 ### Fixed
 
+- **PT15M: `mark_now` refreshed only hourly** — `sensor.hba_energy_prices_data`'s time
+  trigger was `hours: /1`, so with 15-minute price resolution the pre-computed `mark_now` /
+  `is_now` attributes lagged slot boundaries by up to 45 minutes (a cheap slot starting at
+  HH:15 would not reach the Dynamic v2 dispatch until the next full hour). The trigger is
+  now `minutes: /15`; with hourly price data the extra evaluations recompute an identical
+  result, so PT1H behaviour is unchanged.
+
 - **Insights "Dynamic pricing — now" card showed v1 windows while running Dynamic v2** —
   the cheap/expensive times came from the v1 contiguous-window `input_datetime` helpers
   (driven by the v1 `cheapest_hrs` helper and only recalculated hourly / on v1 helper
