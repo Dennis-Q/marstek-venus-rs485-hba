@@ -99,6 +99,15 @@ Changes on `dev` that have not yet been merged to `main`.
   off; use Full stop or Standby there. HBA remains fully standalone: with no EV sensor
   configured (`input_text.hba_strategy_ev_sensor_entity_id` empty) this select is never
   consulted.
+  **Export offset** (`input_number.hba_control_ev_charge_pv_export_offset`, default 400 W,
+  0 = disabled): the EV charger's own regulation makes grid power noisy around 0 W, and a
+  PID targeting 0 chases every export blip (observed in production: battery
+  trickle-charging ~118 W on noise, increasing overall grid spread). The dispatch now
+  passes `setpoint_override: -offset` to Charge PV, so the batteries ignore the noise band
+  entirely (discharge_disabled clamps the wrong direction to idle) and only skim sustained
+  export beyond the offset — the two controllers no longer contend for the same watts
+  around zero. `hba_strategy_charge_pv` gained a `setpoint_override` pass-through field
+  for this.
   **Migration:** if you had the old boolean ON, select "Standby / peak shave" once; the
   orphaned `input_boolean` entity can be deleted from the UI.
 
