@@ -2032,23 +2032,111 @@ views:
             content: >-
               <font color=grey>When a battery stopped tracking its commanded
               power (RS485 enabled, ≥ 300 W commanded, >15% deviation for
-              30+ s). Unconfigured battery slots show as unavailable.</font>
+              30+ s).</font>
             text_only: true
-          - type: history-graph
-            entities:
-              - entity: binary_sensor.hba_marstek_m1_not_responding
-                name: M1
-              - entity: binary_sensor.hba_marstek_m2_not_responding
-                name: M2
-              - entity: binary_sensor.hba_marstek_m3_not_responding
-                name: M3
-              - entity: binary_sensor.hba_marstek_m4_not_responding
-                name: M4
-              - entity: binary_sensor.hba_marstek_m5_not_responding
-                name: M5
-              - entity: binary_sensor.hba_marstek_m6_not_responding
-                name: M6
-            hours_to_show: 24
+          # One conditional variant per configured battery count, following the
+          # same pattern as the per-battery power graphs in the home view.
+          - type: conditional
+            conditions:
+              - condition: numeric_state
+                entity: input_number.hba_battery_count
+                above: 0
+                below: 2
+            card:
+              type: history-graph
+              hours_to_show: 24
+              entities:
+                - entity: binary_sensor.hba_marstek_m1_not_responding
+                  name: M1
+          - type: conditional
+            conditions:
+              - condition: numeric_state
+                entity: input_number.hba_battery_count
+                above: 1
+                below: 3
+            card:
+              type: history-graph
+              hours_to_show: 24
+              entities:
+                - entity: binary_sensor.hba_marstek_m1_not_responding
+                  name: M1
+                - entity: binary_sensor.hba_marstek_m2_not_responding
+                  name: M2
+          - type: conditional
+            conditions:
+              - condition: numeric_state
+                entity: input_number.hba_battery_count
+                above: 2
+                below: 4
+            card:
+              type: history-graph
+              hours_to_show: 24
+              entities:
+                - entity: binary_sensor.hba_marstek_m1_not_responding
+                  name: M1
+                - entity: binary_sensor.hba_marstek_m2_not_responding
+                  name: M2
+                - entity: binary_sensor.hba_marstek_m3_not_responding
+                  name: M3
+          - type: conditional
+            conditions:
+              - condition: numeric_state
+                entity: input_number.hba_battery_count
+                above: 3
+                below: 5
+            card:
+              type: history-graph
+              hours_to_show: 24
+              entities:
+                - entity: binary_sensor.hba_marstek_m1_not_responding
+                  name: M1
+                - entity: binary_sensor.hba_marstek_m2_not_responding
+                  name: M2
+                - entity: binary_sensor.hba_marstek_m3_not_responding
+                  name: M3
+                - entity: binary_sensor.hba_marstek_m4_not_responding
+                  name: M4
+          - type: conditional
+            conditions:
+              - condition: numeric_state
+                entity: input_number.hba_battery_count
+                above: 4
+                below: 6
+            card:
+              type: history-graph
+              hours_to_show: 24
+              entities:
+                - entity: binary_sensor.hba_marstek_m1_not_responding
+                  name: M1
+                - entity: binary_sensor.hba_marstek_m2_not_responding
+                  name: M2
+                - entity: binary_sensor.hba_marstek_m3_not_responding
+                  name: M3
+                - entity: binary_sensor.hba_marstek_m4_not_responding
+                  name: M4
+                - entity: binary_sensor.hba_marstek_m5_not_responding
+                  name: M5
+          - type: conditional
+            conditions:
+              - condition: numeric_state
+                entity: input_number.hba_battery_count
+                above: 5
+            card:
+              type: history-graph
+              hours_to_show: 24
+              entities:
+                - entity: binary_sensor.hba_marstek_m1_not_responding
+                  name: M1
+                - entity: binary_sensor.hba_marstek_m2_not_responding
+                  name: M2
+                - entity: binary_sensor.hba_marstek_m3_not_responding
+                  name: M3
+                - entity: binary_sensor.hba_marstek_m4_not_responding
+                  name: M4
+                - entity: binary_sensor.hba_marstek_m5_not_responding
+                  name: M5
+                - entity: binary_sensor.hba_marstek_m6_not_responding
+                  name: M6
           - type: heading
             heading: Insights
             heading_style: title
