@@ -70,9 +70,10 @@ Changes on `dev` that have not yet been merged to `main`.
   configured). The strategy line is relabelled `Configured:` and the "Flows used" tree no
   longer renders the configured strategy as the parent of EV/assist override flows —
   overrides now appear directly under Control loop with an "overridden while the EV
-  charges" note. New **Battery response (24 h)** history-graph of all six
+  charges" note. New **Battery response (24 h)** history-graph of the
   `hba_marstek_mX_not_responding` sensors to see at a glance if/when batteries stopped
-  tracking commanded power.
+  tracking commanded power — shows only the configured batteries (conditional card
+  variants per `hba_battery_count`, same pattern as the home-view per-battery graphs).
 
 - **Timed EV charge: no more grid-dump cycling when the EV won't draw** — when Timed EV
   charge (battery assist) is armed but the EV has not drawn power for 3+ minutes (charger
