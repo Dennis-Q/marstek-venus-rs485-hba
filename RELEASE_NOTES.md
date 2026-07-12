@@ -104,6 +104,16 @@ Changes on `dev` that have not yet been merged to `main`.
 
 ### Fixed
 
+- **Insights "Dynamic pricing — now" card showed v1 windows while running Dynamic v2** —
+  the cheap/expensive times came from the v1 contiguous-window `input_datetime` helpers
+  (driven by the v1 `cheapest_hrs` helper and only recalculated hourly / on v1 helper
+  changes), so with Dynamic v2 active the displayed windows neither matched the marks nor
+  reacted to the v2 max-hours helpers. The card now branches on the active strategy: for
+  Dynamic v2 it renders today's actual marked slots from `sensor.hba_energy_prices_data`
+  (contiguous slots merged into ranges, e.g. "13:00–15:00, 17:00–18:00"), which update
+  immediately on max-cheap/expensive-hours or delta-threshold changes since the sensor
+  triggers on those helpers; for Dynamic v1 the contiguous window display is unchanged.
+
 - **Solar-aware debug card disappeared in the `Insufficient` state** — the Insights
   "Solar-aware — now" markdown card used `| strftime('%H:%M')` as a Jinja *filter*, which
   does not exist in HA templates (`strftime` is a datetime *method*; unknown filters only
