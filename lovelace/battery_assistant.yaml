@@ -2069,10 +2069,6 @@ views:
                 state: "on"
           - type: markdown
             content: |-
-              {% set cheap_s = states('input_datetime.hba_strategy_dynamic_cheapest_start') -%}
-              {% set cheap_e = states('input_datetime.hba_strategy_dynamic_cheapest_end') -%}
-              {% set exp_s = states('input_datetime.hba_strategy_dynamic_expensive_start') -%}
-              {% set exp_e = states('input_datetime.hba_strategy_dynamic_expensive_end') -%}
               {% set mark_now = state_attr('sensor.hba_energy_prices_data', 'mark_now') | default('unknown') -%}
               {% set cheap_strat = states('input_select.hba_strategy_dynamic_cheapest') -%}
               {% set exp_strat = states('input_select.hba_strategy_dynamic_expensive') -%}
@@ -2080,11 +2076,51 @@ views:
               {% set cheap_met = is_state('binary_sensor.hba_dynamic_cheap_threshold_met', 'on') -%}
               {% set exp_met = is_state('binary_sensor.hba_dynamic_expensive_threshold_met', 'on') -%}
               {% set strategy = states('input_select.hba_strategy') -%}
+              {#- v2: today's marked slots from sensor.hba_energy_prices_data, contiguous
+                  slots merged into ranges. Updates immediately when max cheap/expensive
+                  hours or delta threshold change (the sensor triggers on those helpers).
+                  v1: the contiguous CEH window input_datetimes, recalculated hourly and
+                  on v1 helper changes. -#}
+              {%- macro v2_ranges(kind) -%}
+                {%- set marks_raw = state_attr('sensor.hba_energy_prices_data', 'marks') -%}
+                {%- set marks = (marks_raw | from_json) if marks_raw is string and (marks_raw | trim)[:1] == '[' else (marks_raw if marks_raw is sequence else []) -%}
+                {%- set day_start = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0)) | int -%}
+                {%- set day_end = day_start + 86400 -%}
+                {%- set ns = namespace(out=[], cs=-1, ce=-1) -%}
+                {%- for m in marks -%}
+                  {%- if m.mark | default('') == kind -%}
+                    {%- set s = as_timestamp(m.start) | int -%}
+                    {%- set e = as_timestamp(m.end) | int -%}
+                    {%- if s >= day_start and s < day_end -%}
+                      {%- if s == ns.ce -%}
+                        {%- set ns.ce = e -%}
+                      {%- else -%}
+                        {%- if ns.cs >= 0 -%}{%- set ns.out = ns.out + [(ns.cs, ns.ce)] -%}{%- endif -%}
+                        {%- set ns.cs = s -%}{%- set ns.ce = e -%}
+                      {%- endif -%}
+                    {%- endif -%}
+                  {%- endif -%}
+                {%- endfor -%}
+                {%- if ns.cs >= 0 -%}{%- set ns.out = ns.out + [(ns.cs, ns.ce)] -%}{%- endif -%}
+                {%- if ns.out | length == 0 -%}none today
+                {%- else -%}
+                  {%- for r in ns.out -%}{{ r[0] | timestamp_custom('%H:%M') }}–{{ r[1] | timestamp_custom('%H:%M') }}{{ ', ' if not loop.last }}{%- endfor -%}
+                {%- endif -%}
+              {%- endmacro -%}
               **Dynamic pricing — now**
               Mark: **{{ mark_now }}**{% if strategy == 'Dynamic' %} | Cheap threshold: {{ '✅ met' if cheap_met else '❌ not met (SKIP)' }} | Exp. threshold: {{ '✅ met' if exp_met else '❌ not met (SKIP)' }}{% endif %}
 
+              {% if strategy == 'Dynamic v2' -%}
+              🟢 Cheap → **{{ cheap_strat }}** ({{ v2_ranges('low') }})
+              🟠 Expensive → **{{ exp_strat }}** ({{ v2_ranges('high') }})
+              {%- else -%}
+              {%- set cheap_s = states('input_datetime.hba_strategy_dynamic_cheapest_start') -%}
+              {%- set cheap_e = states('input_datetime.hba_strategy_dynamic_cheapest_end') -%}
+              {%- set exp_s = states('input_datetime.hba_strategy_dynamic_expensive_start') -%}
+              {%- set exp_e = states('input_datetime.hba_strategy_dynamic_expensive_end') -%}
               🟢 Cheap → **{{ cheap_strat }}** ({{ cheap_s[11:16] if cheap_s | length > 15 else '?' }} – {{ cheap_e[11:16] if cheap_e | length > 15 else '?' }})
               🟠 Expensive → **{{ exp_strat }}** ({{ exp_s[11:16] if exp_s | length > 15 else '?' }} – {{ exp_e[11:16] if exp_e | length > 15 else '?' }})
+              {%- endif %}
               — Default → **{{ def_strat }}**
             visibility:
               - condition: state
