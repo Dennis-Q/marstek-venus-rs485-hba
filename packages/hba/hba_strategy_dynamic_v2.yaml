@@ -31,8 +31,8 @@
 # To force a refresh, toggle one of the config helpers (e.g. max_cheap_hours ±1 and back).
 #
 # sensor attributes:
-#   datapoints_per_hour  — always 1 (Frank Energie is hourly)
-#   mark_now             — the current hour's mark ('Cheap'/'Expensive'/'Regular')
+#   datapoints_per_hour  — 1 (PT1H) or 4 (PT15M), detected from the price data
+#   mark_now             — the current slot's mark ('Cheap'/'Expensive'/'Regular')
 #   prices               — flat list of ct/kWh values, chronological (today + tomorrow)
 #   marks                — list of {start, end, price, mark, is_now} objects
 #
@@ -44,8 +44,13 @@
 
 template:
   - trigger:
+      # Every 15 minutes, not hourly: with PT15M price resolution the mark_now /
+      # is_now attributes must move on slot boundaries (a cheap slot starting at
+      # HH:15 would otherwise not reach the dispatch until the next full hour).
+      # With PT1H data the extra evaluations recompute an identical result — the
+      # marks only change on hour boundaries, so this is a no-op there.
       - trigger: time_pattern
-        hours: "/1"
+        minutes: "/15"
       - trigger: homeassistant
         event: start
       - trigger: state
