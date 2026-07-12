@@ -104,6 +104,17 @@ Changes on `dev` that have not yet been merged to `main`.
 
 ### Fixed
 
+- **Solar-aware debug card disappeared in the `Insufficient` state** — the Insights
+  "Solar-aware — now" markdown card used `| strftime('%H:%M')` as a Jinja *filter*, which
+  does not exist in HA templates (`strftime` is a datetime *method*; unknown filters only
+  error when the branch containing them actually executes). With outlook `Covered` the
+  deadline branch was never taken and the card rendered; with `Insufficient` (e.g. cheap
+  hours reduced so remaining slots can't cover the charge) the deadline branch executed,
+  the template errored at runtime, and the whole card vanished. Both occurrences replaced
+  with `| as_timestamp(0) | timestamp_custom('%H:%M')` (verified to render correct local
+  time). Reproduced empirically: a template sensor executing `| strftime` fails to create,
+  while the same expression inside a never-taken `{% if false %}` branch loads fine.
+
 - **Solar forecast default entity: `forecast_remaining_today` → `forecast_today`** —
   `hba_apply_defaults` (and DEFAULTS.md) pointed
   `input_text.hba_strategy_solar_forecast_entity_id` at
