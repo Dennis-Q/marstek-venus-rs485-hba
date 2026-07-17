@@ -1193,7 +1193,39 @@ template:
               {% set ns.dischargeable = true %}
             {% endif %}
           {% endfor %}
-          {{ enabled and soc > min_soc and ns.dischargeable and in_window and car_ok }}
+          {# The stalled watchdog (below) releases assist when the pack is
+             commanded to discharge but delivers nothing — behaviour the SoC
+             model above cannot see (e.g. V3 firmware refuses below ~13%
+             regardless of the configured cutoff). 'not on' so an unknown
+             sensor at startup does not block assist. #}
+          {{ enabled and soc > min_soc and ns.dischargeable and in_window and car_ok
+             and not is_state('binary_sensor.hba_battery_assist_stalled', 'on') }}
+
+      # Stall watchdog for the Timed EV charge push: ON when assist is actively
+      # commanding discharge ("Discharge to EV" is written by exactly one
+      # dispatch branch) but the pack has delivered < 150 W for 3+ continuous
+      # minutes — the BMS is refusing (firmware SoC floor, thermal, fault) or
+      # the Modbus writes are being silently ignored. While ON, assist_active
+      # drops, the EV side leaves battery_assist mode and stops the charger —
+      # without this the EV keeps charging at full grid power indefinitely
+      # (production 2026-07-17: ~48 min of ~4 kW grid import).
+      # Deliberately stateless — no latch to get stuck: delay_off IS the
+      # hold-off. Once assist drops, the raw condition goes false (the active
+      # strategy changes), the 30-min delay_off starts, and assist gets one
+      # clean retry per hold-off period; a persistent stall re-trips after
+      # 3 min (bounded: ~3 min grid draw per 30 min, with a push each trip).
+      # The active-strategy condition inherently excludes the two legitimate
+      # low-power states: assist-waiting (dispatch runs the fallback strategy)
+      # and the grid-overflow branch (label ends in "Self-consumption").
+      - name: "HBA Battery Assist Stalled"
+        unique_id: hba_battery_assist_stalled
+        icon: mdi:battery-off-outline
+        delay_on: "00:03:00"
+        delay_off: "00:30:00"
+        state: >
+          {{ is_state('binary_sensor.hba_battery_assist_active', 'on')
+             and states('sensor.hba_active_strategy') == 'Discharge to EV'
+             and states('sensor.hba_total_battery_power') | float(0) < 150 }}
 
       # ON when Timed EV charge is armed but the EV has not drawn power for
       # 3+ minutes since assist activated — charger may need a tag scan, or the
