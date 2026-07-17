@@ -130,6 +130,19 @@ Changes on `dev` that have not yet been merged to `main`.
 
 ### Fixed
 
+- **Timed EV charge kept the EV charging from grid after the batteries hit their
+  per-battery discharge cutoffs** — `binary_sensor.hba_battery_assist_active` gated only
+  on *average* pack SoC vs `hba_battery_assist_min_soc`, while `hba_set_batteries` skips
+  each battery individually at its `discharging_cutoff_capacity` (+0.5 buffer). When every
+  battery was at its own cutoff but the average still sat above `min_soc` (unbalanced pack,
+  or `min_soc` ≤ the cutoffs), assist stayed armed with zero deliverable watts: the EV
+  remained in `battery_assist` mode — which deliberately never stops on lack of excess —
+  and charged from grid (observed in production 2026-07-17: ~48 min of ~4 kW grid import,
+  batteries at 0–1 W). The sensor now additionally requires at least one battery to be
+  individually dischargeable, using the exact `hba_set_batteries` discharge-eligibility
+  check (SoC > per-battery cutoff + 0.5, inverter not Fault/unknown/unavailable), so
+  assist ends the moment HBA can no longer assign discharge power to any battery.
+
 - **PT15M: `mark_now` refreshed only hourly** — `sensor.hba_energy_prices_data`'s time
   trigger was `hours: /1`, so with 15-minute price resolution the pre-computed `mark_now` /
   `is_now` attributes lagged slot boundaries by up to 45 minutes (a cheap slot starting at
