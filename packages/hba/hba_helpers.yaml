@@ -1175,7 +1175,25 @@ template:
           {% set in_window = (now() >= start_dt or now() < end_dt) if overnight else (start_dt <= now() < end_dt) %}
           {% set car_e     = states('input_text.hba_battery_assist_car_connected_entity') | trim %}
           {% set car_ok    = car_e in ['', 'unknown', 'unavailable'] or is_state(car_e, 'on') %}
-          {{ enabled and soc > min_soc and in_window and car_ok }}
+          {# At least one battery must be individually dischargeable — same
+             eligibility as the hba_set_batteries discharge branch (per-battery
+             cutoff + 0.5 buffer, inverter not faulted). The average-SoC check
+             alone can stay true while every battery is at its own cutoff
+             (unbalanced pack, or min_soc <= cutoffs): assist then keeps the EV
+             in battery_assist mode charging from grid with 0 W coming from the
+             batteries (observed in production 2026-07-17, ~48 min of 4 kW
+             grid import). #}
+          {% set count = states('input_number.hba_battery_count') | int(1) %}
+          {% set ns = namespace(dischargeable=false) %}
+          {% for i in range(1, count + 1) %}
+            {% set b_soc = states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') | float(0) %}
+            {% set b_cut = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) %}
+            {% set inv   = states('sensor.marstek_m' ~ i ~ '_inverter_state') %}
+            {% if b_soc > b_cut + 0.5 and inv not in ['Fault', 'unknown', 'unavailable'] %}
+              {% set ns.dischargeable = true %}
+            {% endif %}
+          {% endfor %}
+          {{ enabled and soc > min_soc and ns.dischargeable and in_window and car_ok }}
 
       # ON when Timed EV charge is armed but the EV has not drawn power for
       # 3+ minutes since assist activated — charger may need a tag scan, or the
