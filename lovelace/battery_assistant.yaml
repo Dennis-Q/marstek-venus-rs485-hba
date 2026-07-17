@@ -56,6 +56,25 @@ views:
               Batteries follow the normal strategy until charging starts.
               </ha-alert>
 
+      # Timed EV charge stalled alert (batteries commanded to discharge but not
+      # delivering — see binary_sensor.hba_battery_assist_stalled)
+      - type: grid
+        visibility:
+          - condition: state
+            entity: binary_sensor.hba_battery_assist_stalled
+            state: 'on'
+        cards:
+          - type: markdown
+            grid_options:
+              columns: full
+            content: >-
+              <ha-alert alert-type="error" title="Timed EV charge — batteries not delivering">
+              The batteries were commanded to discharge but delivered no power
+              (BMS refusal near its SoC floor, thermal protection, or rejected
+              Modbus writes). The EV has been released so it stops charging
+              from grid; assist retries automatically in 30 minutes.
+              </ha-alert>
+
       # Onboarding (hidden once dismissed)
       - type: grid
         visibility:
@@ -1880,6 +1899,10 @@ views:
 
               ⏳ **Timed EV charge — waiting for EV** (assist push suspended; the flow above is the fallback strategy)
               {%- endif %}
+              {%- if is_state('binary_sensor.hba_battery_assist_stalled', 'on') %}
+
+              🛑 **Timed EV charge — stalled** (batteries not delivering; EV released, assist auto-retries after the 30-min hold-off)
+              {%- endif %}
           - type: heading
             heading: Controller state
             heading_style: title
@@ -1957,16 +1980,29 @@ views:
               {% set overflow = is_state('binary_sensor.hba_grid_exporting_sustained', 'on') -%}
               {% set active   = is_state('binary_sensor.hba_battery_assist_active', 'on') -%}
               {% set waiting  = is_state('binary_sensor.hba_battery_assist_waiting', 'on') -%}
+              {% set stalled  = is_state('binary_sensor.hba_battery_assist_stalled', 'on') -%}
+              {% set count    = states('input_number.hba_battery_count') | int(1) -%}
+              {% set ns = namespace(dischargeable=false) -%}
+              {% for i in range(1, count + 1) -%}
+                {% set b_soc = states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') | float(0) -%}
+                {% set b_cut = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) -%}
+                {% set inv   = states('sensor.marstek_m' ~ i ~ '_inverter_state') -%}
+                {% if b_soc > b_cut + 0.5 and inv not in ['Fault', 'unknown', 'unavailable'] -%}
+                  {% set ns.dischargeable = true -%}
+                {% endif -%}
+              {% endfor -%}
               {% set ev_e     = states('input_text.hba_strategy_ev_sensor_entity_id') | trim -%}
               {% set ev_conf  = ev_e not in skip -%}
               {% set ev_on    = ev_conf and is_state(ev_e, 'on') -%}
-              **{{ '⏳ Waiting for EV' if waiting else ('🟢 Active' if active else '🔴 Inactive') }}**
+              **{{ '🛑 Stalled' if stalled else ('⏳ Waiting for EV' if waiting else ('🟢 Active' if active else '🔴 Inactive')) }}**
 
               {{ '✅' if is_state('input_boolean.hba_battery_assist_enabled', 'on') else '❌' }} Enabled
               {{ '✅' if in_window else '❌' }} Time window: {{ start_s[:5] }}–{{ end_s[:5] }}{% if not in_window %} *({{ now().strftime('%H:%M') }} outside)*{% endif %}
               {{ '✅' if soc > min_soc else '🔴' }} SoC: {{ soc | round(1) }}% / {{ min_soc | int }}% min{% if soc <= min_soc %} — **minimum reached, stopped**{% endif %}
+              {{ '✅' if ns.dischargeable else '🔴' }} Batteries dischargeable: {% if ns.dischargeable %}yes{% else %}**none — all at their discharge cutoff or unavailable, stopped**{% endif %}
               {{ '✅' if car_ok else '❌' }} Car: {% if not car_conf %}not configured{% elif car_ok %}connected ({{ car_e }}){% else %}not connected ({{ car_e }}){% endif %}
               {{ '⏳' if waiting else '✅' }} EV charging: {% if not ev_conf %}no EV entity configured — push runs unconditionally{% elif waiting %}**not drawing — push suspended, fallback strategy runs.** Scan the charger tag and/or check the car (charge limit, schedule){% elif ev_on %}drawing ({{ ev_e }}){% elif active %}not drawing yet *(startup grace, pushing)*{% else %}not drawing{% endif %}
+              {{ '🛑' if stalled else '✅' }} Battery response: {% if stalled %}**commanded but not delivering — EV released, auto-retry within 30 min**{% else %}OK{% endif %}
               {{ '⚠️' if overflow else '✅' }} Overflow guard: {{ '**sustained export — paused**' if overflow else 'OK' }}
             visibility:
               - condition: state

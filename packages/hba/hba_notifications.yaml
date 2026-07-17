@@ -95,6 +95,36 @@ automation:
           tag: hba_battery_assist_waiting
           color: green
 
+  # ── Timed EV charge stalled (batteries not delivering) ───────────────────────
+  # binary_sensor.hba_battery_assist_stalled turns on when the assist push has
+  # been commanding discharge for 3+ minutes with < 150 W actually delivered.
+  # Assist is released (EV stops) and retries automatically after the sensor's
+  # 30-minute delay_off — the message says so, hence no resolved counterpart.
+  - id: hba_notify_battery_assist_stalled
+    alias: "HBA: Notify Timed EV charge stalled"
+    description: >-
+      Fires when Timed EV charge is commanding discharge but the batteries
+      are not delivering (BMS refusal, SoC floor, rejected Modbus writes).
+      The EV is released so it stops charging from grid.
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_battery_assist_stalled
+        to: "on"
+    actions:
+      - action: script.hba_notify_dispatch
+        data:
+          title: "HBA: Timed EV charge stalled"
+          message: >-
+            Batteries are not delivering power during Timed EV charge
+            (SoC {{ states('sensor.hba_average_battery_soc') }}%,
+            battery output {{ states('sensor.hba_total_battery_power') | int(0) }} W).
+            The EV has been released to stop grid charging; assist retries
+            in 30 minutes.
+          tag: hba_battery_assist_stalled
+          color: red
+          priority: high
+
   - id: hba_notify_target_validation
     alias: "HBA: Validate notify target"
     description: >-

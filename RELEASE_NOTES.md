@@ -130,6 +130,21 @@ Changes on `dev` that have not yet been merged to `main`.
 
 ### Fixed
 
+- **Timed EV charge stall watchdog** (`binary_sensor.hba_battery_assist_stalled`) — ON
+  when the assist push is commanding discharge (`sensor.hba_active_strategy` ==
+  `Discharge to EV`) but the pack has delivered < 150 W for 3+ continuous minutes: the
+  BMS is refusing (e.g. the V3 firmware's ~13% floor sits above a 12% configured cutoff,
+  thermal protection, faults) or Modbus writes are being silently ignored — behaviour the
+  SoC-based eligibility checks cannot see. While ON, `hba_battery_assist_active` drops,
+  so the EV side leaves `battery_assist` mode and stops the charger instead of charging
+  from grid. Deliberately stateless (no latch that can get stuck): the sensor's 30-min
+  `delay_off` is the hold-off, after which assist gets one clean retry; a persistent
+  stall re-trips after 3 min, bounding grid draw to ~3 min per half hour. The
+  active-strategy condition inherently excludes the legitimate low-power states
+  (assist-waiting fallback, grid-overflow branch). Notification on each trip; Overview
+  alert banner + Insights checklist rows (stalled state and per-battery dischargeable
+  check) added.
+
 - **Timed EV charge kept the EV charging from grid after the batteries hit their
   per-battery discharge cutoffs** — `binary_sensor.hba_battery_assist_active` gated only
   on *average* pack SoC vs `hba_battery_assist_min_soc`, while `hba_set_batteries` skips
