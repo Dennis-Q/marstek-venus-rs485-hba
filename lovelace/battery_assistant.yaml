@@ -8,7 +8,7 @@ views:
     header:
       card:
         type: markdown
-        content: '### Home Battery Assistant *(HBA v4.10.1-r15)*'
+        content: '### Home Battery Assistant *(HBA v4.10.1-r16)*'
         text_only: true
     cards: []
     sections:
@@ -296,10 +296,10 @@ views:
                 conditions:
                   - condition: state
                     entity: sensor.hba_version
-                    state: "v4.10.1-r15"
+                    state: "v4.10.1-r16"
             content: >
               <ha-alert alert-type="error">**HBA version mismatch** — Dashboard is
-              v4.10.1-r15 but loaded packages report
+              v4.10.1-r16 but loaded packages report
               {{ states('sensor.hba_version') }}. Reload YAML to apply the update:
               Developer Tools → YAML → Reload All YAML.</ha-alert>
           - type: markdown
@@ -1015,7 +1015,7 @@ views:
       card:
         type: markdown
         content: >-
-          ### Self-consumption strategy *(HBA v4.10.1-r15)*
+          ### Self-consumption strategy *(HBA v4.10.1-r16)*
 
           The **PID controller** steers your batteries to keep grid usage near
           target, _e.g. 0 Watt_, and is used by:
@@ -1158,7 +1158,7 @@ views:
       card:
         type: markdown
         text_only: true
-        content: '### Charge / Sell *(HBA v4.10.1-r15)*'
+        content: '### Charge / Sell *(HBA v4.10.1-r16)*'
     cards: []
     badges:
       - type: entity
@@ -1475,7 +1475,7 @@ views:
       card:
         type: markdown
         text_only: true
-        content: '### Timed / Dynamic *(HBA v4.10.1-r15)*'
+        content: '### Timed / Dynamic *(HBA v4.10.1-r16)*'
     sections:
       - type: grid
         cards:
@@ -1855,7 +1855,7 @@ views:
         type: markdown
         text_only: true
         content: >-
-          ### Insights *(HBA v4.10.1-r15)*
+          ### Insights *(HBA v4.10.1-r16)*
 
           Need help figuring out what is going on?
 
@@ -2399,7 +2399,7 @@ views:
       card:
         type: markdown
         text_only: true
-        content: '### Advanced settings *(HBA v4.10.1-r15)*'
+        content: '### Advanced settings *(HBA v4.10.1-r16)*'
     sections:
       # Battery offline warning — full width, hidden when all batteries are online
       - type: grid
@@ -3311,7 +3311,7 @@ views:
         type: markdown
         text_only: true
         content: >-
-          ### Lab features *(HBA v4.10.1-r15)*
+          ### Lab features *(HBA v4.10.1-r16)*
 
           These features are experimental. Use at your own discretion.
       layout: center
@@ -3421,71 +3421,71 @@ views:
             heading_style: title
             icon: mdi:chart-bar
           - type: markdown
-            content: >-
+            content: |-
               <small><small>
 
-
               | Time | Today ¢ | Mark | Trend | · | Tomorrow ¢ | Mark | Trend |
-
               |:---:|---:|:---:|:---:|:---:|---:|:---:|:---:|
-
               {% set s = 'sensor.hba_energy_prices_data' %}
-
-              {%- set prices = state_attr(s, 'prices') or [] -%}
-
               {%- set marks_raw = state_attr(s, 'marks') -%}
-              {%- set marks  = (marks_raw | from_json) if marks_raw is string and marks_raw | trim != '' else (marks_raw or []) -%}
-
+              {%- set marks = (marks_raw | from_json) if marks_raw is string and (marks_raw | trim)[:1] == '[' else (marks_raw if marks_raw is sequence else []) -%}
               {%- set pph    = state_attr(s, 'datapoints_per_hour') | default(1, true) | int -%}
-
               {%- set ppd    = 24 * pph -%}
-
               {%- set step   = (60 / pph) | int -%}
-
+              {%- set step_sec = (3600 / pph) | int -%}
               {%- set bars   = ['▁','▂','▃','▄','▅','▆','▇','█'] -%}
-
-              {%- set t_prices = prices[:ppd] if (prices | length) >= ppd else prices -%}
-              {%- set m_prices = prices[ppd:ppd*2] if (prices | length) >= ppd*2 else [] -%}
-              {%- set t_pmin = (t_prices | min) if t_prices else 0 -%}
-              {%- set t_pmax = (t_prices | max) if t_prices else 0 -%}
-              {%- set t_rng  = t_pmax - t_pmin -%}
-              {%- set m_pmin = (m_prices | min) if m_prices else 0 -%}
-              {%- set m_pmax = (m_prices | max) if m_prices else 0 -%}
-              {%- set m_rng  = m_pmax - m_pmin -%}
-
-              {%- set current_idx = now().hour * pph + (now().minute // step) -%}
-
-              {%- if prices and (prices | length) >= ppd -%}
+              {#- Bucket each slot into its own day by TIMESTAMP, never by list position.
+                  Slicing prices[:24] / prices[24:48] assumed the source always delivers exactly
+                  one complete day followed by another. When the Frank Energie integration
+                  repeated today's prices instead of fetching tomorrow's, that split rendered
+                  00:00-11:00 as "Today" and 12:00-23:00 as "Tomorrow" -- so genuinely cheap
+                  midday hours appeared as cheap night hours. Bucketing by timestamp is correct
+                  for a repeated, partial, missing or shifted day alike. -#}
+              {%- set day0 = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0)) | int -%}
+              {%- set day1 = day0 + 86400 -%}
+              {%- set day2 = day1 + 86400 -%}
+              {%- set ns = namespace(t={}, m={}, nowidx=-1) -%}
+              {%- for e in marks -%}
+                {%- set ts = as_timestamp(e.start, 0) | int -%}
+                {%- if ts >= day0 and ts < day1 -%}
+                  {%- set idx = ((ts - day0) / step_sec) | int -%}
+                  {%- set ns.t = ns.t | combine({ idx | string: e }) -%}
+                  {%- if e.is_now -%}{%- set ns.nowidx = idx -%}{%- endif -%}
+                {%- elif ts >= day1 and ts < day2 -%}
+                  {%- set idx = ((ts - day1) / step_sec) | int -%}
+                  {%- set ns.m = ns.m | combine({ idx | string: e }) -%}
+                {%- endif -%}
+              {%- endfor -%}
+              {%- set t_vals = ns.t.values() | map(attribute='price') | list -%}
+              {%- set m_vals = ns.m.values() | map(attribute='price') | list -%}
+              {%- set t_pmin = (t_vals | min) if t_vals else 0 -%} {%- set t_pmax = (t_vals | max) if t_vals else 0 -%} {%- set t_rng = t_pmax - t_pmin -%}
+              {%- set m_pmin = (m_vals | min) if m_vals else 0 -%} {%- set m_pmax = (m_vals | max) if m_vals else 0 -%} {%- set m_rng = m_pmax - m_pmin -%}
+              {%- if t_vals -%}
                 {%- for i in range(ppd) -%}
-                  {%- set t_price   = prices[i] -%}
-                  {%- set t_idx     = i + ppd -%}
-                  {%- set tom_price = prices[t_idx] if (prices | length) > t_idx else none -%}
+                  {%- set te = ns.t.get(i | string) -%}
+                  {%- set me = ns.m.get(i | string) -%}
+                  {%- set t_price   = te.price if te else none -%}
+                  {%- set tom_price = me.price if me else none -%}
                   {%- set hour      = (i // pph) | int -%}
                   {%- set minute    = (i % pph) * step -%}
-                  {%- set t_mark    = marks[i].mark if (marks | length) > i else none -%}
-                  {%- set tom_mark  = marks[t_idx].mark if (marks | length) > t_idx else none -%}
-                  {%- set t_bar     = bars[((t_price - t_pmin) / t_rng * 7) | round(0) | int] if t_rng > 0 else bars[0] -%}
+                  {%- set t_mark    = te.mark if te else none -%}
+                  {%- set tom_mark  = me.mark if me else none -%}
+                  {%- set t_bar     = (bars[((t_price - t_pmin) / t_rng * 7) | round(0) | int] if (t_price is not none and t_rng > 0) else (bars[0] if t_price is not none else '-')) -%}
                   {%- set tom_bar   = (bars[((tom_price - m_pmin) / m_rng * 7) | round(0) | int] if (tom_price is not none and m_rng > 0) else (bars[0] if tom_price is not none else '-')) -%}
-                  {%- set t_emoji   = '🟠' if t_mark == 'high' else ('🟢' if t_mark == 'low' else '—') -%}
+                  {%- set t_emoji   = '🟠' if t_mark == 'high' else ('🟢' if t_mark == 'low' else ('—' if t_price is not none else '-')) -%}
                   {%- set tom_emoji = '🟠' if tom_mark == 'high' else ('🟢' if tom_mark == 'low' else ('—' if tom_price is not none else '-')) -%}
-                  | {% if i == current_idx %}<font color="#009ac7">{{ "%02d"|format(hour) }}:{{ "%02d"|format(minute) }}</font>{% else %}{{ "%02d"|format(hour) }}:{{ "%02d"|format(minute) }}{% endif %} | {% if i == current_idx %}<font color="#009ac7">{{ "%0.1f"|format(t_price) }}</font>{% elif t_mark == 'high' %}<font color="orange">{{ "%0.1f"|format(t_price) }}</font>{% elif t_mark == 'low' %}<font color="#4caf50">{{ "%0.1f"|format(t_price) }}</font>{% else %}{{ "%0.1f"|format(t_price) }}{% endif %} | {{ t_emoji }} | {% if i == current_idx %}<font color="#009ac7">{{ t_bar }}</font>{% elif t_mark == 'high' %}<font color="orange">{{ t_bar }}</font>{% elif t_mark == 'low' %}<font color="#4caf50">{{ t_bar }}</font>{% else %}{{ t_bar }}{% endif %} | | {% if tom_price is not none %}{% if tom_mark == 'high' %}<font color="orange">{{ "%0.1f"|format(tom_price) }}</font>{% elif tom_mark == 'low' %}<font color="#4caf50">{{ "%0.1f"|format(tom_price) }}</font>{% else %}{{ "%0.1f"|format(tom_price) }}{% endif %}{% else %}-{% endif %} | {{ tom_emoji }} | {% if tom_mark == 'high' %}<font color="orange">{{ tom_bar }}</font>{% elif tom_mark == 'low' %}<font color="#4caf50">{{ tom_bar }}</font>{% else %}{{ tom_bar }}{% endif %} |
+                  | {% if i == ns.nowidx %}<font color="#009ac7">{{ "%02d"|format(hour) }}:{{ "%02d"|format(minute) }}</font>{% else %}{{ "%02d"|format(hour) }}:{{ "%02d"|format(minute) }}{% endif %} | {% if t_price is none %}-{% elif i == ns.nowidx %}<font color="#009ac7">{{ "%0.1f"|format(t_price) }}</font>{% elif t_mark == 'high' %}<font color="orange">{{ "%0.1f"|format(t_price) }}</font>{% elif t_mark == 'low' %}<font color="#4caf50">{{ "%0.1f"|format(t_price) }}</font>{% else %}{{ "%0.1f"|format(t_price) }}{% endif %} | {{ t_emoji }} | {% if i == ns.nowidx %}<font color="#009ac7">{{ t_bar }}</font>{% elif t_mark == 'high' %}<font color="orange">{{ t_bar }}</font>{% elif t_mark == 'low' %}<font color="#4caf50">{{ t_bar }}</font>{% else %}{{ t_bar }}{% endif %} | | {% if tom_price is not none %}{% if tom_mark == 'high' %}<font color="orange">{{ "%0.1f"|format(tom_price) }}</font>{% elif tom_mark == 'low' %}<font color="#4caf50">{{ "%0.1f"|format(tom_price) }}</font>{% else %}{{ "%0.1f"|format(tom_price) }}{% endif %}{% else %}-{% endif %} | {{ tom_emoji }} | {% if tom_mark == 'high' %}<font color="orange">{{ tom_bar }}</font>{% elif tom_mark == 'low' %}<font color="#4caf50">{{ tom_bar }}</font>{% else %}{{ tom_bar }}{% endif %} |
                 {% endfor %}
               {%- else -%}
                 | - | *Insufficient data available...* | - | - | | - | - | - |
               {% endif %}
 
-
-              **Today**
-              Range: {{ "%0.1f"|format(t_pmin) }} – {{ "%0.1f"|format(t_pmax) }} ¢
-              Spread: {{ "%0.1f"|format(t_rng) }} ¢
-
-              {%- if m_prices %}
-
-              **Tomorrow**
-              Range: {{ "%0.1f"|format(m_pmin) }} – {{ "%0.1f"|format(m_pmax) }} ¢
-              Spread: {{ "%0.1f"|format(m_rng) }} ¢
+              **Today** {{ t_vals | length }}/{{ ppd }} slots · Range: {{ "%0.1f"|format(t_pmin) }} – {{ "%0.1f"|format(t_pmax) }} ¢ Spread: {{ "%0.1f"|format(t_rng) }} ¢
+              {%- if m_vals %}
+              **Tomorrow** {{ m_vals | length }}/{{ ppd }} slots · Range: {{ "%0.1f"|format(m_pmin) }} – {{ "%0.1f"|format(m_pmax) }} ¢ Spread: {{ "%0.1f"|format(m_rng) }} ¢
+              {%- else %}
+              **Tomorrow** _not published yet_
               {%- endif %}
-
 
               </small></small>
 
@@ -3574,7 +3574,7 @@ views:
         type: markdown
         text_only: true
         content: >-
-          ### EV Charge *(HBA v4.10.1-r15)*
+          ### EV Charge *(HBA v4.10.1-r16)*
 
 
           **HBA-specific feature** — not part of HBC. Configures the EV stop
@@ -3766,7 +3766,7 @@ views:
         type: markdown
         text_only: true
         content: >-
-          ### Notifications *(HBA v4.10.1-r15)*
+          ### Notifications *(HBA v4.10.1-r16)*
 
 
           **HBA-specific feature** — not part of HBC. Configure where HBA

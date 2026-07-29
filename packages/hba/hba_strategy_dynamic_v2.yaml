@@ -78,89 +78,54 @@ template:
           datapoints_per_hour: >-
             {%- set frank_id = states('input_text.hba_strategy_dynamic_frank_sensor_entity_id') | trim -%}
             {%- set raw = state_attr(frank_id, 'prices') if frank_id | has_value else [] -%}
-            {%- if raw is sequence and raw | length >= 2 -%}
-              {%- set interval_sec = (as_timestamp(raw[1]['from']) | int - as_timestamp(raw[0]['from']) | int) -%}
-              {{ ((3600 // interval_sec) | int) if interval_sec > 0 else 1 }}
-            {%- else -%}1
-            {%- endif -%}
+            {#- De-duplicate by slot timestamp, keeping the first occurrence.
+                The Frank Energie integration appends a second copy of today's prices
+                when its tomorrow-fetch fails (observed daily at 11:00 UTC, 2026-07),
+                giving 48 entries covering 24 distinct hours. Left unfiltered that
+                halves the number of distinct hours the two-pointer can mark: a
+                configured 5 cheap hours yielded only 3. Harmless when the source is
+                clean -- distinct timestamps are all kept. -#}
+            {%- set ns_u = namespace(slots=[], seen=[]) -%}
+            {%- for entry in raw if raw is sequence -%}
+              {%- if entry is mapping and 'from' in entry and 'price' in entry -%}
+                {%- set slot_ts = as_timestamp(entry['from'], 0) | int -%}
+                {%- if slot_ts > 0 and slot_ts not in ns_u.seen -%}
+                  {%- set ns_u.seen = ns_u.seen + [slot_ts] -%}
+                  {%- set ns_u.slots = ns_u.slots + [{'ts': slot_ts, 'pc': (entry.price | float(0) * 100) | round(4)}] -%}
+                {%- endif -%}
+              {%- endif -%}
+            {%- endfor -%}
+            {%- set slots = ns_u.slots | sort(attribute='ts') -%}
+            {%- set interval_sec = (slots[1].ts - slots[0].ts) if slots | length >= 2 else 3600 -%}
+            {%- set pph = ((3600 // interval_sec) | int) if interval_sec > 0 else 1 -%}
+            {%- set step_sec = 3600 // pph -%}
+            {{ pph }}
           mark_now: >-
             {%- set frank_id = states('input_text.hba_strategy_dynamic_frank_sensor_entity_id') | trim -%}
             {%- set raw = state_attr(frank_id, 'prices') if frank_id | has_value else [] -%}
-            {%- if raw is not sequence or raw | length == 0 -%}Regular
-            {%- else -%}
-              {%- set interval_sec = (as_timestamp(raw[1]['from']) | int - as_timestamp(raw[0]['from']) | int) if raw | length >= 2 else 3600 -%}
-              {%- set pph = ((3600 // interval_sec) | int) if interval_sec > 0 else 1 -%}
-              {%- set step_sec = 3600 // pph -%}
-              {%- set max_cheap_hrs = states('input_number.hba_strategy_dynamic_v2_max_cheap_hours_per_day') | float(4) -%}
-              {%- set max_cheap = ((max_cheap_hrs * pph) | round | int) if max_cheap_hrs > 0 else 9999 -%}
-              {%- set max_exp_hrs = states('input_number.hba_strategy_dynamic_v2_max_expensive_hours_per_day') | float(4) -%}
-              {%- set max_exp = ((max_exp_hrs * pph) | round | int) if max_exp_hrs > 0 else 9999 -%}
-              {%- set delta_thr = states('input_number.hba_strategy_dynamic_threshold_delta') | float(0) -%}
-              {%- set now_slot_ts = (as_timestamp(now()) | int // step_sec) * step_sec -%}
-              {%- set today_start_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0)) | int -%}
-              {%- set tomorrow_start_ts = today_start_ts + 86400 -%}
-              {%- set ns_slots = namespace(today=[]) -%}
-              {%- for entry in raw -%}
-                {%- if 'from' in entry and 'price' in entry -%}
-                  {%- set slot_ts = as_timestamp(entry['from']) | int -%}
-                  {%- set pc = (entry.price | float(0) * 100) | round(4) -%}
-                  {%- if today_start_ts <= slot_ts < tomorrow_start_ts -%}
-                    {%- set ns_slots.today = ns_slots.today + [{'ts': slot_ts, 'pc': pc}] -%}
-                  {%- endif -%}
+            {#- De-duplicate by slot timestamp, keeping the first occurrence.
+                The Frank Energie integration appends a second copy of today's prices
+                when its tomorrow-fetch fails (observed daily at 11:00 UTC, 2026-07),
+                giving 48 entries covering 24 distinct hours. Left unfiltered that
+                halves the number of distinct hours the two-pointer can mark: a
+                configured 5 cheap hours yielded only 3. Harmless when the source is
+                clean -- distinct timestamps are all kept. -#}
+            {%- set ns_u = namespace(slots=[], seen=[]) -%}
+            {%- for entry in raw if raw is sequence -%}
+              {%- if entry is mapping and 'from' in entry and 'price' in entry -%}
+                {%- set slot_ts = as_timestamp(entry['from'], 0) | int -%}
+                {%- if slot_ts > 0 and slot_ts not in ns_u.seen -%}
+                  {%- set ns_u.seen = ns_u.seen + [slot_ts] -%}
+                  {%- set ns_u.slots = ns_u.slots + [{'ts': slot_ts, 'pc': (entry.price | float(0) * 100) | round(4)}] -%}
                 {%- endif -%}
-              {%- endfor -%}
-              {%- set sorted_today = ns_slots.today | sort(attribute='pc') -%}
-              {%- set ns_marks = namespace(cheap=[], exp=[]) -%}
-              {# Two-pointer: lo_s = cheapest end, hi_s = most-expensive end. k*2 < n guards lo < hi. #}
-              {%- set ns_tp = namespace(done=false, lo=0, hi=0) -%}
-              {%- for k in range(sorted_today | length) -%}
-                {%- if not ns_tp.done and k * 2 < (sorted_today | length) -%}
-                  {%- set lo_s = sorted_today[k] -%}
-                  {%- set hi_s = sorted_today[(sorted_today | length) - 1 - k] -%}
-                  {%- if hi_s.pc - lo_s.pc >= delta_thr -%}
-                    {%- set mark_cheap = ns_tp.lo < max_cheap -%}
-                    {%- set mark_exp = ns_tp.hi < max_exp -%}
-                    {%- if not mark_cheap and not mark_exp -%}{%- set ns_tp.done = true -%}
-                    {%- else -%}
-                      {%- if mark_cheap -%}{%- set ns_marks.cheap = ns_marks.cheap + [lo_s.ts] -%}{%- set ns_tp.lo = ns_tp.lo + 1 -%}{%- endif -%}
-                      {%- if mark_exp -%}{%- set ns_marks.exp = ns_marks.exp + [hi_s.ts] -%}{%- set ns_tp.hi = ns_tp.hi + 1 -%}{%- endif -%}
-                    {%- endif -%}
-                  {%- else -%}{%- set ns_tp.done = true -%}
-                  {%- endif -%}
-                {%- endif -%}
-              {%- endfor -%}
-              {%- if now_slot_ts in ns_marks.cheap -%}Cheap
-              {%- elif now_slot_ts in ns_marks.exp -%}Expensive
-              {%- else -%}Regular
               {%- endif -%}
-            {%- endif -%}
-          prices: >-
-            {%- set frank_id = states('input_text.hba_strategy_dynamic_frank_sensor_entity_id') | trim -%}
-            {%- set raw = state_attr(frank_id, 'prices') if frank_id | has_value else [] -%}
-            {%- if raw is not sequence or raw | length == 0 -%}[]
+            {%- endfor -%}
+            {%- set slots = ns_u.slots | sort(attribute='ts') -%}
+            {%- set interval_sec = (slots[1].ts - slots[0].ts) if slots | length >= 2 else 3600 -%}
+            {%- set pph = ((3600 // interval_sec) | int) if interval_sec > 0 else 1 -%}
+            {%- set step_sec = 3600 // pph -%}
+            {%- if slots | length == 0 -%}Regular
             {%- else -%}
-              {%- set today_start_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0)) | int -%}
-              {%- set day_after_ts = today_start_ts + 86400 * 2 -%}
-              {%- set ns_out = namespace(out=[]) -%}
-              {%- for entry in raw -%}
-                {%- if 'from' in entry and 'price' in entry -%}
-                  {%- set slot_ts = as_timestamp(entry['from']) | int -%}
-                  {%- set pc = (entry.price | float(0) * 100) | round(4) -%}
-                  {%- if today_start_ts <= slot_ts < day_after_ts -%}
-                    {%- set ns_out.out = ns_out.out + [{'ts': slot_ts, 'pc': pc}] -%}
-                  {%- endif -%}
-                {%- endif -%}
-              {%- endfor -%}
-              {{ (ns_out.out | sort(attribute='ts') | map(attribute='pc') | list) | tojson }}
-            {%- endif -%}
-          marks: >-
-            {%- set frank_id = states('input_text.hba_strategy_dynamic_frank_sensor_entity_id') | trim -%}
-            {%- set raw = state_attr(frank_id, 'prices') if frank_id | has_value else [] -%}
-            {%- if raw is not sequence or raw | length == 0 -%}[]
-            {%- else -%}
-              {%- set interval_sec = (as_timestamp(raw[1]['from']) | int - as_timestamp(raw[0]['from']) | int) if raw | length >= 2 else 3600 -%}
-              {%- set pph = ((3600 // interval_sec) | int) if interval_sec > 0 else 1 -%}
-              {%- set step_sec = 3600 // pph -%}
               {%- set max_cheap_hrs = states('input_number.hba_strategy_dynamic_v2_max_cheap_hours_per_day') | float(4) -%}
               {%- set max_cheap = ((max_cheap_hrs * pph) | round | int) if max_cheap_hrs > 0 else 9999 -%}
               {%- set max_exp_hrs = states('input_number.hba_strategy_dynamic_v2_max_expensive_hours_per_day') | float(4) -%}
@@ -171,20 +136,15 @@ template:
               {%- set tomorrow_start_ts = today_start_ts + 86400 -%}
               {%- set day_after_ts = tomorrow_start_ts + 86400 -%}
               {%- set ns_slots = namespace(today=[], tomorrow=[]) -%}
-              {%- for entry in raw -%}
-                {%- if 'from' in entry and 'price' in entry -%}
-                  {%- set slot_ts = as_timestamp(entry['from']) | int -%}
-                  {%- set pc = (entry.price | float(0) * 100) | round(4) -%}
-                  {%- if today_start_ts <= slot_ts < tomorrow_start_ts -%}
-                    {%- set ns_slots.today = ns_slots.today + [{'ts': slot_ts, 'pc': pc}] -%}
-                  {%- elif tomorrow_start_ts <= slot_ts < day_after_ts -%}
-                    {%- set ns_slots.tomorrow = ns_slots.tomorrow + [{'ts': slot_ts, 'pc': pc}] -%}
-                  {%- endif -%}
+              {%- for s in slots -%}
+                {%- if today_start_ts <= s.ts < tomorrow_start_ts -%}
+                  {%- set ns_slots.today = ns_slots.today + [s] -%}
+                {%- elif tomorrow_start_ts <= s.ts < day_after_ts -%}
+                  {%- set ns_slots.tomorrow = ns_slots.tomorrow + [s] -%}
                 {%- endif -%}
               {%- endfor -%}
               {%- set ns_marks = namespace(cheap=[], exp=[]) -%}
               {%- set sorted_today = ns_slots.today | sort(attribute='pc') -%}
-              {# Two-pointer (today): lo_s = cheapest end, hi_s = most-expensive end. k*2 < n guards lo < hi. #}
               {%- set ns_tp_today = namespace(done=false, lo=0, hi=0) -%}
               {%- for k in range(sorted_today | length) -%}
                 {%- if not ns_tp_today.done and k * 2 < (sorted_today | length) -%}
@@ -203,7 +163,119 @@ template:
                 {%- endif -%}
               {%- endfor -%}
               {%- set sorted_tom = ns_slots.tomorrow | sort(attribute='pc') -%}
-              {# Two-pointer (tomorrow): same algorithm applied independently to tomorrow's prices. #}
+              {%- set ns_tp_tom = namespace(done=false, lo=0, hi=0) -%}
+              {%- for k in range(sorted_tom | length) -%}
+                {%- if not ns_tp_tom.done and k * 2 < (sorted_tom | length) -%}
+                  {%- set lo_s = sorted_tom[k] -%}
+                  {%- set hi_s = sorted_tom[(sorted_tom | length) - 1 - k] -%}
+                  {%- if hi_s.pc - lo_s.pc >= delta_thr -%}
+                    {%- set mark_cheap = ns_tp_tom.lo < max_cheap -%}
+                    {%- set mark_exp = ns_tp_tom.hi < max_exp -%}
+                    {%- if not mark_cheap and not mark_exp -%}{%- set ns_tp_tom.done = true -%}
+                    {%- else -%}
+                      {%- if mark_cheap -%}{%- set ns_marks.cheap = ns_marks.cheap + [lo_s.ts] -%}{%- set ns_tp_tom.lo = ns_tp_tom.lo + 1 -%}{%- endif -%}
+                      {%- if mark_exp -%}{%- set ns_marks.exp = ns_marks.exp + [hi_s.ts] -%}{%- set ns_tp_tom.hi = ns_tp_tom.hi + 1 -%}{%- endif -%}
+                    {%- endif -%}
+                  {%- else -%}{%- set ns_tp_tom.done = true -%}
+                  {%- endif -%}
+                {%- endif -%}
+              {%- endfor -%}
+              {%- if now_slot_ts in ns_marks.cheap -%}Cheap
+              {%- elif now_slot_ts in ns_marks.exp -%}Expensive
+              {%- else -%}Regular
+              {%- endif -%}
+            {%- endif -%}
+          prices: >-
+            {%- set frank_id = states('input_text.hba_strategy_dynamic_frank_sensor_entity_id') | trim -%}
+            {%- set raw = state_attr(frank_id, 'prices') if frank_id | has_value else [] -%}
+            {#- De-duplicate by slot timestamp, keeping the first occurrence.
+                The Frank Energie integration appends a second copy of today's prices
+                when its tomorrow-fetch fails (observed daily at 11:00 UTC, 2026-07),
+                giving 48 entries covering 24 distinct hours. Left unfiltered that
+                halves the number of distinct hours the two-pointer can mark: a
+                configured 5 cheap hours yielded only 3. Harmless when the source is
+                clean -- distinct timestamps are all kept. -#}
+            {%- set ns_u = namespace(slots=[], seen=[]) -%}
+            {%- for entry in raw if raw is sequence -%}
+              {%- if entry is mapping and 'from' in entry and 'price' in entry -%}
+                {%- set slot_ts = as_timestamp(entry['from'], 0) | int -%}
+                {%- if slot_ts > 0 and slot_ts not in ns_u.seen -%}
+                  {%- set ns_u.seen = ns_u.seen + [slot_ts] -%}
+                  {%- set ns_u.slots = ns_u.slots + [{'ts': slot_ts, 'pc': (entry.price | float(0) * 100) | round(4)}] -%}
+                {%- endif -%}
+              {%- endif -%}
+            {%- endfor -%}
+            {%- set slots = ns_u.slots | sort(attribute='ts') -%}
+            {%- set interval_sec = (slots[1].ts - slots[0].ts) if slots | length >= 2 else 3600 -%}
+            {%- set pph = ((3600 // interval_sec) | int) if interval_sec > 0 else 1 -%}
+            {%- set step_sec = 3600 // pph -%}
+            {%- set today_start_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0)) | int -%}
+            {%- set day_after_ts = today_start_ts + 86400 * 2 -%}
+            {{ (slots | selectattr('ts', 'ge', today_start_ts) | selectattr('ts', 'lt', day_after_ts)
+                     | map(attribute='pc') | list) | tojson }}
+          marks: >-
+            {%- set frank_id = states('input_text.hba_strategy_dynamic_frank_sensor_entity_id') | trim -%}
+            {%- set raw = state_attr(frank_id, 'prices') if frank_id | has_value else [] -%}
+            {#- De-duplicate by slot timestamp, keeping the first occurrence.
+                The Frank Energie integration appends a second copy of today's prices
+                when its tomorrow-fetch fails (observed daily at 11:00 UTC, 2026-07),
+                giving 48 entries covering 24 distinct hours. Left unfiltered that
+                halves the number of distinct hours the two-pointer can mark: a
+                configured 5 cheap hours yielded only 3. Harmless when the source is
+                clean -- distinct timestamps are all kept. -#}
+            {%- set ns_u = namespace(slots=[], seen=[]) -%}
+            {%- for entry in raw if raw is sequence -%}
+              {%- if entry is mapping and 'from' in entry and 'price' in entry -%}
+                {%- set slot_ts = as_timestamp(entry['from'], 0) | int -%}
+                {%- if slot_ts > 0 and slot_ts not in ns_u.seen -%}
+                  {%- set ns_u.seen = ns_u.seen + [slot_ts] -%}
+                  {%- set ns_u.slots = ns_u.slots + [{'ts': slot_ts, 'pc': (entry.price | float(0) * 100) | round(4)}] -%}
+                {%- endif -%}
+              {%- endif -%}
+            {%- endfor -%}
+            {%- set slots = ns_u.slots | sort(attribute='ts') -%}
+            {%- set interval_sec = (slots[1].ts - slots[0].ts) if slots | length >= 2 else 3600 -%}
+            {%- set pph = ((3600 // interval_sec) | int) if interval_sec > 0 else 1 -%}
+            {%- set step_sec = 3600 // pph -%}
+            {%- if slots | length == 0 -%}[]
+            {%- else -%}
+              {%- set max_cheap_hrs = states('input_number.hba_strategy_dynamic_v2_max_cheap_hours_per_day') | float(4) -%}
+              {%- set max_cheap = ((max_cheap_hrs * pph) | round | int) if max_cheap_hrs > 0 else 9999 -%}
+              {%- set max_exp_hrs = states('input_number.hba_strategy_dynamic_v2_max_expensive_hours_per_day') | float(4) -%}
+              {%- set max_exp = ((max_exp_hrs * pph) | round | int) if max_exp_hrs > 0 else 9999 -%}
+              {%- set delta_thr = states('input_number.hba_strategy_dynamic_threshold_delta') | float(0) -%}
+              {%- set now_slot_ts = (as_timestamp(now()) | int // step_sec) * step_sec -%}
+              {%- set today_start_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0)) | int -%}
+              {%- set tomorrow_start_ts = today_start_ts + 86400 -%}
+              {%- set day_after_ts = tomorrow_start_ts + 86400 -%}
+              {%- set ns_slots = namespace(today=[], tomorrow=[]) -%}
+              {%- for s in slots -%}
+                {%- if today_start_ts <= s.ts < tomorrow_start_ts -%}
+                  {%- set ns_slots.today = ns_slots.today + [s] -%}
+                {%- elif tomorrow_start_ts <= s.ts < day_after_ts -%}
+                  {%- set ns_slots.tomorrow = ns_slots.tomorrow + [s] -%}
+                {%- endif -%}
+              {%- endfor -%}
+              {%- set ns_marks = namespace(cheap=[], exp=[]) -%}
+              {%- set sorted_today = ns_slots.today | sort(attribute='pc') -%}
+              {%- set ns_tp_today = namespace(done=false, lo=0, hi=0) -%}
+              {%- for k in range(sorted_today | length) -%}
+                {%- if not ns_tp_today.done and k * 2 < (sorted_today | length) -%}
+                  {%- set lo_s = sorted_today[k] -%}
+                  {%- set hi_s = sorted_today[(sorted_today | length) - 1 - k] -%}
+                  {%- if hi_s.pc - lo_s.pc >= delta_thr -%}
+                    {%- set mark_cheap = ns_tp_today.lo < max_cheap -%}
+                    {%- set mark_exp = ns_tp_today.hi < max_exp -%}
+                    {%- if not mark_cheap and not mark_exp -%}{%- set ns_tp_today.done = true -%}
+                    {%- else -%}
+                      {%- if mark_cheap -%}{%- set ns_marks.cheap = ns_marks.cheap + [lo_s.ts] -%}{%- set ns_tp_today.lo = ns_tp_today.lo + 1 -%}{%- endif -%}
+                      {%- if mark_exp -%}{%- set ns_marks.exp = ns_marks.exp + [hi_s.ts] -%}{%- set ns_tp_today.hi = ns_tp_today.hi + 1 -%}{%- endif -%}
+                    {%- endif -%}
+                  {%- else -%}{%- set ns_tp_today.done = true -%}
+                  {%- endif -%}
+                {%- endif -%}
+              {%- endfor -%}
+              {%- set sorted_tom = ns_slots.tomorrow | sort(attribute='pc') -%}
               {%- set ns_tp_tom = namespace(done=false, lo=0, hi=0) -%}
               {%- for k in range(sorted_tom | length) -%}
                 {%- if not ns_tp_tom.done and k * 2 < (sorted_tom | length) -%}
