@@ -32,6 +32,7 @@ are always consistent with "Very safe" so the preset selector is not misleading.
 | `input_number.hba_control_error_signal_dampening` | `0` % | Matches Very safe preset (no error smoothing) |
 | `input_number.hba_control_hysteresis` | `20` W | Direction-flip guard threshold |
 | `input_number.hba_control_idle_time` | `5` min | Per-battery idle hold before relay disconnect |
+| `input_number.hba_control_write_refresh_secs` | `30` s | Re-send an unchanged battery command at least this often. Identical commands in between skip their three Modbus writes (~150 ms each), which roughly halves the control-loop period under load. `0` disables de-duplication and writes every cycle. |
 
 ### PID Presets
 
