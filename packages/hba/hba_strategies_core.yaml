@@ -242,16 +242,41 @@ automation:
   # Turns debug mode off after 15 minutes to avoid leaving ~1 Hz history writes
   # running indefinitely. Original Node-RED used 5 minutes; raised to 15 to give
   # longer observation windows during PID tuning. Recorder protection still applies.
+  #
+  # A plain `to: "on"` + `for:` trigger is NOT enough. That needs a real off->on
+  # transition, and restoring the boolean to 'on' at startup is not one — so a
+  # restart while Insights mode was on left it on forever. Observed on production
+  # 2026-07-29: debug mode had been on for 23 h across a restart, writing
+  # cycle_state and the PID terms at ~1 Hz the whole time.
+  #
+  # Hence the `homeassistant: start` trigger, and `mode: restart` with an explicit
+  # delay rather than `for:` — that way re-toggling the boolean restarts the window
+  # instead of being dropped, and a restart re-arms a full window rather than
+  # killing Insights mode out from under someone mid-diagnosis.
   - id: hba_insights_mode_auto_off
     alias: "HBA: Insights mode — auto-off after 15 minutes"
-    description: "Turns debug mode off after 15 minutes to avoid leaving history writes running indefinitely."
+    description: >-
+      Turns debug mode off 15 minutes after it is switched on, so history writes
+      never run indefinitely. Re-arms on HA start, because a restored 'on' state
+      does not fire a state trigger.
+    mode: restart
     triggers:
       - trigger: state
         entity_id: input_boolean.hba_control_is_debug_mode
         to: "on"
-        for:
-          minutes: 15
+      - trigger: homeassistant
+        event: start
+    conditions:
+      - condition: state
+        entity_id: input_boolean.hba_control_is_debug_mode
+        state: "on"
     actions:
+      - delay:
+          minutes: 15
+      # Re-check: the user may have switched it off by hand during the window.
+      - condition: state
+        entity_id: input_boolean.hba_control_is_debug_mode
+        state: "on"
       - action: input_boolean.turn_off
         target: { entity_id: input_boolean.hba_control_is_debug_mode }
 
