@@ -664,7 +664,21 @@ script:
                   sc_thr2: "{{ states('input_number.hba_control_slow_charge_soc_threshold_2') | float(99) }}"
                   sc_lim2: "{{ states('input_number.hba_control_slow_charge_power_limit_2') | float(1000) | int }}"
               - variables:
-                  priority_bat: "{{ states('input_number.hba_control_prioritize_battery') | int(1) }}"
+                  # Clamp to 1..count. A priority index above battery_count silently
+                  # kills ALL battery control: the waterfall below seeds its order with
+                  # the priority battery regardless of whether it exists, that phantom
+                  # battery is eligible on SoC so it absorbs the entire `remaining`, and
+                  # the write loop then only iterates 1..count -- so every real battery
+                  # gets a share of 0 and is commanded to stop, while the allocated power
+                  # is never sent anywhere. Seen on production 2026-07-29: auto-balance
+                  # had rotated priority to 2 at 15:00, battery_count was lowered to 1 at
+                  # 15:24, and the pack sat at 0 W under a full Sell command until the
+                  # index happened to return to 1. hba_advance_priority wraps correctly
+                  # ((current % count) + 1), but nothing re-validates the index when
+                  # battery_count itself changes.
+                  priority_bat: >-
+                    {%- set p = states('input_number.hba_control_prioritize_battery') | int(1) -%}
+                    {{ p if (1 <= p and p <= count) else 1 }}
               - variables:
                   shares_json: >-
                     {%- set ns = namespace(remaining=desired | abs, shares={}, order=[priority_bat]) -%}
@@ -745,7 +759,21 @@ script:
           - conditions: "{{ mode == 'discharge' or (mode == 'auto' and desired < 0) }}"
             sequence:
               - variables:
-                  priority_bat: "{{ states('input_number.hba_control_prioritize_battery') | int(1) }}"
+                  # Clamp to 1..count. A priority index above battery_count silently
+                  # kills ALL battery control: the waterfall below seeds its order with
+                  # the priority battery regardless of whether it exists, that phantom
+                  # battery is eligible on SoC so it absorbs the entire `remaining`, and
+                  # the write loop then only iterates 1..count -- so every real battery
+                  # gets a share of 0 and is commanded to stop, while the allocated power
+                  # is never sent anywhere. Seen on production 2026-07-29: auto-balance
+                  # had rotated priority to 2 at 15:00, battery_count was lowered to 1 at
+                  # 15:24, and the pack sat at 0 W under a full Sell command until the
+                  # index happened to return to 1. hba_advance_priority wraps correctly
+                  # ((current % count) + 1), but nothing re-validates the index when
+                  # battery_count itself changes.
+                  priority_bat: >-
+                    {%- set p = states('input_number.hba_control_prioritize_battery') | int(1) -%}
+                    {{ p if (1 <= p and p <= count) else 1 }}
               - variables:
                   shares_json: >-
                     {%- set ns = namespace(remaining=desired | abs, shares={}, order=[priority_bat]) -%}
