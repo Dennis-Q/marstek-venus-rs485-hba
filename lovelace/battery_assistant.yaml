@@ -1927,6 +1927,17 @@ views:
 
               **PID cycle:** {{ states('input_text.hba_control_cycle_state') }}
 
+              {%- set refresh = states('input_number.hba_control_write_refresh_secs') | float(0) %}
+              {%- set n = states('input_number.hba_battery_count') | int(1) %}
+              **Modbus writes:** {% if refresh <= 0 %}every cycle (de-duplication off){% else %}de-duplicated, re-sent every {{ refresh | int }} s{% endif %}
+              {%- if refresh > 0 %}
+              {%- for i in range(1, n + 1) %}
+              {%- set c = states('input_text.hba_last_cmd_m' ~ i) %}
+              {%- set p = c.split('|') if c not in ['', 'unknown', 'unavailable'] else [] %}
+              &nbsp;&nbsp;M{{ i }}: {% if p | length == 4 %}`{{ p[0] }} {{ p[1] }}/{{ p[2] }} W` — sent {{ (as_timestamp(now()) - (p[3] | float(0))) | round(0) | int }}s ago{% else %}_no cached command — next cycle writes_{% endif %}
+              {%- endfor %}
+              {%- endif %}
+
               {% if has_imp or has_exp -%}
               **Peak shaving:** {% if has_imp %}import ≤ {{ imp_lim }} W{% if grid > imp_lim %} 🔴 clamping{% else %} 🟢{% endif %}{% endif %}{% if has_imp and has_exp %} / {% endif %}{% if has_exp %}export ≤ {{ exp_lim }} W{% if grid < 0 and (grid | abs) > exp_lim %} 🔴 clamping{% else %} 🟢{% endif %}{% endif %}
 
@@ -2484,6 +2495,27 @@ views:
               35 W, round up to 50 W). Too low causes charge/discharge
               oscillation near the setpoint; too high prevents small
               corrections.</i></font>
+            text_only: true
+          - type: heading
+            icon: mdi:lan-connect
+            heading: Modbus command throttling
+            heading_style: subtitle
+          - type: entities
+            entities:
+              - entity: input_number.hba_control_write_refresh_secs
+                name: Command refresh interval
+                secondary_info: none
+          - type: markdown
+            content: >-
+              <font color="grey"><i>Each Modbus write to a battery takes ~150 ms
+              and blocks the control loop while it runs. Repeating an unchanged
+              command is skipped until this interval expires, which roughly
+              halves the loop period under load — the controller reacts to a load
+              step about twice as fast. The interval still re-sends periodically,
+              so a battery that drops its setpoint recovers on its own.
+              **0 = send every cycle** (old behaviour); lower it to 5–10 s first
+              if a battery ever drifts out of its commanded
+              mode.</i></font>
             text_only: true
 
       - type: grid
