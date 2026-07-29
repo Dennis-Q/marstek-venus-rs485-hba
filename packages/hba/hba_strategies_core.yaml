@@ -446,21 +446,16 @@ script:
                     - "{{ mode in ['Disabled', 'Manual control', 'Marstek control'] }}"
                     - "{{ bat_available }}"
                   sequence:
-                    - action: number.set_value
-                      continue_on_error: true
-                      target:
-                        entity_id: "number.marstek_{{ bat }}_forcible_charge_power"
-                      data: { value: 0 }
-                    - action: number.set_value
-                      continue_on_error: true
-                      target:
-                        entity_id: "number.marstek_{{ bat }}_forcible_discharge_power"
-                      data: { value: 0 }
-                    - action: select.select_option
-                      continue_on_error: true
-                      target:
-                        entity_id: "select.marstek_{{ bat }}_forcible_charge_discharge"
-                      data: { option: "stop" }
+                    # force: true — a handoff stop must reach the battery even if
+                    # the cache says it is already stopped, and it also refreshes
+                    # the cache so the next Full-control cycle starts from truth.
+                    - action: script.hba_write_battery
+                      data:
+                        bat: "{{ bat | replace('m', '') | int(0) }}"
+                        cmd_mode: "stop"
+                        charge_w: 0
+                        discharge_w: 0
+                        force: true
             - choose:
                 - conditions: "{{ mode == 'Manual control' }}"
                   sequence:
@@ -500,6 +495,112 @@ script:
   # Shares are pre-computed in a single Jinja2 namespace loop into shares_json before the
   # repeat, because Jinja2 loop iterations cannot share mutable state — variables: steps in
   # a repeat are independent and cannot decrement a running remainder across iterations.
+  # ── Single point of Modbus actuation ──────────────────────────────────────────
+  # Every forcible charge/discharge command goes through here so the write
+  # de-duplication is applied consistently.
+  #
+  # WHY: each modbus.write_register to a Marstek costs ~150 ms (35 ms enforced
+  # message_wait plus the round trip), and the naive scheme wrote all three
+  # registers for all three batteries on every control cycle — 9 writes, ~1.15 s
+  # of wall clock. Because the control loop is mode: single, that pushed the
+  # effective loop period to ~2.24 s under load even though sensor.p1_meter_power
+  # updates every 1.1 s: the loop was skipping every other sample precisely when
+  # a load step was in progress. Measured on production 2026-07-28, 78 % of those
+  # writes set a register to the value it already held.
+  #
+  # Skipping the redundant ones takes a regulating cycle from 9 writes to ~2
+  # (only the active battery's two power registers actually change; its mode and
+  # both idle batteries stay put), which halves the loop period.
+  #
+  # SAFETY: the cache is HBA's own record of what it last sent, not a readback —
+  # the Modbus readback sensors poll every 15 s and would lag. Three things keep
+  # it honest:
+  #   1. hba_control_write_refresh_secs forces a full re-send at least that often,
+  #      so a battery that silently drops its setpoint self-heals, and setting it
+  #      to 0 restores the old always-write behaviour.
+  #   2. force: true on the master-mode handoff path, which must land immediately.
+  #   3. After a restart the cached epoch is stale, so the first cycle re-sends.
+  hba_write_battery:
+    alias: "HBA: Write battery registers (de-duplicated)"
+    description: >
+      Writes one battery's forcible charge/discharge triple, skipping the Modbus
+      round trips when the command is unchanged and still fresh.
+    mode: queued
+    max: 12
+    fields:
+      bat:
+        description: "Battery index, 1-6"
+        example: 1
+      cmd_mode:
+        description: "stop | charge | discharge"
+        example: "discharge"
+      charge_w:
+        description: "Value for the forcible charge power register"
+        example: 723
+      discharge_w:
+        description: "Value for the forcible discharge power register"
+        example: 723
+      force:
+        description: "Write even if the command is unchanged (default false)"
+        example: false
+    sequence:
+      - variables:
+          _bat: "{{ bat | int(0) }}"
+          _mode: "{{ cmd_mode | default('stop') }}"
+          _chg: "{{ charge_w | default(0) | int(0) }}"
+          _dis: "{{ discharge_w | default(0) | int(0) }}"
+          _force: "{{ force | default(false) }}"
+      - variables:
+          _want: "{{ _mode ~ '|' ~ _chg ~ '|' ~ _dis }}"
+          _cached: "{{ states('input_text.hba_last_cmd_m' ~ _bat) | default('', true) }}"
+          _refresh: "{{ states('input_number.hba_control_write_refresh_secs') | float(30) }}"
+      - variables:
+          # Stale, unparsable or missing cache -> age is huge -> always writes.
+          _age: >-
+            {%- set parts = _cached.split('|') -%}
+            {%- if parts | length == 4 -%}
+              {{ (as_timestamp(now()) - (parts[3] | float(0))) | round(0) | int }}
+            {%- else -%}
+              999999
+            {%- endif -%}
+          _same: "{{ _cached.rsplit('|', 1)[0] == _want }}"
+      - alias: "Unchanged and still fresh — skip the three Modbus round trips"
+        if:
+          - condition: template
+            value_template: >-
+              {{ not _force and _same and _refresh > 0 and (_age | int(0)) < _refresh }}
+        then:
+          - stop: "Command unchanged and still fresh — skipped 3 Modbus writes"
+      - action: number.set_value
+        continue_on_error: true
+        target:
+          entity_id: "number.marstek_m{{ _bat }}_forcible_charge_power"
+        data: { value: "{{ _chg }}" }
+      - action: number.set_value
+        continue_on_error: true
+        target:
+          entity_id: "number.marstek_m{{ _bat }}_forcible_discharge_power"
+        data: { value: "{{ _dis }}" }
+      - action: select.select_option
+        continue_on_error: true
+        target:
+          entity_id: "select.marstek_m{{ _bat }}_forcible_charge_discharge"
+        data: { option: "{{ _mode }}" }
+      # Only cache a command we can believe landed. The writes above carry
+      # continue_on_error, so an unreachable battery would otherwise be recorded
+      # as "already commanded" and not retried until the refresh interval —
+      # clearing the cache instead makes the next cycle write again immediately.
+      - variables:
+          _avail: >-
+            {{ states('select.marstek_m' ~ _bat ~ '_forcible_charge_discharge')
+               not in ['unavailable', 'unknown', 'none'] }}
+      - action: input_text.set_value
+        target:
+          entity_id: "input_text.hba_last_cmd_m{{ _bat }}"
+        data:
+          value: >-
+            {{ (_want ~ '|' ~ (as_timestamp(now()) | round(0) | int)) if _avail else '' }}
+
   hba_set_batteries:
     alias: "HBA: Set battery power (distribute across all)"
     description: >
@@ -523,21 +624,12 @@ script:
               - repeat:
                   count: "{{ count }}"
                   sequence:
-                    - action: number.set_value
-                      continue_on_error: true
-                      target:
-                        entity_id: "number.marstek_m{{ repeat.index }}_forcible_charge_power"
-                      data: { value: 0 }
-                    - action: number.set_value
-                      continue_on_error: true
-                      target:
-                        entity_id: "number.marstek_m{{ repeat.index }}_forcible_discharge_power"
-                      data: { value: 0 }
-                    - action: select.select_option
-                      continue_on_error: true
-                      target:
-                        entity_id: "select.marstek_m{{ repeat.index }}_forcible_charge_discharge"
-                      data: { option: "stop" }
+                    - action: script.hba_write_battery
+                      data:
+                        bat: "{{ repeat.index }}"
+                        cmd_mode: "stop"
+                        charge_w: 0
+                        discharge_w: 0
           # CHARGE
           - conditions: "{{ mode == 'charge' or (mode == 'auto' and desired > 0) }}"
             sequence:
@@ -588,21 +680,12 @@ script:
                     - choose:
                         - conditions: "{{ soc < soc_max - 0.5 and share > 0 }}"
                           sequence:
-                            - action: number.set_value
-                              continue_on_error: true
-                              target:
-                                entity_id: "number.marstek_m{{ bat_idx }}_forcible_charge_power"
-                              data: { value: "{{ share }}" }
-                            - action: number.set_value
-                              continue_on_error: true
-                              target:
-                                entity_id: "number.marstek_m{{ bat_idx }}_forcible_discharge_power"
-                              data: { value: "{{ share }}" }
-                            - action: select.select_option
-                              continue_on_error: true
-                              target:
-                                entity_id: "select.marstek_m{{ bat_idx }}_forcible_charge_discharge"
-                              data: { option: "charge" }
+                            - action: script.hba_write_battery
+                              data:
+                                bat: "{{ bat_idx }}"
+                                cmd_mode: "charge"
+                                charge_w: "{{ share }}"
+                                discharge_w: "{{ share }}"
                             - action: input_datetime.set_datetime
                               target:
                                 entity_id: "input_datetime.hba_last_active_m{{ bat_idx }}"
@@ -620,37 +703,19 @@ script:
                         - choose:
                             - conditions: "{{ bat_time_idle < idle_secs }}"
                               sequence:
-                                - action: number.set_value
-                                  continue_on_error: true
-                                  target:
-                                    entity_id: "number.marstek_m{{ bat_idx }}_forcible_charge_power"
-                                  data: { value: 1 }
-                                - action: number.set_value
-                                  continue_on_error: true
-                                  target:
-                                    entity_id: "number.marstek_m{{ bat_idx }}_forcible_discharge_power"
-                                  data: { value: 1 }
-                                - action: select.select_option
-                                  continue_on_error: true
-                                  target:
-                                    entity_id: "select.marstek_m{{ bat_idx }}_forcible_charge_discharge"
-                                  data: { option: "charge" }
+                                - action: script.hba_write_battery
+                                  data:
+                                    bat: "{{ bat_idx }}"
+                                    cmd_mode: "charge"
+                                    charge_w: 1
+                                    discharge_w: 1
                           default:
-                            - action: number.set_value
-                              continue_on_error: true
-                              target:
-                                entity_id: "number.marstek_m{{ bat_idx }}_forcible_charge_power"
-                              data: { value: 0 }
-                            - action: number.set_value
-                              continue_on_error: true
-                              target:
-                                entity_id: "number.marstek_m{{ bat_idx }}_forcible_discharge_power"
-                              data: { value: 0 }
-                            - action: select.select_option
-                              continue_on_error: true
-                              target:
-                                entity_id: "select.marstek_m{{ bat_idx }}_forcible_charge_discharge"
-                              data: { option: "stop" }
+                            - action: script.hba_write_battery
+                              data:
+                                bat: "{{ bat_idx }}"
+                                cmd_mode: "stop"
+                                charge_w: 0
+                                discharge_w: 0
           # DISCHARGE
           - conditions: "{{ mode == 'discharge' or (mode == 'auto' and desired < 0) }}"
             sequence:
@@ -690,21 +755,12 @@ script:
                     - choose:
                         - conditions: "{{ soc > soc_min + 0.5 and share > 0 }}"
                           sequence:
-                            - action: number.set_value
-                              continue_on_error: true
-                              target:
-                                entity_id: "number.marstek_m{{ bat_idx }}_forcible_charge_power"
-                              data: { value: "{{ share }}" }
-                            - action: number.set_value
-                              continue_on_error: true
-                              target:
-                                entity_id: "number.marstek_m{{ bat_idx }}_forcible_discharge_power"
-                              data: { value: "{{ share }}" }
-                            - action: select.select_option
-                              continue_on_error: true
-                              target:
-                                entity_id: "select.marstek_m{{ bat_idx }}_forcible_charge_discharge"
-                              data: { option: "discharge" }
+                            - action: script.hba_write_battery
+                              data:
+                                bat: "{{ bat_idx }}"
+                                cmd_mode: "discharge"
+                                charge_w: "{{ share }}"
+                                discharge_w: "{{ share }}"
                             - action: input_datetime.set_datetime
                               target:
                                 entity_id: "input_datetime.hba_last_active_m{{ bat_idx }}"
@@ -722,37 +778,19 @@ script:
                         - choose:
                             - conditions: "{{ bat_time_idle < idle_secs }}"
                               sequence:
-                                - action: number.set_value
-                                  continue_on_error: true
-                                  target:
-                                    entity_id: "number.marstek_m{{ bat_idx }}_forcible_charge_power"
-                                  data: { value: 1 }
-                                - action: number.set_value
-                                  continue_on_error: true
-                                  target:
-                                    entity_id: "number.marstek_m{{ bat_idx }}_forcible_discharge_power"
-                                  data: { value: 1 }
-                                - action: select.select_option
-                                  continue_on_error: true
-                                  target:
-                                    entity_id: "select.marstek_m{{ bat_idx }}_forcible_charge_discharge"
-                                  data: { option: "discharge" }
+                                - action: script.hba_write_battery
+                                  data:
+                                    bat: "{{ bat_idx }}"
+                                    cmd_mode: "discharge"
+                                    charge_w: 1
+                                    discharge_w: 1
                           default:
-                            - action: number.set_value
-                              continue_on_error: true
-                              target:
-                                entity_id: "number.marstek_m{{ bat_idx }}_forcible_charge_power"
-                              data: { value: 0 }
-                            - action: number.set_value
-                              continue_on_error: true
-                              target:
-                                entity_id: "number.marstek_m{{ bat_idx }}_forcible_discharge_power"
-                              data: { value: 0 }
-                            - action: select.select_option
-                              continue_on_error: true
-                              target:
-                                entity_id: "select.marstek_m{{ bat_idx }}_forcible_charge_discharge"
-                              data: { option: "stop" }
+                            - action: script.hba_write_battery
+                              data:
+                                bat: "{{ bat_idx }}"
+                                cmd_mode: "stop"
+                                charge_w: 0
+                                discharge_w: 0
 
   # ── Priority rotation ─────────────────────────────────────────────────────────
   # Advances hba_control_prioritize_battery by 1 (wraps around at battery_count).
@@ -852,6 +890,11 @@ script:
       - action: input_number.set_value
         target: { entity_id: input_number.hba_control_idle_time }
         data: { value: 5 }
+      # 30 s: bounded exposure if a battery drops its setpoint, while still
+      # eliminating ~78 % of the Modbus writes. 0 = write every cycle.
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_control_write_refresh_secs }
+        data: { value: 30 }
       # ── Peak shaving ──────────────────────────────────────────────────────────
       - action: input_boolean.turn_off
         target:

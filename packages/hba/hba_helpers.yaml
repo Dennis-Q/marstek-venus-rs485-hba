@@ -140,6 +140,22 @@ input_number:
     mode: box
     unit_of_measurement: min
     icon: mdi:timer-pause
+  # Modbus write de-duplication. hba_write_battery skips a battery's three
+  # register writes when the command is unchanged, but re-sends them at least
+  # this often so a battery that silently drops its setpoint recovers on its
+  # own. Each Modbus write costs ~150 ms and blocks the control loop, and ~78 %
+  # of the writes in the naive every-cycle scheme are redundant — skipping them
+  # roughly halves the loop period under load.
+  # Set to 0 to disable de-duplication entirely (write every cycle, pre-r15
+  # behaviour) if your firmware turns out to need the constant refresh.
+  hba_control_write_refresh_secs:
+    name: "Modbus command refresh interval"
+    min: 0
+    max: 300
+    step: 5
+    mode: box
+    unit_of_measurement: s
+    icon: mdi:refresh-circle
   hba_control_kp:
     name: "PID Kp (proportional)"
     min: 0
@@ -537,6 +553,38 @@ input_text:
     name: "Active strategy flow"
     max: 255
     icon: mdi:sitemap
+  # ── Last-commanded register cache (Modbus write de-duplication) ─────────────
+  # Format: "<mode>|<charge_w>|<discharge_w>|<epoch>", e.g.
+  # "discharge|723|723|1785300000". hba_write_battery compares the desired
+  # triple against this before touching Modbus and skips identical commands
+  # until hba_control_write_refresh_secs has elapsed.
+  #
+  # Written by HBA only — never edit by hand. Clearing one is always safe: an
+  # empty or unparsable value simply forces a write on the next cycle.
+  hba_last_cmd_m1:
+    name: "Battery M1 last command"
+    max: 60
+    icon: mdi:content-save-cog
+  hba_last_cmd_m2:
+    name: "Battery M2 last command"
+    max: 60
+    icon: mdi:content-save-cog
+  hba_last_cmd_m3:
+    name: "Battery M3 last command"
+    max: 60
+    icon: mdi:content-save-cog
+  hba_last_cmd_m4:
+    name: "Battery M4 last command"
+    max: 60
+    icon: mdi:content-save-cog
+  hba_last_cmd_m5:
+    name: "Battery M5 last command"
+    max: 60
+    icon: mdi:content-save-cog
+  hba_last_cmd_m6:
+    name: "Battery M6 last command"
+    max: 60
+    icon: mdi:content-save-cog
   hba_control_cycle_state:
     name: "PID cycle state"
     max: 100
@@ -765,7 +813,7 @@ template:
       - name: "HBA Version"
         unique_id: hba_version
         icon: mdi:tag
-        state: "v4.10.1-r14"
+        state: "v4.10.1-r15"
 
       - name: "HBA Active strategy"
         unique_id: hba_active_strategy
@@ -1536,6 +1584,9 @@ recorder:
       - input_number.hba_control_*_deviation
       # Per-battery idle timestamps — updated on every battery write (~1 s)
       - input_datetime.hba_last_active_m*
+      # Last-commanded register cache — rewritten whenever a battery command
+      # changes; internal bookkeeping, no history value
+      - input_text.hba_last_cmd_m*
       # Dynamic strategy calculated averages (updated hourly)
       - input_number.hba_strategy_dynamic_*_avg_*
       # Individual cell voltages — 16 cells × 3 batteries ≈ 82 K writes/day; live values
@@ -1587,6 +1638,8 @@ logbook:
       - input_number.hba_control_*_deviation
       # Per-battery idle timestamps
       - input_datetime.hba_last_active_m*
+      # Last-commanded register cache
+      - input_text.hba_last_cmd_m*
     entities:
       # PID signal and output — updated every ~1 s during operation
       - input_number.hba_control_error_signal

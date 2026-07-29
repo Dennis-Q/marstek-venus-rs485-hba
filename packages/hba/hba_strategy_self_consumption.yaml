@@ -271,21 +271,12 @@ script:
                                       target: { entity_id: input_text.hba_control_cycle_state }
                                       data:
                                         value: "Idle hold M{{ repeat.index }} — {{ 'charge' if is_charging_idle else 'discharge' }}"
-                            - action: number.set_value
-                              continue_on_error: true
-                              target:
-                                entity_id: "number.marstek_m{{ repeat.index }}_forcible_charge_power"
-                              data: { value: 1 }
-                            - action: number.set_value
-                              continue_on_error: true
-                              target:
-                                entity_id: "number.marstek_m{{ repeat.index }}_forcible_discharge_power"
-                              data: { value: 1 }
-                            - action: select.select_option
-                              continue_on_error: true
-                              target:
-                                entity_id: "select.marstek_m{{ repeat.index }}_forcible_charge_discharge"
-                              data: { option: "{{ 'charge' if is_charging_idle else 'discharge' }}" }
+                            - action: script.hba_write_battery
+                              data:
+                                bat: "{{ repeat.index }}"
+                                cmd_mode: "{{ 'charge' if is_charging_idle else 'discharge' }}"
+                                charge_w: 1
+                                discharge_w: 1
                       default:
                         - choose:
                             - conditions: "{{ is_state('input_boolean.hba_control_is_debug_mode', 'on') }}"
@@ -293,18 +284,9 @@ script:
                                 - action: input_text.set_value
                                   target: { entity_id: input_text.hba_control_cycle_state }
                                   data: { value: "Idle stop M{{ repeat.index }}" }
-                        - action: number.set_value
-                          continue_on_error: true
-                          target:
-                            entity_id: "number.marstek_m{{ repeat.index }}_forcible_charge_power"
-                          data: { value: 0 }
-                        - action: number.set_value
-                          continue_on_error: true
-                          target:
-                            entity_id: "number.marstek_m{{ repeat.index }}_forcible_discharge_power"
-                          data: { value: 0 }
-                        - action: select.select_option
-                          continue_on_error: true
-                          target:
-                            entity_id: "select.marstek_m{{ repeat.index }}_forcible_charge_discharge"
-                          data: { option: "stop" }
+                        - action: script.hba_write_battery
+                          data:
+                            bat: "{{ repeat.index }}"
+                            cmd_mode: "stop"
+                            charge_w: 0
+                            discharge_w: 0
