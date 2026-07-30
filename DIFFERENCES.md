@@ -62,11 +62,16 @@ warning above is most relevant for 1 s meters.
 
 ### Built-in presets
 
-**Very safe**, **Safe**, and **Regular (original HBC)** are carried over from HBC.
-HBA introduces a new **Regular** preset with values that appear to work better in
-practice — it is still under review. The original HBC Regular preset is preserved
-as **Regular (original HBC)**. Treat all presets as starting points, not tuned
-recommendations.
+**PID values from the Node-RED HBC project are not transferable to HBA.** HBC gates its
+PID behind a rate limiter (it runs only when grid power moved **>20 W *and* >2 %**, with a
+cooldown after a slow cycle); HBA runs the PID on **every** P1 update, subject only to a
+15 W deadband. The integrator accumulates far more often here, so the same Ki is
+dramatically more aggressive in HBA. The former "Regular (original HBC)" preset has been
+removed for this reason.
+
+HBA ships **Very safe / Safe / Regular / Responsive**, differing only in Ki (0.10 / 0.15 /
+0.22 / 0.30) at a fixed Kp 0.35. Regular is the validated default. Full rationale and the
+measured numbers are in [DEFAULTS.md](DEFAULTS.md).
 
 ### Other PID differences
 

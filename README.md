@@ -98,13 +98,19 @@ the I-term accumulates proportionally slower, so the system is more conservative
 The Ki warning above is most relevant for 1 s meters; at slower rates HBA and HBC
 behave more similarly.
 
-The built-in presets **Very safe**, **Safe**, and **Regular (original HBC)** are carried
-over from HBC. A new **Regular** preset has been introduced in HBA with values that
-appear to work better in practice — it is still being reviewed, so treat it as a starting
-point. The original HBC values are preserved as **Regular (original HBC)** for reference.
-All presets are still being reviewed for optimal values with HBA's implementation.
-[docs.homebatterycontrol.com/04-setup-self-consumption](https://docs.homebatterycontrol.com/04-setup-self-consumption)
-covers PID tuning in general; the HBA-specific starting point is a lower Ki.
+> ⚠️ **PID values from the Node-RED HBC project are not transferable to HBA.** HBC gates its
+> PID behind a rate limiter (it runs only when grid power moved **>20 W *and* >2 %**, with a
+> cooldown after a slow cycle); HBA runs the PID on **every** P1 update, subject only to a
+> 15 W deadband. The integrator accumulates far more often here, so the same Ki is
+> dramatically more aggressive in HBA. The former "Regular (original HBC)" preset has been
+> removed for this reason.
+
+The presets are **Very safe / Safe / Regular / Responsive**. They share Kp 0.35, Kd 0.1 and
+the damping settings, and differ **only in Ki** — integrating the closed-loop decay shows the
+grid energy a disturbance costs is `cycle × step / Ki` with Kp cancelling out, so Kp changes
+only the peak height, not the cost. **Regular** is the validated default (measured on
+production: 143 W residual 8 s after a 2.25 kW step, zero setpoint crossings). See
+[DEFAULTS.md](DEFAULTS.md) for the full table and the loop-period caveat.
 
 ### Switching between HBA and HBC
 
