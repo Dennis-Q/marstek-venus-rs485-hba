@@ -1,4 +1,4 @@
-# HBA Factory Defaults — v4.10.1-r12
+# HBA Factory Defaults — v4.10.1-r18
 
 All values set by `script.hba_apply_defaults`. Run once after fresh install via
 Developer Tools → Services → `script.turn_on` → `script.hba_apply_defaults`.
@@ -23,28 +23,56 @@ are always consistent with "Very safe" so the preset selector is not misleading.
 
 | Helper | Default | Notes |
 |---|---|---|
-| `input_select.hba_control_pid_presets` | `Very safe` | |
+| `input_select.hba_control_pid_presets` | `Very safe` | Deliberately conservative for an unverified install. **Switch to `Regular` once the batteries are confirmed responding** — it is the validated operating point and roughly halves the grid energy per disturbance. |
 | `input_number.hba_target_grid_consumption` | `0` W | Keep grid import at 0 W |
-| `input_number.hba_control_kp` | `0.1` | Matches Very safe preset |
+| `input_number.hba_control_kp` | `0.35` | Matches Very safe preset |
 | `input_number.hba_control_ki` | `0.1` | Matches Very safe preset |
-| `input_number.hba_control_kd` | `0` | Matches Very safe preset (D-term off) |
+| `input_number.hba_control_kd` | `0.1` | Matches Very safe preset |
 | `input_number.hba_control_pid_output_dampening` | `10` % | Matches Very safe preset |
-| `input_number.hba_control_error_signal_dampening` | `0` % | Matches Very safe preset (no error smoothing) |
+| `input_number.hba_control_error_signal_dampening` | `20` % | Matches Very safe preset |
 | `input_number.hba_control_hysteresis` | `20` W | Direction-flip guard threshold |
 | `input_number.hba_control_idle_time` | `5` min | Per-battery idle hold before relay disconnect |
 | `input_number.hba_control_write_refresh_secs` | `30` s | Re-send an unchanged battery command at least this often. Identical commands in between skip their three Modbus writes (~150 ms each), which roughly halves the control-loop period under load. `0` disables de-duplication and writes every cycle. |
 
 ### PID Presets
 
-| Preset | Kp | Ki | Kd | Error damp | Output damp | Hysteresis |
-|---|---|---|---|---|---|---|
-| Very safe | 0.1 | 0.1 | 0 | 0 % | 10 % | (unchanged) |
-| Safe | 0.3 | 0.3 | 0.1 | 20 % | 0 % | (unchanged) |
-| Regular | 0.35 | 0.3 | 0.1 | 20 % | 10 % | (unchanged) |
-| Regular (original HBC) | 0.3 | 0.4 | 0.8 | 50 % | 10 % | (unchanged) |
+> ⚠️ **Do not copy PID values from the Node-RED HBC project.** They will not behave the same
+> here, and the difference is large.
+>
+> HBC gates its PID behind a rate limiter — it only runs the pipeline when grid power has
+> moved **more than 20 W *and* more than 2 %**, and it blocks the next cycle entirely after a
+> slow one. HBA runs the PID on **every** `sensor.p1_meter_power` update, subject only to a
+> 15 W deadband. The integrator therefore accumulates far more often here, so the same Ki is
+> dramatically more aggressive in HBA than in HBC. HBC's published gains (e.g. Ki 0.4,
+> Kd 0.8) are not transferable, and the former "Regular (original HBC)" preset has been
+> removed for that reason.
+>
+> The same applies in reverse: do not report HBA gains as HBC settings.
 
-Very safe / Safe / Regular (original HBC) are carried over from HBC. **Regular** is an
-HBA-introduced preset still under review — treat as a starting point.
+All four presets share **Kp 0.35 / Kd 0.1 / error damping 20 % / output damping 10 %** and
+differ **only in Ki**. That is a measured result, not a simplification — integrating the
+closed-loop decay gives `energy = cycle × step / Ki`, because the initial excursion scales as
+`1/(1+Kp)` and the decay rate as `Ki/(1+Kp)`, so the `(1+Kp)` cancels. **Kp cannot change what
+a disturbance costs**; it only sets how high the transient peaks (`step/(1+Kp)`). A sweep on
+production (2026-07-30, Kp 0.35 / 0.55 / 0.75 at fixed Ki) measured 5.2 / 5.8 / 6.2 Wh —
+flat to worse, never better, because beyond ~0.55 the extra gain buys ringing in a loop with
+~1.6 s of sensing dead time.
+
+Raise Kp above 0.35 only if transient **peaks** matter to you specifically — peak shaving, a
+capacity tariff, or a hard grid limit. It will cost a little ringing and save no energy.
+
+| Preset | Ki | Character | Measured on an 863 W step |
+|---|---|---|---|
+| Very safe | 0.10 | Calmest, least battery activity | 6.1 Wh, ~38 s to settle |
+| Safe | 0.15 | Noticeably slower tail | 4.4 Wh |
+| **Regular** *(default)* | **0.22** | **Validated on production** | 3.7 Wh. Against a real 2.25 kW step: residual **143 W at +8 s**, zero setpoint crossings |
+| Responsive | 0.30 | Fastest measured | 3.2 Wh. Untested against 2.25 kW steps — may overshoot, as overshoot scales with step size |
+
+> **These Ki values assume a ~1.1 s control loop**, i.e. Modbus write de-duplication enabled
+> (`input_number.hba_control_write_refresh_secs` > 0, v4.10.1-r15+). With de-duplication off
+> the loop runs at ~2.2 s and the integrator accumulates half as fast per second, so every
+> preset behaves roughly one step slower than its name suggests.
+
 
 ## Peak Shaving
 

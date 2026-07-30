@@ -672,6 +672,20 @@ input_select:
       - "Standby / peak shave"
       - "Charge PV"
     icon: mdi:car-electric-outline
+  # PID presets. All four use Kp 0.35 / Kd 0.1 / damping 20-10 and differ ONLY in Ki.
+  #
+  # That is a measured result, not a simplification: integrating the closed-loop decay
+  # gives energy = cycle x step / Ki, because the initial excursion scales as 1/(1+Kp)
+  # and the decay rate as Ki/(1+Kp) -- the (1+Kp) cancels. Kp therefore cannot change
+  # what a disturbance costs; it only sets how high the transient peaks, L/(1+Kp), and
+  # a Kp sweep on production 2026-07-30 confirmed it (0.35 / 0.55 / 0.75 gave
+  # 5.2 / 5.8 / 6.2 Wh -- flat to worse, never better). Raise Kp only if transient
+  # PEAKS matter to you (peak shaving, capacity tariff, a hard grid limit).
+  #
+  # Ki values are calibrated for a ~1.1 s control loop, i.e. with Modbus write
+  # de-duplication enabled (input_number.hba_control_write_refresh_secs > 0, v4.10.1-r15+).
+  # With de-duplication off the loop runs at ~2.2 s and the integrator accumulates half
+  # as fast per second, so every preset behaves roughly one step slower than its name.
   hba_control_pid_presets:
     name: "PID presets"
     options:
@@ -679,7 +693,7 @@ input_select:
       - "Very safe"
       - "Safe"
       - "Regular"
-      - "Regular (original HBC)"
+      - "Responsive"
     icon: mdi:tune
   hba_strategy_timed_strat_0:
     name: "Timed baseline strategy"
@@ -813,7 +827,7 @@ template:
       - name: "HBA Version"
         unique_id: hba_version
         icon: mdi:tag
-        state: "v4.10.1-r17"
+        state: "v4.10.1-r18"
 
       - name: "HBA Active strategy"
         unique_id: hba_active_strategy
