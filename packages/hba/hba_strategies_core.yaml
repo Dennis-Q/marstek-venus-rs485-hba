@@ -57,12 +57,12 @@ automation:
   # ── PID preset changed ────────────────────────────────────────────────────────
   # All presets share Kp 0.35 / Kd 0.1 / damping 20-10 and differ ONLY in Ki.
   #
-  # Energy = cycle x step / Ki: integrating the closed-loop decay, the initial excursion
-  # scales as 1/(1+Kp) and the decay rate as Ki/(1+Kp), so the (1+Kp) cancels and Kp drops
-  # out of what a disturbance costs. Kp only sets the peak height, L/(1+Kp). Measured on
-  # production 2026-07-30 (Kp 0.35/0.55/0.75 at fixed Ki): 5.2 / 5.8 / 6.2 Wh -- flat to
-  # worse, never better, because past ~0.55 the extra gain buys ringing in a loop with
-  # ~1.6 s of sensing dead time. So the presets leave Kp alone.
+  # Kp 0.35 is the MEASURED optimum: cost per disturbance 0.74 / 0.61 / 0.71 ct at
+  # Kp 0.20 / 0.35 / 0.55 against a real 2250 W load (three nights, Ki held at 0.22).
+  # Lower Kp = higher peak but faster tail; higher Kp = the reverse; both cost more.
+  # The idealised algebra predicting Kp-independent energy is wrong for this plant --
+  # it ignores the ~1.6 s sensing delay and the ~460 W/s actuator slew. So the presets
+  # leave Kp alone and vary only Ki.
   #
   # Ki values assume a ~1.1 s control loop (write de-duplication ON, r15+). With it off
   # the loop is ~2.2 s and the integrator accumulates half as fast per second.
