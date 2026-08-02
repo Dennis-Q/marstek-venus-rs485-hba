@@ -674,13 +674,20 @@ input_select:
     icon: mdi:car-electric-outline
   # PID presets. All four use Kp 0.35 / Kd 0.1 / damping 20-10 and differ ONLY in Ki.
   #
-  # That is a measured result, not a simplification: integrating the closed-loop decay
-  # gives energy = cycle x step / Ki, because the initial excursion scales as 1/(1+Kp)
-  # and the decay rate as Ki/(1+Kp) -- the (1+Kp) cancels. Kp therefore cannot change
-  # what a disturbance costs; it only sets how high the transient peaks, L/(1+Kp), and
-  # a Kp sweep on production 2026-07-30 confirmed it (0.35 / 0.55 / 0.75 gave
-  # 5.2 / 5.8 / 6.2 Wh -- flat to worse, never better). Raise Kp only if transient
-  # PEAKS matter to you (peak shaving, capacity tariff, a hard grid limit).
+  # Kp 0.35 is the MEASURED optimum, bracketed on both sides against a real 2250 W
+  # load on production (Ki held at 0.22): cost per disturbance 0.74 / 0.61 / 0.71 ct
+  # at Kp 0.20 / 0.35 / 0.55. Lower Kp gives a higher peak but a faster tail, higher Kp
+  # the reverse, and both cost more overall.
+  #
+  # NB the idealised algebra says energy should be Kp-independent (the (1+Kp) cancels
+  # between the initial excursion and the decay rate). That is WRONG for this plant --
+  # it assumes an instantaneous actuator and no dead time, whereas the loop has ~1.6 s
+  # of sensing delay and a Marstek slewing at ~460 W/s. Measurement over three nights
+  # falsified it. The formulas still predict the PEAK accurately (Kp 0.20 measured
+  # +12.7 % against a predicted +12.4 %); just do not use them for energy.
+  #
+  # Change Kp only if transient PEAKS matter more than energy (peak shaving, capacity
+  # tariff, hard grid limit): roughly 8 % lower peak for 16 % higher cost at Kp 0.55.
   #
   # Ki values are calibrated for a ~1.1 s control loop, i.e. with Modbus write
   # de-duplication enabled (input_number.hba_control_write_refresh_secs > 0, v4.10.1-r15+).
@@ -827,7 +834,7 @@ template:
       - name: "HBA Version"
         unique_id: hba_version
         icon: mdi:tag
-        state: "v4.10.1-r18"
+        state: "v4.10.1-r19"
 
       - name: "HBA Active strategy"
         unique_id: hba_active_strategy

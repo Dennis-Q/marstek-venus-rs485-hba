@@ -1,4 +1,4 @@
-# HBA Factory Defaults — v4.10.1-r18
+# HBA Factory Defaults — v4.10.1-r19
 
 All values set by `script.hba_apply_defaults`. Run once after fresh install via
 Developer Tools → Services → `script.turn_on` → `script.hba_apply_defaults`.
@@ -50,16 +50,21 @@ are always consistent with "Very safe" so the preset selector is not misleading.
 > The same applies in reverse: do not report HBA gains as HBC settings.
 
 All four presets share **Kp 0.35 / Kd 0.1 / error damping 20 % / output damping 10 %** and
-differ **only in Ki**. That is a measured result, not a simplification — integrating the
-closed-loop decay gives `energy = cycle × step / Ki`, because the initial excursion scales as
-`1/(1+Kp)` and the decay rate as `Ki/(1+Kp)`, so the `(1+Kp)` cancels. **Kp cannot change what
-a disturbance costs**; it only sets how high the transient peaks (`step/(1+Kp)`). A sweep on
-production (2026-07-30, Kp 0.35 / 0.55 / 0.75 at fixed Ki) measured 5.2 / 5.8 / 6.2 Wh —
-flat to worse, never better, because beyond ~0.55 the extra gain buys ringing in a loop with
-~1.6 s of sensing dead time.
+differ **only in Ki**, because **Kp 0.35 is the measured optimum** — bracketed on both sides
+on production against a real 2250 W load, Ki held at 0.22:
 
-Raise Kp above 0.35 only if transient **peaks** matter to you specifically — peak shaving, a
-capacity tariff, or a hard grid limit. It will cost a little ringing and save no energy.
+| | Kp 0.20 | **Kp 0.35** | Kp 0.55 |
+|---|---|---|---|
+| peak (+3 s) | 1602 W | 1420 W | 1304 W |
+| tail (+10 s) | 54 W | 156 W | 349 W |
+| **cost per disturbance** | 0.74 ct | **0.61 ct** | 0.71 ct |
+
+Lower Kp gives a higher peak but a faster tail; higher Kp the reverse. Both cost more overall,
+so the presets leave Kp alone and vary only Ki.
+
+Changing Kp is only worthwhile if transient **peaks** matter to you more than energy — peak
+shaving, a capacity tariff, or a hard grid limit. The exchange rate is roughly **8 % lower
+peak for 16 % higher cost per disturbance** (Kp 0.55).
 
 | Preset | Ki | Character | Measured on an 863 W step |
 |---|---|---|---|
