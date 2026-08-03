@@ -834,7 +834,7 @@ template:
       - name: "HBA Version"
         unique_id: hba_version
         icon: mdi:tag
-        state: "v4.10.1-r19"
+        state: "v4.10.1-r20"
 
       - name: "HBA Active strategy"
         unique_id: hba_active_strategy
@@ -1361,20 +1361,36 @@ template:
         unique_id: hba_marstek_m1_not_responding
         device_class: problem
         icon: mdi:battery-alert
-        delay_on: "00:00:30"
+        # 2 minutes, not 30 s. The commanded registers are rewritten every ~1 s while
+        # sensor.marstek_m1_ac_power only polls every ~10 s, AND the Marstek slews at
+        # only ~460 W/s -- so during any ramp the measurement legitimately trails the
+        # command by well over 15 %, for as long as the ramp lasts. At 30 s that fired on
+        # ordinary regulation: three alerts over 2026-08-01..03, two of which resolved
+        # within 1 and 6 seconds. A genuinely stuck battery stays stuck, so a longer
+        # window costs nothing that matters. Raising the ac_power poll rate instead was
+        # considered and rejected: it would not remove the slew-driven error, and the
+        # extra Modbus reads compete with the control writes on the same hub.
+        delay_on: "00:02:00"
         state: >
           {% if states('select.marstek_m1_rs485_control_mode') != 'enable' %}
             false
           {% else %}
             {% set d = states('select.marstek_m1_forcible_charge_discharge') %}
+            {% set soc = states('sensor.marstek_m1_battery_state_of_charge') | float(-1) %}
+            {% set soc_min = states('input_number.hba_marstek_m1_discharging_cutoff_capacity') | float(13) %}
+            {% set soc_max = states('input_number.hba_marstek_m1_charging_cutoff_capacity') | float(100) %}
             {% if d == 'discharge' %}
               {% set cmd = states('number.marstek_m1_forcible_discharge_power') | float(0) %}
+              {# near-empty: the BMS declining to discharge is physics, not a fault #}
+              {% set at_limit = soc >= 0 and soc <= soc_min + 3 %}
             {% elif d == 'charge' %}
               {% set cmd = -(states('number.marstek_m1_forcible_charge_power') | float(0)) %}
+              {% set at_limit = soc >= 0 and soc >= soc_max - 3 %}
             {% else %}
               {% set cmd = 0 %}
+              {% set at_limit = false %}
             {% endif %}
-            {% if cmd | abs < 300 %}
+            {% if at_limit or cmd | abs < 300 %}
               false
             {% else %}
               {{ (states('sensor.marstek_m1_ac_power') | float(0) - cmd) | abs > cmd | abs * 0.15 }}
@@ -1385,21 +1401,37 @@ template:
         unique_id: hba_marstek_m2_not_responding
         device_class: problem
         icon: mdi:battery-alert
-        delay_on: "00:00:30"
+        # 2 minutes, not 30 s. The commanded registers are rewritten every ~1 s while
+        # sensor.marstek_m2_ac_power only polls every ~10 s, AND the Marstek slews at
+        # only ~460 W/s -- so during any ramp the measurement legitimately trails the
+        # command by well over 15 %, for as long as the ramp lasts. At 30 s that fired on
+        # ordinary regulation: three alerts over 2026-08-01..03, two of which resolved
+        # within 1 and 6 seconds. A genuinely stuck battery stays stuck, so a longer
+        # window costs nothing that matters. Raising the ac_power poll rate instead was
+        # considered and rejected: it would not remove the slew-driven error, and the
+        # extra Modbus reads compete with the control writes on the same hub.
+        delay_on: "00:02:00"
         state: >
           {% if states('input_number.hba_battery_count') | int(1) < 2
-             or states('select.marstek_m2_rs485_control_mode') != 'enable' %}
+               or states('select.marstek_m2_rs485_control_mode') != 'enable' %}
             false
           {% else %}
             {% set d = states('select.marstek_m2_forcible_charge_discharge') %}
+            {% set soc = states('sensor.marstek_m2_battery_state_of_charge') | float(-1) %}
+            {% set soc_min = states('input_number.hba_marstek_m2_discharging_cutoff_capacity') | float(13) %}
+            {% set soc_max = states('input_number.hba_marstek_m2_charging_cutoff_capacity') | float(100) %}
             {% if d == 'discharge' %}
               {% set cmd = states('number.marstek_m2_forcible_discharge_power') | float(0) %}
+              {# near-empty: the BMS declining to discharge is physics, not a fault #}
+              {% set at_limit = soc >= 0 and soc <= soc_min + 3 %}
             {% elif d == 'charge' %}
               {% set cmd = -(states('number.marstek_m2_forcible_charge_power') | float(0)) %}
+              {% set at_limit = soc >= 0 and soc >= soc_max - 3 %}
             {% else %}
               {% set cmd = 0 %}
+              {% set at_limit = false %}
             {% endif %}
-            {% if cmd | abs < 300 %}
+            {% if at_limit or cmd | abs < 300 %}
               false
             {% else %}
               {{ (states('sensor.marstek_m2_ac_power') | float(0) - cmd) | abs > cmd | abs * 0.15 }}
@@ -1410,21 +1442,37 @@ template:
         unique_id: hba_marstek_m3_not_responding
         device_class: problem
         icon: mdi:battery-alert
-        delay_on: "00:00:30"
+        # 2 minutes, not 30 s. The commanded registers are rewritten every ~1 s while
+        # sensor.marstek_m3_ac_power only polls every ~10 s, AND the Marstek slews at
+        # only ~460 W/s -- so during any ramp the measurement legitimately trails the
+        # command by well over 15 %, for as long as the ramp lasts. At 30 s that fired on
+        # ordinary regulation: three alerts over 2026-08-01..03, two of which resolved
+        # within 1 and 6 seconds. A genuinely stuck battery stays stuck, so a longer
+        # window costs nothing that matters. Raising the ac_power poll rate instead was
+        # considered and rejected: it would not remove the slew-driven error, and the
+        # extra Modbus reads compete with the control writes on the same hub.
+        delay_on: "00:02:00"
         state: >
           {% if states('input_number.hba_battery_count') | int(1) < 3
-             or states('select.marstek_m3_rs485_control_mode') != 'enable' %}
+               or states('select.marstek_m3_rs485_control_mode') != 'enable' %}
             false
           {% else %}
             {% set d = states('select.marstek_m3_forcible_charge_discharge') %}
+            {% set soc = states('sensor.marstek_m3_battery_state_of_charge') | float(-1) %}
+            {% set soc_min = states('input_number.hba_marstek_m3_discharging_cutoff_capacity') | float(13) %}
+            {% set soc_max = states('input_number.hba_marstek_m3_charging_cutoff_capacity') | float(100) %}
             {% if d == 'discharge' %}
               {% set cmd = states('number.marstek_m3_forcible_discharge_power') | float(0) %}
+              {# near-empty: the BMS declining to discharge is physics, not a fault #}
+              {% set at_limit = soc >= 0 and soc <= soc_min + 3 %}
             {% elif d == 'charge' %}
               {% set cmd = -(states('number.marstek_m3_forcible_charge_power') | float(0)) %}
+              {% set at_limit = soc >= 0 and soc >= soc_max - 3 %}
             {% else %}
               {% set cmd = 0 %}
+              {% set at_limit = false %}
             {% endif %}
-            {% if cmd | abs < 300 %}
+            {% if at_limit or cmd | abs < 300 %}
               false
             {% else %}
               {{ (states('sensor.marstek_m3_ac_power') | float(0) - cmd) | abs > cmd | abs * 0.15 }}
@@ -1435,21 +1483,37 @@ template:
         unique_id: hba_marstek_m4_not_responding
         device_class: problem
         icon: mdi:battery-alert
-        delay_on: "00:00:30"
+        # 2 minutes, not 30 s. The commanded registers are rewritten every ~1 s while
+        # sensor.marstek_m4_ac_power only polls every ~10 s, AND the Marstek slews at
+        # only ~460 W/s -- so during any ramp the measurement legitimately trails the
+        # command by well over 15 %, for as long as the ramp lasts. At 30 s that fired on
+        # ordinary regulation: three alerts over 2026-08-01..03, two of which resolved
+        # within 1 and 6 seconds. A genuinely stuck battery stays stuck, so a longer
+        # window costs nothing that matters. Raising the ac_power poll rate instead was
+        # considered and rejected: it would not remove the slew-driven error, and the
+        # extra Modbus reads compete with the control writes on the same hub.
+        delay_on: "00:02:00"
         state: >
           {% if states('input_number.hba_battery_count') | int(1) < 4
-             or states('select.marstek_m4_rs485_control_mode') != 'enable' %}
+               or states('select.marstek_m4_rs485_control_mode') != 'enable' %}
             false
           {% else %}
             {% set d = states('select.marstek_m4_forcible_charge_discharge') %}
+            {% set soc = states('sensor.marstek_m4_battery_state_of_charge') | float(-1) %}
+            {% set soc_min = states('input_number.hba_marstek_m4_discharging_cutoff_capacity') | float(13) %}
+            {% set soc_max = states('input_number.hba_marstek_m4_charging_cutoff_capacity') | float(100) %}
             {% if d == 'discharge' %}
               {% set cmd = states('number.marstek_m4_forcible_discharge_power') | float(0) %}
+              {# near-empty: the BMS declining to discharge is physics, not a fault #}
+              {% set at_limit = soc >= 0 and soc <= soc_min + 3 %}
             {% elif d == 'charge' %}
               {% set cmd = -(states('number.marstek_m4_forcible_charge_power') | float(0)) %}
+              {% set at_limit = soc >= 0 and soc >= soc_max - 3 %}
             {% else %}
               {% set cmd = 0 %}
+              {% set at_limit = false %}
             {% endif %}
-            {% if cmd | abs < 300 %}
+            {% if at_limit or cmd | abs < 300 %}
               false
             {% else %}
               {{ (states('sensor.marstek_m4_ac_power') | float(0) - cmd) | abs > cmd | abs * 0.15 }}
@@ -1460,21 +1524,37 @@ template:
         unique_id: hba_marstek_m5_not_responding
         device_class: problem
         icon: mdi:battery-alert
-        delay_on: "00:00:30"
+        # 2 minutes, not 30 s. The commanded registers are rewritten every ~1 s while
+        # sensor.marstek_m5_ac_power only polls every ~10 s, AND the Marstek slews at
+        # only ~460 W/s -- so during any ramp the measurement legitimately trails the
+        # command by well over 15 %, for as long as the ramp lasts. At 30 s that fired on
+        # ordinary regulation: three alerts over 2026-08-01..03, two of which resolved
+        # within 1 and 6 seconds. A genuinely stuck battery stays stuck, so a longer
+        # window costs nothing that matters. Raising the ac_power poll rate instead was
+        # considered and rejected: it would not remove the slew-driven error, and the
+        # extra Modbus reads compete with the control writes on the same hub.
+        delay_on: "00:02:00"
         state: >
           {% if states('input_number.hba_battery_count') | int(1) < 5
-             or states('select.marstek_m5_rs485_control_mode') != 'enable' %}
+               or states('select.marstek_m5_rs485_control_mode') != 'enable' %}
             false
           {% else %}
             {% set d = states('select.marstek_m5_forcible_charge_discharge') %}
+            {% set soc = states('sensor.marstek_m5_battery_state_of_charge') | float(-1) %}
+            {% set soc_min = states('input_number.hba_marstek_m5_discharging_cutoff_capacity') | float(13) %}
+            {% set soc_max = states('input_number.hba_marstek_m5_charging_cutoff_capacity') | float(100) %}
             {% if d == 'discharge' %}
               {% set cmd = states('number.marstek_m5_forcible_discharge_power') | float(0) %}
+              {# near-empty: the BMS declining to discharge is physics, not a fault #}
+              {% set at_limit = soc >= 0 and soc <= soc_min + 3 %}
             {% elif d == 'charge' %}
               {% set cmd = -(states('number.marstek_m5_forcible_charge_power') | float(0)) %}
+              {% set at_limit = soc >= 0 and soc >= soc_max - 3 %}
             {% else %}
               {% set cmd = 0 %}
+              {% set at_limit = false %}
             {% endif %}
-            {% if cmd | abs < 300 %}
+            {% if at_limit or cmd | abs < 300 %}
               false
             {% else %}
               {{ (states('sensor.marstek_m5_ac_power') | float(0) - cmd) | abs > cmd | abs * 0.15 }}
@@ -1485,21 +1565,37 @@ template:
         unique_id: hba_marstek_m6_not_responding
         device_class: problem
         icon: mdi:battery-alert
-        delay_on: "00:00:30"
+        # 2 minutes, not 30 s. The commanded registers are rewritten every ~1 s while
+        # sensor.marstek_m6_ac_power only polls every ~10 s, AND the Marstek slews at
+        # only ~460 W/s -- so during any ramp the measurement legitimately trails the
+        # command by well over 15 %, for as long as the ramp lasts. At 30 s that fired on
+        # ordinary regulation: three alerts over 2026-08-01..03, two of which resolved
+        # within 1 and 6 seconds. A genuinely stuck battery stays stuck, so a longer
+        # window costs nothing that matters. Raising the ac_power poll rate instead was
+        # considered and rejected: it would not remove the slew-driven error, and the
+        # extra Modbus reads compete with the control writes on the same hub.
+        delay_on: "00:02:00"
         state: >
           {% if states('input_number.hba_battery_count') | int(1) < 6
-             or states('select.marstek_m6_rs485_control_mode') != 'enable' %}
+               or states('select.marstek_m6_rs485_control_mode') != 'enable' %}
             false
           {% else %}
             {% set d = states('select.marstek_m6_forcible_charge_discharge') %}
+            {% set soc = states('sensor.marstek_m6_battery_state_of_charge') | float(-1) %}
+            {% set soc_min = states('input_number.hba_marstek_m6_discharging_cutoff_capacity') | float(13) %}
+            {% set soc_max = states('input_number.hba_marstek_m6_charging_cutoff_capacity') | float(100) %}
             {% if d == 'discharge' %}
               {% set cmd = states('number.marstek_m6_forcible_discharge_power') | float(0) %}
+              {# near-empty: the BMS declining to discharge is physics, not a fault #}
+              {% set at_limit = soc >= 0 and soc <= soc_min + 3 %}
             {% elif d == 'charge' %}
               {% set cmd = -(states('number.marstek_m6_forcible_charge_power') | float(0)) %}
+              {% set at_limit = soc >= 0 and soc >= soc_max - 3 %}
             {% else %}
               {% set cmd = 0 %}
+              {% set at_limit = false %}
             {% endif %}
-            {% if cmd | abs < 300 %}
+            {% if at_limit or cmd | abs < 300 %}
               false
             {% else %}
               {{ (states('sensor.marstek_m6_ac_power') | float(0) - cmd) | abs > cmd | abs * 0.15 }}
