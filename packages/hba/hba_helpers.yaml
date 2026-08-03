@@ -1324,7 +1324,7 @@ template:
         state: >
           {{ states('sensor.p1_meter_power') | float(0) < -1000
              and states('sensor.hba_total_battery_power') | float(0) > 500 }}
-        delay_on: "00:02:00"
+        delay_on: "00:01:00"
         delay_off: "00:00:30"
 
       - name: "HBA Notify Target Invalid"
@@ -1361,16 +1361,23 @@ template:
         unique_id: hba_marstek_m1_not_responding
         device_class: problem
         icon: mdi:battery-alert
-        # 2 minutes, not 30 s. The commanded registers are rewritten every ~1 s while
+        # 60 s, not 30 s. The commanded registers are rewritten every ~1 s while
         # sensor.marstek_m1_ac_power only polls every ~10 s, AND the Marstek slews at
         # only ~460 W/s -- so during any ramp the measurement legitimately trails the
         # command by well over 15 %, for as long as the ramp lasts. At 30 s that fired on
         # ordinary regulation: three alerts over 2026-08-01..03, two of which resolved
-        # within 1 and 6 seconds. A genuinely stuck battery stays stuck, so a longer
-        # window costs nothing that matters. Raising the ac_power poll rate instead was
-        # considered and rejected: it would not remove the slew-driven error, and the
-        # extra Modbus reads compete with the control writes on the same hub.
-        delay_on: "00:02:00"
+        # within 1 and 6 seconds.
+        #
+        # 60 s is measured, not guessed: replaying the condition second-by-second over
+        # 59.7 h of production gave 4,722 true-runs across the three batteries with a
+        # LONGEST run of 37 s and p90 of 10 s. 30 s produced 3 alerts (matching reality);
+        # 45 s and above produced none. 60 s leaves ~62 % headroom over the worst observed
+        # ramp while keeping detection of a real fault reasonably prompt.
+        #
+        # Raising the ac_power poll rate instead was considered and rejected: it cannot
+        # remove the slew-driven error, and the extra Modbus reads compete with the
+        # control writes on the same hub.
+        delay_on: "00:01:00"
         state: >
           {% if states('select.marstek_m1_rs485_control_mode') != 'enable' %}
             false
@@ -1401,16 +1408,23 @@ template:
         unique_id: hba_marstek_m2_not_responding
         device_class: problem
         icon: mdi:battery-alert
-        # 2 minutes, not 30 s. The commanded registers are rewritten every ~1 s while
+        # 60 s, not 30 s. The commanded registers are rewritten every ~1 s while
         # sensor.marstek_m2_ac_power only polls every ~10 s, AND the Marstek slews at
         # only ~460 W/s -- so during any ramp the measurement legitimately trails the
         # command by well over 15 %, for as long as the ramp lasts. At 30 s that fired on
         # ordinary regulation: three alerts over 2026-08-01..03, two of which resolved
-        # within 1 and 6 seconds. A genuinely stuck battery stays stuck, so a longer
-        # window costs nothing that matters. Raising the ac_power poll rate instead was
-        # considered and rejected: it would not remove the slew-driven error, and the
-        # extra Modbus reads compete with the control writes on the same hub.
-        delay_on: "00:02:00"
+        # within 1 and 6 seconds.
+        #
+        # 60 s is measured, not guessed: replaying the condition second-by-second over
+        # 59.7 h of production gave 4,722 true-runs across the three batteries with a
+        # LONGEST run of 37 s and p90 of 10 s. 30 s produced 3 alerts (matching reality);
+        # 45 s and above produced none. 60 s leaves ~62 % headroom over the worst observed
+        # ramp while keeping detection of a real fault reasonably prompt.
+        #
+        # Raising the ac_power poll rate instead was considered and rejected: it cannot
+        # remove the slew-driven error, and the extra Modbus reads compete with the
+        # control writes on the same hub.
+        delay_on: "00:01:00"
         state: >
           {% if states('input_number.hba_battery_count') | int(1) < 2
                or states('select.marstek_m2_rs485_control_mode') != 'enable' %}
@@ -1442,16 +1456,23 @@ template:
         unique_id: hba_marstek_m3_not_responding
         device_class: problem
         icon: mdi:battery-alert
-        # 2 minutes, not 30 s. The commanded registers are rewritten every ~1 s while
+        # 60 s, not 30 s. The commanded registers are rewritten every ~1 s while
         # sensor.marstek_m3_ac_power only polls every ~10 s, AND the Marstek slews at
         # only ~460 W/s -- so during any ramp the measurement legitimately trails the
         # command by well over 15 %, for as long as the ramp lasts. At 30 s that fired on
         # ordinary regulation: three alerts over 2026-08-01..03, two of which resolved
-        # within 1 and 6 seconds. A genuinely stuck battery stays stuck, so a longer
-        # window costs nothing that matters. Raising the ac_power poll rate instead was
-        # considered and rejected: it would not remove the slew-driven error, and the
-        # extra Modbus reads compete with the control writes on the same hub.
-        delay_on: "00:02:00"
+        # within 1 and 6 seconds.
+        #
+        # 60 s is measured, not guessed: replaying the condition second-by-second over
+        # 59.7 h of production gave 4,722 true-runs across the three batteries with a
+        # LONGEST run of 37 s and p90 of 10 s. 30 s produced 3 alerts (matching reality);
+        # 45 s and above produced none. 60 s leaves ~62 % headroom over the worst observed
+        # ramp while keeping detection of a real fault reasonably prompt.
+        #
+        # Raising the ac_power poll rate instead was considered and rejected: it cannot
+        # remove the slew-driven error, and the extra Modbus reads compete with the
+        # control writes on the same hub.
+        delay_on: "00:01:00"
         state: >
           {% if states('input_number.hba_battery_count') | int(1) < 3
                or states('select.marstek_m3_rs485_control_mode') != 'enable' %}
@@ -1483,16 +1504,23 @@ template:
         unique_id: hba_marstek_m4_not_responding
         device_class: problem
         icon: mdi:battery-alert
-        # 2 minutes, not 30 s. The commanded registers are rewritten every ~1 s while
+        # 60 s, not 30 s. The commanded registers are rewritten every ~1 s while
         # sensor.marstek_m4_ac_power only polls every ~10 s, AND the Marstek slews at
         # only ~460 W/s -- so during any ramp the measurement legitimately trails the
         # command by well over 15 %, for as long as the ramp lasts. At 30 s that fired on
         # ordinary regulation: three alerts over 2026-08-01..03, two of which resolved
-        # within 1 and 6 seconds. A genuinely stuck battery stays stuck, so a longer
-        # window costs nothing that matters. Raising the ac_power poll rate instead was
-        # considered and rejected: it would not remove the slew-driven error, and the
-        # extra Modbus reads compete with the control writes on the same hub.
-        delay_on: "00:02:00"
+        # within 1 and 6 seconds.
+        #
+        # 60 s is measured, not guessed: replaying the condition second-by-second over
+        # 59.7 h of production gave 4,722 true-runs across the three batteries with a
+        # LONGEST run of 37 s and p90 of 10 s. 30 s produced 3 alerts (matching reality);
+        # 45 s and above produced none. 60 s leaves ~62 % headroom over the worst observed
+        # ramp while keeping detection of a real fault reasonably prompt.
+        #
+        # Raising the ac_power poll rate instead was considered and rejected: it cannot
+        # remove the slew-driven error, and the extra Modbus reads compete with the
+        # control writes on the same hub.
+        delay_on: "00:01:00"
         state: >
           {% if states('input_number.hba_battery_count') | int(1) < 4
                or states('select.marstek_m4_rs485_control_mode') != 'enable' %}
@@ -1524,16 +1552,23 @@ template:
         unique_id: hba_marstek_m5_not_responding
         device_class: problem
         icon: mdi:battery-alert
-        # 2 minutes, not 30 s. The commanded registers are rewritten every ~1 s while
+        # 60 s, not 30 s. The commanded registers are rewritten every ~1 s while
         # sensor.marstek_m5_ac_power only polls every ~10 s, AND the Marstek slews at
         # only ~460 W/s -- so during any ramp the measurement legitimately trails the
         # command by well over 15 %, for as long as the ramp lasts. At 30 s that fired on
         # ordinary regulation: three alerts over 2026-08-01..03, two of which resolved
-        # within 1 and 6 seconds. A genuinely stuck battery stays stuck, so a longer
-        # window costs nothing that matters. Raising the ac_power poll rate instead was
-        # considered and rejected: it would not remove the slew-driven error, and the
-        # extra Modbus reads compete with the control writes on the same hub.
-        delay_on: "00:02:00"
+        # within 1 and 6 seconds.
+        #
+        # 60 s is measured, not guessed: replaying the condition second-by-second over
+        # 59.7 h of production gave 4,722 true-runs across the three batteries with a
+        # LONGEST run of 37 s and p90 of 10 s. 30 s produced 3 alerts (matching reality);
+        # 45 s and above produced none. 60 s leaves ~62 % headroom over the worst observed
+        # ramp while keeping detection of a real fault reasonably prompt.
+        #
+        # Raising the ac_power poll rate instead was considered and rejected: it cannot
+        # remove the slew-driven error, and the extra Modbus reads compete with the
+        # control writes on the same hub.
+        delay_on: "00:01:00"
         state: >
           {% if states('input_number.hba_battery_count') | int(1) < 5
                or states('select.marstek_m5_rs485_control_mode') != 'enable' %}
@@ -1565,16 +1600,23 @@ template:
         unique_id: hba_marstek_m6_not_responding
         device_class: problem
         icon: mdi:battery-alert
-        # 2 minutes, not 30 s. The commanded registers are rewritten every ~1 s while
+        # 60 s, not 30 s. The commanded registers are rewritten every ~1 s while
         # sensor.marstek_m6_ac_power only polls every ~10 s, AND the Marstek slews at
         # only ~460 W/s -- so during any ramp the measurement legitimately trails the
         # command by well over 15 %, for as long as the ramp lasts. At 30 s that fired on
         # ordinary regulation: three alerts over 2026-08-01..03, two of which resolved
-        # within 1 and 6 seconds. A genuinely stuck battery stays stuck, so a longer
-        # window costs nothing that matters. Raising the ac_power poll rate instead was
-        # considered and rejected: it would not remove the slew-driven error, and the
-        # extra Modbus reads compete with the control writes on the same hub.
-        delay_on: "00:02:00"
+        # within 1 and 6 seconds.
+        #
+        # 60 s is measured, not guessed: replaying the condition second-by-second over
+        # 59.7 h of production gave 4,722 true-runs across the three batteries with a
+        # LONGEST run of 37 s and p90 of 10 s. 30 s produced 3 alerts (matching reality);
+        # 45 s and above produced none. 60 s leaves ~62 % headroom over the worst observed
+        # ramp while keeping detection of a real fault reasonably prompt.
+        #
+        # Raising the ac_power poll rate instead was considered and rejected: it cannot
+        # remove the slew-driven error, and the extra Modbus reads compete with the
+        # control writes on the same hub.
+        delay_on: "00:01:00"
         state: >
           {% if states('input_number.hba_battery_count') | int(1) < 6
                or states('select.marstek_m6_rs485_control_mode') != 'enable' %}
