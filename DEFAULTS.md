@@ -1,4 +1,4 @@
-# HBA Factory Defaults — v4.10.1-r19
+# HBA Factory Defaults — v4.10.1-r20
 
 All values set by `script.hba_apply_defaults`. Run once after fresh install via
 Developer Tools → Services → `script.turn_on` → `script.hba_apply_defaults`.
@@ -50,7 +50,7 @@ are always consistent with "Very safe" so the preset selector is not misleading.
 > The same applies in reverse: do not report HBA gains as HBC settings.
 
 All four presets share **Kp 0.35 / Kd 0.1 / error damping 20 % / output damping 10 %** and
-differ **only in Ki**, because **Kp 0.35 is the measured optimum** — bracketed on both sides
+differ **only in Ki**, because **Kp 0.35 and the 20 %/10 % damping are both measured optima** — bracketed on both sides
 on production against a real 2250 W load, Ki held at 0.22:
 
 | | Kp 0.20 | **Kp 0.35** | Kp 0.55 |
@@ -65,6 +65,14 @@ so the presets leave Kp alone and vary only Ki.
 Changing Kp is only worthwhile if transient **peaks** matter to you more than energy — peak
 shaving, a capacity tariff, or a hard grid limit. The exchange rate is roughly **8 % lower
 peak for 16 % higher cost per disturbance** (Kp 0.55).
+
+**The damping values were tested the same way** and are not arbitrary. Running 0 %/0 % for a
+night against the same 2250 W load left cost per disturbance unchanged (0.63 vs 0.65 ct,
+p = 0.57) and write volume unchanged (1.47 vs 1.42 Modbus writes per cycle), but tripled the
+residual error 8 s after the step — **136 W → 441 W, p = 0.008**, with every pulse in the
+undamped arm worse than the damped median. The error damping is a low-pass on a grid signal
+carrying ~140 W of noise; without it the integrator accumulates that noise. **Leave both at
+the defaults.**
 
 | Preset | Ki | Character | Measured on an 863 W step |
 |---|---|---|---|
