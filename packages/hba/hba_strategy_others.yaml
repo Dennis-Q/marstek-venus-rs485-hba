@@ -283,7 +283,12 @@ script:
   # grid power exceeds the configured import or export limit, at which point it activates
   # self-consumption with the limit as setpoint.
   #
-  # The 1 W soft-idle hold keeps the Marstek relay engaged so there is no relay click
+  # The 1 W soft-idle hold keeps the Marstek engaged so it does not have to wake up.
+  # NOTE: originally described as avoiding a "relay click". That was an assumption and it
+  # is wrong -- no clicking is audible at the Venus E at all (the co-located SolarEdge
+  # clicks plainly), and stop->active measures ~7 s median, far under the ~60 s an
+  # anti-islanding reconnect would cost. The hold is still correct, but the benefit is
+  # RESPONSE LATENCY, not relay wear.
   # when peak shaving activates. This matches the original Node-RED standby behaviour.
   #
   # When called from hba_run_strategy via the EV stop trigger path
@@ -338,8 +343,9 @@ script:
                   - action: input_text.set_value
                     target: { entity_id: input_text.hba_strategy_active_flow }
                     data: { value: "Standby / peak shave" }
-          # Both directions disabled → self-consumption sends a 1 W idle hold so the relay
-          # stays engaged (soft stop). Avoids relay click when peak shaving later activates.
+          # Both directions disabled → self-consumption sends a 1 W idle hold so the unit
+          # stays engaged (soft stop). Avoids the multi-second wake-up when peak shaving
+          # later activates -- not a relay click; see the note above.
           - action: script.hba_strategy_self_consumption
             data:
               skip_label: true
