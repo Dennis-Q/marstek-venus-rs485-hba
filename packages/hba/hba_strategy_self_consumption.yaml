@@ -24,6 +24,10 @@
 #               with discharge side clamped to 0 when discharge_disabled, etc.
 #
 #   Layer 2 — Direction-flip guard (hysteresis):
+#     NOT a relay-wear guard. Direction changes involve no mechanical operation (measured
+#     2026-08-05: no audible click, and 23 flips/h per battery is incompatible with any
+#     anti-islanding reconnect delay). The real justification is SLEW COST: the inverter
+#     ramps at ~460 W/s, so a brief reversal wastes ~2.2 s going each way for nothing.
 #     If PID wants to flip charge↔discharge and |clamped| < hysteresis → output = 0
 #     (bypassed when charge_disabled or discharge_disabled: those are constraint-driven
 #      flips, not PID ambiguity near the setpoint — suppressing them would cause oscillation)
