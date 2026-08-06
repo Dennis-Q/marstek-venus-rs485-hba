@@ -49,9 +49,9 @@ are always consistent with "Very safe" so the preset selector is not misleading.
 >
 > The same applies in reverse: do not report HBA gains as HBC settings.
 
-All four presets share **Kp 0.35 / Kd 0.1 / error damping 20 % / output damping 10 %** and
-differ **only in Ki**, because **Kp 0.35 and the 20 %/10 % damping are both measured optima** — bracketed on both sides
-on production against a real 2250 W load, Ki held at 0.22:
+The four everyday presets share **Kp 0.35 / Kd 0.1 / error damping 20 % / output damping
+10 %** and differ **only in Ki**, because **Kp 0.35 and the 20 %/10 % damping are both measured
+optima** — bracketed on both sides on production against a real 2250 W load, Ki held at 0.22:
 
 | | Kp 0.20 | **Kp 0.35** | Kp 0.55 |
 |---|---|---|---|
@@ -62,17 +62,20 @@ on production against a real 2250 W load, Ki held at 0.22:
 Lower Kp gives a higher peak but a faster tail; higher Kp the reverse. Both cost more overall,
 so the presets leave Kp alone and vary only Ki.
 
-Changing Kp is only worthwhile if transient **peaks** matter to you more than energy — peak
-shaving, a capacity tariff, or a hard grid limit. The exchange rate is roughly **8 % lower
-peak for 16 % higher cost per disturbance** (Kp 0.55).
+If transient **peaks** matter to you more than energy, **Kp is the wrong lever** — the exchange
+rate there is a poor one, roughly 8 % lower peak for 16 % higher cost per disturbance (Kp 0.55).
+Use the `Low peak (grid limit)` preset instead; it removes output damping, which buys far more
+peak for nothing. See below.
 
 **The damping values were tested the same way** and are not arbitrary. Running 0 %/0 % for a
 night against the same 2250 W load left cost per disturbance unchanged (0.63 vs 0.65 ct,
 p = 0.57) and write volume unchanged (1.47 vs 1.42 Modbus writes per cycle), but tripled the
 residual error 8 s after the step — **136 W → 441 W, p = 0.008**, with every pulse in the
-undamped arm worse than the damped median. The error damping is a low-pass on a grid signal
-carrying ~140 W of noise; without it the integrator accumulates that noise. **Leave both at
-the defaults.**
+undamped arm worse than the damped median. A later night removed the **output** damping alone
+and the tail did *not* suffer, which pins that result on the **error** damping: it is a
+low-pass on a grid signal carrying ~140 W of noise, and without it the integrator accumulates
+that noise. **Leave error damping at 20 %.** Output damping is the one value with a documented
+reason to change — see `Low peak (grid limit)` below.
 
 | Preset | Ki | Character | Measured on an 863 W step |
 |---|---|---|---|
@@ -80,6 +83,35 @@ the defaults.**
 | Safe | 0.15 | Noticeably slower tail | 4.4 Wh |
 | **Regular** *(default)* | **0.22** | **Validated on production** | 3.7 Wh. Against a real 2.25 kW step: residual **143 W at +8 s**, zero setpoint crossings |
 | Responsive | 0.30 | Fastest measured | 3.2 Wh. Untested against 2.25 kW steps — may overshoot, as overshoot scales with step size |
+
+#### `Low peak (grid limit)` — the one preset that is not a Ki step
+
+`Kp 0.35 / Ki 0.22 / Kd 0.1 / error damping 20 % / **output damping 0 %**` — Regular's gains
+with output damping removed.
+
+Measured on production 2026-08-06 against Regular on the same 2250 W load, with the two arms
+**interleaved pulse by pulse** so SoC, weather and household drift hit both equally:
+
+| | Regular (10 %) | Low peak (0 %) | |
+|---|---|---|---|
+| **peak, +3 s** | **1630 W** | **1320 W** | −19 %, p = 0.012 — survives correction |
+| tail, +8 s | 316 W | 236 W | n.s. |
+| cost per disturbance | 0.79 ct | 0.65 ct | n.s. — **no penalty** |
+
+Output damping smooths the commanded power, so removing it lets the batteries swing at the
+disturbance sooner. The cost that theory predicts — a slower, dirtier convergence — did not
+show up: the tail was, if anything, slightly better, and setpoint crossings stayed at 0 in
+both arms.
+
+> **Read "peak" as *instantaneous*.** This preset shaves a few seconds of excursion. It does
+> **nothing** for the Dutch *capaciteitstarief* or any tariff billed on the monthly maximum of
+> **15-minute averages** — 300 W lasting 3 s moves a 15-minute average by under 1 W. Use
+> `power_limit_import` for that. `Low peak` is for a **hard instantaneous limit**: a fuse or a
+> contracted connection cap, where a 1600 W transient is roughly 7 A on a phase.
+
+> Single-night result (n = 6 vs 7). The effect is large and the pulses are near-separated, but
+> the arms have not yet been run in reversed order, so a systematic first-vs-second-in-cycle
+> effect is not excluded. Regular remains the default.
 
 > **These Ki values assume a ~1.1 s control loop**, i.e. Modbus write de-duplication enabled
 > (`input_number.hba_control_write_refresh_secs` > 0, v4.10.1-r15+). With de-duplication off
