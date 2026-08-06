@@ -672,7 +672,8 @@ input_select:
       - "Standby / peak shave"
       - "Charge PV"
     icon: mdi:car-electric-outline
-  # PID presets. All four use Kp 0.35 / Kd 0.1 / damping 20-10 and differ ONLY in Ki.
+  # PID presets. The four everyday presets use Kp 0.35 / Kd 0.1 / damping 20-10 and
+  # differ ONLY in Ki. "Low peak (grid limit)" is the exception -- see below.
   #
   # Kp 0.35 is the MEASURED optimum, bracketed on both sides against a real 2250 W
   # load on production (Ki held at 0.22): cost per disturbance 0.74 / 0.61 / 0.71 ct
@@ -686,8 +687,17 @@ input_select:
   # falsified it. The formulas still predict the PEAK accurately (Kp 0.20 measured
   # +12.7 % against a predicted +12.4 %); just do not use them for energy.
   #
-  # Change Kp only if transient PEAKS matter more than energy (peak shaving, capacity
-  # tariff, hard grid limit): roughly 8 % lower peak for 16 % higher cost at Kp 0.55.
+  # If transient PEAKS matter more than energy, do NOT reach for Kp. Output dampening is
+  # the better lever and it is what "Low peak (grid limit)" changes: dropping it 10 % -> 0
+  # cut the peak 1630 -> 1320 W (-19 %) on the 2250 W production load with no cost penalty
+  # (0.79 -> 0.65 ct, n.s.), where Kp 0.55 buys 8 % of peak for 16 % more cost. Measured
+  # 2026-08-06, arms interleaved per pulse with everything else held equal.
+  #
+  # "Peak" here means the INSTANTANEOUS excursion, over a few seconds. It does nothing for
+  # the Dutch capaciteitstarief, which bills the monthly maximum of 15-minute averages --
+  # 300 W for 3 s moves a 15-min average by under 1 W. Use power_limit_import for that.
+  # This preset is for a fuse or a contracted connection cap, where 1600 W of transient is
+  # ~7 A on a phase.
   #
   # Ki values are calibrated for a ~1.1 s control loop, i.e. with Modbus write
   # de-duplication enabled (input_number.hba_control_write_refresh_secs > 0, v4.10.1-r15+).
@@ -701,6 +711,7 @@ input_select:
       - "Safe"
       - "Regular"
       - "Responsive"
+      - "Low peak (grid limit)"
     icon: mdi:tune
   hba_strategy_timed_strat_0:
     name: "Timed baseline strategy"
