@@ -105,12 +105,17 @@ behave more similarly.
 > dramatically more aggressive in HBA. The former "Regular (original HBC)" preset has been
 > removed for this reason.
 
-The presets are **Very safe / Safe / Regular / Responsive**. They share Kp 0.35, Kd 0.1 and
-the damping settings, and differ **only in Ki** — integrating the closed-loop decay shows the
-grid energy a disturbance costs is `cycle × step / Ki` with Kp cancelling out, so Kp changes
-only the peak height, not the cost. **Regular** is the validated default (measured on
-production: 143 W residual 8 s after a 2.25 kW step, zero setpoint crossings). See
-[DEFAULTS.md](DEFAULTS.md) for the full table and the loop-period caveat.
+The everyday presets are **Very safe / Safe / Regular / Responsive**. They share Kp 0.35,
+Kd 0.1 and the damping settings, and differ **only in Ki**, because Kp 0.35 is a *measured*
+optimum — swept on production and bracketed on both sides, it is the cheapest per disturbance,
+so there is nothing to gain by varying it. **Regular** is the validated default (measured on
+production: 143 W residual 8 s after a 2.25 kW step, zero setpoint crossings).
+
+A fifth preset, **Low peak (grid limit)**, is Regular with output damping removed: −19 % on the
+instantaneous peak at no extra cost, for installs with a hard fuse or connection limit. It does
+*not* help with a capacity tariff billed on 15-minute averages — use `power_limit_import`.
+
+See [DEFAULTS.md](DEFAULTS.md) for the full table, the measurements and the loop-period caveat.
 
 ### Switching between HBA and HBC
 

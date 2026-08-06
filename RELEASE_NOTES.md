@@ -62,7 +62,36 @@ Changes on `dev` that have not yet been merged to `main`.
   lower bound uses this instead of total max discharge power, so batteries in thermal
   protection or otherwise unresponsive do not inflate the anti-windup ceiling.
 
+- **Fifth PID preset: `Low peak (grid limit)`** — `Kp 0.35 / Ki 0.22 / Kd 0.1 / error
+  damping 20 % / output damping 0 %`. Regular's gains with output damping removed; the only
+  preset that is not a pure Ki step. Measured on production against Regular on the recurring
+  2250 W load with the two arms **interleaved pulse by pulse**: the instantaneous peak 3 s
+  after the step fell **1630 → 1320 W (−19 %, p = 0.012)** with **no cost penalty** (0.79 →
+  0.65 ct per disturbance, not significant) and no degradation of the tail. Output damping
+  smooths the commanded power, so removing it lets the batteries swing at the disturbance
+  sooner.
+  **This is for a hard *instantaneous* limit — a fuse or a contracted connection cap, where
+  1600 W of transient is ~7 A on a phase.** It does nothing for a capacity tariff such as the
+  Dutch *capaciteitstarief*, which bills the monthly maximum of **15-minute averages**: 300 W
+  lasting 3 s moves a 15-minute average by under 1 W. Use `power_limit_import` for that.
+  Regular remains the default; this is a single-night result (n = 6 vs 7) and the arms have
+  not yet been run in reversed order.
+
 ### Changed
+
+- **PID presets rebuilt as a monotone Ki ladder** — **Very safe / Safe / Regular /
+  Responsive** at Ki **0.10 / 0.15 / 0.22 / 0.30**, all sharing Kp 0.35, Kd 0.1 and damping
+  20 %/10 %. This fixes two real defects in the shipped set: the default `Regular` was Ki
+  **0.05**, the *slowest* controller available, and the ordering was not monotone (`Safe` at
+  Ki 0.3 was six times more aggressive than `Regular`). `Regular` is now the validated
+  operating point — 143 W residual 8 s after a real 2.25 kW step, zero setpoint crossings.
+  The presets vary only Ki because **Kp 0.35 is a measured optimum**, bracketed on both sides
+  on production (cost per disturbance 0.74 / 0.61 / 0.71 ct at Kp 0.20 / 0.35 / 0.55), and
+  damping 20 %/10 % was likewise validated against 0 %/0 %.
+  **Breaking:** the `Regular (original HBC)` option has been **removed** — HBC gates its PID
+  behind a rate limiter while HBA runs it on every P1 update, so HBC's published gains are
+  dramatically more aggressive here and do not transfer. Anything currently sitting on that
+  option must be re-selected after the upgrade.
 
 - **Insights view: EV-coordination debugging** — the Controller state card shows the
   during-EV-charge policy and (for Charge PV) the live saturation-gate state
