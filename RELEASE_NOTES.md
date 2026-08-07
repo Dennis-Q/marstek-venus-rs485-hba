@@ -65,17 +65,17 @@ Changes on `dev` that have not yet been merged to `main`.
 - **Fifth PID preset: `Low peak (grid limit)`** — `Kp 0.35 / Ki 0.22 / Kd 0.1 / error
   damping 20 % / output damping 0 %`. Regular's gains with output damping removed; the only
   preset that is not a pure Ki step. Measured on production against Regular on the recurring
-  2250 W load with the two arms **interleaved pulse by pulse**: the instantaneous peak 3 s
-  after the step fell **1630 → 1320 W (−19 %, p = 0.012)** with **no cost penalty** (0.79 →
-  0.65 ct per disturbance, not significant) and no degradation of the tail. Output damping
-  smooths the commanded power, so removing it lets the batteries swing at the disturbance
-  sooner.
+  2250 W load over **two nights** with the two arms **interleaved pulse by pulse**, the arm
+  order reversed on the second night: the instantaneous peak 3 s after the step fell by
+  **~10 % (p = 0.0008, stratified by night, 29 pulses)** — 19 % on the first night, 7 % on the
+  second — with **no cost penalty** (0.71 → 0.64 ct per disturbance, not significant) and no
+  degradation of the tail. Output damping smooths the commanded power, so removing it lets the
+  batteries swing at the disturbance sooner.
   **This is for a hard *instantaneous* limit — a fuse or a contracted connection cap, where
   1600 W of transient is ~7 A on a phase.** It does nothing for a capacity tariff such as the
   Dutch *capaciteitstarief*, which bills the monthly maximum of **15-minute averages**: 300 W
   lasting 3 s moves a 15-minute average by under 1 W. Use `power_limit_import` for that.
-  Regular remains the default; this is a single-night result (n = 6 vs 7) and the arms have
-  not yet been run in reversed order.
+  Regular remains the default.
 
 ### Changed
 
