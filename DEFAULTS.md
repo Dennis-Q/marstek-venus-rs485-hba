@@ -64,15 +64,15 @@ so the presets leave Kp alone and vary only Ki.
 
 If transient **peaks** matter to you more than energy, **Kp is the wrong lever** — the exchange
 rate there is a poor one, roughly 8 % lower peak for 16 % higher cost per disturbance (Kp 0.55).
-Use the `Low peak (grid limit)` preset instead; it removes output damping, which buys far more
-peak for nothing. See below.
+Use the `Low peak (grid limit)` preset instead; it removes output damping, which buys a bigger
+peak reduction (~10 %) for nothing. See below.
 
 **The damping values were tested the same way** and are not arbitrary. Running 0 %/0 % for a
 night against the same 2250 W load left cost per disturbance unchanged (0.63 vs 0.65 ct,
 p = 0.57) and write volume unchanged (1.47 vs 1.42 Modbus writes per cycle), but tripled the
 residual error 8 s after the step — **136 W → 441 W, p = 0.008**, with every pulse in the
-undamped arm worse than the damped median. A later night removed the **output** damping alone
-and the tail did *not* suffer, which pins that result on the **error** damping: it is a
+undamped arm worse than the damped median. Two later nights removed the **output** damping
+alone and the tail did *not* suffer, which pins that result on the **error** damping: it is a
 low-pass on a grid signal carrying ~140 W of noise, and without it the integrator accumulates
 that noise. **Leave error damping at 20 %.** Output damping is the one value with a documented
 reason to change — see `Low peak (grid limit)` below.
@@ -89,14 +89,24 @@ reason to change — see `Low peak (grid limit)` below.
 `Kp 0.35 / Ki 0.22 / Kd 0.1 / error damping 20 % / **output damping 0 %**` — Regular's gains
 with output damping removed.
 
-Measured on production 2026-08-06 against Regular on the same 2250 W load, with the two arms
-**interleaved pulse by pulse** so SoC, weather and household drift hit both equally:
+Measured on production over **two nights** (2026-08-06 and 08-07) against Regular on the same
+2250 W load, with the two arms **interleaved pulse by pulse** so SoC, weather and household
+drift hit both equally, and with the arm order reversed on the second night so a
+first-vs-second-in-cycle artefact would have shown up as a sign flip. It did not:
 
 | | Regular (10 %) | Low peak (0 %) | |
 |---|---|---|---|
-| **peak, +3 s** | **1630 W** | **1320 W** | −19 %, p = 0.012 — survives correction |
-| tail, +8 s | 316 W | 236 W | n.s. |
-| cost per disturbance | 0.79 ct | 0.65 ct | n.s. — **no penalty** |
+| **peak, +3 s**, night 1 (n = 6/7) | 1630 W | 1320 W | −19 % |
+| **peak, +3 s**, night 2 (n = 8/8) | 1410 W | 1320 W | −7 % |
+| **peak, +3 s**, both nights (29 pulses) | | | **−10 %, p = 0.0008** (stratified by night) |
+| tail, +8 s | 260 W | 236 W | n.s. — unharmed |
+| cost per disturbance | 0.71 ct | 0.64 ct | n.s. — **no penalty** |
+
+Expect roughly **10 % off the instantaneous peak**, not the 19 % the first night suggested. The
+difference between the two nights is entirely on the *Regular* side — Low peak measured 1320 W
+both nights, which looks like a floor set by sensing dead time and the inverter's ramp rate,
+while Regular varies with conditions. So the gain is largest exactly when the loop is otherwise
+sluggish.
 
 Output damping smooths the commanded power, so removing it lets the batteries swing at the
 disturbance sooner. The cost that theory predicts — a slower, dirtier convergence — did not
@@ -109,9 +119,8 @@ both arms.
 > `power_limit_import` for that. `Low peak` is for a **hard instantaneous limit**: a fuse or a
 > contracted connection cap, where a 1600 W transient is roughly 7 A on a phase.
 
-> Single-night result (n = 6 vs 7). The effect is large and the pulses are near-separated, but
-> the arms have not yet been run in reversed order, so a systematic first-vs-second-in-cycle
-> effect is not excluded. Regular remains the default.
+> Regular remains the default: `Low peak` buys a few seconds of lower excursion and nothing
+> else, so it is only worth selecting if an instantaneous limit actually binds.
 
 > **These Ki values assume a ~1.1 s control loop**, i.e. Modbus write de-duplication enabled
 > (`input_number.hba_control_write_refresh_secs` > 0, v4.10.1-r15+). With de-duplication off
