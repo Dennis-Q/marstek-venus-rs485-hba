@@ -169,9 +169,11 @@ automation:
                 state: "Low peak (grid limit)"
             sequence:
               # Regular's gains with output dampening removed. The ONLY preset that is not
-              # a pure Ki step. Measured 2026-08-06 against Regular on the 2250 W production
-              # load, arms interleaved per pulse: peak (+3 s) 1630 -> 1320 W (-19 %,
-              # p = 0.012), cost per disturbance 0.79 -> 0.65 ct (n.s., so no penalty).
+              # a pure Ki step. Measured against Regular on the 2250 W production load over
+              # two nights, arms interleaved per pulse and the arm order reversed on the
+              # second night: peak (+3 s) is ~10 % lower (1630 -> 1320 W, then 1410 -> 1320 W;
+              # p = 0.0008 stratified by night, 29 pulses). Tail (+8 s) and cost per
+              # disturbance are unchanged (n.s.), so the peak comes at no penalty.
               # For an INSTANTANEOUS limit -- a fuse or a contracted connection cap. It does
               # nothing for a capacity tariff billed on 15-minute averages; that is
               # power_limit_import's job.
