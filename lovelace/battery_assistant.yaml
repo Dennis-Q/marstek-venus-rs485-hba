@@ -1338,6 +1338,20 @@ views:
                 state: solar forecast
           - type: markdown
             content: >-
+              <font color=grey>_Only the state (kWh) is read here, so 'today'
+              defaults to `sensor.solcast_pv_forecast_forecast_remaining_today`
+              — it drops as the day progresses, so the goal keeps charging from
+              the grid during cheap hours when the sun does not deliver. A
+              whole-day sensor here would count solar you have already produced.
+              The Solar-aware strategy has its own entity under Advanced
+              settings and needs the whole-day sensor instead._</font>
+            text_only: true
+            visibility:
+              - condition: state
+                entity: input_select.hba_strategy_charge_goal
+                state: solar forecast
+          - type: markdown
+            content: >-
               <font color=grey>_'Reserve' is usable energy in your batteries
               (e.g. above 11% SoC)_
 
@@ -2322,7 +2336,8 @@ views:
               {%- set covers = state_attr('sensor.hba_solar_charge_outlook', 'solar_covers_charge') | bool(false) -%}
               {%- set slots = state_attr('sensor.hba_solar_charge_outlook', 'cheap_slots_remaining') | int(0) -%}
               {%- set deadline = state_attr('sensor.hba_solar_charge_outlook', 'self_consume_deadline') | default('none', true) -%}
-              {%- set solar_entity = states('input_text.hba_strategy_solar_forecast_entity_id') | trim -%}
+              {%- set sa_e = states('input_text.hba_strategy_solar_aware_forecast_entity_id') | trim -%}
+              {%- set solar_entity = sa_e if sa_e not in ['', 'unknown', 'unavailable'] else states('input_text.hba_strategy_solar_forecast_entity_id') | trim -%}
               {%- set solar_ok = solar_entity != '' and solar_entity | has_value -%}
               {%- set solar_today = states(solar_entity) | float(0) if solar_ok else 0 -%}
               {%- set detail = state_attr(solar_entity, 'detailedForecast') if solar_ok else none -%}
@@ -2339,8 +2354,8 @@ views:
               {%- else %}decision: **Self-consumption**
               {%- endif %}
               **Solar-aware — now** | outlook: {{ outlook }}
-              Solar entity: {{ solar_entity if solar_entity else '(not set)' }}{{ ' — unavailable ⚠️' if solar_entity and not solar_ok }}
-              {%- if solar_ok %} | detail: {{ detail_n }}×30 min{{ ' ⚠️ missing — use sensor.solcast_pv_forecast_forecast_today + enable the half-hourly detail attribute' if detail_n == 0 }}{% endif %}
+              Solar entity: {{ solar_entity if solar_entity else '(not set)' }}{{ ' (inherited from Charge goal)' if sa_e in ['', 'unknown', 'unavailable'] and solar_entity }}{{ ' — unavailable ⚠️' if solar_entity and not solar_ok }}
+              {%- if solar_ok %} | detail: {{ detail_n }}×30 min{{ ' ⚠️ missing — set the Solar-aware forecast entity to sensor.solcast_pv_forecast_forecast_today + enable the half-hourly detail attribute' if detail_n == 0 }}{% endif %}
               Solar today: {{ solar_today | round(1) }} kWh | in cheap slots (net): {{ solar_kwh | round(2) }} kWh | needed: {{ needed | round(2) }} kWh
               Cheap slots remaining: {{ slots }}{% if deadline != 'none' %} | switch deadline: {{ deadline | as_timestamp(0) | timestamp_custom('%H:%M') }}{% endif %}
             visibility:
@@ -2568,27 +2583,42 @@ views:
               ⚠️ **Advanced feature** — requires Dynamic v2 prices and a solar
               forecast entity. Without these it silently falls back to
               Self-consumption.
+
+              Solar-aware has its **own** forecast entity, separate from the one
+              the Charge goal uses. It must be a whole-day Solcast sensor
+              (`sensor.solcast_pv_forecast_forecast_today`) with the half-hourly
+              detail attribute enabled, because it integrates `detailedForecast`
+              over the cheap slots. `…_forecast_remaining_today` carries no such
+              attribute — fine for the Charge goal, useless here. Leave it empty
+              to inherit the Charge goal's entity.
             text_only: true
             grid_options:
               columns: full
           - type: markdown
             content: >
-              {%- set solar_eid = states('input_text.hba_strategy_solar_forecast_entity_id') | trim -%}
+              {%- set sa_e = states('input_text.hba_strategy_solar_aware_forecast_entity_id') | trim -%}
+              {%- set solar_eid = sa_e if sa_e not in ['', 'unknown', 'unavailable'] else states('input_text.hba_strategy_solar_forecast_entity_id') | trim -%}
               {%- set solar_miss = solar_eid == '' or is_state(solar_eid, ['unavailable', 'unknown', 'none']) -%}
+              {%- set detail_miss = not solar_miss and not (state_attr(solar_eid, 'detailedForecast') is sequence) -%}
               {%- set prices_miss = is_state('sensor.hba_energy_prices_data', ['unavailable', 'unknown', 'none']) -%}
               <ha-alert alert-type="warning">**Solar-aware not fully configured**
-              {%- if solar_miss %} — Solar forecast entity is not set or unavailable (configure it under Charge / Sell settings or point `input_text.hba_strategy_solar_forecast_entity_id` to your Solcast sensor).{%- endif -%}
+              {%- if solar_miss %} — Solar forecast entity is not set or unavailable (set it below, or configure the Charge goal's entity under Charge / Sell settings).{%- endif -%}
+              {%- if detail_miss %} — `{{ solar_eid }}` has no `detailedForecast` attribute, so the solar outlook cannot be computed. Point the Solar-aware entity below at `sensor.solcast_pv_forecast_forecast_today` (not `…_remaining_today`) and enable the Solcast half-hourly detail attribute.{%- endif -%}
               {%- if prices_miss %} — Dynamic v2 prices (`sensor.hba_energy_prices_data`) unavailable; set up Dynamic v2 or wait for first price publish.{%- endif %}
-              Until resolved, Solar-aware will always use Self-consumption.</ha-alert>
+              Until resolved, Solar-aware falls back to a fixed choice instead of following the solar outlook.</ha-alert>
             grid_options:
               columns: full
             visibility:
               - condition: template
                 value_template: >-
-                  {%- set solar_eid = states('input_text.hba_strategy_solar_forecast_entity_id') | trim -%}
-                  {{ solar_eid == '' or is_state(solar_eid, ['unavailable', 'unknown', 'none']) or is_state('sensor.hba_energy_prices_data', ['unavailable', 'unknown', 'none']) }}
+                  {%- set sa_e = states('input_text.hba_strategy_solar_aware_forecast_entity_id') | trim -%}
+                  {%- set solar_eid = sa_e if sa_e not in ['', 'unknown', 'unavailable'] else states('input_text.hba_strategy_solar_forecast_entity_id') | trim -%}
+                  {%- set solar_miss = solar_eid == '' or is_state(solar_eid, ['unavailable', 'unknown', 'none']) -%}
+                  {{ solar_miss or not (state_attr(solar_eid, 'detailedForecast') is sequence) or is_state('sensor.hba_energy_prices_data', ['unavailable', 'unknown', 'none']) }}
           - type: entities
             entities:
+              - entity: input_text.hba_strategy_solar_aware_forecast_entity_id
+                name: Solar-aware forecast sensor (detailedForecast) [entity_id]
               - entity: input_number.hba_strategy_solar_aware_forecast_threshold_kwh
                 name: Min. solar forecast for Zero import
               - entity: input_number.hba_strategy_solar_aware_house_load

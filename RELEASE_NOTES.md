@@ -17,6 +17,29 @@ Changes on `dev` that have not yet been merged to `main`.
 
 ### Added
 
+- **Dedicated Solar-aware forecast entity**
+  (`input_text.hba_strategy_solar_aware_forecast_entity_id`) — Solar-aware no longer shares
+  the Charge goal's solar forecast entity. The two consumers want different sensors: the
+  Charge goal reads only the kWh **state**, so `sensor.solcast_pv_forecast_forecast_remaining_today`
+  suits it best (a whole-day figure keeps counting solar already produced, which on a dull
+  day suppresses grid charging during the cheap hours); Solar-aware integrates the
+  `detailedForecast` **attribute**, which only the whole-day `…_forecast_today` sensor
+  carries. Sharing one helper forced a choice between a correct charge goal and a working
+  solar outlook — picking `remaining_today` silently parked
+  `sensor.hba_solar_charge_outlook` in its `No solar detail` fallback (permanent Zero
+  import). `sensor.hba_solar_charge_outlook` and `script.hba_strategy_solar_aware` now read
+  the new helper, falling back to `input_text.hba_strategy_solar_forecast_entity_id` when
+  it is empty, so existing installs are unaffected until they set it. Exposed on the
+  dashboard under **Advanced settings → Solar-aware strategy**; `apply_defaults` sets it to
+  `sensor.solcast_pv_forecast_forecast_today`.
+
+- **Solar-aware config warning now detects a missing `detailedForecast`** — the
+  Advanced-settings alert previously only fired when the forecast entity was unset or
+  unavailable, so the most common misconfiguration (a valid sensor that carries no
+  half-hourly detail) produced no warning at all — Solar-aware just quietly stopped
+  following the outlook. The alert now names the offending entity and says which sensor to
+  use.
+
 - **Solar charge outlook sensor** (`sensor.hba_solar_charge_outlook`, in
   `hba_strategy_others.yaml`) — trigger-based template sensor that pre-computes net solar
   energy expected during today's remaining cheap price slots. Reads Solcast's
@@ -78,6 +101,19 @@ Changes on `dev` that have not yet been merged to `main`.
   Regular remains the default.
 
 ### Changed
+
+- **Charge goal's solar forecast default is now `…_forecast_remaining_today`** —
+  `apply_defaults` sets `input_text.hba_strategy_solar_forecast_entity_id` to
+  `sensor.solcast_pv_forecast_forecast_remaining_today` instead of the whole-day
+  `…_forecast_today`. The whole-day sensor keeps counting solar that has already been
+  produced, so from midday onwards the `solar forecast` charge goal saw a surplus that was
+  no longer coming and left the batteries uncharged through the cheap hours — worst on a
+  dull day, when the grid is the only way to fill them. `remaining_today` shrinks as the
+  day goes on. This default was previously pinned to the whole-day sensor only because
+  Solar-aware shared the helper and needed its `detailedForecast` attribute; that
+  constraint is gone now that Solar-aware has its own entity (above). Tomorrow's helper is
+  unchanged — there is no "remaining" variant for a day that has not started.
+  **Existing installs keep their current value** until `apply_defaults` is re-run.
 
 - **PID presets rebuilt as a monotone Ki ladder** — **Very safe / Safe / Regular /
   Responsive** at Ki **0.10 / 0.15 / 0.22 / 0.30**, all sharing Kp 0.35, Kd 0.1 and damping

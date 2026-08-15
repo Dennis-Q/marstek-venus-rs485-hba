@@ -1126,14 +1126,23 @@ script:
         # the v3.0 firmware has a ~2% hysteresis and won't discharge below ~13% in practice.
         data: { value: 12 }
       # ── Solar forecast entity IDs (Solcast integration) ───────────────────────
-      # Must be forecast_today, NOT forecast_remaining_today: only forecast_today/
-      # _tomorrow carry the detailedForecast attribute the solar outlook sensor needs.
+      # The two Charge-goal entities read a plain kWh state, so "today" defaults to
+      # …_forecast_remaining_today: a whole-day figure keeps counting solar that has
+      # already been produced, which makes the charge goal believe a large surplus is
+      # still coming and suppresses grid charging during the cheap hours. There is no
+      # "remaining" variant for tomorrow — the whole day is still ahead.
+      # Solar-aware gets its own entity because it needs the detailedForecast attribute,
+      # which only the whole-day forecast_today/_tomorrow sensors carry.
       - action: input_text.set_value
         target: { entity_id: input_text.hba_strategy_solar_forecast_entity_id }
-        data: { value: "sensor.solcast_pv_forecast_forecast_today" }
+        data: { value: "sensor.solcast_pv_forecast_forecast_remaining_today" }
       - action: input_text.set_value
         target: { entity_id: input_text.hba_strategy_solar_forecast_tomorrow_entity_id }
         data: { value: "sensor.solcast_pv_forecast_forecast_tomorrow" }
+      # Must be forecast_today, NOT forecast_remaining_today — see above.
+      - action: input_text.set_value
+        target: { entity_id: input_text.hba_strategy_solar_aware_forecast_entity_id }
+        data: { value: "sensor.solcast_pv_forecast_forecast_today" }
       - action: input_number.set_value
         target: { entity_id: input_number.hba_strategy_solar_aware_forecast_threshold_kwh }
         data: { value: 20 }

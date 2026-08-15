@@ -617,6 +617,15 @@ input_text:
     name: "Solar forecast tomorrow (entity_id)"
     max: 100
     icon: mdi:solar-power-variant
+  # Solar-aware reads the half-hourly `detailedForecast` attribute, which only the
+  # whole-day Solcast sensors carry — so it needs its own entity, separate from the
+  # Charge goal above. That one may legitimately point at …_forecast_remaining_today
+  # (state only), which would leave Solar-aware stuck on "No solar detail".
+  # Leave empty to fall back to hba_strategy_solar_forecast_entity_id.
+  hba_strategy_solar_aware_forecast_entity_id:
+    name: "Solar-aware detailed forecast (entity_id)"
+    max: 100
+    icon: mdi:sun-clock
   hba_notify_entity_id:
     name: "Notify entity_id"
     max: 100
