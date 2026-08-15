@@ -22,24 +22,35 @@
 #   detailedForecast × overlap with cheap slot timestamps) minus configurable house load.
 #   Exposes solar_covers_charge (boolean) and self_consume_deadline (ISO UTC string) for
 #   the solar-aware script to read. Updates on price data change and every 15 minutes.
+#   Solar entity resolution: input_text.hba_strategy_solar_aware_forecast_entity_id if
+#   set, else input_text.hba_strategy_solar_forecast_entity_id (the Charge goal's entity).
+#   The two are separate because only this one needs detailedForecast: the Charge goal
+#   reads a plain kWh state and is better served by …_forecast_remaining_today, which
+#   carries no detailed attributes.
 #   Diagnostic fallback states (each names the missing input, for the debug view):
-#     "No solar entity" — input_text.hba_strategy_solar_forecast_entity_id empty or the
-#                         entity it names does not exist / is unavailable
-#     "No solar detail" — entity exists but has no detailedForecast attribute; point the
-#                         input_text at sensor.solcast_pv_forecast_forecast_today (NOT
-#                         …_remaining_today) and enable the Solcast half-hourly detail
-#                         attribute option
+#     "No solar entity" — both input_texts empty, or the entity they name does not
+#                         exist / is unavailable
+#     "No solar detail" — entity exists but has no detailedForecast attribute; point
+#                         input_text.hba_strategy_solar_aware_forecast_entity_id at
+#                         sensor.solcast_pv_forecast_forecast_today (NOT …_remaining_today)
+#                         and enable the Solcast half-hourly detail attribute option
 #     "No price data"   — sensor.hba_energy_prices_data has no marks
 
 template:
   # ── Solar charge outlook ──────────────────────────────────────────────────────
-  # Triggered on price data change and every 15 minutes to track the deadline.
+  # Triggered on price data change and every 15 minutes to track the deadline, plus on
+  # either forecast entity_id helper so a config change on the dashboard shows its effect
+  # immediately instead of after the next 15-minute tick.
   # Solcast detailedForecast entries are 30-min periods with pv_estimate in kW.
   # Each cheap slot overlaps with one or two Solcast periods; overlap is proportional.
   # house_load_kw is subtracted per slot to give net solar available for charging.
   - trigger:
       - trigger: state
         entity_id: sensor.hba_energy_prices_data
+      - trigger: state
+        entity_id:
+          - input_text.hba_strategy_solar_aware_forecast_entity_id
+          - input_text.hba_strategy_solar_forecast_entity_id
       - trigger: time_pattern
         minutes: "/15"
     sensor:
@@ -47,7 +58,8 @@ template:
         unique_id: hba_solar_charge_outlook
         icon: mdi:solar-power-variant
         state: >-
-          {%- set solar_entity = states('input_text.hba_strategy_solar_forecast_entity_id') | trim -%}
+          {%- set sa_e = states('input_text.hba_strategy_solar_aware_forecast_entity_id') | trim -%}
+          {%- set solar_entity = sa_e if sa_e not in ['', 'unknown', 'unavailable'] else states('input_text.hba_strategy_solar_forecast_entity_id') | trim -%}
           {%- set detailed = state_attr(solar_entity, 'detailedForecast') if solar_entity | has_value else none -%}
           {%- set marks_raw = state_attr('sensor.hba_energy_prices_data', 'marks') -%}
           {%- set marks = (marks_raw | from_json) if marks_raw is string and (marks_raw | trim)[:1] == '[' else (marks_raw if marks_raw is sequence else []) -%}
@@ -82,7 +94,8 @@ template:
           {%- endif -%}
         attributes:
           solar_in_cheap_slots_kwh: >-
-            {%- set solar_entity = states('input_text.hba_strategy_solar_forecast_entity_id') | trim -%}
+            {%- set sa_e = states('input_text.hba_strategy_solar_aware_forecast_entity_id') | trim -%}
+            {%- set solar_entity = sa_e if sa_e not in ['', 'unknown', 'unavailable'] else states('input_text.hba_strategy_solar_forecast_entity_id') | trim -%}
             {%- set detailed = state_attr(solar_entity, 'detailedForecast') if solar_entity | has_value else none -%}
             {%- set marks_raw = state_attr('sensor.hba_energy_prices_data', 'marks') -%}
             {%- set marks = (marks_raw | from_json) if marks_raw is string and (marks_raw | trim)[:1] == '[' else (marks_raw if marks_raw is sequence else []) -%}
@@ -110,7 +123,8 @@ template:
             {%- endif -%}
           needed_kwh: "{{ states('sensor.hba_charge_remaining_energy') | float(0) | round(3) }}"
           solar_covers_charge: >-
-            {%- set solar_entity = states('input_text.hba_strategy_solar_forecast_entity_id') | trim -%}
+            {%- set sa_e = states('input_text.hba_strategy_solar_aware_forecast_entity_id') | trim -%}
+            {%- set solar_entity = sa_e if sa_e not in ['', 'unknown', 'unavailable'] else states('input_text.hba_strategy_solar_forecast_entity_id') | trim -%}
             {%- set detailed = state_attr(solar_entity, 'detailedForecast') if solar_entity | has_value else none -%}
             {%- set marks_raw = state_attr('sensor.hba_energy_prices_data', 'marks') -%}
             {%- set marks = (marks_raw | from_json) if marks_raw is string and (marks_raw | trim)[:1] == '[' else (marks_raw if marks_raw is sequence else []) -%}
@@ -162,7 +176,8 @@ template:
             {%- endfor -%}
             {{ ns.last }}
           self_consume_deadline: >-
-            {%- set solar_entity = states('input_text.hba_strategy_solar_forecast_entity_id') | trim -%}
+            {%- set sa_e = states('input_text.hba_strategy_solar_aware_forecast_entity_id') | trim -%}
+            {%- set solar_entity = sa_e if sa_e not in ['', 'unknown', 'unavailable'] else states('input_text.hba_strategy_solar_forecast_entity_id') | trim -%}
             {%- set detailed = state_attr(solar_entity, 'detailedForecast') if solar_entity | has_value else none -%}
             {%- set marks_raw = state_attr('sensor.hba_energy_prices_data', 'marks') -%}
             {%- set marks = (marks_raw | from_json) if marks_raw is string and (marks_raw | trim)[:1] == '[' else (marks_raw if marks_raw is sequence else []) -%}
@@ -378,7 +393,9 @@ script:
           _flow_prefix: "{{ flow_prefix | default('') }}"
       - variables:
           now_ts: "{{ as_timestamp(now()) | int }}"
-          solar_entity: "{{ states('input_text.hba_strategy_solar_forecast_entity_id') | trim }}"
+          solar_entity: >-
+            {%- set sa_e = states('input_text.hba_strategy_solar_aware_forecast_entity_id') | trim -%}
+            {{ sa_e if sa_e not in ['', 'unknown', 'unavailable'] else states('input_text.hba_strategy_solar_forecast_entity_id') | trim }}
           threshold: "{{ states('input_number.hba_strategy_solar_aware_forecast_threshold_kwh') | float(20) }}"
           outlook_state: "{{ states('sensor.hba_solar_charge_outlook') }}"
           cheap_slots: "{{ state_attr('sensor.hba_solar_charge_outlook', 'cheap_slots_remaining') | int(0) }}"

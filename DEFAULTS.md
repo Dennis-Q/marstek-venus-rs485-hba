@@ -213,16 +213,31 @@ Period times (`input_datetime.hba_strategy_timed_period_a1` etc.) are not set by
 
 | Helper | Default |
 |---|---|
-| `input_text.hba_strategy_solar_forecast_entity_id` | `sensor.solcast_pv_forecast_forecast_today` |
+| `input_text.hba_strategy_solar_forecast_entity_id` | `sensor.solcast_pv_forecast_forecast_remaining_today` |
 | `input_text.hba_strategy_solar_forecast_tomorrow_entity_id` | `sensor.solcast_pv_forecast_forecast_tomorrow` |
+| `input_text.hba_strategy_solar_aware_forecast_entity_id` | `sensor.solcast_pv_forecast_forecast_today` |
 
-> **Why `forecast_today` and not `forecast_remaining_today`:** the Solar-aware outlook
-> sensor needs the `detailedForecast` attribute (half-hourly breakdown), which only
-> `forecast_today` / `forecast_tomorrow` carry — and only when the Solcast integration's
-> half-hourly detail attribute option is enabled. `forecast_remaining_today` has a valid
-> kWh state but no detail attribute, which puts the outlook in the `No solar detail`
-> fallback (permanent Zero import). Earlier releases defaulted to
-> `forecast_remaining_today` — re-run `apply_defaults` or fix the helper manually.
+> **Two separate helpers, because the two consumers need different things.**
+>
+> The first two feed the **Charge goal** (`solar forecast`) and the forecast/surplus
+> sensors. They read only the **state** (kWh), so "today" defaults to
+> `…_forecast_remaining_today`: the whole-day `forecast_today` keeps counting solar that
+> has already been produced, so from midday onwards it makes the goal believe a large
+> surplus is still coming and suppresses grid charging during the cheap hours.
+> `remaining_today` shrinks as the day goes on and lets the goal fall back to the grid.
+> Tomorrow has no "remaining" variant — the whole day is still ahead.
+>
+> The third feeds **Solar-aware** only (`sensor.hba_solar_charge_outlook` and
+> `script.hba_strategy_solar_aware`). It integrates the `detailedForecast` attribute
+> (half-hourly breakdown) over the remaining cheap slots, and that attribute exists only
+> on `forecast_today` / `forecast_tomorrow`, and only when the Solcast integration's
+> half-hourly detail attribute option is enabled. Pointing it at
+> `…_forecast_remaining_today` puts the outlook in the `No solar detail` fallback
+> (permanent Zero import). **This helper must be a whole-day sensor.**
+>
+> Leave `hba_strategy_solar_aware_forecast_entity_id` **empty** to inherit
+> `hba_strategy_solar_forecast_entity_id` — that is the pre-split behaviour, so existing
+> installs keep working untouched.
 
 When either helper is **empty** (e.g. before `apply_defaults` has run), the forecast
 is treated as **0 kWh** — the solar forecast charge goal will not reduce the charge
