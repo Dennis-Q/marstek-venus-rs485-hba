@@ -71,9 +71,18 @@ automation:
   # it right within 5 minutes, after which the "resolved" notification follows.
   #
   # Unlike HBC this only writes a select whose state differs from the mode's
-  # target, so a healthy install costs no Modbus traffic. Same per-mode targets
-  # as hba_apply_master_mode; 'Disabled' is left alone on purpose (soft
-  # kill-switch, batteries keep whatever state they were in).
+  # target, so a healthy install costs no Modbus traffic. 'Disabled' is left
+  # alone on purpose (soft kill-switch, batteries keep whatever state they were in).
+  #
+  # Full control re-applies RS485 ONLY, like HBC -- never the work mode. On a
+  # Marstek the two are coupled: with RS485 control enabled the battery reports
+  # work mode 'anti-feed', and writing 'manual' takes it out of RS485 control.
+  # The stable Full-control state is therefore rs485=enable + work_mode=anti-feed.
+  # The first version of this automation also demanded 'manual', so every 5 min it
+  # fixed one setting and the battery undid the other -- measured on prod
+  # 2026-10-01 21:30-22:05: alternating pairs of batteries ignoring HBA.
+  # (hba_apply_master_mode writes manual THEN enable, which ends in that stable
+  # state; that is why the one-shot apply never showed the problem.)
   - id: hba_master_mode_periodic_reapply
     alias: "HBA: Master mode periodic reapply"
     mode: single
@@ -88,7 +97,7 @@ automation:
     actions:
       - variables:
           mode: "{{ states('input_select.hba_marstek_master_battery_mode') }}"
-          want_work_mode: "{{ 'manual' if mode in ['Full control', 'Manual control'] else '' }}"
+          want_work_mode: "{{ 'manual' if mode == 'Manual control' else '' }}"
           want_rs485: "{{ {'Full control': 'enable', 'Marstek control': 'disable'}.get(mode, '') }}"
       - repeat:
           count: "{{ states('input_number.hba_battery_count') | int(1) }}"

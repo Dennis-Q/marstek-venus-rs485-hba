@@ -19,6 +19,12 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Fixed
 
+- **Master mode periodic reapply no longer fights the battery** — the first version also forced
+  work mode *manual* in Full control. A Marstek with RS485 control enabled reports *anti-feed*,
+  and writing *manual* takes it out of RS485 control, so every 5 minutes the automation fixed
+  one setting and the battery undid the other: alternating pairs of batteries ignored HBA
+  (seen on production after deploying this dev build). In Full control it now re-applies RS485
+  only, exactly like HBC.
 - **Overtemperature: Overview banner + working "resolved"** — a banner now lists every battery
   above 60 °C with its temperature (the notification already existed). The "resolved"
   notification could never fire: its condition checked that the reading *before* cooling below
