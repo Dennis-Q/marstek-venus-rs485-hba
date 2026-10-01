@@ -28,6 +28,8 @@ automation:
       Fires on every P1 meter update (~1 s) for real-time response, matching
       Node-RED behaviour. mode: single drops updates that arrive while a
       previous cycle is still running (Modbus writes), preventing queue buildup.
+      A 100 ms settle delay lets a two-sensor P1 template finish updating
+      before the strategy reads it.
     mode: single
     max_exceeded: silent
     triggers:
@@ -38,6 +40,16 @@ automation:
         entity_id: input_select.hba_marstek_master_battery_mode
         state: "Full control"
     actions:
+      # Settle delay. The usual P1 template (consumption − production) re-renders once per
+      # source sensor, so one DSMR telegram yields two state changes: the first pairs the
+      # new consumption with the *old* production (on prod: off by > 500 W in 631
+      # telegrams/day, up to 3.2 kW). Without the delay the PID regularly acted on that
+      # half-updated value and mode: single dropped the real one. Measured on prod 2026-10-01 over
+      # 331k updates: consumption→production gap p50 16 ms, p99.9 43 ms, > 100 ms only
+      # 12× in 2.5 days; the next telegram is ≥ 1 s away. The second change now lands
+      # during the delay and is dropped silently, and the strategy reads the settled
+      # value. Single-sensor P1 setups just pay 100 ms latency on a ~1.1 s loop.
+      - delay: { milliseconds: 100 }
       - action: script.hba_run_strategy
         data: {}
 
