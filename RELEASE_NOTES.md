@@ -17,6 +17,12 @@ Ports of HBC v4.11.0 – v4.15.1 changes that apply to HBA. HBA is not yet fully
 v4.15.1 (Timed periods D/E, the peak-shaving latch and multi-provider Dynamic are still
 open), so the version prefix stays at 4.10.1 for now.
 
+### Fixed
+
+- **`script.hba_apply_defaults` aborted on installs without the coexistence package** — its
+  last step wrote the Node-RED add-on slug to a helper that only exists with
+  `hba_hbc_coexistence.yaml`. That step is now skipped when the helper is absent.
+
 ### Removed — breaking
 
 - **Dynamic v1 is gone; "Dynamic v2" is now just "Dynamic"** (as HBC v4.11.0). The
@@ -74,6 +80,15 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Changed
 
+- **Battery-not-responding notification explains max-power mismatches** — when a battery
+  sits at ~800 W while HBA commands more than 900 W discharge, the notification now says it
+  is almost certainly Marstek's **800 W output limit** (the default until unlocked in the
+  Marstek app) and names the HBA entity to set to 800. Every not-responding alert also lists
+  "HBA's max power higher than the Marstek app allows" as a cause, next to the SoC/BMS ones.
+  Text corrected from "30+ s" to the actual 60 s delay.
+- **HBA ↔ HBC handoff section hides when the coexistence package is not installed** —
+  Advanced settings showed "Entity not found" cards on installs without
+  `hba_hbc_coexistence.yaml`; it now shows a one-line note on how to add it instead.
 - **A manual Full stop now beats the EV stop trigger and Timed EV charge** (from HBC v4.13.0)
   — previously an active EV override ran its configured strategy (Standby / Charge PV) or
   the assist push even with Full stop selected. Full stop is now checked first, and

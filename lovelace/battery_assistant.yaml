@@ -3294,6 +3294,10 @@ views:
             heading: HBA ↔ HBC handoff
             heading_style: subtitle
             icon: mdi:transit-connection-variant
+            visibility:
+              - condition: state
+                entity: script.hba_take_control
+                state_not: [unknown, unavailable]
           - type: horizontal-stack
             cards:
               - type: button
@@ -3327,10 +3331,18 @@ views:
                     text: >-
                       HBA will yield: starts Node-RED so HBC can take over,
                       and HBA stops driving the batteries.
+            visibility:
+              - condition: state
+                entity: script.hba_take_control
+                state_not: [unknown, unavailable]
           - type: entities
             entities:
               - entity: input_text.hba_hbc_nodered_addon_slug
                 name: Node-RED addon slug
+            visibility:
+              - condition: state
+                entity: script.hba_take_control
+                state_not: [unknown, unavailable]
           - type: markdown
             content: >-
               <font color=grey><i>Only needed when running HBA alongside HBC. The
@@ -3339,6 +3351,22 @@ views:
               installations — only change it if your Node-RED addon has a different
               slug.</i></font>
             text_only: true
+            visibility:
+              - condition: state
+                entity: script.hba_take_control
+                state_not: [unknown, unavailable]
+          # Shown instead of the handoff controls when hba_hbc_coexistence.yaml is not
+          # installed (missing entity = 'unknown'; removed-but-registered = 'unavailable').
+          - type: markdown
+            content: >-
+              <font color=grey><i>**HBA ↔ HBC handoff** — not installed. Only needed if
+              you run (or ran) Home Battery Control / Node-RED next to HBA: re-run
+              `install.sh` and answer **yes** to the coexistence file, then restart.</i></font>
+            text_only: true
+            visibility:
+              - condition: state
+                entity: script.hba_take_control
+                state: [unknown, unavailable]
           - type: heading
             heading: Frank Energie
             heading_style: subtitle

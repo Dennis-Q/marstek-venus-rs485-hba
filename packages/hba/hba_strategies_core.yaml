@@ -1243,6 +1243,11 @@ script:
         target: { entity_id: input_number.hba_battery_assist_max_discharge_power }
         data: { value: 0 }
       # ── HBC coexistence ───────────────────────────────────────────────────────
-      - action: input_text.set_value
-        target: { entity_id: input_text.hba_hbc_nodered_addon_slug }
-        data: { value: "a0d7b954_nodered" }
+      # Optional package (hba_hbc_coexistence.yaml): skip when not installed, or
+      # this step fails and aborts the rest of apply_defaults.
+      - if:
+          - "{{ has_value('input_text.hba_hbc_nodered_addon_slug') }}"
+        then:
+          - action: input_text.set_value
+            target: { entity_id: input_text.hba_hbc_nodered_addon_slug }
+            data: { value: "a0d7b954_nodered" }

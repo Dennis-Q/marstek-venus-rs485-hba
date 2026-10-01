@@ -166,7 +166,7 @@ automation:
 
   # ── Battery not responding ────────────────────────────────────────────────────
   # Notifies when any battery has RS485 enabled but its actual output deviates
-  # from the commanded value by >15% for 30+ seconds. One automation handles all
+  # from the commanded value by >15% for 60+ seconds. One automation handles all
   # 6 batteries in parallel; battery identity is extracted from trigger.entity_id.
   - id: hba_notify_battery_not_responding
     alias: "HBA: Notify battery not responding to RS485 command"
@@ -212,14 +212,30 @@ automation:
             {% else %}
               0
             {% endif %}
+      # A battery that plateaus at ~800 W while HBA asks for more is almost always
+      # Marstek's 800 W output limit (factory default until unlocked in the Marstek
+      # app), not a fault: HBA's max power for that battery is set higher than what
+      # the device will deliver. Seen on a colleague's install, 2026-10.
+      - variables:
+          # Discharge only: the 800 W default is an output (feed-in) limit.
+          capped_800: "{{ cmd_w | int > 900 and 650 <= (actual_w | int) <= 850 }}"
+          limit_entity: >-
+            number.marstek_{{ batt }}_max_{{ 'discharge' if cmd_w | int > 0 else 'charge' }}_power
       - action: script.hba_notify_dispatch
         data:
           title: "HBA: Battery {{ batt | upper }} not responding"
           message: >-
             Commanded {{ cmd_w | abs }} W {{ 'discharge' if cmd_w | int > 0 else 'charge' }}
-            but actual AC output is {{ actual_w }} W (>15% mismatch for 30+ s).
-            RS485 is enabled. Possible cause: BMS blocking near SoC cutoff or
-            command rejected. Check battery state and SoC.
+            but actual AC output is {{ actual_w }} W (>15% mismatch for 60+ s).
+            {% if capped_800 -%}
+            It looks capped at ~800 W: probably Marstek's 800 W output limit (default
+            until unlocked in the Marstek app). Unlock it in the app, or set
+            {{ limit_entity }} to 800 in HBA.
+            {%- else -%}
+            RS485 is enabled. Possible causes: BMS blocking near SoC cutoff, command
+            rejected, or HBA's max power for this battery set higher than the Marstek
+            app allows. Check SoC and both max power settings.
+            {%- endif %}
           tag: "hba_battery_not_responding_{{ batt }}"
           color: orange
           priority: high
@@ -229,9 +245,22 @@ automation:
           title: "HBA: Battery {{ batt | upper }} not responding"
           message: >-
             Commanded **{{ cmd_w | abs }} W {{ 'discharge' if cmd_w | int > 0 else 'charge' }}**
-            but actual AC output is **{{ actual_w }} W** (>15% mismatch sustained 30+ s).
+            but actual AC output is **{{ actual_w }} W** (>15% mismatch sustained 60+ s).
 
-            Possible cause: BMS blocking near SoC cutoff or Modbus write rejected.
+            {% if capped_800 -%}
+            **The output looks capped at ~800 W.** That is almost always Marstek's
+            **800 W output limit** — the factory default until you unlock the higher
+            power in the Marstek app — while HBA expects more. Either unlock it in the
+            app, or set `{{ limit_entity }}` to **800** in HBA so HBA stops asking for
+            more than the battery delivers.
+            {%- else -%}
+            Possible causes:
+            - BMS blocking near the SoC cutoff
+            - Modbus write rejected
+            - **Max power mismatch:** HBA's max charge/discharge power for this battery
+              (`{{ limit_entity }}`) is higher than the limit set in the Marstek app
+              (e.g. the default 800 W output limit). Make both match.
+            {%- endif %}
 
   - id: hba_notify_battery_not_responding_resolved
     alias: "HBA: Battery not responding — resolved"
