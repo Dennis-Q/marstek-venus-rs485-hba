@@ -854,7 +854,7 @@ template:
       - name: "HBA Version"
         unique_id: hba_version
         icon: mdi:tag
-        state: "v4.10.1-r20"
+        state: "v4.10.1-r21"
 
       - name: "HBA Active strategy"
         unique_id: hba_active_strategy
@@ -1372,7 +1372,7 @@ template:
             {{ ns.result }}
 
       # ── Per-battery RS485 non-response detection ──────────────────────────────
-      # Turns on (delay_on 30 s) when a battery has RS485 enabled, is being commanded
+      # Turns on (delay_on 60 s) when a battery has RS485 enabled, is being commanded
       # ≥ 300 W charge or discharge, but its actual AC output differs from the commanded
       # value by more than 15%. Typical causes: BMS blocking near SoC cutoff, or the
       # battery silently rejecting a Modbus write (e.g. after a BMS fault).

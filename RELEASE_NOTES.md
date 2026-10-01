@@ -13,7 +13,9 @@ This document covers HBA-specific changes only.
 
 ## Unreleased — dev branch
 
-Changes on `dev` that have not yet been merged to `main`.
+Changes on `dev` that have not yet been merged to `main`. Dev builds carry interim version
+strings `v4.10.1-r14` … `v4.10.1-r21`; everything below ships together as one release when
+`dev` is merged.
 
 ### Added
 
@@ -85,6 +87,19 @@ Changes on `dev` that have not yet been merged to `main`.
   lower bound uses this instead of total max discharge power, so batteries in thermal
   protection or otherwise unresponsive do not inflate the anti-windup ceiling.
 
+- **Modbus write de-duplication** (`script.hba_write_battery`,
+  `input_number.hba_control_write_refresh_secs`, `input_text.hba_last_cmd_m{1-6}`) — every
+  forcible charge/discharge command now goes through one script that remembers what it last
+  sent per battery and skips the three register writes when the command is unchanged and
+  younger than the refresh interval (default 30 s; `0` restores write-every-cycle). Each
+  Modbus write costs ~150 ms, so writing all registers for three batteries every cycle took
+  ~1.3 s and, with `mode: single`, stretched the control loop to 2.24 s under load —
+  skipping every other P1 sample exactly during load steps. Measured on production: 78 % of
+  writes set a register to the value it already held; de-duplication cuts writes by 62 %
+  and cycle work from 1.30 s to 0.49 s, so the loop runs at the 1.1 s P1 rate again.
+  Exposed under **Advanced settings → Modbus command throttling**; Insights → Controller
+  state shows the per-battery write cache and its age.
+
 - **Fifth PID preset: `Low peak (grid limit)`** — `Kp 0.35 / Ki 0.22 / Kd 0.1 / error
   damping 20 % / output damping 0 %`. Regular's gains with output damping removed; the only
   preset that is not a pure Ki step. Measured on production against Regular on the recurring
@@ -101,6 +116,15 @@ Changes on `dev` that have not yet been merged to `main`.
   Regular remains the default.
 
 ### Changed
+
+- **Battery-not-responding detector: `delay_on` 30 s → 60 s, plus a SoC guard** — the
+  detector compares the commanded power (rewritten every ~1 s) with `ac_power` (polled every
+  ~10 s), and the Marstek ramps at only ~460 W/s, so during an ordinary ramp the
+  measurement legitimately trails the command. At 30 s this raised false alerts on normal
+  regulation. Replaying the condition over 59.7 h of production gave a longest ramp of
+  37 s, so 60 s leaves headroom while still catching a real fault promptly. No alert when
+  SoC is within 3 % of the relevant cutoff — a near-empty battery declining to discharge is
+  expected, not a fault.
 
 - **Charge goal's solar forecast default is now `…_forecast_remaining_today`** —
   `apply_defaults` sets `input_text.hba_strategy_solar_forecast_entity_id` to
@@ -195,6 +219,46 @@ Changes on `dev` that have not yet been merged to `main`.
 
 ### Fixed
 
+- **Control loop no longer acts on a half-updated P1 reading** — the common P1 template
+  (`consumption − production`) changes state twice per DSMR telegram, and the first change
+  pairs new consumption with old production. `hba_control_loop` (`mode: single`) started
+  on that first change and dropped the second. Measured on production: 43 % of telegrams
+  double-trigger, and when the two values differed the PID acted on the half-updated one
+  **~80 % of the time** — off by > 500 W in ~630 telegrams/day, up to 3.2 kW. A 100 ms
+  settle delay at the start of the loop lets both sensors land (gap p50 16 ms, p99.9
+  43 ms); the second trigger is dropped silently and the strategy reads the settled value.
+  Verified after deploy: 0 of 425 cycles used a half-updated value. The next telegram is
+  ≥ 1 s away, so the loop rate is unaffected.
+- **Self-consumption: "unsupported operand type(s) for +: 'float' and 'str'"** — with
+  error dampening on, an error that repeats exactly between cycles left a floating-point
+  residue (e.g. `d_term = -3.55e-16`). HA's template type inference treats
+  scientific-notation output as a string, so that cycle aborted. All PID intermediates
+  are now rounded to 3 decimals; stored terms were already rounded to 0.1, so control
+  behaviour is unchanged.
+
+- **Total loss of battery control when the priority battery index exceeded
+  `battery_count`** — the distribution waterfall seeded its order with the priority
+  battery without checking it exists; that phantom battery absorbed all power, so every
+  real battery was commanded to stop. Hit on production when `battery_count` was lowered
+  after auto-balance had rotated priority to battery 2: the pack sat at 0 W under a full
+  Sell command. `hba_set_batteries` now clamps the index to `1..battery_count` in both the
+  charge and discharge branches. With the rotation interval on **Never**, the stale index
+  would otherwise have persisted indefinitely.
+
+- **Dynamic v2: duplicated price slots** — when the Frank Energie integration (HiDiHo01
+  fork) failed its tomorrow-fetch it appended a second copy of today's prices (24 slots as
+  48 entries). Extreme-Pair Matching then marked duplicate slots, so a configured 5 cheap /
+  2 expensive hours yielded only 3 / 1, and the Lab price table showed cheap midday hours
+  as cheap night hours. `sensor.hba_energy_prices_data` now de-duplicates by timestamp, and
+  the price table assigns each slot to its day by timestamp instead of list position. Both
+  are no-ops on clean data.
+
+- **Insights mode stayed on forever after a restart** — the 15-minute auto-off needed a real
+  off → on transition, and restoring `input_boolean.hba_control_is_debug_mode` to `on` at
+  startup is not one, so a restart during Insights mode left it on (writing PID terms at
+  ~1 Hz) indefinitely. The automation now also re-arms on HA start, and re-enabling Insights
+  restarts the 15-minute window.
+
 - **Timed EV charge stall watchdog** (`binary_sensor.hba_battery_assist_stalled`) — ON
   when the assist push is commanding discharge (`sensor.hba_active_strategy` ==
   `Discharge to EV`) but the pack has delivered < 150 W for 3+ continuous minutes: the
@@ -251,16 +315,6 @@ Changes on `dev` that have not yet been merged to `main`.
   time). Reproduced empirically: a template sensor executing `| strftime` fails to create,
   while the same expression inside a never-taken `{% if false %}` branch loads fine.
 
-- **Solar forecast default entity: `forecast_remaining_today` → `forecast_today`** —
-  `hba_apply_defaults` (and DEFAULTS.md) pointed
-  `input_text.hba_strategy_solar_forecast_entity_id` at
-  `sensor.solcast_pv_forecast_forecast_remaining_today`, which has no `detailedForecast`
-  attribute — the solar outlook sensor therefore stayed in its fallback state and
-  Solar-aware always chose Zero import. The default is now
-  `sensor.solcast_pv_forecast_forecast_today` (requires the Solcast half-hourly detail
-  attribute option). Existing installs: re-run `apply_defaults` or update the helper
-  manually.
-
 - **Frank Energie PT15M resolution support** — `sensor.hba_energy_prices_data` hardcoded
   `datapoints_per_hour = 1` and assumed 3600-second slot intervals. When the Frank Energie
   integration is configured to PT15M resolution (`select.frank_energie_settings_resolution = pt15m`),
@@ -270,8 +324,8 @@ Changes on `dev` that have not yet been merged to `main`.
   table was already resolution-aware and required no changes.
 
 - **Anti-windup Self-consumption I-term clamp** — I-term in `hba_strategy_self_consumption`
-  is now clamped to `[−assignable_discharge, 0]`, where `assignable_discharge` excludes
-  batteries currently marked `not_responding`. Previously the anti-windup used total max
+  is now clamped to `[−assignable_discharge, assignable_charge]`, where `assignable_discharge`
+  excludes batteries currently marked `not_responding`. Previously the anti-windup used total max
   discharge power regardless of which batteries were actually responding.
 
 - **PID reset on Zero import entry** — `automation.hba_zero_import_pid_reset` now also fires
