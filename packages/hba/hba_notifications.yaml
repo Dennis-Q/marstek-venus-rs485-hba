@@ -4,7 +4,7 @@
 #   • hba_notify_dispatch             — central script; routes to configured notify action
 #   • hba_notify_test                 — sends a test notification
 #   • hba_notify_target_validation    — persistent alert when notify entity_id is invalid
-#   • hba_unexpected_export_notify    — alerts on sustained grid export while discharging
+#   • hba_unexpected_export_notify / _resolved — sustained grid export while discharging
 #   • hba_notify_battery_assist_waiting / _resolved — Timed EV charge armed but EV not drawing
 #   • hba_notify_battery_not_responding / _resolved — RS485 non-response per battery
 #   • hba_notify_rs485_mode_mismatch / _resolved    — Full control vs RS485 state
@@ -19,7 +19,7 @@ automation:
   # (SoC limit reached) correctly allows the notification to fire.
   - id: hba_unexpected_export_notify
     alias: "HBA: Notify on unexpected sustained grid export"
-    description: "Alerts when grid export >1 kW sustains for 2+ min with batteries discharging but neither battery assist nor Sell strategy is active."
+    description: "Alerts when grid export >1 kW sustains for 1+ min with batteries discharging but neither battery assist nor Sell strategy is active."
     triggers:
       - trigger: state
         entity_id: binary_sensor.hba_grid_exporting_sustained
@@ -35,11 +35,49 @@ automation:
         data:
           title: "HBA: Unexpected grid export"
           message: >
-            Grid has been exporting >1 kW for over 2 minutes while batteries are discharging
+            Grid has been exporting >1 kW for over a minute while batteries are discharging
             (P1: {{ states('sensor.p1_meter_power') | int }} W,
             batteries: {{ states('sensor.hba_total_battery_power') | int }} W).
             Check strategy configuration.
           tag: hba_unexpected_export
+      - action: persistent_notification.create
+        data:
+          notification_id: hba_unexpected_export
+          title: "HBA: Unexpected grid export"
+          message: >-
+            The batteries are discharging
+            (**{{ states('sensor.hba_total_battery_power') | int }} W**) while
+            **{{ (states('sensor.p1_meter_power') | int) | abs }} W** goes to the grid,
+            and neither Sell nor Timed EV charge is active
+            (strategy: {{ states('sensor.hba_active_strategy') }}).
+            Check the strategy configuration.
+
+  - id: hba_unexpected_export_resolved
+    alias: "HBA: Unexpected grid export — resolved"
+    description: "Dismisses the persistent notification once the export stops."
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_grid_exporting_sustained
+        to: "off"
+    # Only after an alert was actually raised (the sensor is also on during
+    # Timed EV charge and Sell, where no alert is sent).
+    conditions:
+      - condition: template
+        value_template: >-
+          {% set raised = state_attr('automation.hba_notify_on_unexpected_sustained_grid_export', 'last_triggered') %}
+          {% set mine = this.attributes.last_triggered if this is defined and this.attributes is defined else none %}
+          {{ raised is not none and (mine is none or raised > mine) }}
+    actions:
+      - action: persistent_notification.dismiss
+        data:
+          notification_id: hba_unexpected_export
+      - action: script.hba_notify_dispatch
+        data:
+          title: "HBA: Grid export stopped"
+          message: "The unexpected battery export to the grid has stopped."
+          tag: hba_unexpected_export
+          color: green
 
   # ── Timed EV charge waiting for EV ────────────────────────────────────────────
   # binary_sensor.hba_battery_assist_waiting turns on 3 min after assist activation

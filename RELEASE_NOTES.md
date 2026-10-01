@@ -85,6 +85,11 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Changed
 
+- **Unexpected grid export: Overview banner, persistent notification and "resolved"** — the
+  alert was push-only; it now also shows as a banner (same conditions: batteries discharging
+  while > 1 kW goes to the grid, outside Sell and Timed EV charge), creates a persistent
+  notification, and sends a "stopped" message afterwards, like the other alerts. Its text said
+  "over 2 minutes"; the sensor turns on after 1 minute.
 - **RS485 mode mismatch: Overview banner** — names the battery that has RS485 control
   disabled while HBA is in Full control (previously notification-only; Insights had a row).
 - **Battery-not-responding notification explains max-power mismatches** — when a battery

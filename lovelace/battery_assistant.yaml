@@ -236,6 +236,33 @@ views:
               back, check the Marstek app or a recent firmware update.
               </ha-alert>
 
+      # Unexpected export alert — mirrors hba_unexpected_export_notify: batteries
+      # discharging while > 1 kW goes to the grid, outside Timed EV charge and Sell
+      # (where that is intended).
+      - type: grid
+        visibility:
+          - condition: state
+            entity: binary_sensor.hba_grid_exporting_sustained
+            state: 'on'
+          - condition: state
+            entity: binary_sensor.hba_battery_assist_active
+            state: 'off'
+          - condition: state
+            entity: sensor.hba_active_strategy
+            state_not: Sell
+        cards:
+          - type: markdown
+            grid_options:
+              columns: full
+            content: >-
+              <ha-alert alert-type="warning" title="Batteries are exporting to the grid">
+              The batteries are discharging
+              ({{ states('sensor.hba_total_battery_power') | int(0) }} W) while
+              {{ (states('sensor.p1_meter_power') | int(0)) | abs }} W goes to the grid,
+              and neither Sell nor Timed EV charge is active. Check the strategy
+              configuration (active: **{{ states('sensor.hba_active_strategy') }}**).
+              </ha-alert>
+
       # Onboarding (hidden once dismissed)
       - type: grid
         visibility:
