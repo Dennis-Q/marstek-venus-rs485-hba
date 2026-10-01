@@ -136,7 +136,6 @@ CORE_FILES=(
     packages/hba/hba_strategies_core.yaml
     packages/hba/hba_strategy_charge_pv.yaml
     packages/hba/hba_strategy_charge_sell.yaml
-    packages/hba/hba_strategy_dynamic.yaml
     packages/hba/hba_strategy_dynamic_v2.yaml
     packages/hba/hba_strategy_others.yaml
     packages/hba/hba_strategy_self_consumption.yaml
@@ -148,6 +147,22 @@ CORE_FILES=(
 for f in "${CORE_FILES[@]}"; do
     download "$f" "${CONFIG_DIR}/${f}"
     ok "$f"
+done
+
+# ── Obsolete files — removed on update ───────────────────────────────────────
+# Files a previous HBA version shipped that no longer exist. Left on disk they
+# would keep loading: hba_strategy_dynamic.yaml (Dynamic v1, removed in r22)
+# runs an hourly automation that writes to helpers which no longer exist.
+
+OBSOLETE_FILES=(
+    packages/hba/hba_strategy_dynamic.yaml
+)
+
+for f in "${OBSOLETE_FILES[@]}"; do
+    if [ -f "${CONFIG_DIR}/${f}" ]; then
+        rm -f "${CONFIG_DIR}/${f}"
+        ok "$f (obsolete — removed)"
+    fi
 done
 
 echo ""

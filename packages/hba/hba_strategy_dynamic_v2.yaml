@@ -1,10 +1,12 @@
 # hba_strategy_dynamic_v2.yaml
 #
-# Dynamic pricing v2 — Extreme-Pair Matching (non-contiguous hour selection).
+# Dynamic pricing — Extreme-Pair Matching (non-contiguous hour selection).
 #
-# Unlike Dynamic v1 (which selects a single contiguous cheapest/most-expensive window
-# using HACS Cheapest Energy Hours), Dynamic v2 selects the cheapest and most expensive
-# hours independently across all available daily prices using a two-pointer algorithm.
+# This is the only Dynamic strategy. It was "Dynamic v2" until the contiguous-window v1
+# (HACS Cheapest Energy Hours) was removed, following HBC v4.11.0; the file and script
+# keep their _v2 names so an update does not leave a duplicate behind. It selects the
+# cheapest and most expensive hours independently across all available daily prices
+# using a two-pointer algorithm.
 # Marks are fixed at price-publish time and do not shift as hours pass.
 #
 # Algorithm (per calendar day, runs independently for today and tomorrow):
@@ -19,7 +21,6 @@
 #   3. Repeat for tomorrow's prices (tomorrow's marks are independent of today's).
 #
 # Marks are stable: only change when new price data is published or config changes.
-# thr_cheap (v1 threshold) is NOT used — the only threshold in v2 is delta_thr.
 #
 # mark_now values: 'Cheap' | 'Expensive' | 'Regular' (capitalized, matching original).
 # marks[i].mark values: 'low' (cheap price) | 'high' (expensive price) | none (lowercase,
@@ -59,10 +60,6 @@ template:
           - input_number.hba_strategy_dynamic_v2_max_cheap_hours_per_day
           - input_number.hba_strategy_dynamic_v2_max_expensive_hours_per_day
           - input_number.hba_strategy_dynamic_threshold_delta
-          # threshold_cheapest_period is a v1-only helper (not used in v2 calculation)
-          # but is included here so changing it triggers a sensor refresh — consistent
-          # with the pattern of re-evaluating whenever any pricing config helper changes.
-          - input_number.hba_strategy_dynamic_threshold_cheapest_period
       # Fire when the Frank Energie sensor publishes new price data (e.g. adds tomorrow
       # prices mid-afternoon). Watches the last entry in the 'prices' attribute.
       - trigger: template
@@ -343,13 +340,12 @@ template:
           {{ (ns.gross / ns.pairs) | round(0) | int if ns.pairs > 0 else 0 }}
 
 script:
-  # ── Dynamic v2 dispatch ───────────────────────────────────────────────────────
+  # ── Dynamic dispatch ──────────────────────────────────────────────────────────
   # Reads mark_now from sensor.hba_energy_prices_data (pre-computed by the template
   # sensor above) and dispatches to the configured sub-strategy for that mark.
-  # Uses the same sub-strategy selects as Dynamic v1 (hba_strategy_dynamic_cheapest,
-  # hba_strategy_dynamic_expensive, hba_strategy_dynamic_default).
+  # Sub-strategy selects: hba_strategy_dynamic_cheapest / _expensive / _default.
   hba_strategy_dynamic_v2:
-    alias: "HBA: Strategy - Dynamic v2 (Extreme-Pair Matching)"
+    alias: "HBA: Strategy - Dynamic (Extreme-Pair Matching)"
     sequence:
       - variables:
           v2_mark_now: "{{ state_attr('sensor.hba_energy_prices_data', 'mark_now') | default('Regular') }}"
@@ -366,49 +362,49 @@ script:
             sequence:
               - action: input_text.set_value
                 target: { entity_id: input_text.hba_strategy_active_flow }
-                data: { value: "Dynamic v2 → Full stop" }
+                data: { value: "Dynamic → Full stop" }
               - action: script.hba_strategy_full_stop
                 data: { skip_label: true }
           - conditions: "{{ sub | trim == 'Self-consumption' }}"
             sequence:
               - action: input_text.set_value
                 target: { entity_id: input_text.hba_strategy_active_flow }
-                data: { value: "Dynamic v2 → Self-consumption" }
+                data: { value: "Dynamic → Self-consumption" }
               - action: script.hba_strategy_self_consumption
                 data: { skip_label: true }
           - conditions: "{{ sub | trim == 'Charge' }}"
             sequence:
               - action: script.hba_strategy_charge
-                data: { flow_prefix: "Dynamic v2 →" }
+                data: { flow_prefix: "Dynamic →" }
           - conditions: "{{ sub | trim == 'Charge PV' }}"
             sequence:
               - action: script.hba_strategy_charge_pv
-                data: { flow_prefix: "Dynamic v2 →" }
+                data: { flow_prefix: "Dynamic →" }
           - conditions: "{{ sub | trim == 'Zero import' }}"
             sequence:
               - action: input_text.set_value
                 target: { entity_id: input_text.hba_strategy_active_flow }
-                data: { value: "Dynamic v2 → Zero import" }
+                data: { value: "Dynamic → Zero import" }
               - action: script.hba_strategy_zero_import
                 data: { skip_label: true }
           - conditions: "{{ sub | trim == 'Sell' }}"
             sequence:
               - action: script.hba_strategy_sell
-                data: { flow_prefix: "Dynamic v2 →" }
+                data: { flow_prefix: "Dynamic →" }
           - conditions: "{{ sub | trim == 'Standby / peak shave' }}"
             sequence:
               - action: input_text.set_value
                 target: { entity_id: input_text.hba_strategy_active_flow }
-                data: { value: "Dynamic v2 → Standby / peak shave" }
+                data: { value: "Dynamic → Standby / peak shave" }
               - action: script.hba_strategy_standby
                 data: { skip_label: true }
           - conditions: "{{ sub | trim == 'Solar-aware' }}"
             sequence:
               - action: script.hba_strategy_solar_aware
-                data: { flow_prefix: "Dynamic v2" }
+                data: { flow_prefix: "Dynamic" }
         default:
           - action: input_text.set_value
             target: { entity_id: input_text.hba_strategy_active_flow }
-            data: { value: "Dynamic v2 → Self-consumption" }
+            data: { value: "Dynamic → Self-consumption" }
           - action: script.hba_strategy_self_consumption
             data: { skip_label: true }

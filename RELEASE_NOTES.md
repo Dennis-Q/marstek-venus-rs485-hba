@@ -14,7 +14,36 @@ This document covers HBA-specific changes only.
 ## Unreleased — dev branch
 
 Ports of HBC v4.11.0 – v4.15.1 changes that apply to HBA. HBA is not yet fully aligned with
-v4.15.1 (Dynamic v1 is still present), so the version prefix stays at 4.10.1 for now.
+v4.15.1 (Timed periods D/E, the peak-shaving latch and multi-provider Dynamic are still
+open), so the version prefix stays at 4.10.1 for now.
+
+### Removed — breaking
+
+- **Dynamic v1 is gone; "Dynamic v2" is now just "Dynamic"** (as HBC v4.11.0). The
+  contiguous "cheapest N hours" window strategy (`hba_strategy_dynamic.yaml`, which needed
+  the HACS Cheapest Energy Hours macro) is removed. HBA no longer depends on Cheapest Energy
+  Hours at all.
+  **After updating:** `input_select.hba_strategy` cannot restore `Dynamic v2` (the option
+  no longer exists) and falls back to **Full stop** — select **Dynamic** again. Anyone who
+  ran v1 "Dynamic" now gets the Extreme-Pair Matching strategy; check the max cheap/expensive
+  hours and the min. price difference.
+  **Price sources:** Dynamic currently reads **Frank Energie** only. The other providers
+  were only supported through v1; they are on the to-do. The pricing-source select now
+  offers just Frank Energie.
+  **`install.sh` deletes the old `packages/hba/hba_strategy_dynamic.yaml`** — if you
+  install manually, delete it yourself, or its hourly automation keeps running against
+  helpers that no longer exist.
+  **Orphaned entities to delete from Settings → Entities** (they show as unavailable or
+  "no longer provided"): `automation.hba_dynamic_period_calculation`,
+  `script.hba_strategy_dynamic`, `input_datetime.hba_strategy_dynamic_cheapest_start` /
+  `_cheapest_end` / `_expensive_start` / `_expensive_end`,
+  `input_number.hba_strategy_dynamic_cheapest_hrs` / `_expensive_hrs` /
+  `_threshold_cheapest_period` / `_cheapest_avg_tariff` / `_expensive_avg_tariff` /
+  `_expensive_avg_delta`, `sensor.hba_estimated_profit_per_kwh`,
+  `binary_sensor.hba_dynamic_cheap_threshold_met` / `_expensive_threshold_met`.
+  The `_v2_` max-hours helpers keep their entity_ids, so their values survive.
+- **Lab features dashboard view** — Dynamic's settings, price table and chart moved into the
+  Timed / Dynamic view, as in HBC.
 
 ### Added
 

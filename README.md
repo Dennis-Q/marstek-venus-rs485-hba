@@ -150,12 +150,11 @@ For full details see [Running HBA alongside HBC](#running-hba-alongside-hbc) bel
   Tested with Solcast PV Forecast; any integration providing equivalent sensors works.
   Entity IDs are configurable in Advanced Settings. When not configured, forecast is
   treated as 0 kWh and the charge goal charges the full battery capacity from the grid.
-- **Energy price integration + [HACS Cheapest Energy Hours](https://github.com/TheFes/cheapest-energy-hours)**
-  — for the Dynamic pricing strategy. Requires a supported price source (e.g.
-  [Frank Energie](https://github.com/HiDiHo01/home-assistant-frank_energie), Tibber,
-  Nordpool) and the HACS Cheapest Energy Hours integration. See
+- **Energy price integration** — for the Dynamic pricing strategy. Currently
+  **[Frank Energie](https://github.com/HiDiHo01/home-assistant-frank_energie) only**;
+  other providers are planned. No HACS Cheapest Energy Hours needed. See
   **[docs.homebatterycontrol.com/05-setup-dynamic](https://docs.homebatterycontrol.com/05-setup-dynamic)**
-  for supported sources and setup.
+  for how the strategy works.
 
 ---
 
@@ -334,7 +333,9 @@ self-consumption to prevent unnecessary grid feed-in.
 
 ### Dynamic pricing
 
-Two algorithms are available — both are faithful ports of the HBC implementation. See
+One algorithm — Extreme-Pair Matching, a faithful port of HBC's Dynamic strategy (HBC
+removed its contiguous-window v1 in v4.11.0, and so has HBA). Price source: Frank Energie
+only for now. See
 **[docs.homebatterycontrol.com/05-setup-dynamic](https://docs.homebatterycontrol.com/05-setup-dynamic)**
 for a full description of how they work and how to configure them.
 

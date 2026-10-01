@@ -104,15 +104,22 @@ These are features HBA has that are not in HBC:
 | **Peak shaving — all strategies** | HBC applies peak shaving only in the partials flow (Charge PV, Zero import, Standby). HBA integrates it into `self_consumption`, so Timed and Dynamic also inherit it automatically |
 | **"Disabled" master mode** | HBA adds a fourth option to the Master Battery Mode dropdown alongside the three HBC carries (Manual / Marstek / Full): **Disabled**. Picking it turns off `automation.hba_control_loop_p1_meter_triggered` entirely — no more P1-triggered control loop firing (no ~1 Hz trigger overhead, no dispatch attempts). It also sends a one-shot stop to every reachable battery first (zero force-power + select `stop`, while RS485 is still enabled) so nothing keeps charging/discharging at the last commanded level. Deliberately does NOT change `user_work_mode` or `rs485_control_mode` — it's a pure soft kill-switch; whatever state the previous mode left the batteries in stays. Re-selecting any other mode flips the control loop automation back on. Useful for staging instances, troubleshooting, or any time you want HBA "off" without renaming Modbus YAML files |
 | **Battery Assisted EV Charging** | Forcibly discharges batteries during a configured time window to direct that capacity to an EV charger — useful when you have excess battery reserves and want to maximize EV charge before the car is needed. Controlled via `input_boolean.hba_battery_assist_enabled`, a start/end time window, and a minimum SoC floor. `binary_sensor.hba_battery_assist_active` is the live gate used by the strategy dispatcher and can be used in an external automation to start/stop EV charging. An overflow guard (`binary_sensor.hba_grid_exporting_sustained`) detects sustained high export (>1 kW for 2+ min with batteries discharging) and temporarily falls back to self-consumption to prevent unnecessary grid feed-in. HBC has no equivalent feature. |
-| **Solar-aware strategy** | New strategy (`hba_strategy_solar_aware`) that decides each control cycle whether to export solar to the grid (Zero import) or absorb it locally (Self-consumption). Decision is driven by `sensor.hba_solar_charge_outlook`, which computes net solar energy expected during today's remaining cheap slots (Solcast `detailedForecast` × slot overlap, minus configurable house load). Six-step decision tree: (1) no cheap slots remain → Self-consumption; (2) Solcast unavailable → Zero import (fallback); (3) total solar forecast below threshold → Self-consumption (not a solar day); (4) solar covers the full charge need → Zero import; (5) current time before `self_consume_deadline` (the latest point to switch to avoid under-charging) → Zero import; (6) else → Self-consumption. Designed as the Dynamic v2 default sub-strategy for households that charge during cheap/negative hours and want to maximize export revenue during the pre-cheap solar window. HBC has no equivalent. |
+| **Solar-aware strategy** | New strategy (`hba_strategy_solar_aware`) that decides each control cycle whether to export solar to the grid (Zero import) or absorb it locally (Self-consumption). Decision is driven by `sensor.hba_solar_charge_outlook`, which computes net solar energy expected during today's remaining cheap slots (Solcast `detailedForecast` × slot overlap, minus configurable house load). Six-step decision tree: (1) no cheap slots remain → Self-consumption; (2) Solcast unavailable → Zero import (fallback); (3) total solar forecast below threshold → Self-consumption (not a solar day); (4) solar covers the full charge need → Zero import; (5) current time before `self_consume_deadline` (the latest point to switch to avoid under-charging) → Zero import; (6) else → Self-consumption. Designed as the Dynamic default sub-strategy for households that charge during cheap/negative hours and want to maximize export revenue during the pre-cheap solar window. HBC has no equivalent. |
 
 ---
 
 ## Dynamic pricing
 
-Both Dynamic v1 and v2 are direct ports of HBC's algorithms — logic, marks format, and
-sub-strategy dispatch are identical. The differences are in implementation and a small
-number of HBA-specific additions.
+Dynamic (Extreme-Pair Matching) is a direct port of HBC's algorithm — logic, marks format,
+and sub-strategy dispatch are identical. HBC's former contiguous-window v1 was removed in
+HBC v4.11.0 and in HBA r22. The differences are in implementation and a small number of
+HBA-specific additions.
+
+### Price sources: Frank Energie only (for now)
+
+HBC fetches prices for every provider through the HACS Cheapest Energy Hours macro. HBA
+computes the marks natively in `sensor.hba_energy_prices_data` and currently reads only the
+Frank Energie `prices` attribute — no HACS dependency. Other providers are on the to-do.
 
 ### Configurable Frank Energie entity ID
 
@@ -124,8 +131,6 @@ If your integration uses English entity names or you prefer market price over al
 update the entity ID there — for example:
 - `sensor.frank_energie_prices_average_electricity_price_all_hours_all_in` (English, all-in)
 - `sensor.frank_energie_prices_current_electricity_market_price` (English, market price ex taxes)
-
-This applies to both v1 and v2.
 
 ### PT15M resolution (Frank Energie)
 
@@ -172,21 +177,20 @@ HBC's. The cards on it:
 All of the above update at P1 frequency. Debug-only cards are gated behind
 `input_boolean.hba_control_is_debug_mode` to avoid history bloat at ~1 Hz.
 
-### Dynamic v2 price marks table — vertical layout
+### Dynamic price marks table — vertical layout
 
 HBC's price marks table uses a horizontal layout (one column per hour). HBA uses a
 vertical layout — one row per hour, today and tomorrow side by side:
 
-![Dynamic v2 price marks table](docs/screenshots/dynamic_v2_price_marks_table.png)
+![Dynamic price marks table](docs/screenshots/dynamic_v2_price_marks_table.png)
 
 This scales better for 24+ rows and avoids horizontal scrolling. The data shown is
 identical; the layout is intentionally different.
 
-### Lab features view
+### Dynamic in the Timed / Dynamic view
 
-HBA's Lab features view (Dynamic v2 price marks table + 48-hour ApexCharts bar chart)
-is always navigable from the dashboard. HBC gates it on the presence of the
-`update.cheapest_energy_hours_update` entity, which is not available in all setups.
+As in HBC v4.11.0, the Dynamic settings, price marks table and 48-hour ApexCharts bar
+chart live in the Timed / Dynamic view; the separate Lab features view is gone.
 
 ---
 

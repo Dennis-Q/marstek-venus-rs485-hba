@@ -180,27 +180,19 @@ Reduces max charge power near full SoC to protect battery cells. Set a limit to 
 
 Period times (`input_datetime.hba_strategy_timed_period_a1` etc.) are not set by apply_defaults — configure them manually.
 
-## Dynamic Pricing (v1)
+## Dynamic Pricing (Extreme-Pair Matching)
 
 | Helper | Default |
 |---|---|
-| `input_select.hba_strategy_dynamic_data_source` | `Frank Energie` |
+| `input_select.hba_strategy_dynamic_data_source` | `Frank Energie` (only option for now) |
 | `input_select.hba_strategy_dynamic_default` | `Self-consumption` |
 | `input_select.hba_strategy_dynamic_cheapest` | `Charge` |
 | `input_select.hba_strategy_dynamic_expensive` | `Self-consumption` |
-| `input_number.hba_strategy_dynamic_cheapest_hrs` | `4` h |
-| `input_number.hba_strategy_dynamic_expensive_hrs` | `2` h |
-| `input_number.hba_strategy_dynamic_threshold_cheapest_period` | `5` ct/kWh |
 | `input_number.hba_strategy_dynamic_threshold_delta` | `5` ct/kWh |
+| `input_number.hba_strategy_dynamic_v2_max_cheap_hours_per_day` | `0` h/day (no cap) |
+| `input_number.hba_strategy_dynamic_v2_max_expensive_hours_per_day` | `0` h/day (no cap) |
 
-## Dynamic Pricing (v2 — Extreme-Pair Matching)
-
-| Helper | Default |
-|---|---|
-| `input_number.hba_strategy_dynamic_v2_max_cheap_hours_per_day` | `4` h/day |
-| `input_number.hba_strategy_dynamic_v2_max_expensive_hours_per_day` | `2` h/day |
-
-`threshold_delta` is shared with v1 (see above). `threshold_cheapest_period` is v1-only and ignored by v2.
+The max-hours helpers keep their historic `_v2_` entity_ids so existing installs keep their values.
 
 ## Per-Battery SoC Cutoffs (all 6 slots)
 

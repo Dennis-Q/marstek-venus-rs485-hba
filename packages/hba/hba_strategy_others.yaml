@@ -381,12 +381,12 @@ script:
   #   5. now < self_consume_deadline             → Zero import (still time to export)
   #   6. else                                    → Self-consumption (switch now)
   #
-  # flow_prefix: caller prefix for active_flow label (e.g. "Dynamic v2 →").
+  # flow_prefix: caller prefix for active_flow label (e.g. "Dynamic →").
   hba_strategy_solar_aware:
     alias: "HBA: Strategy - Solar-aware"
     fields:
       flow_prefix:
-        description: "Caller prefix for active_flow label (e.g. 'Dynamic v2 →')"
+        description: "Caller prefix for active_flow label (e.g. 'Dynamic →')"
         default: ""
     sequence:
       - variables:
