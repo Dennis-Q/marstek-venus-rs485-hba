@@ -85,6 +85,8 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Changed
 
+- **RS485 mode mismatch: Overview banner** — names the battery that has RS485 control
+  disabled while HBA is in Full control (previously notification-only; Insights had a row).
 - **Battery-not-responding notification explains max-power mismatches** — when a battery
   sits at ~800 W while HBA commands more than 900 W discharge, the notification now says it
   is almost certainly Marstek's **800 W output limit** (the default until unlocked in the

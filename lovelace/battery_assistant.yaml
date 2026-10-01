@@ -215,6 +215,27 @@ views:
               stopped. Check ventilation around the battery.
               </ha-alert>
 
+      # RS485 mode mismatch alert — mirrors hba_notify_rs485_mode_mismatch (master mode
+      # Full control but a battery has RS485 control disabled, so it ignores HBA).
+      - type: grid
+        visibility:
+          - condition: state
+            entity: binary_sensor.hba_rs485_mode_mismatch
+            state: 'on'
+        cards:
+          - type: markdown
+            grid_options:
+              columns: full
+            content: >-
+              <ha-alert alert-type="error" title="RS485 control disabled on a battery">
+              HBA is in **Full control**, but RS485 control is **disabled** on:
+              **{{ state_attr('binary_sensor.hba_rs485_mode_mismatch', 'mismatched_batteries') }}**.
+              That battery silently ignores every HBA command.
+
+              HBA re-applies RS485 automatically within 5 minutes. If this keeps coming
+              back, check the Marstek app or a recent firmware update.
+              </ha-alert>
+
       # Onboarding (hidden once dismissed)
       - type: grid
         visibility:
