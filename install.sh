@@ -9,6 +9,9 @@
 #
 # To install from a branch (e.g. dev):
 #   HBA_BRANCH=dev bash <(curl -fsSL https://raw.githubusercontent.com/Dennis-Q/marstek-venus-rs485-hba/main/install.sh)
+# The script hands over to the install.sh of the version/branch being installed, so
+# its file list always matches. (Installers from r21 and older lack this — to install
+# dev with them, fetch dev's install.sh instead of main's.)
 #
 # Tip: use the SSH add-on (community) to get a terminal on your HA instance.
 
@@ -43,11 +46,24 @@ fi
 
 # ── Version / branch resolution ───────────────────────────────────────────────
 
+# Resolve a branch to its latest commit: sets COMMIT_SHA, COMMIT_DATE, COMMIT_MSG.
+# Plain curl/grep/sed (no jq or python on a stock HA SSH add-on). Returns non-zero
+# when the GitHub API is unreachable or rate-limited.
+resolve_commit() {
+    local json
+    json=$(curl -fsSL -H "Accept: application/vnd.github+json" \
+           "https://api.github.com/repos/${REPO}/commits/$1" 2>/dev/null) || return 1
+    COMMIT_SHA=$(printf '%s\n' "$json" | grep -m1 -o '"sha": *"[0-9a-f]\{40\}"' \
+                 | grep -o '[0-9a-f]\{40\}') || return 1
+    COMMIT_DATE=$(printf '%s\n' "$json" | grep -m1 -o '"date": *"[^"]*"' | cut -d'"' -f4 | cut -c1-10)
+    COMMIT_MSG=$(printf '%s\n' "$json" | grep -m1 -o '"message": *"\([^"\\]\|\\.\)*"' \
+                 | sed -e 's/^"message": *"//' -e 's/"$//' -e 's/\\n.*//' -e 's/\\"/"/g')
+    [ -n "$COMMIT_SHA" ]
+}
+
+COMMIT_LINE=""
 if [ -n "$BRANCH" ]; then
-    BASE_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}"
-    DISPLAY_REF="branch : ${BRANCH}"
-    warn "Installing from branch '${BRANCH}' — this may be unstable."
-    echo ""
+    REF_NAME="$BRANCH"
 else
     if [ -z "$VERSION" ]; then
         LATEST=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
@@ -60,8 +76,48 @@ else
             echo ""
         fi
     fi
+    REF_NAME="$VERSION"
+fi
+
+if [ -z "$BRANCH" ] && [ "$VERSION" != "main" ]; then
+    # A release tag (or an explicit HBA_VERSION): the tag already identifies the build.
     BASE_URL="https://raw.githubusercontent.com/${REPO}/${VERSION}"
     DISPLAY_REF="version : ${VERSION}"
+elif resolve_commit "$REF_NAME"; then
+    # Not a release: show which commit this is, and download every file from that
+    # exact commit. Fetching by branch name can mix commits within one run, because
+    # raw.githubusercontent.com caches each branch file for a few minutes.
+    BASE_URL="https://raw.githubusercontent.com/${REPO}/${COMMIT_SHA}"
+    DISPLAY_REF="branch  : ${REF_NAME} @ ${COMMIT_SHA:0:7} (${COMMIT_DATE})"
+    COMMIT_LINE="commit  : ${COMMIT_MSG}"
+else
+    BASE_URL="https://raw.githubusercontent.com/${REPO}/${REF_NAME}"
+    DISPLAY_REF="branch  : ${REF_NAME} (latest commit unknown — offline, API rate limit or unknown branch)"
+fi
+
+# ── Run the installer that belongs to the target ──────────────────────────────
+# The usage line always fetches install.sh from main, but the file list must match
+# the version being installed: main's r21 installer aborted half-way on dev because
+# it still listed hba_strategy_dynamic_v2.yaml, which dev had renamed. So fetch
+# install.sh from the exact commit/tag being installed and run that instead.
+# HBA_INSTALLER_SELF stops the hand-off from repeating; targets older than this
+# change simply run their own script.
+if [ -z "${HBA_INSTALLER_SELF:-}" ]; then
+    _self=$(mktemp)
+    if curl -fsSL "${BASE_URL}/install.sh" -o "$_self" 2>/dev/null; then
+        export HBA_INSTALLER_SELF=1
+        [ -n "$BRANCH" ] && export HBA_BRANCH="$BRANCH"
+        [ -z "$BRANCH" ] && [ "$VERSION" != "main" ] && export HBA_VERSION="$VERSION"
+        exec bash "$_self"
+    fi
+    rm -f "$_self"
+    warn "Could not fetch the installer of ${REF_NAME}; continuing with this one."
+    echo ""
+fi
+
+if [ -n "$BRANCH" ]; then
+    warn "Installing from branch '${BRANCH}' — this may be unstable."
+    echo ""
 fi
 
 # ── Download helper ───────────────────────────────────────────────────────────
@@ -77,6 +133,7 @@ echo ""
 hr
 echo "  Home Battery Assistant — installer"
 echo "  ${DISPLAY_REF}"
+[ -n "$COMMIT_LINE" ] && echo "  ${COMMIT_LINE}"
 echo "  Target  : ${CONFIG_DIR}"
 hr
 echo ""
@@ -279,6 +336,8 @@ fi
 # ── Done ──────────────────────────────────────────────────────────────────────
 
 hr
+echo "  Installed ${DISPLAY_REF#* : }"
+echo ""
 echo "  Done! Next steps:"
 echo ""
 if [ "$NEEDS_ACTION" = true ]; then

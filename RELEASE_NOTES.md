@@ -95,6 +95,14 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Changed
 
+- **Installer shows the commit for non-release installs, and uses the target's own file list**
+  — `HBA_BRANCH=dev` (or the `main` fallback) now prints `branch : dev @ <hash> (<date>)` plus
+  the commit subject, repeats it on the Done screen, and downloads every file from that exact
+  commit (fetching by branch name could mix commits within one run). The installer also hands
+  over to the `install.sh` of the version being installed, so its file list always matches:
+  `main`'s r21 installer aborted half-way on current `dev` (it still listed the renamed
+  `hba_strategy_dynamic_v2.yaml`). Installers from r21 and older lack the hand-off — to install
+  `dev` with them, fetch `dev`'s `install.sh`.
 - **Persistent notifications go through `script.hba_notify_dispatch`** — alerts pass
   `persistent_id` (optional `persistent_title` / `persistent_message`) and their "resolved"
   counterparts pass `resolve_id`, instead of each automation creating and dismissing its own.
