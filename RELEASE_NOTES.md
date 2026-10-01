@@ -70,6 +70,10 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Added
 
+- **Battery offline: notification** (`automation.hba_notify_battery_offline` / `_resolved`) — a
+  configured battery that is unreachable over Modbus for 3+ minutes now sends a push and a
+  persistent notification naming it (previously only the Overview banner showed this), and a
+  "back online" message afterwards.
 - **Master mode periodic reapply** (`automation.hba_master_mode_periodic_reapply`, from HBC
   v4.11.0) — every 5 minutes HBA checks each configured battery's RS485 control mode and
   work mode against the active master mode and corrects any that drifted (firmware update,

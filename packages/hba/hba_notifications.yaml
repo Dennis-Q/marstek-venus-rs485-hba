@@ -9,6 +9,7 @@
 #   • hba_notify_battery_not_responding / _resolved — RS485 non-response per battery
 #   • hba_notify_rs485_mode_mismatch / _resolved    — Full control vs RS485 state
 #   • hba_notify_battery_overtemperature / _resolved — internal temp ≥ 60 °C per battery
+#   • hba_notify_battery_offline / _resolved         — configured battery unreachable 3+ min
 
 automation:
   # ── Unexpected sustained export notification ──────────────────────────────────
@@ -528,6 +529,75 @@ automation:
           title: "HBA: Battery {{ batt | upper }} temperature normal"
           message: "Battery {{ batt | upper }} temperature is now {{ temp }} °C."
           tag: "hba_battery_overtemperature_{{ batt }}"
+          color: green
+
+  # ── Battery offline ───────────────────────────────────────────────────────────
+  # binary_sensor.hba_any_battery_offline: a configured battery's inverter_state is
+  # unavailable/unknown, i.e. Modbus lost it. Mirrors the Overview banner; the
+  # 3-minute `for:` keeps a brief network blip or an HA restart from notifying.
+  - id: hba_notify_battery_offline
+    alias: "HBA: Notify battery offline"
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_any_battery_offline
+        to: "on"
+        for: "00:03:00"
+    actions:
+      - variables:
+          offline: >-
+            {% set count = states('input_number.hba_battery_count') | int(1) %}
+            {% set ns = namespace(off=[]) %}
+            {% for i in range(1, count + 1) %}
+              {% if states('sensor.marstek_m' ~ i ~ '_inverter_state') in ['unavailable', 'unknown', ''] %}
+                {% set ns.off = ns.off + ['M' ~ i] %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.off | join(', ') }}
+      - action: script.hba_notify_dispatch
+        data:
+          title: "HBA: Battery offline"
+          message: >-
+            Battery {{ offline }} is not reachable over Modbus for 3+ minutes; HBA
+            cannot control it. Check its network connection and power, or lower
+            the battery count in HBA if it was removed.
+          tag: hba_battery_offline
+          color: red
+          priority: high
+      - action: persistent_notification.create
+        data:
+          notification_id: hba_battery_offline
+          title: "HBA: Battery offline"
+          message: >-
+            Battery **{{ offline }}** is not reachable over Modbus (3+ minutes) — HBA
+            cannot control it.
+
+            Check the battery's network connection and power. If you removed a
+            battery, lower **Battery count** in HBA.
+
+  - id: hba_notify_battery_offline_resolved
+    alias: "HBA: Battery offline — resolved"
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_any_battery_offline
+        to: "off"
+    # Only after an offline alert was actually raised (it needs 3 minutes offline).
+    conditions:
+      - condition: template
+        value_template: >-
+          {% set raised = state_attr('automation.hba_notify_battery_offline', 'last_triggered') %}
+          {% set mine = this.attributes.last_triggered if this is defined and this.attributes is defined else none %}
+          {{ raised is not none and (mine is none or raised > mine) }}
+    actions:
+      - action: persistent_notification.dismiss
+        data:
+          notification_id: hba_battery_offline
+      - action: script.hba_notify_dispatch
+        data:
+          title: "HBA: Batteries back online"
+          message: "All configured batteries are reachable again."
+          tag: hba_battery_offline
           color: green
 
 script:
