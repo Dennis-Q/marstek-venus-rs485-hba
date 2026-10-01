@@ -11,11 +11,11 @@ This document covers HBA-specific changes only.
 
 ---
 
-## Unreleased — dev branch
+## v4.10.1-r21 — October 2026
 
-Changes on `dev` that have not yet been merged to `main`. Dev builds carry interim version
-strings `v4.10.1-r14` … `v4.10.1-r21`; everything below ships together as one release when
-`dev` is merged.
+First release on `main` since r11. It also ships **r12 and r13** (their sections below were
+written at the time but never merged separately), plus everything listed here. Interim dev
+builds carried version strings `v4.10.1-r14` … `r20`; none were released on their own.
 
 ### Added
 
