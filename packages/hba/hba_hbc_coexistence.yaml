@@ -114,6 +114,10 @@ automation:
             and batteries set to Manual control. Use the dashboard buttons to
             resume the desired controller.
           tag: hba_hbc_conflict
+          color: red
+          priority: high
+          # Stays in the HA bell until Take control / Yield to HBC clears the lockout.
+          persistent_id: hba_hbc_conflict
 
 script:
   hba_take_control:
@@ -210,6 +214,8 @@ script:
             - automation.change_stategy_to_pid_for_charge_pv_or
       - action: input_boolean.turn_off
         target: { entity_id: input_boolean.hba_safety_lockout }
+      - action: persistent_notification.dismiss
+        data: { notification_id: hba_hbc_conflict }
       - action: input_select.select_option
         target: { entity_id: input_select.hba_marstek_master_battery_mode }
         data: { option: "Manual control" }

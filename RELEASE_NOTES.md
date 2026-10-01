@@ -95,6 +95,14 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Changed
 
+- **Persistent notifications go through `script.hba_notify_dispatch`** — alerts pass
+  `persistent_id` (optional `persistent_title` / `persistent_message`) and their "resolved"
+  counterparts pass `resolve_id`, instead of each automation creating and dismissing its own.
+  Behaviour is unchanged (persistent notifications are still created even with HBA push
+  notifications switched off), except: without a push target an alert no longer appears in the
+  bell twice, and a "resolved" message no longer leaves a bell entry of its own. The HBC
+  conflict alert now has a persistent notification too; *Take control* and *Yield to HBC* both
+  dismiss it.
 - **Unexpected grid export: Overview banner, persistent notification and "resolved"** — the
   alert was push-only; it now also shows as a banner (same conditions: batteries discharging
   while > 1 kW goes to the grid, outside Sell and Timed EV charge), creates a persistent

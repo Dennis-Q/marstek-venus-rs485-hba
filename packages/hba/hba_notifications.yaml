@@ -43,11 +43,8 @@ automation:
             batteries: {{ states('sensor.hba_total_battery_power') | int }} W).
             Check strategy configuration.
           tag: hba_unexpected_export
-      - action: persistent_notification.create
-        data:
-          notification_id: hba_unexpected_export
-          title: "HBA: Unexpected grid export"
-          message: >-
+          persistent_id: hba_unexpected_export
+          persistent_message: >-
             The batteries are discharging
             (**{{ states('sensor.hba_total_battery_power') | int }} W**) while
             **{{ (states('sensor.p1_meter_power') | int) | abs }} W** goes to the grid,
@@ -72,15 +69,13 @@ automation:
           {% set mine = this.attributes.last_triggered if this is defined and this.attributes is defined else none %}
           {{ raised is not none and (mine is none or raised > mine) }}
     actions:
-      - action: persistent_notification.dismiss
-        data:
-          notification_id: hba_unexpected_export
       - action: script.hba_notify_dispatch
         data:
           title: "HBA: Grid export stopped"
           message: "The unexpected battery export to the grid has stopped."
           tag: hba_unexpected_export
           color: green
+          resolve_id: hba_unexpected_export
 
   # ── Timed EV charge waiting for EV ────────────────────────────────────────────
   # binary_sensor.hba_battery_assist_waiting turns on 3 min after assist activation
@@ -280,11 +275,8 @@ automation:
           tag: "hba_battery_not_responding_{{ batt }}"
           color: orange
           priority: high
-      - action: persistent_notification.create
-        data:
-          notification_id: "hba_battery_not_responding_{{ batt }}"
-          title: "HBA: Battery {{ batt | upper }} not responding"
-          message: >-
+          persistent_id: "hba_battery_not_responding_{{ batt }}"
+          persistent_message: >-
             Commanded **{{ cmd_w | abs }} W {{ 'discharge' if cmd_w | int > 0 else 'charge' }}**
             but actual AC output is **{{ actual_w }} W** (>15% mismatch sustained 60+ s).
 
@@ -336,15 +328,13 @@ automation:
             {{ trigger.entity_id
                | replace('binary_sensor.hba_marstek_', '')
                | replace('_not_responding', '') }}
-      - action: persistent_notification.dismiss
-        data:
-          notification_id: "hba_battery_not_responding_{{ batt }}"
       - action: script.hba_notify_dispatch
         data:
           title: "HBA: Battery {{ batt | upper }} responding again"
           message: "Battery {{ batt | upper }} is now responding to RS485 commands."
           tag: "hba_battery_not_responding_{{ batt }}"
           color: green
+          resolve_id: "hba_battery_not_responding_{{ batt }}"
 
   # ── RS485 mode mismatch ───────────────────────────────────────────────────────
   # Notifies when HBA master mode is Full control but one or more batteries have
@@ -372,11 +362,8 @@ automation:
           tag: hba_rs485_mode_mismatch
           color: red
           priority: high
-      - action: persistent_notification.create
-        data:
-          notification_id: hba_rs485_mode_mismatch
-          title: "HBA: RS485 control mismatch"
-          message: >-
+          persistent_id: hba_rs485_mode_mismatch
+          persistent_message: >-
             HBA master mode is **Full control** but the following batteries have
             RS485 control **disabled**:
             {{ state_attr('binary_sensor.hba_rs485_mode_mismatch', 'mismatched_batteries') }}.
@@ -398,15 +385,13 @@ automation:
       - condition: template
         value_template: "{{ trigger.from_state is not none and trigger.from_state.state == 'on' }}"
     actions:
-      - action: persistent_notification.dismiss
-        data:
-          notification_id: hba_rs485_mode_mismatch
       - action: script.hba_notify_dispatch
         data:
           title: "HBA: RS485 mismatch resolved"
           message: "All configured batteries are now in RS485 Full control mode."
           tag: hba_rs485_mode_mismatch
           color: green
+          resolve_id: hba_rs485_mode_mismatch
 
   # ── Battery overtemperature ───────────────────────────────────────────────────
   # Fires when any battery's internal temperature sustains ≥60 °C for 2 minutes.
@@ -463,11 +448,8 @@ automation:
           tag: "hba_battery_overtemperature_{{ batt }}"
           color: orange
           priority: high
-      - action: persistent_notification.create
-        data:
-          notification_id: "hba_battery_overtemperature_{{ batt }}"
-          title: "HBA: Battery {{ batt | upper }} overtemperature"
-          message: >-
+          persistent_id: "hba_battery_overtemperature_{{ batt }}"
+          persistent_message: >-
             Battery **{{ batt | upper }}** internal temperature: **{{ temp }} °C**
 
             The BMS thermal protection triggers at ~70 °C — discharge may be
@@ -523,15 +505,13 @@ automation:
                | replace('sensor.marstek_', '')
                | replace('_internal_temperature', '') }}
           temp: "{{ trigger.to_state.state | float(0) | round(1) }}"
-      - action: persistent_notification.dismiss
-        data:
-          notification_id: "hba_battery_overtemperature_{{ batt }}"
       - action: script.hba_notify_dispatch
         data:
           title: "HBA: Battery {{ batt | upper }} temperature normal"
           message: "Battery {{ batt | upper }} temperature is now {{ temp }} °C."
           tag: "hba_battery_overtemperature_{{ batt }}"
           color: green
+          resolve_id: "hba_battery_overtemperature_{{ batt }}"
 
   # ── Battery offline ───────────────────────────────────────────────────────────
   # binary_sensor.hba_any_battery_offline: a configured battery's inverter_state is
@@ -566,11 +546,8 @@ automation:
           tag: hba_battery_offline
           color: red
           priority: high
-      - action: persistent_notification.create
-        data:
-          notification_id: hba_battery_offline
-          title: "HBA: Battery offline"
-          message: >-
+          persistent_id: hba_battery_offline
+          persistent_message: >-
             Battery **{{ offline }}** is not reachable over Modbus (3+ minutes) — HBA
             cannot control it.
 
@@ -592,15 +569,13 @@ automation:
           {% set mine = this.attributes.last_triggered if this is defined and this.attributes is defined else none %}
           {{ raised is not none and (mine is none or raised > mine) }}
     actions:
-      - action: persistent_notification.dismiss
-        data:
-          notification_id: hba_battery_offline
       - action: script.hba_notify_dispatch
         data:
           title: "HBA: Batteries back online"
           message: "All configured batteries are reachable again."
           tag: hba_battery_offline
           color: green
+          resolve_id: hba_battery_offline
 
   # ── Entity health ─────────────────────────────────────────────────────────────
   # binary_sensor.hba_entity_health: a critical HBA entity is registered under the
@@ -628,11 +603,8 @@ automation:
           tag: hba_entity_health
           color: red
           priority: high
-      - action: persistent_notification.create
-        data:
-          notification_id: hba_entity_health
-          title: "HBA: Entity ID mismatch"
-          message: >-
+          persistent_id: hba_entity_health
+          persistent_message: >-
             These HBA entities are missing or registered under a different entity ID:
             **{{ missing }}**
 
@@ -654,15 +626,13 @@ automation:
           {% set mine = this.attributes.last_triggered if this is defined and this.attributes is defined else none %}
           {{ raised is not none and (mine is none or raised > mine) }}
     actions:
-      - action: persistent_notification.dismiss
-        data:
-          notification_id: hba_entity_health
       - action: script.hba_notify_dispatch
         data:
           title: "HBA: Entity IDs fixed"
           message: "All critical HBA entities are present under their expected entity IDs."
           tag: hba_entity_health
           color: green
+          resolve_id: hba_entity_health
 
   # ── Dynamic migration (r22) ───────────────────────────────────────────────────
   # binary_sensor.hba_dynamic_migration_needed: v1 / _v2 leftovers or missing new
@@ -687,11 +657,8 @@ automation:
             HBA Overview.
           tag: hba_dynamic_migration
           color: orange
-      - action: persistent_notification.create
-        data:
-          notification_id: hba_dynamic_migration
-          title: "HBA: Dynamic strategy changed — action needed"
-          message: >-
+          persistent_id: hba_dynamic_migration
+          persistent_message: >-
             This HBA update removed **Dynamic v1** and renamed **Dynamic v2** to **Dynamic**.
 
             - If *Choose strategy* shows **Full stop**, select **Dynamic** again.
@@ -712,21 +679,30 @@ automation:
           {% set mine = this.attributes.last_triggered if this is defined and this.attributes is defined else none %}
           {{ raised is not none and (mine is none or raised > mine) }}
     actions:
-      - action: persistent_notification.dismiss
-        data:
-          notification_id: hba_dynamic_migration
       - action: script.hba_notify_dispatch
         data:
           title: "HBA: Dynamic migration complete"
           message: "No Dynamic v1 / v2 leftovers remain."
           tag: hba_dynamic_migration
           color: green
+          resolve_id: hba_dynamic_migration
 
 script:
   # ── Notification dispatch ─────────────────────────────────────────────────────
   # Central notification script. Routes to the configured notify action when
   # hba_notifications_enabled is on, falling back to notify.persistent_notification
   # when no custom entity ID is configured.
+  # Single place every HBA alert goes through:
+  #   - push to input_text.hba_notify_entity_id (gated by hba_notifications_enabled)
+  #   - persistent_id: also create a persistent notification (HA sidebar bell) with
+  #     that ID -- ALWAYS, independent of the push switch, so an active problem stays
+  #     visible to every HA user until its "resolved" call dismisses it.
+  #     persistent_title / persistent_message override title / message for the bell
+  #     (markdown welcome).
+  #   - resolve_id: dismiss that persistent notification (the alert cleared).
+  # With no push target set, a plain notification falls back to a persistent
+  # notification as before -- but not when persistent_id / resolve_id already
+  # handle the bell, which used to put the same alert in the bell twice.
   hba_notify_dispatch:
     alias: "HBA: Notify dispatch"
     fields:
@@ -740,22 +716,49 @@ script:
         default: blue
       priority:
         default: normal
+      persistent_id:
+        description: "Also create a persistent notification with this ID (optional)"
+      persistent_title:
+        description: "Title for the persistent notification (default: title)"
+      persistent_message:
+        description: "Body for the persistent notification (default: message)"
+      resolve_id:
+        description: "Dismiss the persistent notification with this ID (optional)"
     sequence:
+      - variables:
+          _pid: "{{ persistent_id | default('') | trim }}"
+          _rid: "{{ resolve_id | default('') | trim }}"
+          _target: >-
+            {%- set t = states('input_text.hba_notify_entity_id') | trim -%}
+            {{ t if t not in ['', 'unknown', 'unavailable'] else '' }}
+      - if:
+          - "{{ _pid != '' }}"
+        then:
+          - action: persistent_notification.create
+            data:
+              notification_id: "{{ _pid }}"
+              title: "{{ persistent_title | default(title) }}"
+              message: "{{ persistent_message | default(message) }}"
+      - if:
+          - "{{ _rid != '' }}"
+        then:
+          - action: persistent_notification.dismiss
+            data:
+              notification_id: "{{ _rid }}"
       - condition: state
         entity_id: input_boolean.hba_notifications_enabled
         state: "on"
-      - action: >-
-          {{ states('input_text.hba_notify_entity_id')
-             if states('input_text.hba_notify_entity_id') | trim
-                not in ['', 'unknown', 'unavailable']
-             else 'notify.persistent_notification' }}
-        data:
-          title: "{{ title }}"
-          message: "{{ message }}"
-          data:
-            priority: "{{ priority }}"
-            tag: "{{ tag }}"
-            color: "{{ color }}"
+      - if:
+          - "{{ _target != '' or (_pid == '' and _rid == '') }}"
+        then:
+          - action: "{{ _target if _target != '' else 'notify.persistent_notification' }}"
+            data:
+              title: "{{ title }}"
+              message: "{{ message }}"
+              data:
+                priority: "{{ priority }}"
+                tag: "{{ tag }}"
+                color: "{{ color }}"
 
   hba_notify_test:
     alias: "HBA: Send test notification"
