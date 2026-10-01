@@ -70,6 +70,9 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Added
 
+- **Dynamic migration: notification** (`automation.hba_notify_dynamic_migration` / `_resolved`)
+  — after the r22 update, a push and persistent notification point to the Overview banner and
+  list the two steps every upgrade needs (re-select Dynamic, re-enter max hours).
 - **Entity health: notification** (`automation.hba_notify_entity_health` / `_resolved`) — when a
   critical HBA entity is missing or registered under a different entity ID for 5+ minutes, a
   push and persistent notification now list them (previously only the Overview banner).
