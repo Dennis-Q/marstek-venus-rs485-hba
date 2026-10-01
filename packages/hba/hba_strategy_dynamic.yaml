@@ -1,10 +1,10 @@
-# hba_strategy_dynamic_v2.yaml
+# hba_strategy_dynamic.yaml
 #
 # Dynamic pricing — Extreme-Pair Matching (non-contiguous hour selection).
 #
-# This is the only Dynamic strategy. It was "Dynamic v2" until the contiguous-window v1
-# (HACS Cheapest Energy Hours) was removed, following HBC v4.11.0; the file and script
-# keep their _v2 names so an update does not leave a duplicate behind. It selects the
+# This is the only Dynamic strategy. It was "Dynamic v2" (hba_strategy_dynamic_v2.yaml)
+# until the contiguous-window v1 (HACS Cheapest Energy Hours) was removed, following HBC
+# v4.11.0; it then took over v1's file and script names. It selects the
 # cheapest and most expensive hours independently across all available daily prices
 # using a two-pointer algorithm.
 # Marks are fixed at price-publish time and do not shift as hours pass.
@@ -57,8 +57,8 @@ template:
       - trigger: state
         entity_id:
           - input_text.hba_strategy_dynamic_frank_sensor_entity_id
-          - input_number.hba_strategy_dynamic_v2_max_cheap_hours_per_day
-          - input_number.hba_strategy_dynamic_v2_max_expensive_hours_per_day
+          - input_number.hba_strategy_dynamic_max_cheap_hours_per_day
+          - input_number.hba_strategy_dynamic_max_expensive_hours_per_day
           - input_number.hba_strategy_dynamic_threshold_delta
       # Fire when the Frank Energie sensor publishes new price data (e.g. adds tomorrow
       # prices mid-afternoon). Watches the last entry in the 'prices' attribute.
@@ -123,9 +123,9 @@ template:
             {%- set step_sec = 3600 // pph -%}
             {%- if slots | length == 0 -%}Regular
             {%- else -%}
-              {%- set max_cheap_hrs = states('input_number.hba_strategy_dynamic_v2_max_cheap_hours_per_day') | float(4) -%}
+              {%- set max_cheap_hrs = states('input_number.hba_strategy_dynamic_max_cheap_hours_per_day') | float(4) -%}
               {%- set max_cheap = ((max_cheap_hrs * pph) | round | int) if max_cheap_hrs > 0 else 9999 -%}
-              {%- set max_exp_hrs = states('input_number.hba_strategy_dynamic_v2_max_expensive_hours_per_day') | float(4) -%}
+              {%- set max_exp_hrs = states('input_number.hba_strategy_dynamic_max_expensive_hours_per_day') | float(4) -%}
               {%- set max_exp = ((max_exp_hrs * pph) | round | int) if max_exp_hrs > 0 else 9999 -%}
               {%- set delta_thr = states('input_number.hba_strategy_dynamic_threshold_delta') | float(0) -%}
               {%- set now_slot_ts = (as_timestamp(now()) | int // step_sec) * step_sec -%}
@@ -236,9 +236,9 @@ template:
             {%- set step_sec = 3600 // pph -%}
             {%- if slots | length == 0 -%}[]
             {%- else -%}
-              {%- set max_cheap_hrs = states('input_number.hba_strategy_dynamic_v2_max_cheap_hours_per_day') | float(4) -%}
+              {%- set max_cheap_hrs = states('input_number.hba_strategy_dynamic_max_cheap_hours_per_day') | float(4) -%}
               {%- set max_cheap = ((max_cheap_hrs * pph) | round | int) if max_cheap_hrs > 0 else 9999 -%}
-              {%- set max_exp_hrs = states('input_number.hba_strategy_dynamic_v2_max_expensive_hours_per_day') | float(4) -%}
+              {%- set max_exp_hrs = states('input_number.hba_strategy_dynamic_max_expensive_hours_per_day') | float(4) -%}
               {%- set max_exp = ((max_exp_hrs * pph) | round | int) if max_exp_hrs > 0 else 9999 -%}
               {%- set delta_thr = states('input_number.hba_strategy_dynamic_threshold_delta') | float(0) -%}
               {%- set now_slot_ts = (as_timestamp(now()) | int // step_sec) * step_sec -%}
@@ -344,7 +344,7 @@ script:
   # Reads mark_now from sensor.hba_energy_prices_data (pre-computed by the template
   # sensor above) and dispatches to the configured sub-strategy for that mark.
   # Sub-strategy selects: hba_strategy_dynamic_cheapest / _expensive / _default.
-  hba_strategy_dynamic_v2:
+  hba_strategy_dynamic:
     alias: "HBA: Strategy - Dynamic (Extreme-Pair Matching)"
     sequence:
       - variables:

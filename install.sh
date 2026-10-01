@@ -136,7 +136,7 @@ CORE_FILES=(
     packages/hba/hba_strategies_core.yaml
     packages/hba/hba_strategy_charge_pv.yaml
     packages/hba/hba_strategy_charge_sell.yaml
-    packages/hba/hba_strategy_dynamic_v2.yaml
+    packages/hba/hba_strategy_dynamic.yaml
     packages/hba/hba_strategy_others.yaml
     packages/hba/hba_strategy_self_consumption.yaml
     packages/hba/hba_strategy_timed.yaml
@@ -151,11 +151,12 @@ done
 
 # ── Obsolete files — removed on update ───────────────────────────────────────
 # Files a previous HBA version shipped that no longer exist. Left on disk they
-# would keep loading: hba_strategy_dynamic.yaml (Dynamic v1, removed in r22)
-# runs an hourly automation that writes to helpers which no longer exist.
+# would keep loading. hba_strategy_dynamic_v2.yaml (renamed to
+# hba_strategy_dynamic.yaml in r22, which also replaced the old Dynamic v1 file
+# of that name) would define sensor.hba_energy_prices_data a second time.
 
 OBSOLETE_FILES=(
-    packages/hba/hba_strategy_dynamic.yaml
+    packages/hba/hba_strategy_dynamic_v2.yaml
 )
 
 for f in "${OBSOLETE_FILES[@]}"; do

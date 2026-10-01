@@ -332,9 +332,9 @@ input_number:
     icon: mdi:battery-20
 
   # --- Dynamic pricing (Extreme-Pair Matching) ---
-  # entity_ids keep their historic "_v2_" infix so existing installs keep their values;
-  # since v1 was removed there is only one Dynamic strategy.
-  hba_strategy_dynamic_v2_max_cheap_hours_per_day:
+  # Were hba_strategy_dynamic_v2_* until r22; renamed when v1 was removed. Values do
+  # not carry over -- binary_sensor.hba_dynamic_migration_needed tells the user.
+  hba_strategy_dynamic_max_cheap_hours_per_day:
     name: "Dynamic max cheap hours/day"
     min: 0
     max: 24
@@ -342,7 +342,7 @@ input_number:
     unit_of_measurement: h
     mode: box
     icon: mdi:clock-minus-outline
-  hba_strategy_dynamic_v2_max_expensive_hours_per_day:
+  hba_strategy_dynamic_max_expensive_hours_per_day:
     name: "Dynamic max expensive hours/day"
     min: 0
     max: 24
@@ -1622,6 +1622,76 @@ template:
       # newer version: the entity registry keeps the old entity_id (derived from the
       # previous name) and code references the new expected entity_id, causing silent
       # failures. Fix by going to Settings → Entities and renaming the listed entities.
+      # ── Dynamic migration check (r22) ───────────────────────────────────────────
+      # r22 removed Dynamic v1 and renamed Dynamic v2's entities to plain "dynamic".
+      # On an existing install that leaves orphans in the entity registry (shown as
+      # unavailable), and a manual install can keep the old hba_strategy_dynamic_v2.yaml
+      # loading next to the new file. `expand()` returns any entity HA still knows,
+      # orphan or not -- has_value() would hide orphans, since they are unavailable.
+      # The Overview shows a migration banner while this is on.
+      - name: "HBA Dynamic Migration Needed"
+        unique_id: hba_dynamic_migration_needed
+        device_class: problem
+        icon: mdi:swap-horizontal-bold
+        state: >
+          {% set old = [
+            'script.hba_strategy_dynamic_v2',
+            'input_number.hba_strategy_dynamic_v2_max_cheap_hours_per_day',
+            'input_number.hba_strategy_dynamic_v2_max_expensive_hours_per_day',
+            'automation.hba_dynamic_period_calculation',
+            'input_datetime.hba_strategy_dynamic_cheapest_start',
+            'input_datetime.hba_strategy_dynamic_cheapest_end',
+            'input_datetime.hba_strategy_dynamic_expensive_start',
+            'input_datetime.hba_strategy_dynamic_expensive_end',
+            'input_number.hba_strategy_dynamic_cheapest_hrs',
+            'input_number.hba_strategy_dynamic_expensive_hrs',
+            'input_number.hba_strategy_dynamic_threshold_cheapest_period',
+            'input_number.hba_strategy_dynamic_cheapest_avg_tariff',
+            'input_number.hba_strategy_dynamic_expensive_avg_tariff',
+            'input_number.hba_strategy_dynamic_expensive_avg_delta',
+            'sensor.hba_estimated_profit_per_kwh',
+            'binary_sensor.hba_dynamic_cheap_threshold_met',
+            'binary_sensor.hba_dynamic_expensive_threshold_met',
+          ] %}
+          {% set new = [
+            'script.hba_strategy_dynamic',
+            'input_number.hba_strategy_dynamic_max_cheap_hours_per_day',
+            'input_number.hba_strategy_dynamic_max_expensive_hours_per_day',
+          ] %}
+          {{ (expand(old) | count) > 0 or (new | reject('has_value') | list | count) > 0 }}
+        attributes:
+          leftover_entity_ids: >
+            {% set old = [
+              'script.hba_strategy_dynamic_v2',
+              'input_number.hba_strategy_dynamic_v2_max_cheap_hours_per_day',
+              'input_number.hba_strategy_dynamic_v2_max_expensive_hours_per_day',
+              'automation.hba_dynamic_period_calculation',
+              'input_datetime.hba_strategy_dynamic_cheapest_start',
+              'input_datetime.hba_strategy_dynamic_cheapest_end',
+              'input_datetime.hba_strategy_dynamic_expensive_start',
+              'input_datetime.hba_strategy_dynamic_expensive_end',
+              'input_number.hba_strategy_dynamic_cheapest_hrs',
+              'input_number.hba_strategy_dynamic_expensive_hrs',
+              'input_number.hba_strategy_dynamic_threshold_cheapest_period',
+              'input_number.hba_strategy_dynamic_cheapest_avg_tariff',
+              'input_number.hba_strategy_dynamic_expensive_avg_tariff',
+              'input_number.hba_strategy_dynamic_expensive_avg_delta',
+              'sensor.hba_estimated_profit_per_kwh',
+              'binary_sensor.hba_dynamic_cheap_threshold_met',
+              'binary_sensor.hba_dynamic_expensive_threshold_met',
+            ] %}
+            {{ expand(old) | map(attribute='entity_id') | sort | join(', ') }}
+          old_file_still_loaded: >
+            {{ has_value('script.hba_strategy_dynamic_v2')
+               or has_value('input_number.hba_strategy_dynamic_v2_max_cheap_hours_per_day') }}
+          missing_entity_ids: >
+            {% set new = [
+              'script.hba_strategy_dynamic',
+              'input_number.hba_strategy_dynamic_max_cheap_hours_per_day',
+              'input_number.hba_strategy_dynamic_max_expensive_hours_per_day',
+            ] %}
+            {{ new | reject('has_value') | join(', ') }}
+
       - name: "HBA Entity Health"
         unique_id: hba_entity_health
         device_class: problem

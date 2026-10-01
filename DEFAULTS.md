@@ -189,10 +189,11 @@ Period times (`input_datetime.hba_strategy_timed_period_a1` etc.) are not set by
 | `input_select.hba_strategy_dynamic_cheapest` | `Charge` |
 | `input_select.hba_strategy_dynamic_expensive` | `Self-consumption` |
 | `input_number.hba_strategy_dynamic_threshold_delta` | `5` ct/kWh |
-| `input_number.hba_strategy_dynamic_v2_max_cheap_hours_per_day` | `0` h/day (no cap) |
-| `input_number.hba_strategy_dynamic_v2_max_expensive_hours_per_day` | `0` h/day (no cap) |
+| `input_number.hba_strategy_dynamic_max_cheap_hours_per_day` | `0` h/day (no cap) |
+| `input_number.hba_strategy_dynamic_max_expensive_hours_per_day` | `0` h/day (no cap) |
 
-The max-hours helpers keep their historic `_v2_` entity_ids so existing installs keep their values.
+Until r22 the max-hours helpers were `input_number.hba_strategy_dynamic_v2_max_*`; values
+did not carry over when they were renamed.
 
 ## Per-Battery SoC Cutoffs (all 6 slots)
 

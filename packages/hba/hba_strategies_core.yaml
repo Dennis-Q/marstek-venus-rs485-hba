@@ -17,7 +17,7 @@
 #   hba_strategy_others.yaml             (full_stop, zero_import, standby)
 #   hba_strategy_charge_sell.yaml        (charge, sell)
 #   hba_strategy_timed.yaml
-#   hba_strategy_dynamic_v2.yaml         (Dynamic: + sensor.hba_energy_prices_data template sensor)
+#   hba_strategy_dynamic.yaml            (Dynamic: + sensor.hba_energy_prices_data template sensor)
 
 automation:
   # ── Control loop ─────────────────────────────────────────────────────────────
@@ -502,11 +502,11 @@ script:
               - action: script.hba_strategy_timed
                 data: {}
           # Dynamic = Extreme-Pair Matching (formerly "Dynamic v2"; v1 removed, as in
-          # HBC v4.11.0). Script and file keep their _v2 names so existing installs
-          # do not end up with a duplicate after an update.
+          # HBC v4.11.0). binary_sensor.hba_dynamic_migration_needed flags installs
+          # still carrying v1 / _v2 leftovers.
           - conditions: "{{ strategy == 'Dynamic' }}"
             sequence:
-              - action: script.hba_strategy_dynamic_v2
+              - action: script.hba_strategy_dynamic
                 data: {}
           - conditions: "{{ strategy == 'Charge' }}"
             sequence:
@@ -1153,10 +1153,10 @@ script:
         target: { entity_id: input_number.hba_strategy_dynamic_threshold_delta }
         data: { value: 5 }
       - action: input_number.set_value
-        target: { entity_id: input_number.hba_strategy_dynamic_v2_max_cheap_hours_per_day }
+        target: { entity_id: input_number.hba_strategy_dynamic_max_cheap_hours_per_day }
         data: { value: 0 }
       - action: input_number.set_value
-        target: { entity_id: input_number.hba_strategy_dynamic_v2_max_expensive_hours_per_day }
+        target: { entity_id: input_number.hba_strategy_dynamic_max_expensive_hours_per_day }
         data: { value: 0 }
       # ── Per-battery SoC cutoffs (all 6 slots) ────────────────────────────────
       - action: input_number.set_value

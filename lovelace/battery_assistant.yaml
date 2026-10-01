@@ -38,6 +38,53 @@ views:
               expected value shown above.
               </ha-alert>
 
+      # Dynamic migration alert (r22: Dynamic v1 removed, v2 entities renamed) —
+      # only shown while binary_sensor.hba_dynamic_migration_needed is on.
+      - type: grid
+        visibility:
+          - condition: state
+            entity: binary_sensor.hba_dynamic_migration_needed
+            state: 'on'
+        cards:
+          - type: markdown
+            grid_options:
+              columns: full
+            content: >-
+              {%- set s = 'binary_sensor.hba_dynamic_migration_needed' -%}
+              {%- set leftovers = state_attr(s, 'leftover_entity_ids') | default('', true) | trim -%}
+              {%- set missing = state_attr(s, 'missing_entity_ids') | default('', true) | trim -%}
+              {%- set old_file = state_attr(s, 'old_file_still_loaded') | default(false) -%}
+              <ha-alert alert-type="warning" title="Dynamic strategy changed — action needed">
+
+              HBA r22 removed the old Dynamic (v1) strategy and renamed **Dynamic v2** to
+              **Dynamic** (as HBC v4.11.0 did). Most likely steps to finish the update:
+              {% if old_file %}
+
+              - **Delete `packages/hba/hba_strategy_dynamic_v2.yaml`** — it is still loaded next
+                to the new `hba_strategy_dynamic.yaml`. Re-running `install.sh` does this for
+                you. Then restart Home Assistant.
+              {%- endif %}
+              {%- if missing %}
+
+              - **New Dynamic entities missing:** {{ missing }}. Make sure
+                `packages/hba/hba_strategy_dynamic.yaml` and `hba_helpers.yaml` are the r22
+                versions (re-run `install.sh`), then restart Home Assistant.
+              {%- endif %}
+
+              - **Strategy:** if *Choose strategy* shows **Full stop**, select **Dynamic**
+                again — the old *Dynamic v2* option no longer exists.
+              - **Re-enter** *Max # cheap hrs* and *Max # expensive hrs* in
+                [Timed / Dynamic](/home-battery-assistant/timed-dynamic) — the renamed helpers
+                started at 0 (no cap).
+              {%- if leftovers %}
+              - **Delete the leftover entities** in **Settings → Entities** (they show as
+                unavailable / *no longer provided*):
+                {{ leftovers }}
+              {%- endif %}
+
+              This banner disappears once nothing is left to clean up.
+              </ha-alert>
+
       # Timed EV charge waiting alert (only shown while assist is suspended
       # because the EV is not drawing power — see binary_sensor.hba_battery_assist_waiting)
       - type: grid
@@ -1583,7 +1630,7 @@ views:
             entities:
               - entity: input_select.hba_strategy_dynamic_cheapest
                 name: I want to use
-              - entity: input_number.hba_strategy_dynamic_v2_max_cheap_hours_per_day
+              - entity: input_number.hba_strategy_dynamic_max_cheap_hours_per_day
                 name: Max # cheap hrs
           - type: heading
             icon: mdi:timeline-clock-outline
@@ -1593,7 +1640,7 @@ views:
             entities:
               - entity: input_select.hba_strategy_dynamic_expensive
                 name: I want to use
-              - entity: input_number.hba_strategy_dynamic_v2_max_expensive_hours_per_day
+              - entity: input_number.hba_strategy_dynamic_max_expensive_hours_per_day
                 name: Max # expensive hrs
 
       # ── Price marks visualisation ─────────────────────────────────────────────

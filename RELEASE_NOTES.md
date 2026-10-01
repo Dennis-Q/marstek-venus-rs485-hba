@@ -23,16 +23,26 @@ open), so the version prefix stays at 4.10.1 for now.
   contiguous "cheapest N hours" window strategy (`hba_strategy_dynamic.yaml`, which needed
   the HACS Cheapest Energy Hours macro) is removed. HBA no longer depends on Cheapest Energy
   Hours at all.
-  **After updating:** `input_select.hba_strategy` cannot restore `Dynamic v2` (the option
-  no longer exists) and falls back to **Full stop** — select **Dynamic** again. Anyone who
-  ran v1 "Dynamic" now gets the Extreme-Pair Matching strategy; check the max cheap/expensive
-  hours and the min. price difference.
+  Dynamic v2's entities drop the `_v2` too: `hba_strategy_dynamic_v2.yaml` →
+  `hba_strategy_dynamic.yaml`, `script.hba_strategy_dynamic_v2` → `script.hba_strategy_dynamic`,
+  `input_number.hba_strategy_dynamic_v2_max_cheap/expensive_hours_per_day` →
+  `input_number.hba_strategy_dynamic_max_cheap/expensive_hours_per_day`.
+  **After updating (restart Home Assistant):**
+  - `input_select.hba_strategy` cannot restore `Dynamic v2` (the option no longer exists)
+    and falls back to **Full stop** — select **Dynamic** again. Anyone who ran v1 "Dynamic"
+    now gets the Extreme-Pair Matching strategy; check its settings.
+  - **Re-enter max cheap / expensive hours** — the renamed helpers start at 0 (no cap);
+    values cannot carry over to a new entity_id.
+  - A **migration banner** on the Overview (`binary_sensor.hba_dynamic_migration_needed`)
+    lists exactly which leftovers your install still has, whether the old `_v2` file is
+    still loaded, and whether any new Dynamic entity is missing — with the steps to fix
+    each. It disappears once everything is cleaned up.
   **Price sources:** Dynamic currently reads **Frank Energie** only. The other providers
   were only supported through v1; they are on the to-do. The pricing-source select now
   offers just Frank Energie.
-  **`install.sh` deletes the old `packages/hba/hba_strategy_dynamic.yaml`** — if you
-  install manually, delete it yourself, or its hourly automation keeps running against
-  helpers that no longer exist.
+  **`install.sh` overwrites `packages/hba/hba_strategy_dynamic.yaml` with the new Dynamic and
+  deletes the old `hba_strategy_dynamic_v2.yaml`** — if you install manually, do both
+  yourself, or `sensor.hba_energy_prices_data` is defined twice.
   **Orphaned entities to delete from Settings → Entities** (they show as unavailable or
   "no longer provided"): `automation.hba_dynamic_period_calculation`,
   `script.hba_strategy_dynamic`, `input_datetime.hba_strategy_dynamic_cheapest_start` /
@@ -40,8 +50,10 @@ open), so the version prefix stays at 4.10.1 for now.
   `input_number.hba_strategy_dynamic_cheapest_hrs` / `_expensive_hrs` /
   `_threshold_cheapest_period` / `_cheapest_avg_tariff` / `_expensive_avg_tariff` /
   `_expensive_avg_delta`, `sensor.hba_estimated_profit_per_kwh`,
-  `binary_sensor.hba_dynamic_cheap_threshold_met` / `_expensive_threshold_met`.
-  The `_v2_` max-hours helpers keep their entity_ids, so their values survive.
+  `binary_sensor.hba_dynamic_cheap_threshold_met` / `_expensive_threshold_met`,
+  `script.hba_strategy_dynamic_v2`, `input_number.hba_strategy_dynamic_v2_max_cheap_hours_per_day`
+  / `_v2_max_expensive_hours_per_day`. Which of these exist depends on the install — the
+  banner shows yours.
 - **Lab features dashboard view** — Dynamic's settings, price table and chart moved into the
   Timed / Dynamic view, as in HBC.
 
