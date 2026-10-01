@@ -79,8 +79,10 @@ else
     REF_NAME="$VERSION"
 fi
 
-if [ -z "$BRANCH" ] && [ "$VERSION" != "main" ]; then
-    # A release tag (or an explicit HBA_VERSION): the tag already identifies the build.
+# Only a release tag (v<hbc-version>-r<n>) identifies a build by itself. Anything
+# else -- HBA_BRANCH, HBA_VERSION=dev / main / a commit hash, or the main fallback --
+# is resolved to the commit it points at.
+if [ -z "$BRANCH" ] && [[ "$VERSION" =~ ^v[0-9] ]]; then
     BASE_URL="https://raw.githubusercontent.com/${REPO}/${VERSION}"
     DISPLAY_REF="version : ${VERSION}"
 elif resolve_commit "$REF_NAME"; then
@@ -107,7 +109,7 @@ if [ -z "${HBA_INSTALLER_SELF:-}" ]; then
     if curl -fsSL "${BASE_URL}/install.sh" -o "$_self" 2>/dev/null; then
         export HBA_INSTALLER_SELF=1
         [ -n "$BRANCH" ] && export HBA_BRANCH="$BRANCH"
-        [ -z "$BRANCH" ] && [ "$VERSION" != "main" ] && export HBA_VERSION="$VERSION"
+        [ -z "$BRANCH" ] && export HBA_VERSION="$VERSION"
         exec bash "$_self"
     fi
     rm -f "$_self"
@@ -115,8 +117,8 @@ if [ -z "${HBA_INSTALLER_SELF:-}" ]; then
     echo ""
 fi
 
-if [ -n "$BRANCH" ]; then
-    warn "Installing from branch '${BRANCH}' — this may be unstable."
+if [ -n "$BRANCH" ] || ! [[ "$VERSION" =~ ^v[0-9] ]]; then
+    warn "Installing '${REF_NAME}', not a release — this may be unstable."
     echo ""
 fi
 
