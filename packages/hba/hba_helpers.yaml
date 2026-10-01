@@ -1287,8 +1287,12 @@ template:
              model above cannot see (e.g. V3 firmware refuses below ~13%
              regardless of the configured cutoff). 'not on' so an unknown
              sensor at startup does not block assist. #}
+          {# A manual Full stop overrides the assist push (hba_run_strategy checks
+             it first), so assist must not stay armed either — the EV would sit in
+             battery_assist mode charging from grid with no battery behind it. #}
           {{ enabled and soc > min_soc and ns.dischargeable and in_window and car_ok
-             and not is_state('binary_sensor.hba_battery_assist_stalled', 'on') }}
+             and not is_state('binary_sensor.hba_battery_assist_stalled', 'on')
+             and not is_state('input_select.hba_strategy', 'Full stop') }}
 
       # Stall watchdog for the Timed EV charge push: ON when assist is actively
       # commanding discharge ("Discharge to EV" is written by exactly one

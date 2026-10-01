@@ -3399,6 +3399,9 @@ views:
                 type: attribute
                 attribute: mark_now
                 name: Current period
+              - entity: sensor.hba_dynamic_cycle_spread
+                name: Grid cycle profit today
+                icon: mdi:cash-fast
           - type: heading
             icon: mdi:format-align-middle
             heading_style: subtitle

@@ -1,13 +1,43 @@
 # HBA Release Notes
 
 HBA version numbers follow the pattern **`{HBC-version}-r{N}`**. The HBC version indicates
-which upstream release HBA is aligned with; the revision suffix (`r1`, `r2`, …) tracks
-HBA-specific changes within that alignment. When a new HBC version is released and HBA
-is updated to match, the revision resets to `r1`.
+which upstream release HBA is aligned with; the revision `r{N}` is the HBA build number and
+**always increases** — it does not reset when HBA aligns with a newer HBC version (e.g.
+`v4.10.1-r21` → `v4.15.1-r22`, never `v4.15.1-r1`).
 
 For upstream changes in each HBC version, see the
 [HBC Release Notes](https://github.com/gitcodebob/marstek-venus-rs485-node-red/blob/main/RELEASE_NOTES.md).
 This document covers HBA-specific changes only.
+
+---
+
+## Unreleased — dev branch
+
+Ports of HBC v4.11.0 – v4.15.1 changes that apply to HBA. HBA is not yet fully aligned with
+v4.15.1 (Dynamic v1 is still present), so the version prefix stays at 4.10.1 for now.
+
+### Added
+
+- **Master mode periodic reapply** (`automation.hba_master_mode_periodic_reapply`, from HBC
+  v4.11.0) — every 5 minutes HBA checks each configured battery's RS485 control mode and
+  work mode against the active master mode and corrects any that drifted (firmware update,
+  Marstek app, BMS reset). A battery with RS485 off silently ignores every forcible command.
+  Unlike HBC it only writes a select that is actually wrong, so a healthy install costs no
+  Modbus traffic. `Disabled` is left alone (soft kill-switch). The RS485-mismatch
+  notification still fires after 30 s and now says HBA will correct it; the "resolved"
+  notification follows once it has.
+- **Grid cycle profit** (`sensor.hba_dynamic_cycle_spread`, from HBC v4.11.0) — average gross
+  price spread per complete cheap→expensive cycle across the marked Dynamic v2 slots (today
+  and tomorrow), in ct/kWh — HBC's `gross_spread`, same calculation. Shown in the Dynamic v2
+  section as "Grid cycle profit today".
+
+### Changed
+
+- **A manual Full stop now beats the EV stop trigger and Timed EV charge** (from HBC v4.13.0)
+  — previously an active EV override ran its configured strategy (Standby / Charge PV) or
+  the assist push even with Full stop selected. Full stop is now checked first, and
+  `binary_sensor.hba_battery_assist_active` turns off under Full stop so the EV side leaves
+  `battery_assist` instead of charging from the grid.
 
 ---
 

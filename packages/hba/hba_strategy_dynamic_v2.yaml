@@ -303,6 +303,45 @@ template:
               {{ ns_out.out | tojson }}
             {%- endif -%}
 
+  # ── Grid cycle spread (HBC v4.11.0 gross_spread) ──────────────────────────────
+  # What one charge/discharge cycle across the marked slots is worth. Same maths as
+  # HBC's 'Determine dynamic strategy' node: complete cycles = per day the lesser
+  # of cheap and expensive marks (a cap can leave one side unpaired); the cheapest
+  # cheap prices are paired with the dearest expensive prices across today and
+  # tomorrow; gross = average high − low per cycle. Its own sensor, reading the
+  # marks, because repeating the marking logic a fourth time inside
+  # sensor.hba_energy_prices_data is how the copies drift apart.
+  - sensor:
+      - name: "HBA Dynamic Cycle Spread"
+        unique_id: hba_dynamic_cycle_spread
+        icon: mdi:cash-fast
+        unit_of_measurement: "ct/kWh"
+        availability: "{{ has_value('sensor.hba_energy_prices_data') }}"
+        # State = average gross spread per complete cycle — the figure HBC's
+        # dashboard shows as "Grid cycle profit today". HBC's net_spread is just
+        # gross − min. price difference and nothing in HBC displays it, so it is
+        # not duplicated here (an attribute cannot read this render's state, and
+        # `this.state` would lag one update).
+        state: >-
+          {%- set raw = state_attr('sensor.hba_energy_prices_data', 'marks') -%}
+          {%- set marks = (raw | from_json) if raw is string and (raw | trim)[:1] == '[' else (raw if raw is sequence else []) -%}
+          {%- set ns = namespace(low=[], high=[], ldays=[], hdays=[], pairs=0, gross=0) -%}
+          {%- for m in marks if m is mapping and m.mark in ['low', 'high'] -%}
+            {%- set day = as_timestamp(m.start, 0) | timestamp_custom('%Y-%m-%d') -%}
+            {%- if m.mark == 'low' -%}
+              {%- set ns.low = ns.low + [m.price | float(0)] -%}{%- set ns.ldays = ns.ldays + [day] -%}
+            {%- else -%}
+              {%- set ns.high = ns.high + [m.price | float(0)] -%}{%- set ns.hdays = ns.hdays + [day] -%}
+            {%- endif -%}
+          {%- endfor -%}
+          {%- for d in (ns.ldays + ns.hdays) | unique -%}
+            {%- set ns.pairs = ns.pairs + ([ns.ldays | select('eq', d) | list | length, ns.hdays | select('eq', d) | list | length] | min) -%}
+          {%- endfor -%}
+          {%- set lows = ns.low | sort -%}
+          {%- set highs = ns.high | sort(reverse=true) -%}
+          {%- for i in range(ns.pairs) -%}{%- set ns.gross = ns.gross + highs[i] - lows[i] -%}{%- endfor -%}
+          {{ (ns.gross / ns.pairs) | round(0) | int if ns.pairs > 0 else 0 }}
+
 script:
   # ── Dynamic v2 dispatch ───────────────────────────────────────────────────────
   # Reads mark_now from sensor.hba_energy_prices_data (pre-computed by the template

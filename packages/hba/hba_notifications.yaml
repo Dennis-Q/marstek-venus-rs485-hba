@@ -297,7 +297,8 @@ automation:
             HBA master mode is Full control but the following batteries have RS485
             disabled: {{ state_attr('binary_sensor.hba_rs485_mode_mismatch', 'mismatched_batteries') }}.
             HBA Modbus writes to these batteries are being silently ignored.
-            Re-apply Full control in HBA to restore RS485 on all batteries.
+            HBA re-applies RS485 automatically within 5 minutes; if this keeps
+            recurring, check the Marstek app or firmware.
           tag: hba_rs485_mode_mismatch
           color: red
           priority: high
@@ -311,7 +312,10 @@ automation:
             {{ state_attr('binary_sensor.hba_rs485_mode_mismatch', 'mismatched_batteries') }}.
 
             HBA Modbus writes to these batteries are being silently ignored.
-            Re-apply **Full control** in HBA → Master battery mode to restore RS485.
+            HBA re-applies RS485 automatically within 5 minutes
+            (`automation.hba_master_mode_periodic_reapply`); you will get a
+            "resolved" notification. If this keeps recurring, check the Marstek
+            app or firmware.
 
   - id: hba_notify_rs485_mode_mismatch_resolved
     alias: "HBA: RS485 mismatch resolved"

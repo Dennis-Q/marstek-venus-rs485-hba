@@ -64,6 +64,56 @@ automation:
       - action: script.hba_apply_master_mode
         data: {}
 
+  # ── Master mode periodic re-apply ─────────────────────────────────────────────
+  # Port of HBC v4.11.0 "resend the control mode every 5 mins": some batteries
+  # drift out of the mode HBA put them in (firmware update, Marstek app, BMS
+  # reset). With RS485 off a battery silently ignores every forcible command.
+  # binary_sensor.hba_rs485_mode_mismatch still notifies after 30 s; this puts
+  # it right within 5 minutes, after which the "resolved" notification follows.
+  #
+  # Unlike HBC this only writes a select whose state differs from the mode's
+  # target, so a healthy install costs no Modbus traffic. Same per-mode targets
+  # as hba_apply_master_mode; 'Disabled' is left alone on purpose (soft
+  # kill-switch, batteries keep whatever state they were in).
+  - id: hba_master_mode_periodic_reapply
+    alias: "HBA: Master mode periodic reapply"
+    mode: single
+    max_exceeded: silent
+    triggers:
+      - trigger: time_pattern
+        minutes: "/5"
+    conditions:
+      - condition: state
+        entity_id: input_select.hba_marstek_master_battery_mode
+        state: ["Full control", "Manual control", "Marstek control"]
+    actions:
+      - variables:
+          mode: "{{ states('input_select.hba_marstek_master_battery_mode') }}"
+          want_work_mode: "{{ 'manual' if mode in ['Full control', 'Manual control'] else '' }}"
+          want_rs485: "{{ {'Full control': 'enable', 'Marstek control': 'disable'}.get(mode, '') }}"
+      - repeat:
+          count: "{{ states('input_number.hba_battery_count') | int(1) }}"
+          sequence:
+            - variables:
+                wm_entity: "select.marstek_m{{ repeat.index }}_user_work_mode"
+                rs_entity: "select.marstek_m{{ repeat.index }}_rs485_control_mode"
+            # Unreachable batteries report unavailable/unknown, never a wrong mode —
+            # writing to them only produces log spam.
+            - if:
+                - "{{ want_work_mode != '' and states(wm_entity) not in ['unavailable', 'unknown', want_work_mode] }}"
+              then:
+                - action: select.select_option
+                  continue_on_error: true
+                  target: { entity_id: "{{ wm_entity }}" }
+                  data: { option: "{{ want_work_mode }}" }
+            - if:
+                - "{{ want_rs485 != '' and states(rs_entity) not in ['unavailable', 'unknown', want_rs485] }}"
+              then:
+                - action: select.select_option
+                  continue_on_error: true
+                  target: { entity_id: "{{ rs_entity }}" }
+                  data: { option: "{{ want_rs485 }}" }
+
   # ── PID preset changed ────────────────────────────────────────────────────────
   # Writes Kp/Ki/Kd and dampening values for the selected named preset.
   # ── PID preset changed ────────────────────────────────────────────────────────
@@ -371,6 +421,16 @@ script:
               {{ states(e) == 'on' }}
             {% endif %}
       - choose:
+          # A manual Full stop beats every override — EV stop trigger and Timed EV
+          # charge alike (HBC v4.13.0: "manual Full stop in the main strategy
+          # selector now takes precedence over the EV trigger strategy"). Choosing
+          # Full stop has to mean the batteries stop, whatever else is going on.
+          # binary_sensor.hba_battery_assist_active drops on Full stop as well, so
+          # the EV side leaves battery_assist instead of charging from grid.
+          - conditions: "{{ strategy == 'Full stop' }}"
+            sequence:
+              - action: script.hba_strategy_full_stop
+                data: {}
           # Timed EV charge — forcible discharge to EV charger.
           # Abstains while binary_sensor.hba_battery_assist_waiting is on (EV not
           # drawing power 3+ min after activation, e.g. charger waiting for a tag
@@ -434,10 +494,6 @@ script:
                 data: { value: "EV stop trigger" }
               - action: script.hba_strategy_full_stop
                 data: { skip_label: true }
-          - conditions: "{{ strategy == 'Full stop' }}"
-            sequence:
-              - action: script.hba_strategy_full_stop
-                data: {}
           - conditions: "{{ strategy == 'Self-consumption' }}"
             sequence:
               - action: script.hba_strategy_self_consumption
