@@ -276,7 +276,7 @@ automation:
           color: orange
           priority: high
           persistent_id: "hba_battery_not_responding_{{ batt }}"
-          persistent_message: >-
+          persistent_message: |-
             Commanded **{{ cmd_w | abs }} W {{ 'discharge' if cmd_w | int > 0 else 'charge' }}**
             but actual AC output is **{{ actual_w }} W** (>15% mismatch sustained 60+ s).
 
@@ -288,6 +288,7 @@ automation:
             more than the battery delivers.
             {%- else -%}
             Possible causes:
+
             - BMS blocking near the SoC cutoff
             - Modbus write rejected
             - **Max power mismatch:** HBA's max charge/discharge power for this battery
@@ -658,7 +659,7 @@ automation:
           tag: hba_dynamic_migration
           color: orange
           persistent_id: hba_dynamic_migration
-          persistent_message: >-
+          persistent_message: |-
             This HBA update removed **Dynamic v1** and renamed **Dynamic v2** to **Dynamic**.
 
             - If *Choose strategy* shows **Full stop**, select **Dynamic** again.

@@ -49,40 +49,37 @@ views:
           - type: markdown
             grid_options:
               columns: full
-            content: >-
+            content: |-
               {%- set s = 'binary_sensor.hba_dynamic_migration_needed' -%}
               {%- set leftovers = state_attr(s, 'leftover_entity_ids') | default('', true) | trim -%}
               {%- set missing = state_attr(s, 'missing_entity_ids') | default('', true) | trim -%}
               {%- set old_file = state_attr(s, 'old_file_still_loaded') | default(false) -%}
               <ha-alert alert-type="warning" title="Dynamic strategy changed — action needed">
 
-              HBA r22 removed the old Dynamic (v1) strategy and renamed **Dynamic v2** to
-              **Dynamic** (as HBC v4.11.0 did). Most likely steps to finish the update:
-              {% if old_file %}
+              HBA r22 removed the old Dynamic (v1) strategy and renamed **Dynamic v2** to **Dynamic**, as HBC v4.11.0 did. To finish the update:
 
-              - **Delete `packages/hba/hba_strategy_dynamic_v2.yaml`** — it is still loaded next
-                to the new `hba_strategy_dynamic.yaml`. Re-running `install.sh` does this for
-                you. Then restart Home Assistant.
-              {%- endif %}
-              {%- if missing %}
-
-              - **New Dynamic entities missing:** {{ missing }}. Make sure
-                `packages/hba/hba_strategy_dynamic.yaml` and `hba_helpers.yaml` are the r22
-                versions (re-run `install.sh`), then restart Home Assistant.
-              {%- endif %}
-
-              - **Strategy:** if *Choose strategy* shows **Full stop**, select **Dynamic**
-                again — the old *Dynamic v2* option no longer exists.
-              - **Re-enter** *Max # cheap hrs* and *Max # expensive hrs* in
-                [Timed / Dynamic](/home-battery-assistant/timed-dynamic) — the renamed helpers
-                started at 0 (no cap).
+              {% if old_file -%}
+              - **Delete `hba_strategy_dynamic_v2.yaml`** from `packages/hba/` — it still loads next to the new file (re-running `install.sh` does this), then restart Home Assistant.
+              {% endif -%}
+              {% if missing -%}
+              - **Missing:** {{ missing }} — install the r22 package files (re-run `install.sh`) and restart.
+              {% endif -%}
+              - **Strategy:** if *Choose strategy* shows **Full stop**, select **Dynamic** again.
+              - **Re-enter** *Max # cheap hrs* and *Max # expensive hrs* in [Timed / Dynamic](/home-battery-assistant/timed-dynamic) — they start at 0 (no cap).
+              {% if leftovers -%}
+              - **Delete the leftover entities** in **Settings → Entities** (shown as *unavailable* / *no longer provided*).
+              {% endif %}
               {%- if leftovers %}
-              - **Delete the leftover entities** in **Settings → Entities** (they show as
-                unavailable / *no longer provided*):
-                {{ leftovers }}
+              <details><summary>Show {{ leftovers.split(', ') | count }} leftover entities</summary>
+
+              {% for e in leftovers.split(', ') -%}
+              - `{{ e }}`
+              {% endfor %}
+              </details>
               {%- endif %}
 
               This banner disappears once nothing is left to clean up.
+
               </ha-alert>
 
       # Timed EV charge waiting alert (only shown while assist is suspended
@@ -152,27 +149,24 @@ views:
           - type: markdown
             grid_options:
               columns: full
-            content: >-
+            content: |-
               <ha-alert alert-type="warning" title="Battery not responding to HBA">
-              {%- for i in range(1, 7) if is_state('binary_sensor.hba_marstek_m' ~ i ~ '_not_responding', 'on') %}
-              {%- set b = 'm' ~ i %}
-              {%- set dir = states('select.marstek_' ~ b ~ '_forcible_charge_discharge') %}
-              {%- set actual = states('sensor.marstek_' ~ b ~ '_ac_power') | int(0) %}
-              {%- set cmd = states('number.marstek_' ~ b ~ '_forcible_discharge_power') | int(0) if dir == 'discharge'
-                          else (-(states('number.marstek_' ~ b ~ '_forcible_charge_power') | int(0)) if dir == 'charge' else 0) %}
-              {%- set limit = 'number.marstek_' ~ b ~ '_max_' ~ ('discharge' if cmd > 0 else 'charge') ~ '_power' %}
 
-              **{{ b | upper }}:** commanded {{ cmd | abs }} W {{ 'discharge' if cmd > 0 else 'charge' }},
-              delivering {{ actual }} W.
-              {%- if cmd > 900 and 650 <= actual <= 850 %}
-              Looks capped at ~800 W — probably Marstek's **800 W output limit** (default
-              until unlocked in the Marstek app). Unlock it in the app, or set
-              `{{ limit }}` to **800** in HBA.
-              {%- else %}
-              Check SoC (BMS blocking near the cutoff) and that HBA's max power
-              (`{{ limit }}`) is not higher than the Marstek app allows.
+              {% for i in range(1, 7) if is_state('binary_sensor.hba_marstek_m' ~ i ~ '_not_responding', 'on') -%}
+              {%- set b = 'm' ~ i -%}
+              {%- set dir = states('select.marstek_' ~ b ~ '_forcible_charge_discharge') -%}
+              {%- set actual = states('sensor.marstek_' ~ b ~ '_ac_power') | int(0) -%}
+              {%- set cmd = states('number.marstek_' ~ b ~ '_forcible_discharge_power') | int(0) if dir == 'discharge'
+                 else (-(states('number.marstek_' ~ b ~ '_forcible_charge_power') | int(0)) if dir == 'charge' else 0) -%}
+              {%- set limit = 'number.marstek_' ~ b ~ '_max_' ~ ('discharge' if cmd > 0 else 'charge') ~ '_power' -%}
+              **{{ b | upper }}:** commanded {{ cmd | abs }} W {{ 'discharge' if cmd > 0 else 'charge' }}, delivering {{ actual }} W.
+              {% if cmd > 900 and 650 <= actual <= 850 -%}
+              Looks capped at ~800 W — probably Marstek's **800 W output limit** (default until unlocked in the Marstek app). Unlock it in the app, or set `{{ limit }}` to **800** in HBA.
+              {%- else -%}
+              Check SoC (BMS blocking near the cutoff) and that HBA's max power (`{{ limit }}`) is not higher than the Marstek app allows.
               {%- endif %}
-              {%- endfor %}
+
+              {% endfor -%}
               </ha-alert>
 
       # Battery overtemperature alert — mirrors hba_notify_battery_overtemperature
@@ -204,15 +198,14 @@ views:
           - type: markdown
             grid_options:
               columns: full
-            content: >-
+            content: |-
               <ha-alert alert-type="error" title="Battery overtemperature">
-              {%- for i in range(1, 7) if states('sensor.marstek_m' ~ i ~ '_internal_temperature') | float(0) > 60 %}
 
-              **M{{ i }}:** {{ states('sensor.marstek_m' ~ i ~ '_internal_temperature') | float(0) | round(1) }} °C
-              {%- endfor %}
+              {% for i in range(1, 7) if states('sensor.marstek_m' ~ i ~ '_internal_temperature') | float(0) > 60 -%}
+              - **M{{ i }}:** {{ states('sensor.marstek_m' ~ i ~ '_internal_temperature') | float(0) | round(1) }} °C
+              {% endfor %}
+              The BMS thermal protection trips at ~70 °C — discharge may be reduced or stopped. Check ventilation around the battery.
 
-              The BMS thermal protection trips at ~70 °C — discharge may be reduced or
-              stopped. Check ventilation around the battery.
               </ha-alert>
 
       # RS485 mode mismatch alert — mirrors hba_notify_rs485_mode_mismatch (master mode
@@ -226,14 +219,13 @@ views:
           - type: markdown
             grid_options:
               columns: full
-            content: >-
+            content: |-
               <ha-alert alert-type="error" title="RS485 control disabled on a battery">
-              HBA is in **Full control**, but RS485 control is **disabled** on:
-              **{{ state_attr('binary_sensor.hba_rs485_mode_mismatch', 'mismatched_batteries') }}**.
-              That battery silently ignores every HBA command.
 
-              HBA re-applies RS485 automatically within 5 minutes. If this keeps coming
-              back, check the Marstek app or a recent firmware update.
+              HBA is in **Full control**, but RS485 control is **disabled** on **{{ state_attr('binary_sensor.hba_rs485_mode_mismatch', 'mismatched_batteries') }}** — that battery silently ignores every HBA command.
+
+              HBA re-applies RS485 automatically within 5 minutes. If this keeps coming back, check the Marstek app or a recent firmware update.
+
               </ha-alert>
 
       # Unexpected export alert — mirrors hba_unexpected_export_notify: batteries
@@ -254,13 +246,13 @@ views:
           - type: markdown
             grid_options:
               columns: full
-            content: >-
+            content: |-
               <ha-alert alert-type="warning" title="Batteries are exporting to the grid">
-              The batteries are discharging
-              ({{ states('sensor.hba_total_battery_power') | int(0) }} W) while
-              {{ (states('sensor.p1_meter_power') | int(0)) | abs }} W goes to the grid,
-              and neither Sell nor Timed EV charge is active. Check the strategy
-              configuration (active: **{{ states('sensor.hba_active_strategy') }}**).
+
+              The batteries are discharging (**{{ states('sensor.hba_total_battery_power') | int(0) }} W**) while **{{ (states('sensor.p1_meter_power') | int(0)) | abs }} W** goes to the grid, and neither Sell nor Timed EV charge is active.
+
+              Check the strategy configuration (active: **{{ states('sensor.hba_active_strategy') }}**).
+
               </ha-alert>
 
       # Onboarding (hidden once dismissed)
