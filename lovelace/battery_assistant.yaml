@@ -122,6 +122,59 @@ views:
               from grid; assist retries automatically in 30 minutes.
               </ha-alert>
 
+      # Battery not responding alert — mirrors hba_notify_battery_not_responding
+      # (shown while any binary_sensor.hba_marstek_mX_not_responding is on). Same
+      # cause logic: ~800 W plateau under a >900 W discharge command = Marstek's
+      # 800 W output limit; otherwise the general causes incl. a max-power mismatch.
+      - type: grid
+        visibility:
+          - condition: or
+            conditions:
+              - condition: state
+                entity: binary_sensor.hba_marstek_m1_not_responding
+                state: 'on'
+              - condition: state
+                entity: binary_sensor.hba_marstek_m2_not_responding
+                state: 'on'
+              - condition: state
+                entity: binary_sensor.hba_marstek_m3_not_responding
+                state: 'on'
+              - condition: state
+                entity: binary_sensor.hba_marstek_m4_not_responding
+                state: 'on'
+              - condition: state
+                entity: binary_sensor.hba_marstek_m5_not_responding
+                state: 'on'
+              - condition: state
+                entity: binary_sensor.hba_marstek_m6_not_responding
+                state: 'on'
+        cards:
+          - type: markdown
+            grid_options:
+              columns: full
+            content: >-
+              <ha-alert alert-type="warning" title="Battery not responding to HBA">
+              {%- for i in range(1, 7) if is_state('binary_sensor.hba_marstek_m' ~ i ~ '_not_responding', 'on') %}
+              {%- set b = 'm' ~ i %}
+              {%- set dir = states('select.marstek_' ~ b ~ '_forcible_charge_discharge') %}
+              {%- set actual = states('sensor.marstek_' ~ b ~ '_ac_power') | int(0) %}
+              {%- set cmd = states('number.marstek_' ~ b ~ '_forcible_discharge_power') | int(0) if dir == 'discharge'
+                          else (-(states('number.marstek_' ~ b ~ '_forcible_charge_power') | int(0)) if dir == 'charge' else 0) %}
+              {%- set limit = 'number.marstek_' ~ b ~ '_max_' ~ ('discharge' if cmd > 0 else 'charge') ~ '_power' %}
+
+              **{{ b | upper }}:** commanded {{ cmd | abs }} W {{ 'discharge' if cmd > 0 else 'charge' }},
+              delivering {{ actual }} W.
+              {%- if cmd > 900 and 650 <= actual <= 850 %}
+              Looks capped at ~800 W — probably Marstek's **800 W output limit** (default
+              until unlocked in the Marstek app). Unlock it in the app, or set
+              `{{ limit }}` to **800** in HBA.
+              {%- else %}
+              Check SoC (BMS blocking near the cutoff) and that HBA's max power
+              (`{{ limit }}`) is not higher than the Marstek app allows.
+              {%- endif %}
+              {%- endfor %}
+              </ha-alert>
+
       # Onboarding (hidden once dismissed)
       - type: grid
         visibility:

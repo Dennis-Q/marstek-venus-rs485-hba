@@ -85,7 +85,9 @@ open), so the version prefix stays at 4.10.1 for now.
   is almost certainly Marstek's **800 W output limit** (the default until unlocked in the
   Marstek app) and names the HBA entity to set to 800. Every not-responding alert also lists
   "HBA's max power higher than the Marstek app allows" as a cause, next to the SoC/BMS ones.
-  Text corrected from "30+ s" to the actual 60 s delay.
+  Text corrected from "30+ s" to the actual 60 s delay. The same information now also shows
+  as a **banner on the Overview** while any battery is not responding (per battery:
+  commanded vs delivered power and the likely cause), like the other HBA alerts.
 - **HBA ↔ HBC handoff section hides when the coexistence package is not installed** —
   Advanced settings showed "Entity not found" cards on installs without
   `hba_hbc_coexistence.yaml`; it now shows a one-line note on how to add it instead.
