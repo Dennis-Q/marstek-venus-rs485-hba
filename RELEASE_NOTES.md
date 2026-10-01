@@ -11,6 +11,393 @@ This document covers HBA-specific changes only.
 
 ---
 
+## v4.10.1-r21 — October 2026
+
+First release on `main` since r11. It also ships **r12 and r13** (their sections below were
+written at the time but never merged separately), plus everything listed here. Interim dev
+builds carried version strings `v4.10.1-r14` … `r20`; none were released on their own.
+
+### Added
+
+- **Dedicated Solar-aware forecast entity**
+  (`input_text.hba_strategy_solar_aware_forecast_entity_id`) — Solar-aware no longer shares
+  the Charge goal's solar forecast entity. The two consumers want different sensors: the
+  Charge goal reads only the kWh **state**, so `sensor.solcast_pv_forecast_forecast_remaining_today`
+  suits it best (a whole-day figure keeps counting solar already produced, which on a dull
+  day suppresses grid charging during the cheap hours); Solar-aware integrates the
+  `detailedForecast` **attribute**, which only the whole-day `…_forecast_today` sensor
+  carries. Sharing one helper forced a choice between a correct charge goal and a working
+  solar outlook — picking `remaining_today` silently parked
+  `sensor.hba_solar_charge_outlook` in its `No solar detail` fallback (permanent Zero
+  import). `sensor.hba_solar_charge_outlook` and `script.hba_strategy_solar_aware` now read
+  the new helper, falling back to `input_text.hba_strategy_solar_forecast_entity_id` when
+  it is empty, so existing installs are unaffected until they set it. Exposed on the
+  dashboard under **Advanced settings → Solar-aware strategy**; `apply_defaults` sets it to
+  `sensor.solcast_pv_forecast_forecast_today`.
+
+- **Solar-aware config warning now detects a missing `detailedForecast`** — the
+  Advanced-settings alert previously only fired when the forecast entity was unset or
+  unavailable, so the most common misconfiguration (a valid sensor that carries no
+  half-hourly detail) produced no warning at all — Solar-aware just quietly stopped
+  following the outlook. The alert now names the offending entity and says which sensor to
+  use.
+
+- **Solar charge outlook sensor** (`sensor.hba_solar_charge_outlook`, in
+  `hba_strategy_others.yaml`) — trigger-based template sensor that pre-computes net solar
+  energy expected during today's remaining cheap price slots. Reads Solcast's
+  `detailedForecast` attribute (list of 30-min `pv_estimate` periods) and integrates the
+  proportional overlap with each cheap slot, then subtracts the configurable house load.
+  Exposes six attributes: `solar_in_cheap_slots_kwh`, `needed_kwh`, `solar_covers_charge`
+  (bool), `cheap_slots_remaining` (int), `last_cheap_slot_ts` (epoch), and
+  `self_consume_deadline` (ISO UTC string). Falls back gracefully to a diagnostic state
+  naming the missing input — `"No solar entity"` (configured entity absent/unavailable),
+  `"No solar detail"` (entity lacks the `detailedForecast` attribute — wrong Solcast sensor
+  or half-hourly detail attribute disabled), or `"No price data"` (no price marks);
+  re-evaluates on every price-data change and every 15 minutes. Resolution-aware: works
+  correctly with both PT1H and PT15M price data.
+
+- **Solar-aware house load** (`input_number.hba_strategy_solar_aware_house_load`) — new
+  helper for the average household consumption to subtract from solar production when
+  computing net solar available for charging (default: 300 W).
+
+- **Solar-aware strategy: decision-tree rewrite** — `hba_strategy_solar_aware` now reads
+  from `sensor.hba_solar_charge_outlook` instead of computing inline. Six-step decision
+  tree (evaluated in order): (1) no cheap slots remain today → Self-consumption; (2) outlook
+  in a diagnostic fallback state → Zero import (safe fallback); (3) total solar forecast < threshold →
+  Self-consumption (not a solar day); (4) solar covers full charge need → Zero import; (5)
+  current time before `self_consume_deadline` → Zero import (still time to export); (6) else
+  → Self-consumption. Fixes a 15-min resolution bug where the old code used `slot_ts + 3600`
+  to check slot expiry — now uses `as_timestamp(m.end)` from the marks array.
+
+- **Overtemperature notification** — `automation.hba_notify_battery_overtemperature` fires
+  when any `sensor.marstek_mX_internal_temperature` reaches ≥ 60 °C for 2 minutes (10 °C
+  below BMS thermal-protection trip at ~70 °C). Sends a push notification (orange, high
+  priority) and a persistent HA notification. `automation.hba_notify_battery_overtemperature_resolved`
+  clears it when temperature drops below 55 °C for 5 minutes (5 °C hysteresis). All six
+  battery slots are covered; M4–M6 never fire on 3-battery systems (sensors unavailable).
+
+- **Entity health check** (`binary_sensor.hba_entity_health`, device_class `problem`) —
+  polls ten critical entity IDs with `has_value()` every 5 minutes. Turns `on` (problem)
+  when any are unavailable or missing; `missing_entity_ids` attribute lists them. Dashboard
+  shows an `ha-alert error` banner at the top of the home view when the sensor is `on`.
+
+- **Anti-windup: `assignable_discharge` variable** — `hba_strategy_self_consumption` now
+  computes an `assignable_discharge` local variable that sums max discharge power only for
+  batteries where `binary_sensor.hba_marstek_mX_not_responding` is `off`. The I-term clamp
+  lower bound uses this instead of total max discharge power, so batteries in thermal
+  protection or otherwise unresponsive do not inflate the anti-windup ceiling.
+
+- **Modbus write de-duplication** (`script.hba_write_battery`,
+  `input_number.hba_control_write_refresh_secs`, `input_text.hba_last_cmd_m{1-6}`) — every
+  forcible charge/discharge command now goes through one script that remembers what it last
+  sent per battery and skips the three register writes when the command is unchanged and
+  younger than the refresh interval (default 30 s; `0` restores write-every-cycle). Each
+  Modbus write costs ~150 ms, so writing all registers for three batteries every cycle took
+  ~1.3 s and, with `mode: single`, stretched the control loop to 2.24 s under load —
+  skipping every other P1 sample exactly during load steps. Measured on production: 78 % of
+  writes set a register to the value it already held; de-duplication cuts writes by 62 %
+  and cycle work from 1.30 s to 0.49 s, so the loop runs at the 1.1 s P1 rate again.
+  Exposed under **Advanced settings → Modbus command throttling**; Insights → Controller
+  state shows the per-battery write cache and its age.
+
+- **Fifth PID preset: `Low peak (grid limit)`** — `Kp 0.35 / Ki 0.22 / Kd 0.1 / error
+  damping 20 % / output damping 0 %`. Regular's gains with output damping removed; the only
+  preset that is not a pure Ki step. Measured on production against Regular on the recurring
+  2250 W load over **two nights** with the two arms **interleaved pulse by pulse**, the arm
+  order reversed on the second night: the instantaneous peak 3 s after the step fell by
+  **~10 % (p = 0.0008, stratified by night, 29 pulses)** — 19 % on the first night, 7 % on the
+  second — with **no cost penalty** (0.71 → 0.64 ct per disturbance, not significant) and no
+  degradation of the tail. Output damping smooths the commanded power, so removing it lets the
+  batteries swing at the disturbance sooner.
+  **This is for a hard *instantaneous* limit — a fuse or a contracted connection cap, where
+  1600 W of transient is ~7 A on a phase.** It does nothing for a capacity tariff such as the
+  Dutch *capaciteitstarief*, which bills the monthly maximum of **15-minute averages**: 300 W
+  lasting 3 s moves a 15-minute average by under 1 W. Use `power_limit_import` for that.
+  Regular remains the default.
+
+### Changed
+
+- **Battery-not-responding detector: `delay_on` 30 s → 60 s, plus a SoC guard** — the
+  detector compares the commanded power (rewritten every ~1 s) with `ac_power` (polled every
+  ~10 s), and the Marstek ramps at only ~460 W/s, so during an ordinary ramp the
+  measurement legitimately trails the command. At 30 s this raised false alerts on normal
+  regulation. Replaying the condition over 59.7 h of production gave a longest ramp of
+  37 s, so 60 s leaves headroom while still catching a real fault promptly. No alert when
+  SoC is within 3 % of the relevant cutoff — a near-empty battery declining to discharge is
+  expected, not a fault.
+
+- **Charge goal's solar forecast default is now `…_forecast_remaining_today`** —
+  `apply_defaults` sets `input_text.hba_strategy_solar_forecast_entity_id` to
+  `sensor.solcast_pv_forecast_forecast_remaining_today` instead of the whole-day
+  `…_forecast_today`. The whole-day sensor keeps counting solar that has already been
+  produced, so from midday onwards the `solar forecast` charge goal saw a surplus that was
+  no longer coming and left the batteries uncharged through the cheap hours — worst on a
+  dull day, when the grid is the only way to fill them. `remaining_today` shrinks as the
+  day goes on. This default was previously pinned to the whole-day sensor only because
+  Solar-aware shared the helper and needed its `detailedForecast` attribute; that
+  constraint is gone now that Solar-aware has its own entity (above). Tomorrow's helper is
+  unchanged — there is no "remaining" variant for a day that has not started.
+  **Existing installs keep their current value** until `apply_defaults` is re-run.
+
+- **PID presets rebuilt as a monotone Ki ladder** — **Very safe / Safe / Regular /
+  Responsive** at Ki **0.10 / 0.15 / 0.22 / 0.30**, all sharing Kp 0.35, Kd 0.1 and damping
+  20 %/10 %. This fixes two real defects in the shipped set: the default `Regular` was Ki
+  **0.05**, the *slowest* controller available, and the ordering was not monotone (`Safe` at
+  Ki 0.3 was six times more aggressive than `Regular`). `Regular` is now the validated
+  operating point — 143 W residual 8 s after a real 2.25 kW step, zero setpoint crossings.
+  The presets vary only Ki because **Kp 0.35 is a measured optimum**, bracketed on both sides
+  on production (cost per disturbance 0.74 / 0.61 / 0.71 ct at Kp 0.20 / 0.35 / 0.55), and
+  damping 20 %/10 % was likewise validated against 0 %/0 %.
+  **Breaking:** the `Regular (original HBC)` option has been **removed** — HBC gates its PID
+  behind a rate limiter while HBA runs it on every P1 update, so HBC's published gains are
+  dramatically more aggressive here and do not transfer. Anything currently sitting on that
+  option must be re-selected after the upgrade.
+
+- **Insights view: EV-coordination debugging** — the Controller state card shows the
+  during-EV-charge policy and (for Charge PV) the live saturation-gate state
+  (🟢 saturated — absorbing residual / ⏸ not saturated — batteries stand down / no gate
+  configured). The strategy line is relabelled `Configured:` and the "Flows used" tree no
+  longer renders the configured strategy as the parent of EV/assist override flows —
+  overrides now appear directly under Control loop with an "overridden while the EV
+  charges" note. New **Battery response (24 h)** history-graph of the
+  `hba_marstek_mX_not_responding` sensors to see at a glance if/when batteries stopped
+  tracking commanded power — shows only the configured batteries (conditional card
+  variants per `hba_battery_count`, same pattern as the home-view per-battery graphs).
+
+- **Timed EV charge: no more grid-dump cycling when the EV won't draw** — when Timed EV
+  charge (battery assist) is armed but the EV has not drawn power for 3+ minutes (charger
+  waiting for a tag scan, car paused via its own limit/schedule, car API dead), the assist
+  push is suspended and the dispatch falls through to the **configured strategy** — instead
+  of the previous behaviour of cycling ~2 min of full battery export against the overflow
+  guard indefinitely. New `binary_sensor.hba_battery_assist_waiting` carries the state
+  (recorded, so waiting periods are visible in history); the assist push resumes on the
+  next control cycle as soon as the EV-charging entity turns on. The 3-minute startup
+  grace exists because the assist push is what creates the export the EV controller ramps
+  up on. Only applies when `input_text.hba_strategy_ev_sensor_entity_id` is configured —
+  installs without it keep the previous behaviour. Includes waiting/resumed notifications
+  and dashboard alerts (Timed EV Charge section + Insights flow card). The active_flow
+  label is deliberately untouched: while waiting, the flow shows the fallback strategy
+  that is actually running.
+  **Pairing note:** automatic resume requires ha-smart-ev-charging ≥ 0.2.8, which keeps
+  the charger armed in battery_assist mode while the battery side abstains — older EV
+  versions disarm the charger ~5 minutes into a waiting period, after which the car
+  cannot resume drawing and assist stays suspended until re-toggled.
+
+- **EV stop trigger policy: boolean → select** —
+  `input_boolean.hba_control_has_power_limit_during_ev_charge` is replaced by
+  `input_select.hba_control_strategy_during_ev_charge` ("Strategy during EV charge",
+  options: Full stop / Standby / peak shave / Charge PV, default Full stop). The first two
+  options reproduce the old off/on behaviour. The new **Charge PV** option lets the
+  batteries charge the solar residual the EV cannot take — e.g. when surplus sits between
+  the 1-phase 16 A maximum (~3.7 kW) and the 3-phase switch threshold (4.8 kW), up to
+  ~1.1 kW previously exported unused. Discharge stays disabled and Charge PV's setpoint
+  targets ~0 W grid, so the batteries only absorb what the EV leaves exported and never
+  compete with the charger (the EV project adds battery charging power back into its
+  excess signal, keeping battery activity invisible to the charger's phase/amp decisions).
+  Charge PV assumes an EV controller with that battery awareness — with a third-party
+  solar-tracking charger that lacks it, the charger would see its surplus shrink and back
+  off; use Full stop or Standby there. HBA remains fully standalone: with no EV sensor
+  configured (`input_text.hba_strategy_ev_sensor_entity_id` empty) this select is never
+  consulted.
+  **Saturation gate** (`input_text.hba_strategy_ev_saturated_entity_id`): running Charge PV
+  while the EV controller is actively regulating means two control loops share one grid
+  signal — observed in production as increased import/export spread (the battery
+  trickle-charged ~118 W chasing the charger's regulation noise). When this pointer is set
+  to an EV-side "charger saturated" binary_sensor (ha-smart-ev-charging ≥ 0.2.9 publishes
+  `binary_sensor.ev_charger_saturated`: commanded limit pinned at 16 A, or the charger
+  derated below the commanded value by CT/household load balancing), the Charge PV branch
+  only runs while the charger is saturated — a constant load with genuinely unconsumable
+  surplus — so the two controllers never regulate the same watts. Chatter is handled on the
+  EV side with delay_on/delay_off hysteresis; not saturated falls through to Full stop.
+  Pointer empty = previous behaviour (Charge PV whenever the EV charges).
+  (An interim dev-branch build briefly shipped
+  `input_number.hba_control_ev_charge_pv_export_offset` as a setpoint-offset mitigation;
+  the saturation gate supersedes it and the helper was removed — if you pulled that build,
+  delete the orphaned entity from the UI.)
+  **Migration:** if you had the old boolean ON, select "Standby / peak shave" once; the
+  orphaned `input_boolean` entity can be deleted from the UI.
+
+### Fixed
+
+- **Control loop no longer acts on a half-updated P1 reading** — the common P1 template
+  (`consumption − production`) changes state twice per DSMR telegram, and the first change
+  pairs new consumption with old production. `hba_control_loop` (`mode: single`) started
+  on that first change and dropped the second. Measured on production: 43 % of telegrams
+  double-trigger, and when the two values differed the PID acted on the half-updated one
+  **~80 % of the time** — off by > 500 W in ~630 telegrams/day, up to 3.2 kW. A 100 ms
+  settle delay at the start of the loop lets both sensors land (gap p50 16 ms, p99.9
+  43 ms); the second trigger is dropped silently and the strategy reads the settled value.
+  Verified after deploy: 0 of 425 cycles used a half-updated value. The next telegram is
+  ≥ 1 s away, so the loop rate is unaffected.
+- **Self-consumption: "unsupported operand type(s) for +: 'float' and 'str'"** — with
+  error dampening on, an error that repeats exactly between cycles left a floating-point
+  residue (e.g. `d_term = -3.55e-16`). HA's template type inference treats
+  scientific-notation output as a string, so that cycle aborted. All PID intermediates
+  are now rounded to 3 decimals; stored terms were already rounded to 0.1, so control
+  behaviour is unchanged.
+
+- **Total loss of battery control when the priority battery index exceeded
+  `battery_count`** — the distribution waterfall seeded its order with the priority
+  battery without checking it exists; that phantom battery absorbed all power, so every
+  real battery was commanded to stop. Hit on production when `battery_count` was lowered
+  after auto-balance had rotated priority to battery 2: the pack sat at 0 W under a full
+  Sell command. `hba_set_batteries` now clamps the index to `1..battery_count` in both the
+  charge and discharge branches. With the rotation interval on **Never**, the stale index
+  would otherwise have persisted indefinitely.
+
+- **Dynamic v2: duplicated price slots** — when the Frank Energie integration (HiDiHo01
+  fork) failed its tomorrow-fetch it appended a second copy of today's prices (24 slots as
+  48 entries). Extreme-Pair Matching then marked duplicate slots, so a configured 5 cheap /
+  2 expensive hours yielded only 3 / 1, and the Lab price table showed cheap midday hours
+  as cheap night hours. `sensor.hba_energy_prices_data` now de-duplicates by timestamp, and
+  the price table assigns each slot to its day by timestamp instead of list position. Both
+  are no-ops on clean data.
+
+- **Insights mode stayed on forever after a restart** — the 15-minute auto-off needed a real
+  off → on transition, and restoring `input_boolean.hba_control_is_debug_mode` to `on` at
+  startup is not one, so a restart during Insights mode left it on (writing PID terms at
+  ~1 Hz) indefinitely. The automation now also re-arms on HA start, and re-enabling Insights
+  restarts the 15-minute window.
+
+- **Timed EV charge stall watchdog** (`binary_sensor.hba_battery_assist_stalled`) — ON
+  when the assist push is commanding discharge (`sensor.hba_active_strategy` ==
+  `Discharge to EV`) but the pack has delivered < 150 W for 3+ continuous minutes: the
+  BMS is refusing (e.g. the V3 firmware's ~13% floor sits above a 12% configured cutoff,
+  thermal protection, faults) or Modbus writes are being silently ignored — behaviour the
+  SoC-based eligibility checks cannot see. While ON, `hba_battery_assist_active` drops,
+  so the EV side leaves `battery_assist` mode and stops the charger instead of charging
+  from grid. Deliberately stateless (no latch that can get stuck): the sensor's 30-min
+  `delay_off` is the hold-off, after which assist gets one clean retry; a persistent
+  stall re-trips after 3 min, bounding grid draw to ~3 min per half hour. The
+  active-strategy condition inherently excludes the legitimate low-power states
+  (assist-waiting fallback, grid-overflow branch). Notification on each trip; Overview
+  alert banner + Insights checklist rows (stalled state and per-battery dischargeable
+  check) added.
+
+- **Timed EV charge kept the EV charging from grid after the batteries hit their
+  per-battery discharge cutoffs** — `binary_sensor.hba_battery_assist_active` gated only
+  on *average* pack SoC vs `hba_battery_assist_min_soc`, while `hba_set_batteries` skips
+  each battery individually at its `discharging_cutoff_capacity` (+0.5 buffer). When every
+  battery was at its own cutoff but the average still sat above `min_soc` (unbalanced pack,
+  or `min_soc` ≤ the cutoffs), assist stayed armed with zero deliverable watts: the EV
+  remained in `battery_assist` mode — which deliberately never stops on lack of excess —
+  and charged from grid (observed in production 2026-07-17: ~48 min of ~4 kW grid import,
+  batteries at 0–1 W). The sensor now additionally requires at least one battery to be
+  individually dischargeable, using the exact `hba_set_batteries` discharge-eligibility
+  check (SoC > per-battery cutoff + 0.5, inverter not Fault/unknown/unavailable), so
+  assist ends the moment HBA can no longer assign discharge power to any battery.
+
+- **PT15M: `mark_now` refreshed only hourly** — `sensor.hba_energy_prices_data`'s time
+  trigger was `hours: /1`, so with 15-minute price resolution the pre-computed `mark_now` /
+  `is_now` attributes lagged slot boundaries by up to 45 minutes (a cheap slot starting at
+  HH:15 would not reach the Dynamic v2 dispatch until the next full hour). The trigger is
+  now `minutes: /15`; with hourly price data the extra evaluations recompute an identical
+  result, so PT1H behaviour is unchanged.
+
+- **Insights "Dynamic pricing — now" card showed v1 windows while running Dynamic v2** —
+  the cheap/expensive times came from the v1 contiguous-window `input_datetime` helpers
+  (driven by the v1 `cheapest_hrs` helper and only recalculated hourly / on v1 helper
+  changes), so with Dynamic v2 active the displayed windows neither matched the marks nor
+  reacted to the v2 max-hours helpers. The card now branches on the active strategy: for
+  Dynamic v2 it renders today's actual marked slots from `sensor.hba_energy_prices_data`
+  (contiguous slots merged into ranges, e.g. "13:00–15:00, 17:00–18:00"), which update
+  immediately on max-cheap/expensive-hours or delta-threshold changes since the sensor
+  triggers on those helpers; for Dynamic v1 the contiguous window display is unchanged.
+
+- **Solar-aware debug card disappeared in the `Insufficient` state** — the Insights
+  "Solar-aware — now" markdown card used `| strftime('%H:%M')` as a Jinja *filter*, which
+  does not exist in HA templates (`strftime` is a datetime *method*; unknown filters only
+  error when the branch containing them actually executes). With outlook `Covered` the
+  deadline branch was never taken and the card rendered; with `Insufficient` (e.g. cheap
+  hours reduced so remaining slots can't cover the charge) the deadline branch executed,
+  the template errored at runtime, and the whole card vanished. Both occurrences replaced
+  with `| as_timestamp(0) | timestamp_custom('%H:%M')` (verified to render correct local
+  time). Reproduced empirically: a template sensor executing `| strftime` fails to create,
+  while the same expression inside a never-taken `{% if false %}` branch loads fine.
+
+- **Frank Energie PT15M resolution support** — `sensor.hba_energy_prices_data` hardcoded
+  `datapoints_per_hour = 1` and assumed 3600-second slot intervals. When the Frank Energie
+  integration is configured to PT15M resolution (`select.frank_energie_settings_resolution = pt15m`),
+  the sensor now detects the slot interval dynamically (96 entries/day at 15-min intervals)
+  and adjusts all downstream calculations: `now_slot_ts` floors to `step_sec`; cheap/expensive
+  slot caps scale by `pph`; `end_str` uses `step_sec` instead of 3600. The dashboard price
+  table was already resolution-aware and required no changes.
+
+- **Anti-windup Self-consumption I-term clamp** — I-term in `hba_strategy_self_consumption`
+  is now clamped to `[−assignable_discharge, assignable_charge]`, where `assignable_discharge`
+  excludes batteries currently marked `not_responding`. Previously the anti-windup used total max
+  discharge power regardless of which batteries were actually responding.
+
+- **PID reset on Zero import entry** — `automation.hba_zero_import_pid_reset` now also fires
+  on entry to Zero import (covers the Solar-aware → Zero import path). Previously only Sell
+  and Charge had on-entry PID resets.
+
+- **Entity names and unique_ids** — all six `not_responding` binary sensors renamed to
+  `"HBA Marstek M{N} Not Responding"` (entity_id `binary_sensor.hba_marstek_mX_not_responding`).
+  `"Estimated Profit per kWh"` → `"HBA Estimated Profit per kWh"` (`sensor.hba_estimated_profit_per_kwh`).
+  Three stale unique_ids corrected: `hba_active_strategy`, `hba_is_charging`, `hba_charge_goal_reached`.
+
+---
+
+## v4.10.1-r13 — June 2026
+
+### Added
+
+- **Battery not-responding sensors** — six `binary_sensor.hba_marstek_mX_not_responding`
+  (delay_on: 30 s) detect when a configured battery stops tracking commanded power: RS485
+  enabled + |commanded power| ≥ 300 W + |actual − commanded| > 15% sustained for 30+ s.
+  Used as availability gates in the anti-windup clamp and to surface per-battery status in
+  the Insights view.
+
+- **RS485 mode mismatch sensor** — `binary_sensor.hba_rs485_mode_mismatch` (delay_on: 30 s)
+  fires when the master mode is Full control but any configured battery has RS485 control
+  disabled. Attribute `mismatched_batteries` lists the affected M-slots.
+
+- **Notifications file** — all notification automations and the `script.hba_notify_dispatch`
+  routing script moved to a dedicated `hba_notifications.yaml` package file, keeping
+  `hba_strategies_core.yaml` focused on strategy dispatch.
+
+---
+
+## v4.10.1-r12 — June 2026
+
+### Added
+
+- **Solar-aware strategy** — new `hba_strategy_solar_aware` dispatches between *Zero import*
+  and *Self-consumption* based on whether cheap hours remain today and the remaining solar
+  forecast exceeds a configurable threshold (default 20 kWh).
+  - **Before the cheap window on a sunny day** → Zero import: all solar production exports
+    to the grid for maximum revenue. Charging happens during the configured cheap window
+    (e.g. Dynamic v2 → Charge PV).
+  - **After the cheap window, or on a cloudy day** → Self-consumption: batteries absorb
+    solar surplus and cover evening loads.
+  - Selectable as the default sub-strategy for Dynamic v2 and Timed; also available as a
+    standalone strategy.
+  - One new helper: `input_number.hba_strategy_solar_aware_forecast_threshold_kwh`
+    (default: 20 kWh via `hba_apply_defaults`).
+  - Cheap-hours detection is today-only — tomorrow's prices published mid-afternoon by
+    Frank Energie don't incorrectly keep the strategy in Zero import mode all evening.
+  - Falls back silently to Self-consumption when the solar forecast entity is not configured
+    or when Dynamic v2 prices are unavailable.
+  - Dashboard: conditional "Solar-aware settings →" navigation tile appears in the
+    timed-dynamic and Dynamic v2 views when the default is set to Solar-aware; a dedicated
+    section in Advanced Settings shows the threshold helper, a description, and a
+    configuration warning when the solar entity or prices are missing.
+
+### Fixed
+
+- **Zero import: discharge spike on strategy switch** — Zero import now resets PID state
+  (`input_number.hba_control_i_term` and `hba_control_pid_output` to 0) on entry. Previously,
+  a stale I-term carried over from a prior charging sub-strategy (e.g. Dynamic v2 cheap →
+  Charge PV, then transitioning to Zero import as the default) sat inside the
+  `charge_disabled` anti-windup clamp range `[−assignable_discharge, 0]` and was not
+  corrected within 1–2 cycles. This caused an immediate discharge spike the moment
+  `charge_disabled` took effect — even when P1 was already near zero or about to go
+  negative from solar surplus. The fix aligns Zero import's on-entry PID reset with the
+  existing reset policy already applied by the Charge and Sell strategies.
+
+---
+
 ## v4.10.1-r11 — June 2026
 
 ### Changed

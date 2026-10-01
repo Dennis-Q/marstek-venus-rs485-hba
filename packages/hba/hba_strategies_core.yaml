@@ -28,6 +28,8 @@ automation:
       Fires on every P1 meter update (~1 s) for real-time response, matching
       Node-RED behaviour. mode: single drops updates that arrive while a
       previous cycle is still running (Modbus writes), preventing queue buildup.
+      A 100 ms settle delay lets a two-sensor P1 template finish updating
+      before the strategy reads it.
     mode: single
     max_exceeded: silent
     triggers:
@@ -38,6 +40,16 @@ automation:
         entity_id: input_select.hba_marstek_master_battery_mode
         state: "Full control"
     actions:
+      # Settle delay. The usual P1 template (consumption − production) re-renders once per
+      # source sensor, so one DSMR telegram yields two state changes: the first pairs the
+      # new consumption with the *old* production (on prod: off by > 500 W in 631
+      # telegrams/day, up to 3.2 kW). Without the delay the PID regularly acted on that
+      # half-updated value and mode: single dropped the real one. Measured on prod 2026-10-01 over
+      # 331k updates: consumption→production gap p50 16 ms, p99.9 43 ms, > 100 ms only
+      # 12× in 2.5 days; the next telegram is ≥ 1 s away. The second change now lands
+      # during the delay and is dropped silently, and the strategy reads the settled
+      # value. Single-sensor P1 setups just pay 100 ms latency on a ~1.1 s loop.
+      - delay: { milliseconds: 100 }
       - action: script.hba_run_strategy
         data: {}
 
@@ -54,6 +66,24 @@ automation:
 
   # ── PID preset changed ────────────────────────────────────────────────────────
   # Writes Kp/Ki/Kd and dampening values for the selected named preset.
+  # ── PID preset changed ────────────────────────────────────────────────────────
+  # All presets share Kp 0.35 / Kd 0.1 / damping 20-10 and differ ONLY in Ki.
+  #
+  # Kp 0.35 is the MEASURED optimum: cost per disturbance 0.74 / 0.61 / 0.71 ct at
+  # Kp 0.20 / 0.35 / 0.55 against a real 2250 W load (three nights, Ki held at 0.22).
+  # Lower Kp = higher peak but faster tail; higher Kp = the reverse; both cost more.
+  # The idealised algebra predicting Kp-independent energy is wrong for this plant --
+  # it ignores the ~1.6 s sensing delay and the ~460 W/s actuator slew. So the presets
+  # leave Kp alone and vary only Ki.
+  #
+  # Ki values assume a ~1.1 s control loop (write de-duplication ON, r15+). With it off
+  # the loop is ~2.2 s and the integrator accumulates half as fast per second.
+  #
+  # The former "Regular (original HBC)" preset has been REMOVED -- see the banner in
+  # DEFAULTS.md. Node-RED HBC gates its PID behind a rate limiter (runs only when grid
+  # power moved >20 W AND >2 %, with a cooldown after a slow cycle), while HBA runs the
+  # PID on every P1 update. The same Ki therefore integrates far faster here, so HBC's
+  # published gains are not transferable.
   - id: hba_pid_preset_changed
     alias: "HBA: PID preset changed"
     triggers:
@@ -66,32 +96,13 @@ automation:
                 entity_id: input_select.hba_control_pid_presets
                 state: "Very safe"
             sequence:
+              # Calmest. ~2x the grid energy per disturbance of Regular, least battery activity.
               - action: input_number.set_value
                 target: { entity_id: input_number.hba_control_kp }
-                data: { value: 0.1 }
+                data: { value: 0.35 }
               - action: input_number.set_value
                 target: { entity_id: input_number.hba_control_ki }
                 data: { value: 0.1 }
-              - action: input_number.set_value
-                target: { entity_id: input_number.hba_control_kd }
-                data: { value: 0.0 }
-              - action: input_number.set_value
-                target: { entity_id: input_number.hba_control_error_signal_dampening }
-                data: { value: 0 }
-              - action: input_number.set_value
-                target: { entity_id: input_number.hba_control_pid_output_dampening }
-                data: { value: 10 }
-          - conditions:
-              - condition: state
-                entity_id: input_select.hba_control_pid_presets
-                state: "Safe"
-            sequence:
-              - action: input_number.set_value
-                target: { entity_id: input_number.hba_control_kp }
-                data: { value: 0.3 }
-              - action: input_number.set_value
-                target: { entity_id: input_number.hba_control_ki }
-                data: { value: 0.3 }
               - action: input_number.set_value
                 target: { entity_id: input_number.hba_control_kd }
                 data: { value: 0.1 }
@@ -100,12 +111,55 @@ automation:
                 data: { value: 20 }
               - action: input_number.set_value
                 target: { entity_id: input_number.hba_control_pid_output_dampening }
-                data: { value: 0 }
+                data: { value: 10 }
+          - conditions:
+              - condition: state
+                entity_id: input_select.hba_control_pid_presets
+                state: "Safe"
+            sequence:
+              # Measured 4.4 Wh per 863 W step vs Regular's 3.7. Noticeably slower tail.
+              - action: input_number.set_value
+                target: { entity_id: input_number.hba_control_kp }
+                data: { value: 0.35 }
+              - action: input_number.set_value
+                target: { entity_id: input_number.hba_control_ki }
+                data: { value: 0.15 }
+              - action: input_number.set_value
+                target: { entity_id: input_number.hba_control_kd }
+                data: { value: 0.1 }
+              - action: input_number.set_value
+                target: { entity_id: input_number.hba_control_error_signal_dampening }
+                data: { value: 20 }
+              - action: input_number.set_value
+                target: { entity_id: input_number.hba_control_pid_output_dampening }
+                data: { value: 10 }
           - conditions:
               - condition: state
                 entity_id: input_select.hba_control_pid_presets
                 state: "Regular"
             sequence:
+              # DEFAULT. Validated on prod against the 2.25 kW night pulse: residual 143 W at +8 s, zero setpoint crossings.
+              - action: input_number.set_value
+                target: { entity_id: input_number.hba_control_kp }
+                data: { value: 0.35 }
+              - action: input_number.set_value
+                target: { entity_id: input_number.hba_control_ki }
+                data: { value: 0.22 }
+              - action: input_number.set_value
+                target: { entity_id: input_number.hba_control_kd }
+                data: { value: 0.1 }
+              - action: input_number.set_value
+                target: { entity_id: input_number.hba_control_error_signal_dampening }
+                data: { value: 20 }
+              - action: input_number.set_value
+                target: { entity_id: input_number.hba_control_pid_output_dampening }
+                data: { value: 10 }
+          - conditions:
+              - condition: state
+                entity_id: input_select.hba_control_pid_presets
+                state: "Responsive"
+            sequence:
+              # Fastest measured (3.2 Wh vs Regular's 3.7 on an 863 W step). Untested against 2.25 kW steps -- may overshoot, since overshoot scales with step size.
               - action: input_number.set_value
                 target: { entity_id: input_number.hba_control_kp }
                 data: { value: 0.35 }
@@ -124,23 +178,32 @@ automation:
           - conditions:
               - condition: state
                 entity_id: input_select.hba_control_pid_presets
-                state: "Regular (original HBC)"
+                state: "Low peak (grid limit)"
             sequence:
+              # Regular's gains with output dampening removed. The ONLY preset that is not
+              # a pure Ki step. Measured against Regular on the 2250 W production load over
+              # two nights, arms interleaved per pulse and the arm order reversed on the
+              # second night: peak (+3 s) is ~10 % lower (1630 -> 1320 W, then 1410 -> 1320 W;
+              # p = 0.0008 stratified by night, 29 pulses). Tail (+8 s) and cost per
+              # disturbance are unchanged (n.s.), so the peak comes at no penalty.
+              # For an INSTANTANEOUS limit -- a fuse or a contracted connection cap. It does
+              # nothing for a capacity tariff billed on 15-minute averages; that is
+              # power_limit_import's job.
               - action: input_number.set_value
                 target: { entity_id: input_number.hba_control_kp }
-                data: { value: 0.3 }
+                data: { value: 0.35 }
               - action: input_number.set_value
                 target: { entity_id: input_number.hba_control_ki }
-                data: { value: 0.4 }
+                data: { value: 0.22 }
               - action: input_number.set_value
                 target: { entity_id: input_number.hba_control_kd }
-                data: { value: 0.8 }
+                data: { value: 0.1 }
               - action: input_number.set_value
                 target: { entity_id: input_number.hba_control_error_signal_dampening }
-                data: { value: 50 }
+                data: { value: 20 }
               - action: input_number.set_value
                 target: { entity_id: input_number.hba_control_pid_output_dampening }
-                data: { value: 10 }
+                data: { value: 0 }
 
   # ── Auto-cycle priority battery ───────────────────────────────────────────────
   # Rotates hba_control_prioritize_battery to spread wear across batteries.
@@ -170,70 +233,6 @@ automation:
             sequence:
               - action: script.hba_advance_priority
                 data: {}
-
-  # ── Unexpected sustained export notification ──────────────────────────────────
-  # Fires only when battery assist is OFF — if battery assist is active, sustained
-  # export is expected (batteries discharging into EV charger).
-  - id: hba_unexpected_export_notify
-    alias: "HBA: Notify on unexpected sustained grid export"
-    description: "Alerts when grid export >1 kW sustains for 2+ min with batteries discharging but battery assist is off."
-    triggers:
-      - trigger: state
-        entity_id: binary_sensor.hba_grid_exporting_sustained
-        to: "on"
-    conditions:
-      - condition: state
-        entity_id: binary_sensor.hba_battery_assist_active
-        state: "off"
-    actions:
-      - action: script.hba_notify_dispatch
-        data:
-          title: "HBA: Unexpected grid export"
-          message: >
-            Grid has been exporting >1 kW for over 2 minutes while batteries are discharging
-            (P1: {{ states('sensor.p1_meter_power') | int }} W,
-            batteries: {{ states('sensor.hba_total_battery_power') | int }} W).
-            Check strategy configuration.
-          tag: hba_unexpected_export
-
-  - id: hba_notify_target_validation
-    alias: "HBA: Validate notify target"
-    description: >-
-      Creates a persistent notification when input_text.hba_notify_entity_id
-      is set but doesn't look like a valid notify.* action.
-    mode: single
-    triggers:
-      - trigger: state
-        entity_id: binary_sensor.hba_notify_target_invalid
-        to: "on"
-      - trigger: state
-        entity_id: binary_sensor.hba_notify_target_invalid
-        to: "off"
-      - trigger: homeassistant
-        event: start
-    actions:
-      - choose:
-          - conditions: "{{ is_state('binary_sensor.hba_notify_target_invalid', 'on') }}"
-            sequence:
-              - action: persistent_notification.create
-                data:
-                  notification_id: hba_notify_target_invalid
-                  title: "HBA: Notify action invalid"
-                  message: >-
-                    The **Notify action** helper
-                    (`input_text.hba_notify_entity_id`) is set to an invalid
-                    value. HBA notifications fall back to persistent
-                    notifications.
-
-                    Use a legacy `notify.mobile_app_*` service name, **not**
-                    a modern notify entity. For example:
-                    `notify.mobile_app_my_phone`.
-
-                    Set it under **HBA → Notifications**.
-        default:
-          - action: persistent_notification.dismiss
-            data:
-              notification_id: hba_notify_target_invalid
 
   # ── Timed EV Charge: PID reset on transitions ────────────────────────────────
   - id: hba_battery_assist_pid_reset
@@ -270,20 +269,77 @@ automation:
             target: { entity_id: input_number.hba_control_pid_output }
             data: { value: 0 }
 
+  # ── PID reset on direct-mode strategy entry ──────────────────────────────────
+  # Fires once when sensor.hba_active_strategy transitions TO a direct-control
+  # sub-strategy (Zero import, Sell, or Charge). Clears stale I-term from the
+  # previous sub-strategy so the PID starts fresh without a jolt, while still
+  # allowing self_consumption (called from goal_reached branches) to accumulate
+  # I-term normally across cycles. Each sub-strategy is listed as a separate trigger
+  # so HA logs which transition fired.
+  - id: hba_direct_mode_pid_reset
+    alias: "HBA: Reset PID on Sell / Charge / Zero import entry"
+    description: >-
+      Resets i_term and pid_output once when the active sub-strategy transitions
+      to Sell, Charge, or Zero import, regardless of which parent strategy dispatched
+      to it. Prevents stale integrator carry-over into direct-discharge/charge modes.
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: sensor.hba_active_strategy
+        to: "Zero import"
+      - trigger: state
+        entity_id: sensor.hba_active_strategy
+        to: "Sell"
+      - trigger: state
+        entity_id: sensor.hba_active_strategy
+        to: "Charge"
+    actions:
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_control_i_term }
+        data: { value: 0 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_control_pid_output }
+        data: { value: 0 }
+
   # ── Insights debug mode auto-off ──────────────────────────────────────────────
   # Turns debug mode off after 15 minutes to avoid leaving ~1 Hz history writes
   # running indefinitely. Original Node-RED used 5 minutes; raised to 15 to give
   # longer observation windows during PID tuning. Recorder protection still applies.
+  #
+  # A plain `to: "on"` + `for:` trigger is NOT enough. That needs a real off->on
+  # transition, and restoring the boolean to 'on' at startup is not one — so a
+  # restart while Insights mode was on left it on forever. Observed on production
+  # 2026-07-29: debug mode had been on for 23 h across a restart, writing
+  # cycle_state and the PID terms at ~1 Hz the whole time.
+  #
+  # Hence the `homeassistant: start` trigger, and `mode: restart` with an explicit
+  # delay rather than `for:` — that way re-toggling the boolean restarts the window
+  # instead of being dropped, and a restart re-arms a full window rather than
+  # killing Insights mode out from under someone mid-diagnosis.
   - id: hba_insights_mode_auto_off
     alias: "HBA: Insights mode — auto-off after 15 minutes"
-    description: "Turns debug mode off after 15 minutes to avoid leaving history writes running indefinitely."
+    description: >-
+      Turns debug mode off 15 minutes after it is switched on, so history writes
+      never run indefinitely. Re-arms on HA start, because a restored 'on' state
+      does not fire a state trigger.
+    mode: restart
     triggers:
       - trigger: state
         entity_id: input_boolean.hba_control_is_debug_mode
         to: "on"
-        for:
-          minutes: 15
+      - trigger: homeassistant
+        event: start
+    conditions:
+      - condition: state
+        entity_id: input_boolean.hba_control_is_debug_mode
+        state: "on"
     actions:
+      - delay:
+          minutes: 15
+      # Re-check: the user may have switched it off by hand during the window.
+      - condition: state
+        entity_id: input_boolean.hba_control_is_debug_mode
+        state: "on"
       - action: input_boolean.turn_off
         target: { entity_id: input_boolean.hba_control_is_debug_mode }
 
@@ -304,10 +360,27 @@ script:
               false
             {% endif %}
       - variables:
-          ev_peak_shave: "{{ is_state('input_boolean.hba_control_has_power_limit_during_ev_charge', 'on') }}"
+          ev_policy: "{{ states('input_select.hba_control_strategy_during_ev_charge') }}"
+          # Saturation gate for Charge PV during EV charge. Pointer not
+          # configured → gate is always open (previous behaviour).
+          ev_saturated: >
+            {% set e = states('input_text.hba_strategy_ev_saturated_entity_id') | trim %}
+            {% if e in ['', 'unknown', 'unavailable'] %}
+              true
+            {% else %}
+              {{ states(e) == 'on' }}
+            {% endif %}
       - choose:
-          # Timed EV charge — forcible discharge to EV charger
-          - conditions: "{{ is_state('binary_sensor.hba_battery_assist_active', 'on') }}"
+          # Timed EV charge — forcible discharge to EV charger.
+          # Abstains while binary_sensor.hba_battery_assist_waiting is on (EV not
+          # drawing power 3+ min after activation, e.g. charger waiting for a tag
+          # scan or the car paused itself): the dispatch then falls through to the
+          # configured strategy below (ev_active is false in that state, so the
+          # EV-trigger branches are skipped too). Resumes automatically on the
+          # next cycle once the EV draws power.
+          - conditions: >
+              {{ is_state('binary_sensor.hba_battery_assist_active', 'on')
+                 and not is_state('binary_sensor.hba_battery_assist_waiting', 'on') }}
             sequence:
               - choose:
                   - conditions: "{{ is_state('binary_sensor.hba_grid_exporting_sustained', 'on') }}"
@@ -328,14 +401,32 @@ script:
                         {% set cap = states('input_number.hba_battery_assist_max_discharge_power') | float(0) %}
                         {{ -([hw_max, cap] | min | int) if cap > 0 else -(hw_max | int) }}
                       mode: "discharge"
-          # EV stop trigger overrides all strategies
-          - conditions: "{{ ev_active and ev_peak_shave }}"
+          # EV stop trigger overrides all strategies. What runs instead is set by
+          # input_select.hba_control_strategy_during_ev_charge.
+          - conditions: "{{ ev_active and ev_policy == 'Standby / peak shave' }}"
             sequence:
               - action: input_text.set_value
                 target: { entity_id: input_text.hba_strategy_active_flow }
                 data: { value: "EV stop trigger — Peak shave active" }
               - action: script.hba_strategy_standby
                 data: { skip_label: true }
+          # Charge PV during EV charge: absorb the solar residual the EV can't take.
+          # No coordination with the EV controller is needed — the EV project adds
+          # battery charging power back into its excess signal, so charging here is
+          # invisible to the EV's phase/amp decisions, and Charge PV only eats what
+          # the EV leaves exported.
+          # When hba_strategy_ev_saturated_entity_id is configured, this branch
+          # additionally requires the EV side to report the charger as saturated
+          # (pinned at its current limit / derated by load balancing) — only then
+          # is there genuinely unconsumable surplus, and the EV controller is a
+          # constant load instead of a competing regulator (two loops regulating
+          # the same grid signal was observed to increase import/export spread).
+          # Not saturated → falls through to the EV-active branch below
+          # (Full stop / Standby per policy).
+          - conditions: "{{ ev_active and ev_policy == 'Charge PV' and ev_saturated }}"
+            sequence:
+              - action: script.hba_strategy_charge_pv
+                data: { flow_prefix: "During EV charge →" }
           - conditions: "{{ ev_active }}"
             sequence:
               - action: input_text.set_value
@@ -443,21 +534,16 @@ script:
                     - "{{ mode in ['Disabled', 'Manual control', 'Marstek control'] }}"
                     - "{{ bat_available }}"
                   sequence:
-                    - action: number.set_value
-                      continue_on_error: true
-                      target:
-                        entity_id: "number.marstek_{{ bat }}_forcible_charge_power"
-                      data: { value: 0 }
-                    - action: number.set_value
-                      continue_on_error: true
-                      target:
-                        entity_id: "number.marstek_{{ bat }}_forcible_discharge_power"
-                      data: { value: 0 }
-                    - action: select.select_option
-                      continue_on_error: true
-                      target:
-                        entity_id: "select.marstek_{{ bat }}_forcible_charge_discharge"
-                      data: { option: "stop" }
+                    # force: true — a handoff stop must reach the battery even if
+                    # the cache says it is already stopped, and it also refreshes
+                    # the cache so the next Full-control cycle starts from truth.
+                    - action: script.hba_write_battery
+                      data:
+                        bat: "{{ bat | replace('m', '') | int(0) }}"
+                        cmd_mode: "stop"
+                        charge_w: 0
+                        discharge_w: 0
+                        force: true
             - choose:
                 - conditions: "{{ mode == 'Manual control' }}"
                   sequence:
@@ -497,6 +583,112 @@ script:
   # Shares are pre-computed in a single Jinja2 namespace loop into shares_json before the
   # repeat, because Jinja2 loop iterations cannot share mutable state — variables: steps in
   # a repeat are independent and cannot decrement a running remainder across iterations.
+  # ── Single point of Modbus actuation ──────────────────────────────────────────
+  # Every forcible charge/discharge command goes through here so the write
+  # de-duplication is applied consistently.
+  #
+  # WHY: each modbus.write_register to a Marstek costs ~150 ms (35 ms enforced
+  # message_wait plus the round trip), and the naive scheme wrote all three
+  # registers for all three batteries on every control cycle — 9 writes, ~1.15 s
+  # of wall clock. Because the control loop is mode: single, that pushed the
+  # effective loop period to ~2.24 s under load even though sensor.p1_meter_power
+  # updates every 1.1 s: the loop was skipping every other sample precisely when
+  # a load step was in progress. Measured on production 2026-07-28, 78 % of those
+  # writes set a register to the value it already held.
+  #
+  # Skipping the redundant ones takes a regulating cycle from 9 writes to ~2
+  # (only the active battery's two power registers actually change; its mode and
+  # both idle batteries stay put), which halves the loop period.
+  #
+  # SAFETY: the cache is HBA's own record of what it last sent, not a readback —
+  # the Modbus readback sensors poll every 15 s and would lag. Three things keep
+  # it honest:
+  #   1. hba_control_write_refresh_secs forces a full re-send at least that often,
+  #      so a battery that silently drops its setpoint self-heals, and setting it
+  #      to 0 restores the old always-write behaviour.
+  #   2. force: true on the master-mode handoff path, which must land immediately.
+  #   3. After a restart the cached epoch is stale, so the first cycle re-sends.
+  hba_write_battery:
+    alias: "HBA: Write battery registers (de-duplicated)"
+    description: >
+      Writes one battery's forcible charge/discharge triple, skipping the Modbus
+      round trips when the command is unchanged and still fresh.
+    mode: queued
+    max: 12
+    fields:
+      bat:
+        description: "Battery index, 1-6"
+        example: 1
+      cmd_mode:
+        description: "stop | charge | discharge"
+        example: "discharge"
+      charge_w:
+        description: "Value for the forcible charge power register"
+        example: 723
+      discharge_w:
+        description: "Value for the forcible discharge power register"
+        example: 723
+      force:
+        description: "Write even if the command is unchanged (default false)"
+        example: false
+    sequence:
+      - variables:
+          _bat: "{{ bat | int(0) }}"
+          _mode: "{{ cmd_mode | default('stop') }}"
+          _chg: "{{ charge_w | default(0) | int(0) }}"
+          _dis: "{{ discharge_w | default(0) | int(0) }}"
+          _force: "{{ force | default(false) }}"
+      - variables:
+          _want: "{{ _mode ~ '|' ~ _chg ~ '|' ~ _dis }}"
+          _cached: "{{ states('input_text.hba_last_cmd_m' ~ _bat) | default('', true) }}"
+          _refresh: "{{ states('input_number.hba_control_write_refresh_secs') | float(30) }}"
+      - variables:
+          # Stale, unparsable or missing cache -> age is huge -> always writes.
+          _age: >-
+            {%- set parts = _cached.split('|') -%}
+            {%- if parts | length == 4 -%}
+              {{ (as_timestamp(now()) - (parts[3] | float(0))) | round(0) | int }}
+            {%- else -%}
+              999999
+            {%- endif -%}
+          _same: "{{ _cached.rsplit('|', 1)[0] == _want }}"
+      - alias: "Unchanged and still fresh — skip the three Modbus round trips"
+        if:
+          - condition: template
+            value_template: >-
+              {{ not _force and _same and _refresh > 0 and (_age | int(0)) < _refresh }}
+        then:
+          - stop: "Command unchanged and still fresh — skipped 3 Modbus writes"
+      - action: number.set_value
+        continue_on_error: true
+        target:
+          entity_id: "number.marstek_m{{ _bat }}_forcible_charge_power"
+        data: { value: "{{ _chg }}" }
+      - action: number.set_value
+        continue_on_error: true
+        target:
+          entity_id: "number.marstek_m{{ _bat }}_forcible_discharge_power"
+        data: { value: "{{ _dis }}" }
+      - action: select.select_option
+        continue_on_error: true
+        target:
+          entity_id: "select.marstek_m{{ _bat }}_forcible_charge_discharge"
+        data: { option: "{{ _mode }}" }
+      # Only cache a command we can believe landed. The writes above carry
+      # continue_on_error, so an unreachable battery would otherwise be recorded
+      # as "already commanded" and not retried until the refresh interval —
+      # clearing the cache instead makes the next cycle write again immediately.
+      - variables:
+          _avail: >-
+            {{ states('select.marstek_m' ~ _bat ~ '_forcible_charge_discharge')
+               not in ['unavailable', 'unknown', 'none'] }}
+      - action: input_text.set_value
+        target:
+          entity_id: "input_text.hba_last_cmd_m{{ _bat }}"
+        data:
+          value: >-
+            {{ (_want ~ '|' ~ (as_timestamp(now()) | round(0) | int)) if _avail else '' }}
+
   hba_set_batteries:
     alias: "HBA: Set battery power (distribute across all)"
     description: >
@@ -520,21 +712,12 @@ script:
               - repeat:
                   count: "{{ count }}"
                   sequence:
-                    - action: number.set_value
-                      continue_on_error: true
-                      target:
-                        entity_id: "number.marstek_m{{ repeat.index }}_forcible_charge_power"
-                      data: { value: 0 }
-                    - action: number.set_value
-                      continue_on_error: true
-                      target:
-                        entity_id: "number.marstek_m{{ repeat.index }}_forcible_discharge_power"
-                      data: { value: 0 }
-                    - action: select.select_option
-                      continue_on_error: true
-                      target:
-                        entity_id: "select.marstek_m{{ repeat.index }}_forcible_charge_discharge"
-                      data: { option: "stop" }
+                    - action: script.hba_write_battery
+                      data:
+                        bat: "{{ repeat.index }}"
+                        cmd_mode: "stop"
+                        charge_w: 0
+                        discharge_w: 0
           # CHARGE
           - conditions: "{{ mode == 'charge' or (mode == 'auto' and desired > 0) }}"
             sequence:
@@ -544,7 +727,21 @@ script:
                   sc_thr2: "{{ states('input_number.hba_control_slow_charge_soc_threshold_2') | float(99) }}"
                   sc_lim2: "{{ states('input_number.hba_control_slow_charge_power_limit_2') | float(1000) | int }}"
               - variables:
-                  priority_bat: "{{ states('input_number.hba_control_prioritize_battery') | int(1) }}"
+                  # Clamp to 1..count. A priority index above battery_count silently
+                  # kills ALL battery control: the waterfall below seeds its order with
+                  # the priority battery regardless of whether it exists, that phantom
+                  # battery is eligible on SoC so it absorbs the entire `remaining`, and
+                  # the write loop then only iterates 1..count -- so every real battery
+                  # gets a share of 0 and is commanded to stop, while the allocated power
+                  # is never sent anywhere. Seen on production 2026-07-29: auto-balance
+                  # had rotated priority to 2 at 15:00, battery_count was lowered to 1 at
+                  # 15:24, and the pack sat at 0 W under a full Sell command until the
+                  # index happened to return to 1. hba_advance_priority wraps correctly
+                  # ((current % count) + 1), but nothing re-validates the index when
+                  # battery_count itself changes.
+                  priority_bat: >-
+                    {%- set p = states('input_number.hba_control_prioritize_battery') | int(1) -%}
+                    {{ p if (1 <= p and p <= count) else 1 }}
               - variables:
                   shares_json: >-
                     {%- set ns = namespace(remaining=desired | abs, shares={}, order=[priority_bat]) -%}
@@ -585,21 +782,12 @@ script:
                     - choose:
                         - conditions: "{{ soc < soc_max - 0.5 and share > 0 }}"
                           sequence:
-                            - action: number.set_value
-                              continue_on_error: true
-                              target:
-                                entity_id: "number.marstek_m{{ bat_idx }}_forcible_charge_power"
-                              data: { value: "{{ share }}" }
-                            - action: number.set_value
-                              continue_on_error: true
-                              target:
-                                entity_id: "number.marstek_m{{ bat_idx }}_forcible_discharge_power"
-                              data: { value: "{{ share }}" }
-                            - action: select.select_option
-                              continue_on_error: true
-                              target:
-                                entity_id: "select.marstek_m{{ bat_idx }}_forcible_charge_discharge"
-                              data: { option: "charge" }
+                            - action: script.hba_write_battery
+                              data:
+                                bat: "{{ bat_idx }}"
+                                cmd_mode: "charge"
+                                charge_w: "{{ share }}"
+                                discharge_w: "{{ share }}"
                             - action: input_datetime.set_datetime
                               target:
                                 entity_id: "input_datetime.hba_last_active_m{{ bat_idx }}"
@@ -617,42 +805,38 @@ script:
                         - choose:
                             - conditions: "{{ bat_time_idle < idle_secs }}"
                               sequence:
-                                - action: number.set_value
-                                  continue_on_error: true
-                                  target:
-                                    entity_id: "number.marstek_m{{ bat_idx }}_forcible_charge_power"
-                                  data: { value: 1 }
-                                - action: number.set_value
-                                  continue_on_error: true
-                                  target:
-                                    entity_id: "number.marstek_m{{ bat_idx }}_forcible_discharge_power"
-                                  data: { value: 1 }
-                                - action: select.select_option
-                                  continue_on_error: true
-                                  target:
-                                    entity_id: "select.marstek_m{{ bat_idx }}_forcible_charge_discharge"
-                                  data: { option: "charge" }
+                                - action: script.hba_write_battery
+                                  data:
+                                    bat: "{{ bat_idx }}"
+                                    cmd_mode: "charge"
+                                    charge_w: 1
+                                    discharge_w: 1
                           default:
-                            - action: number.set_value
-                              continue_on_error: true
-                              target:
-                                entity_id: "number.marstek_m{{ bat_idx }}_forcible_charge_power"
-                              data: { value: 0 }
-                            - action: number.set_value
-                              continue_on_error: true
-                              target:
-                                entity_id: "number.marstek_m{{ bat_idx }}_forcible_discharge_power"
-                              data: { value: 0 }
-                            - action: select.select_option
-                              continue_on_error: true
-                              target:
-                                entity_id: "select.marstek_m{{ bat_idx }}_forcible_charge_discharge"
-                              data: { option: "stop" }
+                            - action: script.hba_write_battery
+                              data:
+                                bat: "{{ bat_idx }}"
+                                cmd_mode: "stop"
+                                charge_w: 0
+                                discharge_w: 0
           # DISCHARGE
           - conditions: "{{ mode == 'discharge' or (mode == 'auto' and desired < 0) }}"
             sequence:
               - variables:
-                  priority_bat: "{{ states('input_number.hba_control_prioritize_battery') | int(1) }}"
+                  # Clamp to 1..count. A priority index above battery_count silently
+                  # kills ALL battery control: the waterfall below seeds its order with
+                  # the priority battery regardless of whether it exists, that phantom
+                  # battery is eligible on SoC so it absorbs the entire `remaining`, and
+                  # the write loop then only iterates 1..count -- so every real battery
+                  # gets a share of 0 and is commanded to stop, while the allocated power
+                  # is never sent anywhere. Seen on production 2026-07-29: auto-balance
+                  # had rotated priority to 2 at 15:00, battery_count was lowered to 1 at
+                  # 15:24, and the pack sat at 0 W under a full Sell command until the
+                  # index happened to return to 1. hba_advance_priority wraps correctly
+                  # ((current % count) + 1), but nothing re-validates the index when
+                  # battery_count itself changes.
+                  priority_bat: >-
+                    {%- set p = states('input_number.hba_control_prioritize_battery') | int(1) -%}
+                    {{ p if (1 <= p and p <= count) else 1 }}
               - variables:
                   shares_json: >-
                     {%- set ns = namespace(remaining=desired | abs, shares={}, order=[priority_bat]) -%}
@@ -687,21 +871,12 @@ script:
                     - choose:
                         - conditions: "{{ soc > soc_min + 0.5 and share > 0 }}"
                           sequence:
-                            - action: number.set_value
-                              continue_on_error: true
-                              target:
-                                entity_id: "number.marstek_m{{ bat_idx }}_forcible_charge_power"
-                              data: { value: "{{ share }}" }
-                            - action: number.set_value
-                              continue_on_error: true
-                              target:
-                                entity_id: "number.marstek_m{{ bat_idx }}_forcible_discharge_power"
-                              data: { value: "{{ share }}" }
-                            - action: select.select_option
-                              continue_on_error: true
-                              target:
-                                entity_id: "select.marstek_m{{ bat_idx }}_forcible_charge_discharge"
-                              data: { option: "discharge" }
+                            - action: script.hba_write_battery
+                              data:
+                                bat: "{{ bat_idx }}"
+                                cmd_mode: "discharge"
+                                charge_w: "{{ share }}"
+                                discharge_w: "{{ share }}"
                             - action: input_datetime.set_datetime
                               target:
                                 entity_id: "input_datetime.hba_last_active_m{{ bat_idx }}"
@@ -719,37 +894,19 @@ script:
                         - choose:
                             - conditions: "{{ bat_time_idle < idle_secs }}"
                               sequence:
-                                - action: number.set_value
-                                  continue_on_error: true
-                                  target:
-                                    entity_id: "number.marstek_m{{ bat_idx }}_forcible_charge_power"
-                                  data: { value: 1 }
-                                - action: number.set_value
-                                  continue_on_error: true
-                                  target:
-                                    entity_id: "number.marstek_m{{ bat_idx }}_forcible_discharge_power"
-                                  data: { value: 1 }
-                                - action: select.select_option
-                                  continue_on_error: true
-                                  target:
-                                    entity_id: "select.marstek_m{{ bat_idx }}_forcible_charge_discharge"
-                                  data: { option: "discharge" }
+                                - action: script.hba_write_battery
+                                  data:
+                                    bat: "{{ bat_idx }}"
+                                    cmd_mode: "discharge"
+                                    charge_w: 1
+                                    discharge_w: 1
                           default:
-                            - action: number.set_value
-                              continue_on_error: true
-                              target:
-                                entity_id: "number.marstek_m{{ bat_idx }}_forcible_charge_power"
-                              data: { value: 0 }
-                            - action: number.set_value
-                              continue_on_error: true
-                              target:
-                                entity_id: "number.marstek_m{{ bat_idx }}_forcible_discharge_power"
-                              data: { value: 0 }
-                            - action: select.select_option
-                              continue_on_error: true
-                              target:
-                                entity_id: "select.marstek_m{{ bat_idx }}_forcible_charge_discharge"
-                              data: { option: "stop" }
+                            - action: script.hba_write_battery
+                              data:
+                                bat: "{{ bat_idx }}"
+                                cmd_mode: "stop"
+                                charge_w: 0
+                                discharge_w: 0
 
   # ── Priority rotation ─────────────────────────────────────────────────────────
   # Advances hba_control_prioritize_battery by 1 (wraps around at battery_count).
@@ -763,49 +920,6 @@ script:
       - action: input_number.set_value
         target: { entity_id: input_number.hba_control_prioritize_battery }
         data: { value: "{{ (current % count) + 1 }}" }
-
-  # ── Notification dispatch ─────────────────────────────────────────────────────
-  # Central notification script. Routes to the configured notify action when
-  # hba_notifications_enabled is on, falling back to notify.persistent_notification
-  # when no custom entity ID is configured.
-  hba_notify_dispatch:
-    alias: "HBA: Notify dispatch"
-    fields:
-      title:
-        description: "Notification title"
-      message:
-        description: "Notification body"
-      tag:
-        default: hba_notification
-      color:
-        default: blue
-      priority:
-        default: normal
-    sequence:
-      - condition: state
-        entity_id: input_boolean.hba_notifications_enabled
-        state: "on"
-      - action: >-
-          {{ states('input_text.hba_notify_entity_id')
-             if states('input_text.hba_notify_entity_id') | trim
-                not in ['', 'unknown', 'unavailable']
-             else 'notify.persistent_notification' }}
-        data:
-          title: "{{ title }}"
-          message: "{{ message }}"
-          data:
-            priority: "{{ priority }}"
-            tag: "{{ tag }}"
-            color: "{{ color }}"
-
-  hba_notify_test:
-    alias: "HBA: Send test notification"
-    sequence:
-      - action: script.hba_notify_dispatch
-        data:
-          title: "Home Battery Assistant — test notification"
-          message: "Notifications are working correctly."
-          tag: hba_notify_test
 
   # ── Timed EV Charge section defaults ─────────────────────────────────────────
   # Narrow reset for timed EV charge helpers only — leaves all other HBA settings
@@ -873,25 +987,30 @@ script:
         data: { value: 0 }
       - action: input_number.set_value
         target: { entity_id: input_number.hba_control_kp }
-        data: { value: 0.1 }
+        data: { value: 0.35 }
       - action: input_number.set_value
         target: { entity_id: input_number.hba_control_ki }
         data: { value: 0.1 }
       - action: input_number.set_value
         target: { entity_id: input_number.hba_control_kd }
-        data: { value: 0 }
+        data: { value: 0.1 }
       - action: input_number.set_value
         target: { entity_id: input_number.hba_control_pid_output_dampening }
         data: { value: 10 }
       - action: input_number.set_value
         target: { entity_id: input_number.hba_control_error_signal_dampening }
-        data: { value: 0 }
+        data: { value: 20 }
       - action: input_number.set_value
         target: { entity_id: input_number.hba_control_hysteresis }
         data: { value: 20 }
       - action: input_number.set_value
         target: { entity_id: input_number.hba_control_idle_time }
         data: { value: 5 }
+      # 30 s: bounded exposure if a battery drops its setpoint, while still
+      # eliminating ~78 % of the Modbus writes. 0 = write every cycle.
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_control_write_refresh_secs }
+        data: { value: 30 }
       # ── Peak shaving ──────────────────────────────────────────────────────────
       - action: input_boolean.turn_off
         target:
@@ -1019,12 +1138,26 @@ script:
         # the v3.0 firmware has a ~2% hysteresis and won't discharge below ~13% in practice.
         data: { value: 12 }
       # ── Solar forecast entity IDs (Solcast integration) ───────────────────────
+      # The two Charge-goal entities read a plain kWh state, so "today" defaults to
+      # …_forecast_remaining_today: a whole-day figure keeps counting solar that has
+      # already been produced, which makes the charge goal believe a large surplus is
+      # still coming and suppresses grid charging during the cheap hours. There is no
+      # "remaining" variant for tomorrow — the whole day is still ahead.
+      # Solar-aware gets its own entity because it needs the detailedForecast attribute,
+      # which only the whole-day forecast_today/_tomorrow sensors carry.
       - action: input_text.set_value
         target: { entity_id: input_text.hba_strategy_solar_forecast_entity_id }
-        data: { value: "sensor.solcast_pv_forecast_forecast_today" }
+        data: { value: "sensor.solcast_pv_forecast_forecast_remaining_today" }
       - action: input_text.set_value
         target: { entity_id: input_text.hba_strategy_solar_forecast_tomorrow_entity_id }
         data: { value: "sensor.solcast_pv_forecast_forecast_tomorrow" }
+      # Must be forecast_today, NOT forecast_remaining_today — see above.
+      - action: input_text.set_value
+        target: { entity_id: input_text.hba_strategy_solar_aware_forecast_entity_id }
+        data: { value: "sensor.solcast_pv_forecast_forecast_today" }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_strategy_solar_aware_forecast_threshold_kwh }
+        data: { value: 20 }
       # ── Frank Energie entity ID ───────────────────────────────────────────────
       - action: input_text.set_value
         target: { entity_id: input_text.hba_strategy_dynamic_frank_sensor_entity_id }
@@ -1032,10 +1165,14 @@ script:
       # ── Misc ──────────────────────────────────────────────────────────────────
       - action: input_boolean.turn_off
         target: { entity_id: input_boolean.hba_control_is_debug_mode }
-      - action: input_boolean.turn_off
-        target: { entity_id: input_boolean.hba_control_has_power_limit_during_ev_charge }
+      - action: input_select.select_option
+        target: { entity_id: input_select.hba_control_strategy_during_ev_charge }
+        data: { option: "Full stop" }
       - action: input_text.set_value
         target: { entity_id: input_text.hba_strategy_ev_sensor_entity_id }
+        data: { value: "" }
+      - action: input_text.set_value
+        target: { entity_id: input_text.hba_strategy_ev_saturated_entity_id }
         data: { value: "" }
       # ── Notifications ─────────────────────────────────────────────────────────
       - action: input_boolean.turn_on

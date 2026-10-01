@@ -26,6 +26,11 @@
 #           setpoint_override = −export_limit)
 #           else → max power via hba_set_batteries (mode: discharge)
 #
+# PID reset: handled by automations hba_sell_pid_reset and hba_charge_pid_reset in
+# hba_strategies_core.yaml. These fire exactly once on entry (sub_strategy transitions TO
+# "Sell" / "Charge"), preventing a stale integrator from the previous strategy carrying in
+# while allowing self_consumption (called from goal_reached) to accumulate I-term normally.
+#
 # flow_prefix field: allows caller (Timed, Dynamic) to prepend parent context to all labels
 # so the active_flow chain is complete, e.g. "Timed → Charge → Charge PV → Self-consumption".
 #

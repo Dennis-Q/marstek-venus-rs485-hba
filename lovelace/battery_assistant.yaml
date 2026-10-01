@@ -8,10 +8,72 @@ views:
     header:
       card:
         type: markdown
-        content: '### Home Battery Assistant *(HBA v4.10.1-r11)*'
+        content: '### Home Battery Assistant *(HBA v4.10.1-r21)*'
         text_only: true
     cards: []
     sections:
+
+      # Entity health alert (only shown when binary_sensor.hba_entity_health is on)
+      - type: grid
+        visibility:
+          - condition: state
+            entity: binary_sensor.hba_entity_health
+            state: 'on'
+        cards:
+          - type: markdown
+            grid_options:
+              columns: full
+            content: >-
+              <ha-alert alert-type="error" title="HBA entity ID mismatch">
+
+              One or more HBA entities are registered under the wrong entity ID,
+              causing silent failures (notifications not sent, anti-windup disabled).
+
+              **Missing entity IDs:**
+              {{ state_attr('binary_sensor.hba_entity_health', 'missing_entity_ids')
+                 | replace(', ', '\n- ') | trim }}
+
+              **How to fix:** go to **Settings → Entities**, search for the entity
+              by friendly name, click it, and rename the entity ID to match the
+              expected value shown above.
+              </ha-alert>
+
+      # Timed EV charge waiting alert (only shown while assist is suspended
+      # because the EV is not drawing power — see binary_sensor.hba_battery_assist_waiting)
+      - type: grid
+        visibility:
+          - condition: state
+            entity: binary_sensor.hba_battery_assist_waiting
+            state: 'on'
+        cards:
+          - type: markdown
+            grid_options:
+              columns: full
+            content: >-
+              <ha-alert alert-type="warning" title="Timed EV charge — waiting for EV">
+              The charger is enabled but the car is not drawing power. Scan the
+              charger tag and/or check the car (charge limit, schedule).
+              Batteries follow the normal strategy until charging starts.
+              </ha-alert>
+
+      # Timed EV charge stalled alert (batteries commanded to discharge but not
+      # delivering — see binary_sensor.hba_battery_assist_stalled)
+      - type: grid
+        visibility:
+          - condition: state
+            entity: binary_sensor.hba_battery_assist_stalled
+            state: 'on'
+        cards:
+          - type: markdown
+            grid_options:
+              columns: full
+            content: >-
+              <ha-alert alert-type="error" title="Timed EV charge — batteries not delivering">
+              The batteries were commanded to discharge but delivered no power
+              (BMS refusal near its SoC floor, thermal protection, or rejected
+              Modbus writes). The EV has been released so it stops charging
+              from grid; assist retries automatically in 30 minutes.
+              </ha-alert>
 
       # Onboarding (hidden once dismissed)
       - type: grid
@@ -234,10 +296,10 @@ views:
                 conditions:
                   - condition: state
                     entity: sensor.hba_version
-                    state: "v4.10.1-r11"
+                    state: "v4.10.1-r21"
             content: >
               <ha-alert alert-type="error">**HBA version mismatch** — Dashboard is
-              v4.10.1-r11 but loaded packages report
+              v4.10.1-r21 but loaded packages report
               {{ states('sensor.hba_version') }}. Reload YAML to apply the update:
               Developer Tools → YAML → Reload All YAML.</ha-alert>
           - type: markdown
@@ -340,6 +402,9 @@ views:
                     text: >-
                       HBA will take control: switches to Full control mode and
                       stops Node-RED so HBC can no longer drive the batteries.
+                      Node-RED auto-start will also be set to manual so it stays
+                      stopped after reboots. To skip this, clear the Node-RED
+                      addon slug field first.
                       These buttons will hide afterwards — you can find them
                       again under Advanced settings → HBA ↔ HBC handoff.
               - type: button
@@ -950,7 +1015,7 @@ views:
       card:
         type: markdown
         content: >-
-          ### Self-consumption strategy *(HBA v4.10.1-r11)*
+          ### Self-consumption strategy *(HBA v4.10.1-r21)*
 
           The **PID controller** steers your batteries to keep grid usage near
           target, _e.g. 0 Watt_, and is used by:
@@ -1093,7 +1158,7 @@ views:
       card:
         type: markdown
         text_only: true
-        content: '### Charge / Sell *(HBA v4.10.1-r11)*'
+        content: '### Charge / Sell *(HBA v4.10.1-r21)*'
     cards: []
     badges:
       - type: entity
@@ -1273,6 +1338,20 @@ views:
                 state: solar forecast
           - type: markdown
             content: >-
+              <font color=grey>_Only the state (kWh) is read here, so 'today'
+              defaults to `sensor.solcast_pv_forecast_forecast_remaining_today`
+              — it drops as the day progresses, so the goal keeps charging from
+              the grid during cheap hours when the sun does not deliver. A
+              whole-day sensor here would count solar you have already produced.
+              The Solar-aware strategy has its own entity under Advanced
+              settings and needs the whole-day sensor instead._</font>
+            text_only: true
+            visibility:
+              - condition: state
+                entity: input_select.hba_strategy_charge_goal
+                state: solar forecast
+          - type: markdown
+            content: >-
               <font color=grey>_'Reserve' is usable energy in your batteries
               (e.g. above 11% SoC)_
 
@@ -1410,7 +1489,7 @@ views:
       card:
         type: markdown
         text_only: true
-        content: '### Timed / Dynamic *(HBA v4.10.1-r11)*'
+        content: '### Timed / Dynamic *(HBA v4.10.1-r21)*'
     sections:
       - type: grid
         cards:
@@ -1579,6 +1658,21 @@ views:
             entities:
               - entity: input_select.hba_strategy_dynamic_default
                 name: Default to
+          - type: conditional
+            conditions:
+              - condition: state
+                entity: input_select.hba_strategy_dynamic_default
+                state: "Solar-aware"
+            card:
+              type: tile
+              entity: input_select.hba_strategy_dynamic_default
+              name: Solar-aware settings →
+              icon: mdi:weather-sunny
+              tap_action:
+                action: navigate
+                navigation_path: /home-battery-assistant/advanced-settings
+              hide_state: true
+              color: amber
           - type: heading
             icon: mdi:timeline-clock-outline
             heading: Cheapest period
@@ -1683,7 +1777,7 @@ views:
                     entity: input_select.hba_strategy_dynamic_expensive
                     state: "Sell"
                 row:
-                  entity: sensor.estimated_profit_per_kwh
+                  entity: sensor.hba_estimated_profit_per_kwh
                   name: Estimated profit per kWh
                   type: simple-entity
                   icon: mdi:currency-eur
@@ -1775,7 +1869,7 @@ views:
         type: markdown
         text_only: true
         content: >-
-          ### Insights *(HBA v4.10.1-r11)*
+          ### Insights *(HBA v4.10.1-r21)*
 
           Need help figuring out what is going on?
 
@@ -1794,13 +1888,35 @@ views:
               {% set strategy = states('input_select.hba_strategy') -%}
               {% set executing = states('input_text.hba_strategy_active_flow') -%}
               {% set parts = executing.split(' → ') if executing not in ['', 'unknown', 'unavailable'] else [] -%}
+              {#- EV/assist overrides preempt the configured strategy entirely — don't
+                  render the configured strategy as their parent node. -#}
+              {% set overridden = parts | length > 0 and (
+                   parts[0].startswith('During EV charge')
+                   or parts[0].startswith('EV stop trigger')
+                   or parts[0].startswith('Timed EV charge')) -%}
               {% set skip_first = parts | length > 0 and parts[0] == strategy -%}
               {% set show_parts = parts[1:] if skip_first else parts -%}
               Control loop
+              {%- if overridden %}
+              {%- for part in parts %}
+              {{ '&nbsp;&nbsp;' * (loop.index - 1) ~ '&nbsp;' }}↳ {{ part }}
+              {%- endfor %}
+
+              _(configured strategy **{{ strategy }}** is overridden while the EV charges)_
+              {%- else %}
               &nbsp;↳ {{ strategy }}
               {%- for part in show_parts %}
               {{ '&nbsp;&nbsp;' * loop.index ~ '&nbsp;' }}↳ {{ part }}
               {%- endfor %}
+              {%- endif %}
+              {%- if is_state('binary_sensor.hba_battery_assist_waiting', 'on') %}
+
+              ⏳ **Timed EV charge — waiting for EV** (assist push suspended; the flow above is the fallback strategy)
+              {%- endif %}
+              {%- if is_state('binary_sensor.hba_battery_assist_stalled', 'on') %}
+
+              🛑 **Timed EV charge — stalled** (batteries not delivering; EV released, assist auto-retries after the 30-min hold-off)
+              {%- endif %}
           - type: heading
             heading: Controller state
             heading_style: title
@@ -1821,15 +1937,32 @@ views:
               **Error:** {{ err | round(0) | int }} W (target {{ target | int }} W)
               **Deadband:** {% if err | abs < 15 %}✅ inside ±15 W{% else %}⚡ outside — {{ err | abs | round(0) | int }} W from setpoint{% endif %}
 
-              **{{ states('input_select.hba_strategy') }} strategy** | Executing: **{{ states('sensor.hba_active_strategy') }}** | Flow: **{{ states('input_text.hba_strategy_active_flow') }}**
+              Configured: **{{ states('input_select.hba_strategy') }}** | Executing: **{{ states('sensor.hba_active_strategy') }}** | Flow: **{{ states('input_text.hba_strategy_active_flow') }}**
 
               **PID cycle:** {{ states('input_text.hba_control_cycle_state') }}
+
+              {%- set refresh = states('input_number.hba_control_write_refresh_secs') | float(0) %}
+              {%- set n = states('input_number.hba_battery_count') | int(1) %}
+              **Modbus writes:** {% if refresh <= 0 %}every cycle (de-duplication off){% else %}de-duplicated, re-sent every {{ refresh | int }} s{% endif %}
+              {%- if refresh > 0 %}
+              {%- for i in range(1, n + 1) %}
+              {%- set c = states('input_text.hba_last_cmd_m' ~ i) %}
+              {%- set p = c.split('|') if c not in ['', 'unknown', 'unavailable'] else [] %}
+              &nbsp;&nbsp;M{{ i }}: {% if p | length == 4 %}`{{ p[0] }} {{ p[1] }}/{{ p[2] }} W` — sent {{ (as_timestamp(now()) - (p[3] | float(0))) | round(0) | int }}s ago{% else %}_no cached command — next cycle writes_{% endif %}
+              {%- endfor %}
+              {%- endif %}
 
               {% if has_imp or has_exp -%}
               **Peak shaving:** {% if has_imp %}import ≤ {{ imp_lim }} W{% if grid > imp_lim %} 🔴 clamping{% else %} 🟢{% endif %}{% endif %}{% if has_imp and has_exp %} / {% endif %}{% if has_exp %}export ≤ {{ exp_lim }} W{% if grid < 0 and (grid | abs) > exp_lim %} 🔴 clamping{% else %} 🟢{% endif %}{% endif %}
 
               {% endif -%}
-              **EV stop:** {{ states(ev_e) if ev_e not in ['','unknown','unavailable'] else '_not configured_' }}
+              {%- set ev_policy = states('input_select.hba_control_strategy_during_ev_charge') -%}
+              {%- set sat_e = states('input_text.hba_strategy_ev_saturated_entity_id') | trim -%}
+              {%- set ev_on = ev_e not in ['','unknown','unavailable'] and is_state(ev_e, 'on') %}
+              **EV charging:** {{ states(ev_e) if ev_e not in ['','unknown','unavailable'] else '_not configured_' }} | **policy:** {{ ev_policy }}
+              {%- if ev_policy == 'Charge PV' %}
+              **Charge PV gate:** {% if sat_e in ['','unknown','unavailable'] %}no saturation entity — runs whenever the EV charges{% elif is_state(sat_e, 'on') %}🟢 saturated — absorbing residual{% if not ev_on %} (idle: EV not charging){% endif %}{% else %}⏸ not saturated ({{ states(sat_e) }}) — batteries stand down while the charger regulates{% endif %}
+              {%- endif %}
           - type: heading
             heading: System state
             heading_style: title
@@ -1842,6 +1975,10 @@ views:
                 name: Charge goal reached
               - entity: input_number.hba_control_prioritize_battery
                 name: Priority battery
+              - entity: binary_sensor.hba_entity_health
+                name: Entity health
+              - entity: binary_sensor.hba_rs485_mode_mismatch
+                name: RS485 mode mismatch
             show_header_toggle: false
           - type: heading
             heading: Timed EV Charge
@@ -1867,12 +2004,30 @@ views:
               {% set car_ok   = not car_conf or is_state(car_e, 'on') -%}
               {% set overflow = is_state('binary_sensor.hba_grid_exporting_sustained', 'on') -%}
               {% set active   = is_state('binary_sensor.hba_battery_assist_active', 'on') -%}
-              **{{ '🟢 Active' if active else '🔴 Inactive' }}**
+              {% set waiting  = is_state('binary_sensor.hba_battery_assist_waiting', 'on') -%}
+              {% set stalled  = is_state('binary_sensor.hba_battery_assist_stalled', 'on') -%}
+              {% set count    = states('input_number.hba_battery_count') | int(1) -%}
+              {% set ns = namespace(dischargeable=false) -%}
+              {% for i in range(1, count + 1) -%}
+                {% set b_soc = states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') | float(0) -%}
+                {% set b_cut = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) -%}
+                {% set inv   = states('sensor.marstek_m' ~ i ~ '_inverter_state') -%}
+                {% if b_soc > b_cut + 0.5 and inv not in ['Fault', 'unknown', 'unavailable'] -%}
+                  {% set ns.dischargeable = true -%}
+                {% endif -%}
+              {% endfor -%}
+              {% set ev_e     = states('input_text.hba_strategy_ev_sensor_entity_id') | trim -%}
+              {% set ev_conf  = ev_e not in skip -%}
+              {% set ev_on    = ev_conf and is_state(ev_e, 'on') -%}
+              **{{ '🛑 Stalled' if stalled else ('⏳ Waiting for EV' if waiting else ('🟢 Active' if active else '🔴 Inactive')) }}**
 
               {{ '✅' if is_state('input_boolean.hba_battery_assist_enabled', 'on') else '❌' }} Enabled
               {{ '✅' if in_window else '❌' }} Time window: {{ start_s[:5] }}–{{ end_s[:5] }}{% if not in_window %} *({{ now().strftime('%H:%M') }} outside)*{% endif %}
               {{ '✅' if soc > min_soc else '🔴' }} SoC: {{ soc | round(1) }}% / {{ min_soc | int }}% min{% if soc <= min_soc %} — **minimum reached, stopped**{% endif %}
+              {{ '✅' if ns.dischargeable else '🔴' }} Batteries dischargeable: {% if ns.dischargeable %}yes{% else %}**none — all at their discharge cutoff or unavailable, stopped**{% endif %}
               {{ '✅' if car_ok else '❌' }} Car: {% if not car_conf %}not configured{% elif car_ok %}connected ({{ car_e }}){% else %}not connected ({{ car_e }}){% endif %}
+              {{ '⏳' if waiting else '✅' }} EV charging: {% if not ev_conf %}no EV entity configured — push runs unconditionally{% elif waiting %}**not drawing — push suspended, fallback strategy runs.** Scan the charger tag and/or check the car (charge limit, schedule){% elif ev_on %}drawing ({{ ev_e }}){% elif active %}not drawing yet *(startup grace, pushing)*{% else %}not drawing{% endif %}
+              {{ '🛑' if stalled else '✅' }} Battery response: {% if stalled %}**commanded but not delivering — EV released, auto-retry within 30 min**{% else %}OK{% endif %}
               {{ '⚠️' if overflow else '✅' }} Overflow guard: {{ '**sustained export — paused**' if overflow else 'OK' }}
             visibility:
               - condition: state
@@ -1890,9 +2045,13 @@ views:
               {% set count = states('input_number.hba_battery_count') | int(1) -%}
               {%- for idx in range(1, count + 1) %}
               {%- set inv = states('sensor.marstek_m' ~ idx ~ '_inverter_state') -%}
-              {%- set ok = inv not in ['unavailable', 'unknown', ''] %}
-              {{ '🟢' if ok else '🔴' }} **M{{ idx }}** — {{ inv if ok else 'offline / unavailable' }}
+              {%- set ok = inv not in ['unavailable', 'unknown', ''] -%}
+              {%- set nr = is_state('binary_sensor.hba_marstek_m' ~ idx ~ '_not_responding', 'on') %}
+              {{ '🟢' if (ok and not nr) else ('⚠️' if (ok and nr) else '🔴') }} **M{{ idx }}** — {{ inv if ok else 'offline / unavailable' }}{{ ' ⚠️ not responding to commands' if nr else '' }}
               {%- endfor %}
+              {%- if is_state('binary_sensor.hba_rs485_mode_mismatch', 'on') %}
+              ⚠️ **RS485 mismatch** — Full control active but RS485 disabled on: {{ state_attr('binary_sensor.hba_rs485_mode_mismatch', 'mismatched_batteries') | join(', ') }}
+              {%- endif %}
           - type: heading
             heading: Battery aggregates
             heading_style: title
@@ -1926,6 +2085,119 @@ views:
               - entity: sensor.hba_total_battery_power
                 name: Batteries
             hours_to_show: 1
+          - type: heading
+            heading: Battery response (24 h)
+            heading_style: title
+            icon: mdi:battery-alert
+          - type: markdown
+            content: >-
+              <font color=grey>When a battery stopped tracking its commanded
+              power (RS485 enabled, ≥ 300 W commanded, >15% deviation for
+              30+ s).</font>
+            text_only: true
+          # One conditional variant per configured battery count, following the
+          # same pattern as the per-battery power graphs in the home view.
+          - type: conditional
+            conditions:
+              - condition: numeric_state
+                entity: input_number.hba_battery_count
+                above: 0
+                below: 2
+            card:
+              type: history-graph
+              hours_to_show: 24
+              entities:
+                - entity: binary_sensor.hba_marstek_m1_not_responding
+                  name: M1
+          - type: conditional
+            conditions:
+              - condition: numeric_state
+                entity: input_number.hba_battery_count
+                above: 1
+                below: 3
+            card:
+              type: history-graph
+              hours_to_show: 24
+              entities:
+                - entity: binary_sensor.hba_marstek_m1_not_responding
+                  name: M1
+                - entity: binary_sensor.hba_marstek_m2_not_responding
+                  name: M2
+          - type: conditional
+            conditions:
+              - condition: numeric_state
+                entity: input_number.hba_battery_count
+                above: 2
+                below: 4
+            card:
+              type: history-graph
+              hours_to_show: 24
+              entities:
+                - entity: binary_sensor.hba_marstek_m1_not_responding
+                  name: M1
+                - entity: binary_sensor.hba_marstek_m2_not_responding
+                  name: M2
+                - entity: binary_sensor.hba_marstek_m3_not_responding
+                  name: M3
+          - type: conditional
+            conditions:
+              - condition: numeric_state
+                entity: input_number.hba_battery_count
+                above: 3
+                below: 5
+            card:
+              type: history-graph
+              hours_to_show: 24
+              entities:
+                - entity: binary_sensor.hba_marstek_m1_not_responding
+                  name: M1
+                - entity: binary_sensor.hba_marstek_m2_not_responding
+                  name: M2
+                - entity: binary_sensor.hba_marstek_m3_not_responding
+                  name: M3
+                - entity: binary_sensor.hba_marstek_m4_not_responding
+                  name: M4
+          - type: conditional
+            conditions:
+              - condition: numeric_state
+                entity: input_number.hba_battery_count
+                above: 4
+                below: 6
+            card:
+              type: history-graph
+              hours_to_show: 24
+              entities:
+                - entity: binary_sensor.hba_marstek_m1_not_responding
+                  name: M1
+                - entity: binary_sensor.hba_marstek_m2_not_responding
+                  name: M2
+                - entity: binary_sensor.hba_marstek_m3_not_responding
+                  name: M3
+                - entity: binary_sensor.hba_marstek_m4_not_responding
+                  name: M4
+                - entity: binary_sensor.hba_marstek_m5_not_responding
+                  name: M5
+          - type: conditional
+            conditions:
+              - condition: numeric_state
+                entity: input_number.hba_battery_count
+                above: 5
+            card:
+              type: history-graph
+              hours_to_show: 24
+              entities:
+                - entity: binary_sensor.hba_marstek_m1_not_responding
+                  name: M1
+                - entity: binary_sensor.hba_marstek_m2_not_responding
+                  name: M2
+                - entity: binary_sensor.hba_marstek_m3_not_responding
+                  name: M3
+                - entity: binary_sensor.hba_marstek_m4_not_responding
+                  name: M4
+                - entity: binary_sensor.hba_marstek_m5_not_responding
+                  name: M5
+                - entity: binary_sensor.hba_marstek_m6_not_responding
+                  name: M6
           - type: heading
             heading: Insights
             heading_style: title
@@ -1991,10 +2263,6 @@ views:
                 state: "on"
           - type: markdown
             content: |-
-              {% set cheap_s = states('input_datetime.hba_strategy_dynamic_cheapest_start') -%}
-              {% set cheap_e = states('input_datetime.hba_strategy_dynamic_cheapest_end') -%}
-              {% set exp_s = states('input_datetime.hba_strategy_dynamic_expensive_start') -%}
-              {% set exp_e = states('input_datetime.hba_strategy_dynamic_expensive_end') -%}
               {% set mark_now = state_attr('sensor.hba_energy_prices_data', 'mark_now') | default('unknown') -%}
               {% set cheap_strat = states('input_select.hba_strategy_dynamic_cheapest') -%}
               {% set exp_strat = states('input_select.hba_strategy_dynamic_expensive') -%}
@@ -2002,11 +2270,51 @@ views:
               {% set cheap_met = is_state('binary_sensor.hba_dynamic_cheap_threshold_met', 'on') -%}
               {% set exp_met = is_state('binary_sensor.hba_dynamic_expensive_threshold_met', 'on') -%}
               {% set strategy = states('input_select.hba_strategy') -%}
+              {#- v2: today's marked slots from sensor.hba_energy_prices_data, contiguous
+                  slots merged into ranges. Updates immediately when max cheap/expensive
+                  hours or delta threshold change (the sensor triggers on those helpers).
+                  v1: the contiguous CEH window input_datetimes, recalculated hourly and
+                  on v1 helper changes. -#}
+              {%- macro v2_ranges(kind) -%}
+                {%- set marks_raw = state_attr('sensor.hba_energy_prices_data', 'marks') -%}
+                {%- set marks = (marks_raw | from_json) if marks_raw is string and (marks_raw | trim)[:1] == '[' else (marks_raw if marks_raw is sequence else []) -%}
+                {%- set day_start = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0)) | int -%}
+                {%- set day_end = day_start + 86400 -%}
+                {%- set ns = namespace(out=[], cs=-1, ce=-1) -%}
+                {%- for m in marks -%}
+                  {%- if m.mark | default('') == kind -%}
+                    {%- set s = as_timestamp(m.start) | int -%}
+                    {%- set e = as_timestamp(m.end) | int -%}
+                    {%- if s >= day_start and s < day_end -%}
+                      {%- if s == ns.ce -%}
+                        {%- set ns.ce = e -%}
+                      {%- else -%}
+                        {%- if ns.cs >= 0 -%}{%- set ns.out = ns.out + [(ns.cs, ns.ce)] -%}{%- endif -%}
+                        {%- set ns.cs = s -%}{%- set ns.ce = e -%}
+                      {%- endif -%}
+                    {%- endif -%}
+                  {%- endif -%}
+                {%- endfor -%}
+                {%- if ns.cs >= 0 -%}{%- set ns.out = ns.out + [(ns.cs, ns.ce)] -%}{%- endif -%}
+                {%- if ns.out | length == 0 -%}none today
+                {%- else -%}
+                  {%- for r in ns.out -%}{{ r[0] | timestamp_custom('%H:%M') }}–{{ r[1] | timestamp_custom('%H:%M') }}{{ ', ' if not loop.last }}{%- endfor -%}
+                {%- endif -%}
+              {%- endmacro -%}
               **Dynamic pricing — now**
               Mark: **{{ mark_now }}**{% if strategy == 'Dynamic' %} | Cheap threshold: {{ '✅ met' if cheap_met else '❌ not met (SKIP)' }} | Exp. threshold: {{ '✅ met' if exp_met else '❌ not met (SKIP)' }}{% endif %}
 
+              {% if strategy == 'Dynamic v2' -%}
+              🟢 Cheap → **{{ cheap_strat }}** ({{ v2_ranges('low') }})
+              🟠 Expensive → **{{ exp_strat }}** ({{ v2_ranges('high') }})
+              {%- else -%}
+              {%- set cheap_s = states('input_datetime.hba_strategy_dynamic_cheapest_start') -%}
+              {%- set cheap_e = states('input_datetime.hba_strategy_dynamic_cheapest_end') -%}
+              {%- set exp_s = states('input_datetime.hba_strategy_dynamic_expensive_start') -%}
+              {%- set exp_e = states('input_datetime.hba_strategy_dynamic_expensive_end') -%}
               🟢 Cheap → **{{ cheap_strat }}** ({{ cheap_s[11:16] if cheap_s | length > 15 else '?' }} – {{ cheap_e[11:16] if cheap_e | length > 15 else '?' }})
               🟠 Expensive → **{{ exp_strat }}** ({{ exp_s[11:16] if exp_s | length > 15 else '?' }} – {{ exp_e[11:16] if exp_e | length > 15 else '?' }})
+              {%- endif %}
               — Default → **{{ def_strat }}**
             visibility:
               - condition: state
@@ -2020,6 +2328,60 @@ views:
                   - condition: state
                     entity: input_select.hba_strategy
                     state: "Dynamic v2"
+          - type: markdown
+            content: |-
+              {%- set outlook = states('sensor.hba_solar_charge_outlook') -%}
+              {%- set solar_kwh = state_attr('sensor.hba_solar_charge_outlook', 'solar_in_cheap_slots_kwh') | float(0) -%}
+              {%- set needed = state_attr('sensor.hba_solar_charge_outlook', 'needed_kwh') | float(0) -%}
+              {%- set covers = state_attr('sensor.hba_solar_charge_outlook', 'solar_covers_charge') | bool(false) -%}
+              {%- set slots = state_attr('sensor.hba_solar_charge_outlook', 'cheap_slots_remaining') | int(0) -%}
+              {%- set deadline = state_attr('sensor.hba_solar_charge_outlook', 'self_consume_deadline') | default('none', true) -%}
+              {%- set sa_e = states('input_text.hba_strategy_solar_aware_forecast_entity_id') | trim -%}
+              {%- set solar_entity = sa_e if sa_e not in ['', 'unknown', 'unavailable'] else states('input_text.hba_strategy_solar_forecast_entity_id') | trim -%}
+              {%- set solar_ok = solar_entity != '' and solar_entity | has_value -%}
+              {%- set solar_today = states(solar_entity) | float(0) if solar_ok else 0 -%}
+              {%- set detail = state_attr(solar_entity, 'detailedForecast') if solar_ok else none -%}
+              {%- set detail_n = detail | length if detail is sequence else 0 -%}
+              {%- set threshold = states('input_number.hba_strategy_solar_aware_forecast_threshold_kwh') | float(20) -%}
+              {%- if slots == 0 %}decision: **Self-consumption** (no cheap slots remaining)
+              {%- elif outlook == 'No solar entity' %}decision: **Zero import** (fallback — solar forecast entity not set or unavailable)
+              {%- elif outlook == 'No solar detail' %}decision: **Zero import** (fallback — entity has no detailedForecast attribute)
+              {%- elif outlook == 'No price data' %}decision: **Zero import** (fallback — no energy price marks)
+              {%- elif outlook in ['No data', 'unavailable', 'unknown'] %}decision: **Zero import** (fallback — outlook sensor {{ outlook }})
+              {%- elif threshold > 0 and solar_today > 0 and solar_today < threshold %}decision: **Self-consumption** (solar {{ solar_today | round(1) }} kWh below threshold {{ threshold }} kWh)
+              {%- elif covers %}decision: **Zero import** (solar covers charge)
+              {%- elif deadline != 'none' %}decision: **Zero import** until {{ deadline | as_timestamp(0) | timestamp_custom('%H:%M') }}, then Self-consumption
+              {%- else %}decision: **Self-consumption**
+              {%- endif %}
+              **Solar-aware — now** | outlook: {{ outlook }}
+              Solar entity: {{ solar_entity if solar_entity else '(not set)' }}{{ ' (inherited from Charge goal)' if sa_e in ['', 'unknown', 'unavailable'] and solar_entity }}{{ ' — unavailable ⚠️' if solar_entity and not solar_ok }}
+              {%- if solar_ok %} | detail: {{ detail_n }}×30 min{{ ' ⚠️ missing — set the Solar-aware forecast entity to sensor.solcast_pv_forecast_forecast_today + enable the half-hourly detail attribute' if detail_n == 0 }}{% endif %}
+              Solar today: {{ solar_today | round(1) }} kWh | in cheap slots (net): {{ solar_kwh | round(2) }} kWh | needed: {{ needed | round(2) }} kWh
+              Cheap slots remaining: {{ slots }}{% if deadline != 'none' %} | switch deadline: {{ deadline | as_timestamp(0) | timestamp_custom('%H:%M') }}{% endif %}
+            visibility:
+              - condition: state
+                entity: input_boolean.hba_control_is_debug_mode
+                state: "on"
+              - condition: or
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_strategy
+                    state: "Solar-aware"
+                  - condition: state
+                    entity: input_select.hba_strategy_dynamic_default
+                    state: "Solar-aware"
+                  - condition: state
+                    entity: input_select.hba_strategy_timed_strat_0
+                    state: "Solar-aware"
+                  - condition: state
+                    entity: input_select.hba_strategy_timed_strat_a
+                    state: "Solar-aware"
+                  - condition: state
+                    entity: input_select.hba_strategy_timed_strat_b
+                    state: "Solar-aware"
+                  - condition: state
+                    entity: input_select.hba_strategy_timed_strat_c
+                    state: "Solar-aware"
 
 
   # ── VIEW 6: ADVANCED SETTINGS ───────────────────────────────────────────────
@@ -2052,7 +2414,7 @@ views:
       card:
         type: markdown
         text_only: true
-        content: '### Advanced settings *(HBA v4.10.1-r11)*'
+        content: '### Advanced settings *(HBA v4.10.1-r21)*'
     sections:
       # Battery offline warning — full width, hidden when all batteries are online
       - type: grid
@@ -2149,6 +2511,27 @@ views:
               oscillation near the setpoint; too high prevents small
               corrections.</i></font>
             text_only: true
+          - type: heading
+            icon: mdi:lan-connect
+            heading: Modbus command throttling
+            heading_style: subtitle
+          - type: entities
+            entities:
+              - entity: input_number.hba_control_write_refresh_secs
+                name: Command refresh interval
+                secondary_info: none
+          - type: markdown
+            content: >-
+              <font color="grey"><i>Each Modbus write to a battery takes ~150 ms
+              and blocks the control loop while it runs. Repeating an unchanged
+              command is skipped until this interval expires, which roughly
+              halves the loop period under load — the controller reacts to a load
+              step about twice as fast. The interval still re-sends periodically,
+              so a battery that drops its setpoint recovers on its own.
+              **0 = send every cycle** (old behaviour); lower it to 5–10 s first
+              if a battery ever drifts out of its commanded
+              mode.</i></font>
+            text_only: true
 
       - type: grid
         cards:
@@ -2179,6 +2562,67 @@ views:
             tap_action:
               action: navigate
               navigation_path: /home-battery-assistant/ev-charge
+
+      - type: grid
+        cards:
+          - type: heading
+            icon: mdi:weather-sunny
+            heading: Solar-aware strategy
+            heading_style: title
+          - type: markdown
+            content: >-
+              Controls how the **Solar-aware** default strategy decides between
+              *Zero import* (export solar to grid) and *Self-consumption*
+              (absorb solar and cover home loads).
+
+              When cheap hours remain today **and** the remaining solar forecast
+              exceeds the threshold, it uses Zero import — letting all solar go
+              to the grid for maximum export revenue. After the cheap window has
+              passed (or on a cloudy day), it switches to Self-consumption.
+
+              ⚠️ **Advanced feature** — requires Dynamic v2 prices and a solar
+              forecast entity. Without these it silently falls back to
+              Self-consumption.
+
+              Solar-aware has its **own** forecast entity, separate from the one
+              the Charge goal uses. It must be a whole-day Solcast sensor
+              (`sensor.solcast_pv_forecast_forecast_today`) with the half-hourly
+              detail attribute enabled, because it integrates `detailedForecast`
+              over the cheap slots. `…_forecast_remaining_today` carries no such
+              attribute — fine for the Charge goal, useless here. Leave it empty
+              to inherit the Charge goal's entity.
+            text_only: true
+            grid_options:
+              columns: full
+          - type: markdown
+            content: >
+              {%- set sa_e = states('input_text.hba_strategy_solar_aware_forecast_entity_id') | trim -%}
+              {%- set solar_eid = sa_e if sa_e not in ['', 'unknown', 'unavailable'] else states('input_text.hba_strategy_solar_forecast_entity_id') | trim -%}
+              {%- set solar_miss = solar_eid == '' or is_state(solar_eid, ['unavailable', 'unknown', 'none']) -%}
+              {%- set detail_miss = not solar_miss and not (state_attr(solar_eid, 'detailedForecast') is sequence) -%}
+              {%- set prices_miss = is_state('sensor.hba_energy_prices_data', ['unavailable', 'unknown', 'none']) -%}
+              <ha-alert alert-type="warning">**Solar-aware not fully configured**
+              {%- if solar_miss %} — Solar forecast entity is not set or unavailable (set it below, or configure the Charge goal's entity under Charge / Sell settings).{%- endif -%}
+              {%- if detail_miss %} — `{{ solar_eid }}` has no `detailedForecast` attribute, so the solar outlook cannot be computed. Point the Solar-aware entity below at `sensor.solcast_pv_forecast_forecast_today` (not `…_remaining_today`) and enable the Solcast half-hourly detail attribute.{%- endif -%}
+              {%- if prices_miss %} — Dynamic v2 prices (`sensor.hba_energy_prices_data`) unavailable; set up Dynamic v2 or wait for first price publish.{%- endif %}
+              Until resolved, Solar-aware falls back to a fixed choice instead of following the solar outlook.</ha-alert>
+            grid_options:
+              columns: full
+            visibility:
+              - condition: template
+                value_template: >-
+                  {%- set sa_e = states('input_text.hba_strategy_solar_aware_forecast_entity_id') | trim -%}
+                  {%- set solar_eid = sa_e if sa_e not in ['', 'unknown', 'unavailable'] else states('input_text.hba_strategy_solar_forecast_entity_id') | trim -%}
+                  {%- set solar_miss = solar_eid == '' or is_state(solar_eid, ['unavailable', 'unknown', 'none']) -%}
+                  {{ solar_miss or not (state_attr(solar_eid, 'detailedForecast') is sequence) or is_state('sensor.hba_energy_prices_data', ['unavailable', 'unknown', 'none']) }}
+          - type: entities
+            entities:
+              - entity: input_text.hba_strategy_solar_aware_forecast_entity_id
+                name: Solar-aware forecast sensor (detailedForecast) [entity_id]
+              - entity: input_number.hba_strategy_solar_aware_forecast_threshold_kwh
+                name: Min. solar forecast for Zero import
+              - entity: input_number.hba_strategy_solar_aware_house_load
+                name: Avg. house load during cheap slots
 
       - type: grid
         column_span: 3
@@ -2808,6 +3252,9 @@ views:
                     text: >-
                       HBA will take control: switches to Full control mode and
                       stops Node-RED so HBC can no longer drive the batteries.
+                      Node-RED auto-start will also be set to manual so it stays
+                      stopped after reboots. To skip this, clear the Node-RED
+                      addon slug field first.
               - type: button
                 name: Yield to HBC
                 icon: mdi:transit-connection-variant
@@ -2894,7 +3341,7 @@ views:
         type: markdown
         text_only: true
         content: >-
-          ### Lab features *(HBA v4.10.1-r11)*
+          ### Lab features *(HBA v4.10.1-r21)*
 
           These features are experimental. Use at your own discretion.
       layout: center
@@ -2960,6 +3407,21 @@ views:
             entities:
               - entity: input_select.hba_strategy_dynamic_default
                 name: Default to
+          - type: conditional
+            conditions:
+              - condition: state
+                entity: input_select.hba_strategy_dynamic_default
+                state: "Solar-aware"
+            card:
+              type: tile
+              entity: input_select.hba_strategy_dynamic_default
+              name: Solar-aware settings →
+              icon: mdi:weather-sunny
+              tap_action:
+                action: navigate
+                navigation_path: /home-battery-assistant/advanced-settings
+              hide_state: true
+              color: amber
           - type: heading
             icon: mdi:timeline-clock-outline
             heading: Cheap periods
@@ -2989,71 +3451,71 @@ views:
             heading_style: title
             icon: mdi:chart-bar
           - type: markdown
-            content: >-
+            content: |-
               <small><small>
 
-
               | Time | Today ¢ | Mark | Trend | · | Tomorrow ¢ | Mark | Trend |
-
               |:---:|---:|:---:|:---:|:---:|---:|:---:|:---:|
-
               {% set s = 'sensor.hba_energy_prices_data' %}
-
-              {%- set prices = state_attr(s, 'prices') or [] -%}
-
               {%- set marks_raw = state_attr(s, 'marks') -%}
-              {%- set marks  = (marks_raw | from_json) if marks_raw is string and marks_raw | trim != '' else (marks_raw or []) -%}
-
+              {%- set marks = (marks_raw | from_json) if marks_raw is string and (marks_raw | trim)[:1] == '[' else (marks_raw if marks_raw is sequence else []) -%}
               {%- set pph    = state_attr(s, 'datapoints_per_hour') | default(1, true) | int -%}
-
               {%- set ppd    = 24 * pph -%}
-
               {%- set step   = (60 / pph) | int -%}
-
+              {%- set step_sec = (3600 / pph) | int -%}
               {%- set bars   = ['▁','▂','▃','▄','▅','▆','▇','█'] -%}
-
-              {%- set t_prices = prices[:ppd] if (prices | length) >= ppd else prices -%}
-              {%- set m_prices = prices[ppd:ppd*2] if (prices | length) >= ppd*2 else [] -%}
-              {%- set t_pmin = (t_prices | min) if t_prices else 0 -%}
-              {%- set t_pmax = (t_prices | max) if t_prices else 0 -%}
-              {%- set t_rng  = t_pmax - t_pmin -%}
-              {%- set m_pmin = (m_prices | min) if m_prices else 0 -%}
-              {%- set m_pmax = (m_prices | max) if m_prices else 0 -%}
-              {%- set m_rng  = m_pmax - m_pmin -%}
-
-              {%- set current_idx = now().hour * pph + (now().minute // step) -%}
-
-              {%- if prices and (prices | length) >= ppd -%}
+              {#- Bucket each slot into its own day by TIMESTAMP, never by list position.
+                  Slicing prices[:24] / prices[24:48] assumed the source always delivers exactly
+                  one complete day followed by another. When the Frank Energie integration
+                  repeated today's prices instead of fetching tomorrow's, that split rendered
+                  00:00-11:00 as "Today" and 12:00-23:00 as "Tomorrow" -- so genuinely cheap
+                  midday hours appeared as cheap night hours. Bucketing by timestamp is correct
+                  for a repeated, partial, missing or shifted day alike. -#}
+              {%- set day0 = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0)) | int -%}
+              {%- set day1 = day0 + 86400 -%}
+              {%- set day2 = day1 + 86400 -%}
+              {%- set ns = namespace(t={}, m={}, nowidx=-1) -%}
+              {%- for e in marks -%}
+                {%- set ts = as_timestamp(e.start, 0) | int -%}
+                {%- if ts >= day0 and ts < day1 -%}
+                  {%- set idx = ((ts - day0) / step_sec) | int -%}
+                  {%- set ns.t = ns.t | combine({ idx | string: e }) -%}
+                  {%- if e.is_now -%}{%- set ns.nowidx = idx -%}{%- endif -%}
+                {%- elif ts >= day1 and ts < day2 -%}
+                  {%- set idx = ((ts - day1) / step_sec) | int -%}
+                  {%- set ns.m = ns.m | combine({ idx | string: e }) -%}
+                {%- endif -%}
+              {%- endfor -%}
+              {%- set t_vals = ns.t.values() | map(attribute='price') | list -%}
+              {%- set m_vals = ns.m.values() | map(attribute='price') | list -%}
+              {%- set t_pmin = (t_vals | min) if t_vals else 0 -%} {%- set t_pmax = (t_vals | max) if t_vals else 0 -%} {%- set t_rng = t_pmax - t_pmin -%}
+              {%- set m_pmin = (m_vals | min) if m_vals else 0 -%} {%- set m_pmax = (m_vals | max) if m_vals else 0 -%} {%- set m_rng = m_pmax - m_pmin -%}
+              {%- if t_vals -%}
                 {%- for i in range(ppd) -%}
-                  {%- set t_price   = prices[i] -%}
-                  {%- set t_idx     = i + ppd -%}
-                  {%- set tom_price = prices[t_idx] if (prices | length) > t_idx else none -%}
+                  {%- set te = ns.t.get(i | string) -%}
+                  {%- set me = ns.m.get(i | string) -%}
+                  {%- set t_price   = te.price if te else none -%}
+                  {%- set tom_price = me.price if me else none -%}
                   {%- set hour      = (i // pph) | int -%}
                   {%- set minute    = (i % pph) * step -%}
-                  {%- set t_mark    = marks[i].mark if (marks | length) > i else none -%}
-                  {%- set tom_mark  = marks[t_idx].mark if (marks | length) > t_idx else none -%}
-                  {%- set t_bar     = bars[((t_price - t_pmin) / t_rng * 7) | round(0) | int] if t_rng > 0 else bars[0] -%}
+                  {%- set t_mark    = te.mark if te else none -%}
+                  {%- set tom_mark  = me.mark if me else none -%}
+                  {%- set t_bar     = (bars[((t_price - t_pmin) / t_rng * 7) | round(0) | int] if (t_price is not none and t_rng > 0) else (bars[0] if t_price is not none else '-')) -%}
                   {%- set tom_bar   = (bars[((tom_price - m_pmin) / m_rng * 7) | round(0) | int] if (tom_price is not none and m_rng > 0) else (bars[0] if tom_price is not none else '-')) -%}
-                  {%- set t_emoji   = '🟠' if t_mark == 'high' else ('🟢' if t_mark == 'low' else '—') -%}
+                  {%- set t_emoji   = '🟠' if t_mark == 'high' else ('🟢' if t_mark == 'low' else ('—' if t_price is not none else '-')) -%}
                   {%- set tom_emoji = '🟠' if tom_mark == 'high' else ('🟢' if tom_mark == 'low' else ('—' if tom_price is not none else '-')) -%}
-                  | {% if i == current_idx %}<font color="#009ac7">{{ "%02d"|format(hour) }}:{{ "%02d"|format(minute) }}</font>{% else %}{{ "%02d"|format(hour) }}:{{ "%02d"|format(minute) }}{% endif %} | {% if i == current_idx %}<font color="#009ac7">{{ "%0.1f"|format(t_price) }}</font>{% elif t_mark == 'high' %}<font color="orange">{{ "%0.1f"|format(t_price) }}</font>{% elif t_mark == 'low' %}<font color="#4caf50">{{ "%0.1f"|format(t_price) }}</font>{% else %}{{ "%0.1f"|format(t_price) }}{% endif %} | {{ t_emoji }} | {% if i == current_idx %}<font color="#009ac7">{{ t_bar }}</font>{% elif t_mark == 'high' %}<font color="orange">{{ t_bar }}</font>{% elif t_mark == 'low' %}<font color="#4caf50">{{ t_bar }}</font>{% else %}{{ t_bar }}{% endif %} | | {% if tom_price is not none %}{% if tom_mark == 'high' %}<font color="orange">{{ "%0.1f"|format(tom_price) }}</font>{% elif tom_mark == 'low' %}<font color="#4caf50">{{ "%0.1f"|format(tom_price) }}</font>{% else %}{{ "%0.1f"|format(tom_price) }}{% endif %}{% else %}-{% endif %} | {{ tom_emoji }} | {% if tom_mark == 'high' %}<font color="orange">{{ tom_bar }}</font>{% elif tom_mark == 'low' %}<font color="#4caf50">{{ tom_bar }}</font>{% else %}{{ tom_bar }}{% endif %} |
+                  | {% if i == ns.nowidx %}<font color="#009ac7">{{ "%02d"|format(hour) }}:{{ "%02d"|format(minute) }}</font>{% else %}{{ "%02d"|format(hour) }}:{{ "%02d"|format(minute) }}{% endif %} | {% if t_price is none %}-{% elif i == ns.nowidx %}<font color="#009ac7">{{ "%0.1f"|format(t_price) }}</font>{% elif t_mark == 'high' %}<font color="orange">{{ "%0.1f"|format(t_price) }}</font>{% elif t_mark == 'low' %}<font color="#4caf50">{{ "%0.1f"|format(t_price) }}</font>{% else %}{{ "%0.1f"|format(t_price) }}{% endif %} | {{ t_emoji }} | {% if i == ns.nowidx %}<font color="#009ac7">{{ t_bar }}</font>{% elif t_mark == 'high' %}<font color="orange">{{ t_bar }}</font>{% elif t_mark == 'low' %}<font color="#4caf50">{{ t_bar }}</font>{% else %}{{ t_bar }}{% endif %} | | {% if tom_price is not none %}{% if tom_mark == 'high' %}<font color="orange">{{ "%0.1f"|format(tom_price) }}</font>{% elif tom_mark == 'low' %}<font color="#4caf50">{{ "%0.1f"|format(tom_price) }}</font>{% else %}{{ "%0.1f"|format(tom_price) }}{% endif %}{% else %}-{% endif %} | {{ tom_emoji }} | {% if tom_mark == 'high' %}<font color="orange">{{ tom_bar }}</font>{% elif tom_mark == 'low' %}<font color="#4caf50">{{ tom_bar }}</font>{% else %}{{ tom_bar }}{% endif %} |
                 {% endfor %}
               {%- else -%}
                 | - | *Insufficient data available...* | - | - | | - | - | - |
               {% endif %}
 
-
-              **Today**
-              Range: {{ "%0.1f"|format(t_pmin) }} – {{ "%0.1f"|format(t_pmax) }} ¢
-              Spread: {{ "%0.1f"|format(t_rng) }} ¢
-
-              {%- if m_prices %}
-
-              **Tomorrow**
-              Range: {{ "%0.1f"|format(m_pmin) }} – {{ "%0.1f"|format(m_pmax) }} ¢
-              Spread: {{ "%0.1f"|format(m_rng) }} ¢
+              **Today** {{ t_vals | length }}/{{ ppd }} slots · Range: {{ "%0.1f"|format(t_pmin) }} – {{ "%0.1f"|format(t_pmax) }} ¢ Spread: {{ "%0.1f"|format(t_rng) }} ¢
+              {%- if m_vals %}
+              **Tomorrow** {{ m_vals | length }}/{{ ppd }} slots · Range: {{ "%0.1f"|format(m_pmin) }} – {{ "%0.1f"|format(m_pmax) }} ¢ Spread: {{ "%0.1f"|format(m_rng) }} ¢
+              {%- else %}
+              **Tomorrow** _not published yet_
               {%- endif %}
-
 
               </small></small>
 
@@ -3142,7 +3604,7 @@ views:
         type: markdown
         text_only: true
         content: >-
-          ### EV Charge *(HBA v4.10.1-r11)*
+          ### EV Charge *(HBA v4.10.1-r21)*
 
 
           **HBA-specific feature** — not part of HBC. Configures the EV stop
@@ -3188,25 +3650,50 @@ views:
               columns: full
           - type: markdown
             content: >-
-              <font color=grey>The EV stop trigger should indicate whether a
-              Full Stop has been triggered. Trigger **on** = batteries in Full
-              stop.</font>
+              <font color=grey>The EV stop trigger indicates the EV is charging.
+              Trigger **on** = batteries follow the strategy selected below
+              instead of the active strategy.</font>
             text_only: true
           - type: tile
-            entity: input_boolean.hba_control_has_power_limit_during_ev_charge
-            name: Keep peak shaving active during EV stop
+            entity: input_select.hba_control_strategy_during_ev_charge
+            name: Strategy during EV charge
             color: blue
             vertical: false
-            hide_state: true
             features_position: bottom
             grid_options:
               columns: full
           - type: markdown
             content: >-
-              <font color=grey>When enabled, batteries still respond to import/export
-              power limits while the EV stop trigger is active (uses Standby / peak
-              shave strategy instead of Full stop).</font>
+              <font color=grey>**Full stop** — batteries idle while the EV charges.
+              **Standby / peak shave** — idle, but still respond to import/export
+              power limits. **Charge PV** — charge the solar surplus the EV cannot
+              take (e.g. between 1-phase max and the 3-phase switch threshold);
+              discharge stays disabled, so the batteries never compete with the
+              charger.</font>
             text_only: true
+          - type: entities
+            entities:
+              - entity: input_text.hba_strategy_ev_saturated_entity_id
+                name: EV charger saturated entity
+                secondary_info: none
+            visibility:
+              - condition: state
+                entity: input_select.hba_control_strategy_during_ev_charge
+                state: "Charge PV"
+          - type: markdown
+            content: >-
+              <font color=grey>**Saturated entity**: a binary_sensor from the
+              EV side that is on when the charger cannot take more power
+              (pinned at its current limit or derated by load balancing). When
+              set, Charge PV only runs while the charger is saturated, so the
+              batteries never compete with the charger's own regulation.
+              Example: `binary_sensor.ev_charger_saturated`. Leave empty to
+              run Charge PV whenever the EV charges.</font>
+            text_only: true
+            visibility:
+              - condition: state
+                entity: input_select.hba_control_strategy_during_ev_charge
+                state: "Charge PV"
 
       - type: grid
         cards:
@@ -3309,7 +3796,7 @@ views:
         type: markdown
         text_only: true
         content: >-
-          ### Notifications *(HBA v4.10.1-r11)*
+          ### Notifications *(HBA v4.10.1-r21)*
 
 
           **HBA-specific feature** — not part of HBC. Configure where HBA

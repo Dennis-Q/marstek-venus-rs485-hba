@@ -17,9 +17,6 @@ input_boolean:
   hba_control_onboarding_finished:
     name: "Finish onboarding"
     icon: mdi:check-circle-outline
-  hba_control_has_power_limit_during_ev_charge:
-    name: "Keep peak shaving during EV stop"
-    icon: mdi:car-electric-outline
   hba_battery_assist_enabled:
     name: "Battery assist enabled"
     icon: mdi:battery-arrow-up
@@ -143,6 +140,22 @@ input_number:
     mode: box
     unit_of_measurement: min
     icon: mdi:timer-pause
+  # Modbus write de-duplication. hba_write_battery skips a battery's three
+  # register writes when the command is unchanged, but re-sends them at least
+  # this often so a battery that silently drops its setpoint recovers on its
+  # own. Each Modbus write costs ~150 ms and blocks the control loop, and ~78 %
+  # of the writes in the naive every-cycle scheme are redundant — skipping them
+  # roughly halves the loop period under load.
+  # Set to 0 to disable de-duplication entirely (write every cycle, pre-r15
+  # behaviour) if your firmware turns out to need the constant refresh.
+  hba_control_write_refresh_secs:
+    name: "Modbus command refresh interval"
+    min: 0
+    max: 300
+    step: 5
+    mode: box
+    unit_of_measurement: s
+    icon: mdi:refresh-circle
   hba_control_kp:
     name: "PID Kp (proportional)"
     min: 0
@@ -367,6 +380,22 @@ input_number:
     unit_of_measurement: h
     mode: box
     icon: mdi:clock-plus-outline
+  hba_strategy_solar_aware_forecast_threshold_kwh:
+    name: "Solar-aware forecast threshold"
+    min: 0
+    max: 100
+    step: 1
+    unit_of_measurement: kWh
+    mode: box
+    icon: mdi:weather-sunny
+  hba_strategy_solar_aware_house_load:
+    name: "Solar-aware house load"
+    min: 0
+    max: 5000
+    step: 100
+    mode: box
+    unit_of_measurement: W
+    icon: mdi:home-lightning-bolt-outline
   hba_strategy_dynamic_threshold_cheapest_period:
     name: "Cheap period max tariff"
     min: 0
@@ -524,6 +553,38 @@ input_text:
     name: "Active strategy flow"
     max: 255
     icon: mdi:sitemap
+  # ── Last-commanded register cache (Modbus write de-duplication) ─────────────
+  # Format: "<mode>|<charge_w>|<discharge_w>|<epoch>", e.g.
+  # "discharge|723|723|1785300000". hba_write_battery compares the desired
+  # triple against this before touching Modbus and skips identical commands
+  # until hba_control_write_refresh_secs has elapsed.
+  #
+  # Written by HBA only — never edit by hand. Clearing one is always safe: an
+  # empty or unparsable value simply forces a write on the next cycle.
+  hba_last_cmd_m1:
+    name: "Battery M1 last command"
+    max: 60
+    icon: mdi:content-save-cog
+  hba_last_cmd_m2:
+    name: "Battery M2 last command"
+    max: 60
+    icon: mdi:content-save-cog
+  hba_last_cmd_m3:
+    name: "Battery M3 last command"
+    max: 60
+    icon: mdi:content-save-cog
+  hba_last_cmd_m4:
+    name: "Battery M4 last command"
+    max: 60
+    icon: mdi:content-save-cog
+  hba_last_cmd_m5:
+    name: "Battery M5 last command"
+    max: 60
+    icon: mdi:content-save-cog
+  hba_last_cmd_m6:
+    name: "Battery M6 last command"
+    max: 60
+    icon: mdi:content-save-cog
   hba_control_cycle_state:
     name: "PID cycle state"
     max: 100
@@ -532,6 +593,18 @@ input_text:
     name: "EV charging entity_id"
     max: 100
     icon: mdi:car-electric
+  # Optional binary_sensor published by the EV side that is 'on' when the
+  # charger cannot take more power (pinned at its current limit or derated
+  # by CT/household load balancing). When configured, "Charge PV" during EV
+  # charge only runs while this is 'on' — the batteries wake up only when
+  # the charger genuinely leaves surplus behind, so the two controllers
+  # never regulate the same watts. Leave empty to run Charge PV whenever
+  # the EV charges (previous behaviour).
+  # Example (ha-smart-ev-charging): binary_sensor.ev_charger_saturated
+  hba_strategy_ev_saturated_entity_id:
+    name: "EV charger saturated entity_id"
+    max: 100
+    icon: mdi:car-speed-limiter
   hba_strategy_dynamic_frank_sensor_entity_id:
     name: "Frank Energie prices sensor entity_id"
     max: 150
@@ -544,6 +617,15 @@ input_text:
     name: "Solar forecast tomorrow (entity_id)"
     max: 100
     icon: mdi:solar-power-variant
+  # Solar-aware reads the half-hourly `detailedForecast` attribute, which only the
+  # whole-day Solcast sensors carry — so it needs its own entity, separate from the
+  # Charge goal above. That one may legitimately point at …_forecast_remaining_today
+  # (state only), which would leave Solar-aware stuck on "No solar detail".
+  # Leave empty to fall back to hba_strategy_solar_forecast_entity_id.
+  hba_strategy_solar_aware_forecast_entity_id:
+    name: "Solar-aware detailed forecast (entity_id)"
+    max: 100
+    icon: mdi:sun-clock
   hba_notify_entity_id:
     name: "Notify entity_id"
     max: 100
@@ -575,6 +657,61 @@ input_select:
       - "Zero import"
       - "Standby / peak shave"
     icon: mdi:strategy
+  # What the batteries do while the EV stop trigger is active (EV is charging).
+  #   Full stop            — batteries idle (original behaviour)
+  #   Standby / peak shave — batteries idle but still respond to import/export
+  #                          power limits (former behaviour of the removed
+  #                          input_boolean.hba_control_has_power_limit_during_ev_charge;
+  #                          if you had that boolean ON, select this option once)
+  #   Charge PV            — batteries charge the solar residual the EV cannot
+  #                          take (e.g. surplus pinned between 1-phase max and the
+  #                          3-phase switch threshold). Discharge stays disabled,
+  #                          so the batteries can never compete with the charger:
+  #                          they only absorb what the EV leaves on the grid.
+  #                          Note: this assumes the EV controller adds battery
+  #                          charging power back into its surplus signal (the
+  #                          ha-smart-ev-charging project does). A solar-tracking
+  #                          charger without battery awareness would see its
+  #                          surplus shrink and back off — pick Full stop or
+  #                          Standby with such a setup.
+  hba_control_strategy_during_ev_charge:
+    name: "Strategy during EV charge"
+    options:
+      - "Full stop"
+      - "Standby / peak shave"
+      - "Charge PV"
+    icon: mdi:car-electric-outline
+  # PID presets. The four everyday presets use Kp 0.35 / Kd 0.1 / damping 20-10 and
+  # differ ONLY in Ki. "Low peak (grid limit)" is the exception -- see below.
+  #
+  # Kp 0.35 is the MEASURED optimum, bracketed on both sides against a real 2250 W
+  # load on production (Ki held at 0.22): cost per disturbance 0.74 / 0.61 / 0.71 ct
+  # at Kp 0.20 / 0.35 / 0.55. Lower Kp gives a higher peak but a faster tail, higher Kp
+  # the reverse, and both cost more overall.
+  #
+  # NB the idealised algebra says energy should be Kp-independent (the (1+Kp) cancels
+  # between the initial excursion and the decay rate). That is WRONG for this plant --
+  # it assumes an instantaneous actuator and no dead time, whereas the loop has ~1.6 s
+  # of sensing delay and a Marstek slewing at ~460 W/s. Measurement over three nights
+  # falsified it. The formulas still predict the PEAK accurately (Kp 0.20 measured
+  # +12.7 % against a predicted +12.4 %); just do not use them for energy.
+  #
+  # If transient PEAKS matter more than energy, do NOT reach for Kp. Output dampening is
+  # the better lever and it is what "Low peak (grid limit)" changes: dropping it 10 % -> 0
+  # cut the peak 1630 -> 1320 W (-19 %) on the 2250 W production load with no cost penalty
+  # (0.79 -> 0.65 ct, n.s.), where Kp 0.55 buys 8 % of peak for 16 % more cost. Measured
+  # 2026-08-06, arms interleaved per pulse with everything else held equal.
+  #
+  # "Peak" here means the INSTANTANEOUS excursion, over a few seconds. It does nothing for
+  # the Dutch capaciteitstarief, which bills the monthly maximum of 15-minute averages --
+  # 300 W for 3 s moves a 15-min average by under 1 W. Use power_limit_import for that.
+  # This preset is for a fuse or a contracted connection cap, where 1600 W of transient is
+  # ~7 A on a phase.
+  #
+  # Ki values are calibrated for a ~1.1 s control loop, i.e. with Modbus write
+  # de-duplication enabled (input_number.hba_control_write_refresh_secs > 0, v4.10.1-r15+).
+  # With de-duplication off the loop runs at ~2.2 s and the integrator accumulates half
+  # as fast per second, so every preset behaves roughly one step slower than its name.
   hba_control_pid_presets:
     name: "PID presets"
     options:
@@ -582,7 +719,8 @@ input_select:
       - "Very safe"
       - "Safe"
       - "Regular"
-      - "Regular (original HBC)"
+      - "Responsive"
+      - "Low peak (grid limit)"
     icon: mdi:tune
   hba_strategy_timed_strat_0:
     name: "Timed baseline strategy"
@@ -647,6 +785,7 @@ input_select:
       - "Self-consumption"
       - "Zero import"
       - "Standby / peak shave"
+      - "Solar-aware"
       - "Full stop"
     icon: mdi:battery-sync
   hba_strategy_dynamic_cheapest:
@@ -688,6 +827,7 @@ input_select:
       - "Sell"
       - "Zero import"
       - "Standby / peak shave"
+      - "Solar-aware"
     icon: mdi:battery-check-outline
   hba_strategy_sell_goal_reached:
     name: "When done selling, switch to"
@@ -698,6 +838,7 @@ input_select:
       - "Zero import"
       - "Charge"
       - "Standby / peak shave"
+      - "Solar-aware"
     icon: mdi:battery-arrow-down-outline
   hba_control_priority_change_interval:
     name: "Priority battery change interval"
@@ -713,10 +854,10 @@ template:
       - name: "HBA Version"
         unique_id: hba_version
         icon: mdi:tag
-        state: "v4.10.1-r11"
+        state: "v4.10.1-r21"
 
       - name: "HBA Active strategy"
-        unique_id: hba_strategy_active_sub_strategy
+        unique_id: hba_active_strategy
         icon: mdi:list-status
         state: >
           {% set flow = states('input_text.hba_strategy_active_flow') %}
@@ -869,7 +1010,7 @@ template:
           {% endfor %}
           {{ (ns.total / count) | round(1) }}
 
-      - name: "Estimated Profit per kWh"
+      - name: "HBA Estimated Profit per kWh"
         unique_id: hba_estimated_profit_per_kwh
         unit_of_measurement: "ct/kWh"
         icon: mdi:currency-eur
@@ -1013,7 +1154,7 @@ template:
           {% set threshold = states('input_number.hba_strategy_dynamic_threshold_delta') | float(0) %}
           {{ delta >= threshold }}
       - name: "HBA Is Charging"
-        unique_id: hba_control_is_charging
+        unique_id: hba_is_charging
         device_class: battery_charging
         icon: mdi:battery-charging
         state: "{{ states('sensor.hba_total_commanded_power') | float(0) > 0 }}"
@@ -1052,7 +1193,7 @@ template:
           {% set solar_surplus = [forecast - threshold, 0] | max %}
           {{ solar_surplus >= ns.energy_max }}
       - name: "HBA Charge Goal Reached"
-        unique_id: hba_strategy_charge_goal_reached
+        unique_id: hba_charge_goal_reached
         icon: mdi:battery-check
         state: >
           {% if states('input_select.hba_strategy') != 'Charge' %}
@@ -1123,7 +1264,79 @@ template:
           {% set in_window = (now() >= start_dt or now() < end_dt) if overnight else (start_dt <= now() < end_dt) %}
           {% set car_e     = states('input_text.hba_battery_assist_car_connected_entity') | trim %}
           {% set car_ok    = car_e in ['', 'unknown', 'unavailable'] or is_state(car_e, 'on') %}
-          {{ enabled and soc > min_soc and in_window and car_ok }}
+          {# At least one battery must be individually dischargeable — same
+             eligibility as the hba_set_batteries discharge branch (per-battery
+             cutoff + 0.5 buffer, inverter not faulted). The average-SoC check
+             alone can stay true while every battery is at its own cutoff
+             (unbalanced pack, or min_soc <= cutoffs): assist then keeps the EV
+             in battery_assist mode charging from grid with 0 W coming from the
+             batteries (observed in production 2026-07-17, ~48 min of 4 kW
+             grid import). #}
+          {% set count = states('input_number.hba_battery_count') | int(1) %}
+          {% set ns = namespace(dischargeable=false) %}
+          {% for i in range(1, count + 1) %}
+            {% set b_soc = states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') | float(0) %}
+            {% set b_cut = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) %}
+            {% set inv   = states('sensor.marstek_m' ~ i ~ '_inverter_state') %}
+            {% if b_soc > b_cut + 0.5 and inv not in ['Fault', 'unknown', 'unavailable'] %}
+              {% set ns.dischargeable = true %}
+            {% endif %}
+          {% endfor %}
+          {# The stalled watchdog (below) releases assist when the pack is
+             commanded to discharge but delivers nothing — behaviour the SoC
+             model above cannot see (e.g. V3 firmware refuses below ~13%
+             regardless of the configured cutoff). 'not on' so an unknown
+             sensor at startup does not block assist. #}
+          {{ enabled and soc > min_soc and ns.dischargeable and in_window and car_ok
+             and not is_state('binary_sensor.hba_battery_assist_stalled', 'on') }}
+
+      # Stall watchdog for the Timed EV charge push: ON when assist is actively
+      # commanding discharge ("Discharge to EV" is written by exactly one
+      # dispatch branch) but the pack has delivered < 150 W for 3+ continuous
+      # minutes — the BMS is refusing (firmware SoC floor, thermal, fault) or
+      # the Modbus writes are being silently ignored. While ON, assist_active
+      # drops, the EV side leaves battery_assist mode and stops the charger —
+      # without this the EV keeps charging at full grid power indefinitely
+      # (production 2026-07-17: ~48 min of ~4 kW grid import).
+      # Deliberately stateless — no latch to get stuck: delay_off IS the
+      # hold-off. Once assist drops, the raw condition goes false (the active
+      # strategy changes), the 30-min delay_off starts, and assist gets one
+      # clean retry per hold-off period; a persistent stall re-trips after
+      # 3 min (bounded: ~3 min grid draw per 30 min, with a push each trip).
+      # The active-strategy condition inherently excludes the two legitimate
+      # low-power states: assist-waiting (dispatch runs the fallback strategy)
+      # and the grid-overflow branch (label ends in "Self-consumption").
+      - name: "HBA Battery Assist Stalled"
+        unique_id: hba_battery_assist_stalled
+        icon: mdi:battery-off-outline
+        delay_on: "00:03:00"
+        delay_off: "00:30:00"
+        state: >
+          {{ is_state('binary_sensor.hba_battery_assist_active', 'on')
+             and states('sensor.hba_active_strategy') == 'Discharge to EV'
+             and states('sensor.hba_total_battery_power') | float(0) < 150 }}
+
+      # ON when Timed EV charge is armed but the EV has not drawn power for
+      # 3+ minutes since assist activated — charger may need a tag scan, or the
+      # car paused itself (charge limit, schedule, app). While this is on,
+      # hba_run_strategy abstains from the assist push and falls through to the
+      # configured strategy, instead of cycling battery power to the grid via
+      # the overflow guard. Clears (and assist resumes on the next control
+      # cycle) as soon as the EV-charging entity turns on.
+      # Requires input_text.hba_strategy_ev_sensor_entity_id to be configured;
+      # without it this sensor stays off and assist behaves as before.
+      # The 3-minute grace covers session start: the assist push is what
+      # creates the export the EV controller ramps up on.
+      - name: "HBA Battery Assist Waiting"
+        unique_id: hba_battery_assist_waiting
+        icon: mdi:timer-sand
+        state: >
+          {% set ev_e = states('input_text.hba_strategy_ev_sensor_entity_id') | trim %}
+          {% set assist = states.binary_sensor.hba_battery_assist_active %}
+          {{ assist is not none and assist.state == 'on'
+             and ev_e not in ['', 'unknown', 'unavailable']
+             and not is_state(ev_e, 'on')
+             and (now() - assist.last_changed).total_seconds() > 180 }}
 
       - name: "HBA Grid Exporting Sustained"
         unique_id: hba_grid_exporting_sustained
@@ -1131,7 +1344,7 @@ template:
         state: >
           {{ states('sensor.p1_meter_power') | float(0) < -1000
              and states('sensor.hba_total_battery_power') | float(0) > 500 }}
-        delay_on: "00:02:00"
+        delay_on: "00:01:00"
         delay_off: "00:00:30"
 
       - name: "HBA Notify Target Invalid"
@@ -1158,6 +1371,378 @@ template:
             {%- endfor -%}
             {{ ns.result }}
 
+      # ── Per-battery RS485 non-response detection ──────────────────────────────
+      # Turns on (delay_on 60 s) when a battery has RS485 enabled, is being commanded
+      # ≥ 300 W charge or discharge, but its actual AC output differs from the commanded
+      # value by more than 15%. Typical causes: BMS blocking near SoC cutoff, or the
+      # battery silently rejecting a Modbus write (e.g. after a BMS fault).
+      # Notification: see hba_notify_battery_not_responding in hba_strategies_core.yaml.
+      - name: "HBA Marstek M1 Not Responding"
+        unique_id: hba_marstek_m1_not_responding
+        device_class: problem
+        icon: mdi:battery-alert
+        # 60 s, not 30 s. The commanded registers are rewritten every ~1 s while
+        # sensor.marstek_m1_ac_power only polls every ~10 s, AND the Marstek slews at
+        # only ~460 W/s -- so during any ramp the measurement legitimately trails the
+        # command by well over 15 %, for as long as the ramp lasts. At 30 s that fired on
+        # ordinary regulation: three alerts over 2026-08-01..03, two of which resolved
+        # within 1 and 6 seconds.
+        #
+        # 60 s is measured, not guessed: replaying the condition second-by-second over
+        # 59.7 h of production gave 4,722 true-runs across the three batteries with a
+        # LONGEST run of 37 s and p90 of 10 s. 30 s produced 3 alerts (matching reality);
+        # 45 s and above produced none. 60 s leaves ~62 % headroom over the worst observed
+        # ramp while keeping detection of a real fault reasonably prompt.
+        #
+        # Raising the ac_power poll rate instead was considered and rejected: it cannot
+        # remove the slew-driven error, and the extra Modbus reads compete with the
+        # control writes on the same hub.
+        delay_on: "00:01:00"
+        state: >
+          {% if states('select.marstek_m1_rs485_control_mode') != 'enable' %}
+            false
+          {% else %}
+            {% set d = states('select.marstek_m1_forcible_charge_discharge') %}
+            {% set soc = states('sensor.marstek_m1_battery_state_of_charge') | float(-1) %}
+            {% set soc_min = states('input_number.hba_marstek_m1_discharging_cutoff_capacity') | float(13) %}
+            {% set soc_max = states('input_number.hba_marstek_m1_charging_cutoff_capacity') | float(100) %}
+            {% if d == 'discharge' %}
+              {% set cmd = states('number.marstek_m1_forcible_discharge_power') | float(0) %}
+              {# near-empty: the BMS declining to discharge is physics, not a fault #}
+              {% set at_limit = soc >= 0 and soc <= soc_min + 3 %}
+            {% elif d == 'charge' %}
+              {% set cmd = -(states('number.marstek_m1_forcible_charge_power') | float(0)) %}
+              {% set at_limit = soc >= 0 and soc >= soc_max - 3 %}
+            {% else %}
+              {% set cmd = 0 %}
+              {% set at_limit = false %}
+            {% endif %}
+            {% if at_limit or cmd | abs < 300 %}
+              false
+            {% else %}
+              {{ (states('sensor.marstek_m1_ac_power') | float(0) - cmd) | abs > cmd | abs * 0.15 }}
+            {% endif %}
+          {% endif %}
+
+      - name: "HBA Marstek M2 Not Responding"
+        unique_id: hba_marstek_m2_not_responding
+        device_class: problem
+        icon: mdi:battery-alert
+        # 60 s, not 30 s. The commanded registers are rewritten every ~1 s while
+        # sensor.marstek_m2_ac_power only polls every ~10 s, AND the Marstek slews at
+        # only ~460 W/s -- so during any ramp the measurement legitimately trails the
+        # command by well over 15 %, for as long as the ramp lasts. At 30 s that fired on
+        # ordinary regulation: three alerts over 2026-08-01..03, two of which resolved
+        # within 1 and 6 seconds.
+        #
+        # 60 s is measured, not guessed: replaying the condition second-by-second over
+        # 59.7 h of production gave 4,722 true-runs across the three batteries with a
+        # LONGEST run of 37 s and p90 of 10 s. 30 s produced 3 alerts (matching reality);
+        # 45 s and above produced none. 60 s leaves ~62 % headroom over the worst observed
+        # ramp while keeping detection of a real fault reasonably prompt.
+        #
+        # Raising the ac_power poll rate instead was considered and rejected: it cannot
+        # remove the slew-driven error, and the extra Modbus reads compete with the
+        # control writes on the same hub.
+        delay_on: "00:01:00"
+        state: >
+          {% if states('input_number.hba_battery_count') | int(1) < 2
+               or states('select.marstek_m2_rs485_control_mode') != 'enable' %}
+            false
+          {% else %}
+            {% set d = states('select.marstek_m2_forcible_charge_discharge') %}
+            {% set soc = states('sensor.marstek_m2_battery_state_of_charge') | float(-1) %}
+            {% set soc_min = states('input_number.hba_marstek_m2_discharging_cutoff_capacity') | float(13) %}
+            {% set soc_max = states('input_number.hba_marstek_m2_charging_cutoff_capacity') | float(100) %}
+            {% if d == 'discharge' %}
+              {% set cmd = states('number.marstek_m2_forcible_discharge_power') | float(0) %}
+              {# near-empty: the BMS declining to discharge is physics, not a fault #}
+              {% set at_limit = soc >= 0 and soc <= soc_min + 3 %}
+            {% elif d == 'charge' %}
+              {% set cmd = -(states('number.marstek_m2_forcible_charge_power') | float(0)) %}
+              {% set at_limit = soc >= 0 and soc >= soc_max - 3 %}
+            {% else %}
+              {% set cmd = 0 %}
+              {% set at_limit = false %}
+            {% endif %}
+            {% if at_limit or cmd | abs < 300 %}
+              false
+            {% else %}
+              {{ (states('sensor.marstek_m2_ac_power') | float(0) - cmd) | abs > cmd | abs * 0.15 }}
+            {% endif %}
+          {% endif %}
+
+      - name: "HBA Marstek M3 Not Responding"
+        unique_id: hba_marstek_m3_not_responding
+        device_class: problem
+        icon: mdi:battery-alert
+        # 60 s, not 30 s. The commanded registers are rewritten every ~1 s while
+        # sensor.marstek_m3_ac_power only polls every ~10 s, AND the Marstek slews at
+        # only ~460 W/s -- so during any ramp the measurement legitimately trails the
+        # command by well over 15 %, for as long as the ramp lasts. At 30 s that fired on
+        # ordinary regulation: three alerts over 2026-08-01..03, two of which resolved
+        # within 1 and 6 seconds.
+        #
+        # 60 s is measured, not guessed: replaying the condition second-by-second over
+        # 59.7 h of production gave 4,722 true-runs across the three batteries with a
+        # LONGEST run of 37 s and p90 of 10 s. 30 s produced 3 alerts (matching reality);
+        # 45 s and above produced none. 60 s leaves ~62 % headroom over the worst observed
+        # ramp while keeping detection of a real fault reasonably prompt.
+        #
+        # Raising the ac_power poll rate instead was considered and rejected: it cannot
+        # remove the slew-driven error, and the extra Modbus reads compete with the
+        # control writes on the same hub.
+        delay_on: "00:01:00"
+        state: >
+          {% if states('input_number.hba_battery_count') | int(1) < 3
+               or states('select.marstek_m3_rs485_control_mode') != 'enable' %}
+            false
+          {% else %}
+            {% set d = states('select.marstek_m3_forcible_charge_discharge') %}
+            {% set soc = states('sensor.marstek_m3_battery_state_of_charge') | float(-1) %}
+            {% set soc_min = states('input_number.hba_marstek_m3_discharging_cutoff_capacity') | float(13) %}
+            {% set soc_max = states('input_number.hba_marstek_m3_charging_cutoff_capacity') | float(100) %}
+            {% if d == 'discharge' %}
+              {% set cmd = states('number.marstek_m3_forcible_discharge_power') | float(0) %}
+              {# near-empty: the BMS declining to discharge is physics, not a fault #}
+              {% set at_limit = soc >= 0 and soc <= soc_min + 3 %}
+            {% elif d == 'charge' %}
+              {% set cmd = -(states('number.marstek_m3_forcible_charge_power') | float(0)) %}
+              {% set at_limit = soc >= 0 and soc >= soc_max - 3 %}
+            {% else %}
+              {% set cmd = 0 %}
+              {% set at_limit = false %}
+            {% endif %}
+            {% if at_limit or cmd | abs < 300 %}
+              false
+            {% else %}
+              {{ (states('sensor.marstek_m3_ac_power') | float(0) - cmd) | abs > cmd | abs * 0.15 }}
+            {% endif %}
+          {% endif %}
+
+      - name: "HBA Marstek M4 Not Responding"
+        unique_id: hba_marstek_m4_not_responding
+        device_class: problem
+        icon: mdi:battery-alert
+        # 60 s, not 30 s. The commanded registers are rewritten every ~1 s while
+        # sensor.marstek_m4_ac_power only polls every ~10 s, AND the Marstek slews at
+        # only ~460 W/s -- so during any ramp the measurement legitimately trails the
+        # command by well over 15 %, for as long as the ramp lasts. At 30 s that fired on
+        # ordinary regulation: three alerts over 2026-08-01..03, two of which resolved
+        # within 1 and 6 seconds.
+        #
+        # 60 s is measured, not guessed: replaying the condition second-by-second over
+        # 59.7 h of production gave 4,722 true-runs across the three batteries with a
+        # LONGEST run of 37 s and p90 of 10 s. 30 s produced 3 alerts (matching reality);
+        # 45 s and above produced none. 60 s leaves ~62 % headroom over the worst observed
+        # ramp while keeping detection of a real fault reasonably prompt.
+        #
+        # Raising the ac_power poll rate instead was considered and rejected: it cannot
+        # remove the slew-driven error, and the extra Modbus reads compete with the
+        # control writes on the same hub.
+        delay_on: "00:01:00"
+        state: >
+          {% if states('input_number.hba_battery_count') | int(1) < 4
+               or states('select.marstek_m4_rs485_control_mode') != 'enable' %}
+            false
+          {% else %}
+            {% set d = states('select.marstek_m4_forcible_charge_discharge') %}
+            {% set soc = states('sensor.marstek_m4_battery_state_of_charge') | float(-1) %}
+            {% set soc_min = states('input_number.hba_marstek_m4_discharging_cutoff_capacity') | float(13) %}
+            {% set soc_max = states('input_number.hba_marstek_m4_charging_cutoff_capacity') | float(100) %}
+            {% if d == 'discharge' %}
+              {% set cmd = states('number.marstek_m4_forcible_discharge_power') | float(0) %}
+              {# near-empty: the BMS declining to discharge is physics, not a fault #}
+              {% set at_limit = soc >= 0 and soc <= soc_min + 3 %}
+            {% elif d == 'charge' %}
+              {% set cmd = -(states('number.marstek_m4_forcible_charge_power') | float(0)) %}
+              {% set at_limit = soc >= 0 and soc >= soc_max - 3 %}
+            {% else %}
+              {% set cmd = 0 %}
+              {% set at_limit = false %}
+            {% endif %}
+            {% if at_limit or cmd | abs < 300 %}
+              false
+            {% else %}
+              {{ (states('sensor.marstek_m4_ac_power') | float(0) - cmd) | abs > cmd | abs * 0.15 }}
+            {% endif %}
+          {% endif %}
+
+      - name: "HBA Marstek M5 Not Responding"
+        unique_id: hba_marstek_m5_not_responding
+        device_class: problem
+        icon: mdi:battery-alert
+        # 60 s, not 30 s. The commanded registers are rewritten every ~1 s while
+        # sensor.marstek_m5_ac_power only polls every ~10 s, AND the Marstek slews at
+        # only ~460 W/s -- so during any ramp the measurement legitimately trails the
+        # command by well over 15 %, for as long as the ramp lasts. At 30 s that fired on
+        # ordinary regulation: three alerts over 2026-08-01..03, two of which resolved
+        # within 1 and 6 seconds.
+        #
+        # 60 s is measured, not guessed: replaying the condition second-by-second over
+        # 59.7 h of production gave 4,722 true-runs across the three batteries with a
+        # LONGEST run of 37 s and p90 of 10 s. 30 s produced 3 alerts (matching reality);
+        # 45 s and above produced none. 60 s leaves ~62 % headroom over the worst observed
+        # ramp while keeping detection of a real fault reasonably prompt.
+        #
+        # Raising the ac_power poll rate instead was considered and rejected: it cannot
+        # remove the slew-driven error, and the extra Modbus reads compete with the
+        # control writes on the same hub.
+        delay_on: "00:01:00"
+        state: >
+          {% if states('input_number.hba_battery_count') | int(1) < 5
+               or states('select.marstek_m5_rs485_control_mode') != 'enable' %}
+            false
+          {% else %}
+            {% set d = states('select.marstek_m5_forcible_charge_discharge') %}
+            {% set soc = states('sensor.marstek_m5_battery_state_of_charge') | float(-1) %}
+            {% set soc_min = states('input_number.hba_marstek_m5_discharging_cutoff_capacity') | float(13) %}
+            {% set soc_max = states('input_number.hba_marstek_m5_charging_cutoff_capacity') | float(100) %}
+            {% if d == 'discharge' %}
+              {% set cmd = states('number.marstek_m5_forcible_discharge_power') | float(0) %}
+              {# near-empty: the BMS declining to discharge is physics, not a fault #}
+              {% set at_limit = soc >= 0 and soc <= soc_min + 3 %}
+            {% elif d == 'charge' %}
+              {% set cmd = -(states('number.marstek_m5_forcible_charge_power') | float(0)) %}
+              {% set at_limit = soc >= 0 and soc >= soc_max - 3 %}
+            {% else %}
+              {% set cmd = 0 %}
+              {% set at_limit = false %}
+            {% endif %}
+            {% if at_limit or cmd | abs < 300 %}
+              false
+            {% else %}
+              {{ (states('sensor.marstek_m5_ac_power') | float(0) - cmd) | abs > cmd | abs * 0.15 }}
+            {% endif %}
+          {% endif %}
+
+      - name: "HBA Marstek M6 Not Responding"
+        unique_id: hba_marstek_m6_not_responding
+        device_class: problem
+        icon: mdi:battery-alert
+        # 60 s, not 30 s. The commanded registers are rewritten every ~1 s while
+        # sensor.marstek_m6_ac_power only polls every ~10 s, AND the Marstek slews at
+        # only ~460 W/s -- so during any ramp the measurement legitimately trails the
+        # command by well over 15 %, for as long as the ramp lasts. At 30 s that fired on
+        # ordinary regulation: three alerts over 2026-08-01..03, two of which resolved
+        # within 1 and 6 seconds.
+        #
+        # 60 s is measured, not guessed: replaying the condition second-by-second over
+        # 59.7 h of production gave 4,722 true-runs across the three batteries with a
+        # LONGEST run of 37 s and p90 of 10 s. 30 s produced 3 alerts (matching reality);
+        # 45 s and above produced none. 60 s leaves ~62 % headroom over the worst observed
+        # ramp while keeping detection of a real fault reasonably prompt.
+        #
+        # Raising the ac_power poll rate instead was considered and rejected: it cannot
+        # remove the slew-driven error, and the extra Modbus reads compete with the
+        # control writes on the same hub.
+        delay_on: "00:01:00"
+        state: >
+          {% if states('input_number.hba_battery_count') | int(1) < 6
+               or states('select.marstek_m6_rs485_control_mode') != 'enable' %}
+            false
+          {% else %}
+            {% set d = states('select.marstek_m6_forcible_charge_discharge') %}
+            {% set soc = states('sensor.marstek_m6_battery_state_of_charge') | float(-1) %}
+            {% set soc_min = states('input_number.hba_marstek_m6_discharging_cutoff_capacity') | float(13) %}
+            {% set soc_max = states('input_number.hba_marstek_m6_charging_cutoff_capacity') | float(100) %}
+            {% if d == 'discharge' %}
+              {% set cmd = states('number.marstek_m6_forcible_discharge_power') | float(0) %}
+              {# near-empty: the BMS declining to discharge is physics, not a fault #}
+              {% set at_limit = soc >= 0 and soc <= soc_min + 3 %}
+            {% elif d == 'charge' %}
+              {% set cmd = -(states('number.marstek_m6_forcible_charge_power') | float(0)) %}
+              {% set at_limit = soc >= 0 and soc >= soc_max - 3 %}
+            {% else %}
+              {% set cmd = 0 %}
+              {% set at_limit = false %}
+            {% endif %}
+            {% if at_limit or cmd | abs < 300 %}
+              false
+            {% else %}
+              {{ (states('sensor.marstek_m6_ac_power') | float(0) - cmd) | abs > cmd | abs * 0.15 }}
+            {% endif %}
+          {% endif %}
+
+      # ── RS485 mode mismatch ───────────────────────────────────────────────────
+      # Turns on (delay_on 30 s) when HBA master mode is Full control but any
+      # configured battery has RS485 control != enable. The battery silently ignores
+      # all Modbus writes in this state — HBA appears to operate but has no effect.
+      # Notification: see hba_notify_rs485_mode_mismatch in hba_strategies_core.yaml.
+      - name: "HBA RS485 Mode Mismatch"
+        unique_id: hba_rs485_mode_mismatch
+        device_class: problem
+        icon: mdi:connection-off
+        delay_on: "00:00:30"
+        state: >
+          {% if not is_state('input_select.hba_marstek_master_battery_mode', 'Full control') %}
+            false
+          {% else %}
+            {% set count = states('input_number.hba_battery_count') | int(1) %}
+            {% set ns = namespace(mismatch=false) %}
+            {% for i in range(1, count + 1) %}
+              {% if states('select.marstek_m' ~ i ~ '_rs485_control_mode') != 'enable' %}
+                {% set ns.mismatch = true %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.mismatch }}
+          {% endif %}
+        attributes:
+          mismatched_batteries: >
+            {% set count = states('input_number.hba_battery_count') | int(1) %}
+            {% set ns = namespace(result=[]) %}
+            {% for i in range(1, count + 1) %}
+              {% if states('select.marstek_m' ~ i ~ '_rs485_control_mode') != 'enable' %}
+                {% set mode = states('select.marstek_m' ~ i ~ '_rs485_control_mode') %}
+                {% set ns.result = ns.result + ['M' ~ i ~ ' (' ~ mode ~ ')'] %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.result | join(', ') if ns.result else 'none' }}
+
+      # ── Entity health check ───────────────────────────────────────────────────
+      # Detects when HBA-managed entities are registered under the wrong entity_id.
+      # This typically happens on existing installs after an entity was renamed in a
+      # newer version: the entity registry keeps the old entity_id (derived from the
+      # previous name) and code references the new expected entity_id, causing silent
+      # failures. Fix by going to Settings → Entities and renaming the listed entities.
+      - name: "HBA Entity Health"
+        unique_id: hba_entity_health
+        device_class: problem
+        icon: mdi:stethoscope
+        state: >
+          {% set expected = [
+            'sensor.hba_active_strategy',
+            'binary_sensor.hba_is_charging',
+            'binary_sensor.hba_charge_goal_reached',
+            'sensor.hba_estimated_profit_per_kwh',
+            'binary_sensor.hba_marstek_m1_not_responding',
+            'binary_sensor.hba_marstek_m2_not_responding',
+            'binary_sensor.hba_marstek_m3_not_responding',
+            'binary_sensor.hba_marstek_m4_not_responding',
+            'binary_sensor.hba_marstek_m5_not_responding',
+            'binary_sensor.hba_marstek_m6_not_responding',
+          ] %}
+          {{ expected | reject('has_value') | list | length > 0 }}
+        attributes:
+          missing_entity_ids: >
+            {% set expected = [
+              'sensor.hba_active_strategy',
+              'binary_sensor.hba_is_charging',
+              'binary_sensor.hba_charge_goal_reached',
+              'sensor.hba_estimated_profit_per_kwh',
+              'binary_sensor.hba_marstek_m1_not_responding',
+              'binary_sensor.hba_marstek_m2_not_responding',
+              'binary_sensor.hba_marstek_m3_not_responding',
+              'binary_sensor.hba_marstek_m4_not_responding',
+              'binary_sensor.hba_marstek_m5_not_responding',
+              'binary_sensor.hba_marstek_m6_not_responding',
+            ] %}
+            {% set ns = namespace(missing=[]) %}
+            {% for e in expected %}
+              {% if not has_value(e) %}{% set ns.missing = ns.missing + [e] %}{% endif %}
+            {% endfor %}
+            {{ ns.missing | join(', ') if ns.missing else '' }}
+
 ######################################################################################################
 # RECORDER
 ######################################################################################################
@@ -1178,6 +1763,9 @@ recorder:
       - input_number.hba_control_*_deviation
       # Per-battery idle timestamps — updated on every battery write (~1 s)
       - input_datetime.hba_last_active_m*
+      # Last-commanded register cache — rewritten whenever a battery command
+      # changes; internal bookkeeping, no history value
+      - input_text.hba_last_cmd_m*
       # Dynamic strategy calculated averages (updated hourly)
       - input_number.hba_strategy_dynamic_*_avg_*
       # Individual cell voltages — 16 cells × 3 batteries ≈ 82 K writes/day; live values
@@ -1229,6 +1817,8 @@ logbook:
       - input_number.hba_control_*_deviation
       # Per-battery idle timestamps
       - input_datetime.hba_last_active_m*
+      # Last-commanded register cache
+      - input_text.hba_last_cmd_m*
     entities:
       # PID signal and output — updated every ~1 s during operation
       - input_number.hba_control_error_signal

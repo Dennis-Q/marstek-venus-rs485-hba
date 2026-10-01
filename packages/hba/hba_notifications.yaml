@@ -1,0 +1,494 @@
+# hba_notifications.yaml
+#
+# All HBA notification logic in one place:
+#   • hba_notify_dispatch             — central script; routes to configured notify action
+#   • hba_notify_test                 — sends a test notification
+#   • hba_notify_target_validation    — persistent alert when notify entity_id is invalid
+#   • hba_unexpected_export_notify    — alerts on sustained grid export while discharging
+#   • hba_notify_battery_assist_waiting / _resolved — Timed EV charge armed but EV not drawing
+#   • hba_notify_battery_not_responding / _resolved — RS485 non-response per battery
+#   • hba_notify_rs485_mode_mismatch / _resolved    — Full control vs RS485 state
+#   • hba_notify_battery_overtemperature / _resolved — internal temp ≥ 60 °C per battery
+
+automation:
+  # ── Unexpected sustained export notification ──────────────────────────────────
+  # Fires only when battery assist is OFF and the active sub-strategy is not Sell.
+  # Battery assist active: batteries discharging into EV charger (expected).
+  # active_sub_strategy == Sell: batteries intentionally discharging to grid (expected).
+  # Using active_sub_strategy (not active_flow) so a Sell→Full stop transition
+  # (SoC limit reached) correctly allows the notification to fire.
+  - id: hba_unexpected_export_notify
+    alias: "HBA: Notify on unexpected sustained grid export"
+    description: "Alerts when grid export >1 kW sustains for 2+ min with batteries discharging but neither battery assist nor Sell strategy is active."
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_grid_exporting_sustained
+        to: "on"
+    conditions:
+      - condition: state
+        entity_id: binary_sensor.hba_battery_assist_active
+        state: "off"
+      - condition: template
+        value_template: "{{ states('sensor.hba_active_strategy') != 'Sell' }}"
+    actions:
+      - action: script.hba_notify_dispatch
+        data:
+          title: "HBA: Unexpected grid export"
+          message: >
+            Grid has been exporting >1 kW for over 2 minutes while batteries are discharging
+            (P1: {{ states('sensor.p1_meter_power') | int }} W,
+            batteries: {{ states('sensor.hba_total_battery_power') | int }} W).
+            Check strategy configuration.
+          tag: hba_unexpected_export
+
+  # ── Timed EV charge waiting for EV ────────────────────────────────────────────
+  # binary_sensor.hba_battery_assist_waiting turns on 3 min after assist activation
+  # when the EV never started drawing; the extra 2-minute `for:` here filters brief
+  # mid-session car pauses so only a genuinely stalled session notifies.
+  - id: hba_notify_battery_assist_waiting
+    alias: "HBA: Notify Timed EV charge waiting for EV"
+    description: >-
+      Fires when Timed EV charge is armed but the EV has not drawn power
+      (charger possibly waiting for a tag scan, or the car paused itself).
+      The assist push is suspended and batteries follow the configured
+      strategy until the EV starts charging.
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_battery_assist_waiting
+        to: "on"
+        for: "00:02:00"
+    actions:
+      - action: script.hba_notify_dispatch
+        data:
+          title: "HBA: Timed EV charge waiting"
+          message: >-
+            Timed EV charge is active but the car is not drawing power.
+            Scan the charger tag and/or check the car (charge limit,
+            schedule). Batteries follow the normal strategy until charging
+            starts.
+          tag: hba_battery_assist_waiting
+          color: orange
+          priority: high
+
+  - id: hba_notify_battery_assist_waiting_resolved
+    alias: "HBA: Timed EV charge waiting — resolved"
+    description: "Sends push when the EV starts drawing power after a waiting period."
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_battery_assist_waiting
+        to: "off"
+    conditions:
+      - condition: template
+        value_template: "{{ trigger.from_state is not none and trigger.from_state.state == 'on' }}"
+      # Only notify when the EV actually started charging — waiting also clears
+      # when the assist window ends or assist is disabled, which needs no push.
+      - condition: state
+        entity_id: binary_sensor.hba_battery_assist_active
+        state: "on"
+    actions:
+      - action: script.hba_notify_dispatch
+        data:
+          title: "HBA: Timed EV charge resumed"
+          message: "The EV is drawing power — battery discharge to the EV has resumed."
+          tag: hba_battery_assist_waiting
+          color: green
+
+  # ── Timed EV charge stalled (batteries not delivering) ───────────────────────
+  # binary_sensor.hba_battery_assist_stalled turns on when the assist push has
+  # been commanding discharge for 3+ minutes with < 150 W actually delivered.
+  # Assist is released (EV stops) and retries automatically after the sensor's
+  # 30-minute delay_off — the message says so, hence no resolved counterpart.
+  - id: hba_notify_battery_assist_stalled
+    alias: "HBA: Notify Timed EV charge stalled"
+    description: >-
+      Fires when Timed EV charge is commanding discharge but the batteries
+      are not delivering (BMS refusal, SoC floor, rejected Modbus writes).
+      The EV is released so it stops charging from grid.
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_battery_assist_stalled
+        to: "on"
+    actions:
+      - action: script.hba_notify_dispatch
+        data:
+          title: "HBA: Timed EV charge stalled"
+          message: >-
+            Batteries are not delivering power during Timed EV charge
+            (SoC {{ states('sensor.hba_average_battery_soc') }}%,
+            battery output {{ states('sensor.hba_total_battery_power') | int(0) }} W).
+            The EV has been released to stop grid charging; assist retries
+            in 30 minutes.
+          tag: hba_battery_assist_stalled
+          color: red
+          priority: high
+
+  - id: hba_notify_target_validation
+    alias: "HBA: Validate notify target"
+    description: >-
+      Creates a persistent notification when input_text.hba_notify_entity_id
+      is set but doesn't look like a valid notify.* action.
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_notify_target_invalid
+        to: "on"
+      - trigger: state
+        entity_id: binary_sensor.hba_notify_target_invalid
+        to: "off"
+      - trigger: homeassistant
+        event: start
+    actions:
+      - choose:
+          - conditions: "{{ is_state('binary_sensor.hba_notify_target_invalid', 'on') }}"
+            sequence:
+              - action: persistent_notification.create
+                data:
+                  notification_id: hba_notify_target_invalid
+                  title: "HBA: Notify action invalid"
+                  message: >-
+                    The **Notify action** helper
+                    (`input_text.hba_notify_entity_id`) is set to an invalid
+                    value. HBA notifications fall back to persistent
+                    notifications.
+
+                    Use a legacy `notify.mobile_app_*` service name, **not**
+                    a modern notify entity. For example:
+                    `notify.mobile_app_my_phone`.
+
+                    Set it under **HBA → Notifications**.
+        default:
+          - action: persistent_notification.dismiss
+            data:
+              notification_id: hba_notify_target_invalid
+
+  # ── Battery not responding ────────────────────────────────────────────────────
+  # Notifies when any battery has RS485 enabled but its actual output deviates
+  # from the commanded value by >15% for 30+ seconds. One automation handles all
+  # 6 batteries in parallel; battery identity is extracted from trigger.entity_id.
+  - id: hba_notify_battery_not_responding
+    alias: "HBA: Notify battery not responding to RS485 command"
+    description: >-
+      Fires when binary_sensor.hba_marstek_mX_not_responding turns on.
+      Sends push + persistent notification with commanded vs actual power.
+    mode: parallel
+    max: 6
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_marstek_m1_not_responding
+        to: "on"
+      - trigger: state
+        entity_id: binary_sensor.hba_marstek_m2_not_responding
+        to: "on"
+      - trigger: state
+        entity_id: binary_sensor.hba_marstek_m3_not_responding
+        to: "on"
+      - trigger: state
+        entity_id: binary_sensor.hba_marstek_m4_not_responding
+        to: "on"
+      - trigger: state
+        entity_id: binary_sensor.hba_marstek_m5_not_responding
+        to: "on"
+      - trigger: state
+        entity_id: binary_sensor.hba_marstek_m6_not_responding
+        to: "on"
+    actions:
+      - variables:
+          batt: >-
+            {{ trigger.entity_id
+               | replace('binary_sensor.hba_marstek_', '')
+               | replace('_not_responding', '') }}
+      - variables:
+          direction: "{{ states('select.marstek_' ~ batt ~ '_forcible_charge_discharge') }}"
+          actual_w: "{{ states('sensor.marstek_' ~ batt ~ '_ac_power') | int(0) }}"
+      - variables:
+          cmd_w: >-
+            {% if direction == 'discharge' %}
+              {{ states('number.marstek_' ~ batt ~ '_forcible_discharge_power') | int(0) }}
+            {% elif direction == 'charge' %}
+              {{ -(states('number.marstek_' ~ batt ~ '_forcible_charge_power') | int(0)) }}
+            {% else %}
+              0
+            {% endif %}
+      - action: script.hba_notify_dispatch
+        data:
+          title: "HBA: Battery {{ batt | upper }} not responding"
+          message: >-
+            Commanded {{ cmd_w | abs }} W {{ 'discharge' if cmd_w | int > 0 else 'charge' }}
+            but actual AC output is {{ actual_w }} W (>15% mismatch for 30+ s).
+            RS485 is enabled. Possible cause: BMS blocking near SoC cutoff or
+            command rejected. Check battery state and SoC.
+          tag: "hba_battery_not_responding_{{ batt }}"
+          color: orange
+          priority: high
+      - action: persistent_notification.create
+        data:
+          notification_id: "hba_battery_not_responding_{{ batt }}"
+          title: "HBA: Battery {{ batt | upper }} not responding"
+          message: >-
+            Commanded **{{ cmd_w | abs }} W {{ 'discharge' if cmd_w | int > 0 else 'charge' }}**
+            but actual AC output is **{{ actual_w }} W** (>15% mismatch sustained 30+ s).
+
+            Possible cause: BMS blocking near SoC cutoff or Modbus write rejected.
+
+  - id: hba_notify_battery_not_responding_resolved
+    alias: "HBA: Battery not responding — resolved"
+    description: "Dismisses persistent notification and sends push when a battery resumes responding."
+    mode: parallel
+    max: 6
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_marstek_m1_not_responding
+        to: "off"
+      - trigger: state
+        entity_id: binary_sensor.hba_marstek_m2_not_responding
+        to: "off"
+      - trigger: state
+        entity_id: binary_sensor.hba_marstek_m3_not_responding
+        to: "off"
+      - trigger: state
+        entity_id: binary_sensor.hba_marstek_m4_not_responding
+        to: "off"
+      - trigger: state
+        entity_id: binary_sensor.hba_marstek_m5_not_responding
+        to: "off"
+      - trigger: state
+        entity_id: binary_sensor.hba_marstek_m6_not_responding
+        to: "off"
+    conditions:
+      - condition: template
+        value_template: "{{ trigger.from_state is not none and trigger.from_state.state == 'on' }}"
+    actions:
+      - variables:
+          batt: >-
+            {{ trigger.entity_id
+               | replace('binary_sensor.hba_marstek_', '')
+               | replace('_not_responding', '') }}
+      - action: persistent_notification.dismiss
+        data:
+          notification_id: "hba_battery_not_responding_{{ batt }}"
+      - action: script.hba_notify_dispatch
+        data:
+          title: "HBA: Battery {{ batt | upper }} responding again"
+          message: "Battery {{ batt | upper }} is now responding to RS485 commands."
+          tag: "hba_battery_not_responding_{{ batt }}"
+          color: green
+
+  # ── RS485 mode mismatch ───────────────────────────────────────────────────────
+  # Notifies when HBA master mode is Full control but one or more batteries have
+  # RS485 control disabled — batteries silently ignore all Modbus writes in this state.
+  - id: hba_notify_rs485_mode_mismatch
+    alias: "HBA: Notify RS485 mode mismatch"
+    description: >-
+      Fires when binary_sensor.hba_rs485_mode_mismatch turns on (master mode is
+      Full control but one or more batteries have RS485 disabled).
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_rs485_mode_mismatch
+        to: "on"
+    actions:
+      - action: script.hba_notify_dispatch
+        data:
+          title: "HBA: RS485 control mismatch"
+          message: >-
+            HBA master mode is Full control but the following batteries have RS485
+            disabled: {{ state_attr('binary_sensor.hba_rs485_mode_mismatch', 'mismatched_batteries') }}.
+            HBA Modbus writes to these batteries are being silently ignored.
+            Re-apply Full control in HBA to restore RS485 on all batteries.
+          tag: hba_rs485_mode_mismatch
+          color: red
+          priority: high
+      - action: persistent_notification.create
+        data:
+          notification_id: hba_rs485_mode_mismatch
+          title: "HBA: RS485 control mismatch"
+          message: >-
+            HBA master mode is **Full control** but the following batteries have
+            RS485 control **disabled**:
+            {{ state_attr('binary_sensor.hba_rs485_mode_mismatch', 'mismatched_batteries') }}.
+
+            HBA Modbus writes to these batteries are being silently ignored.
+            Re-apply **Full control** in HBA → Master battery mode to restore RS485.
+
+  - id: hba_notify_rs485_mode_mismatch_resolved
+    alias: "HBA: RS485 mismatch resolved"
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_rs485_mode_mismatch
+        to: "off"
+    conditions:
+      - condition: template
+        value_template: "{{ trigger.from_state is not none and trigger.from_state.state == 'on' }}"
+    actions:
+      - action: persistent_notification.dismiss
+        data:
+          notification_id: hba_rs485_mode_mismatch
+      - action: script.hba_notify_dispatch
+        data:
+          title: "HBA: RS485 mismatch resolved"
+          message: "All configured batteries are now in RS485 Full control mode."
+          tag: hba_rs485_mode_mismatch
+          color: green
+
+  # ── Battery overtemperature ───────────────────────────────────────────────────
+  # Fires when any battery's internal temperature sustains ≥60 °C for 2 minutes.
+  # The BMS typically trips at ~70 °C; 60 °C gives ~10 °C of warning margin.
+  # Triggers for all 6 slots; M4-M6 sensors are unavailable when not installed
+  # so their triggers never fire on systems with fewer batteries.
+  - id: hba_notify_battery_overtemperature
+    alias: "HBA: Notify battery overtemperature"
+    description: >-
+      Fires when any battery's internal temperature stays ≥60 °C for 2+ minutes.
+      Sends push + persistent notification with battery identity and current temp.
+    mode: parallel
+    max: 6
+    triggers:
+      - trigger: numeric_state
+        entity_id: sensor.marstek_m1_internal_temperature
+        above: 60
+        for: "00:02:00"
+      - trigger: numeric_state
+        entity_id: sensor.marstek_m2_internal_temperature
+        above: 60
+        for: "00:02:00"
+      - trigger: numeric_state
+        entity_id: sensor.marstek_m3_internal_temperature
+        above: 60
+        for: "00:02:00"
+      - trigger: numeric_state
+        entity_id: sensor.marstek_m4_internal_temperature
+        above: 60
+        for: "00:02:00"
+      - trigger: numeric_state
+        entity_id: sensor.marstek_m5_internal_temperature
+        above: 60
+        for: "00:02:00"
+      - trigger: numeric_state
+        entity_id: sensor.marstek_m6_internal_temperature
+        above: 60
+        for: "00:02:00"
+    actions:
+      - variables:
+          batt: >-
+            {{ trigger.entity_id
+               | replace('sensor.marstek_', '')
+               | replace('_internal_temperature', '') }}
+          temp: "{{ trigger.to_state.state | float(0) | round(1) }}"
+      - action: script.hba_notify_dispatch
+        data:
+          title: "HBA: Battery {{ batt | upper }} overtemperature"
+          message: >-
+            Battery {{ batt | upper }} internal temperature is {{ temp }} °C
+            (BMS thermal protection triggers at ~70 °C).
+            Discharge may be reduced or stopped automatically.
+            Check ventilation around the battery.
+          tag: "hba_battery_overtemperature_{{ batt }}"
+          color: orange
+          priority: high
+      - action: persistent_notification.create
+        data:
+          notification_id: "hba_battery_overtemperature_{{ batt }}"
+          title: "HBA: Battery {{ batt | upper }} overtemperature"
+          message: >-
+            Battery **{{ batt | upper }}** internal temperature: **{{ temp }} °C**
+
+            The BMS thermal protection triggers at ~70 °C — discharge may be
+            reduced or stopped. Check ventilation around the battery.
+
+  - id: hba_notify_battery_overtemperature_resolved
+    alias: "HBA: Battery overtemperature — resolved"
+    description: "Dismisses persistent notification and sends push when a battery cools below 55 °C."
+    mode: parallel
+    max: 6
+    triggers:
+      - trigger: numeric_state
+        entity_id: sensor.marstek_m1_internal_temperature
+        below: 55
+        for: "00:05:00"
+      - trigger: numeric_state
+        entity_id: sensor.marstek_m2_internal_temperature
+        below: 55
+        for: "00:05:00"
+      - trigger: numeric_state
+        entity_id: sensor.marstek_m3_internal_temperature
+        below: 55
+        for: "00:05:00"
+      - trigger: numeric_state
+        entity_id: sensor.marstek_m4_internal_temperature
+        below: 55
+        for: "00:05:00"
+      - trigger: numeric_state
+        entity_id: sensor.marstek_m5_internal_temperature
+        below: 55
+        for: "00:05:00"
+      - trigger: numeric_state
+        entity_id: sensor.marstek_m6_internal_temperature
+        below: 55
+        for: "00:05:00"
+    conditions:
+      - condition: template
+        value_template: "{{ trigger.from_state is not none and trigger.from_state.state | float(0) >= 60 }}"
+    actions:
+      - variables:
+          batt: >-
+            {{ trigger.entity_id
+               | replace('sensor.marstek_', '')
+               | replace('_internal_temperature', '') }}
+          temp: "{{ trigger.to_state.state | float(0) | round(1) }}"
+      - action: persistent_notification.dismiss
+        data:
+          notification_id: "hba_battery_overtemperature_{{ batt }}"
+      - action: script.hba_notify_dispatch
+        data:
+          title: "HBA: Battery {{ batt | upper }} temperature normal"
+          message: "Battery {{ batt | upper }} temperature is now {{ temp }} °C."
+          tag: "hba_battery_overtemperature_{{ batt }}"
+          color: green
+
+script:
+  # ── Notification dispatch ─────────────────────────────────────────────────────
+  # Central notification script. Routes to the configured notify action when
+  # hba_notifications_enabled is on, falling back to notify.persistent_notification
+  # when no custom entity ID is configured.
+  hba_notify_dispatch:
+    alias: "HBA: Notify dispatch"
+    fields:
+      title:
+        description: "Notification title"
+      message:
+        description: "Notification body"
+      tag:
+        default: hba_notification
+      color:
+        default: blue
+      priority:
+        default: normal
+    sequence:
+      - condition: state
+        entity_id: input_boolean.hba_notifications_enabled
+        state: "on"
+      - action: >-
+          {{ states('input_text.hba_notify_entity_id')
+             if states('input_text.hba_notify_entity_id') | trim
+                not in ['', 'unknown', 'unavailable']
+             else 'notify.persistent_notification' }}
+        data:
+          title: "{{ title }}"
+          message: "{{ message }}"
+          data:
+            priority: "{{ priority }}"
+            tag: "{{ tag }}"
+            color: "{{ color }}"
+
+  hba_notify_test:
+    alias: "HBA: Send test notification"
+    sequence:
+      - action: script.hba_notify_dispatch
+        data:
+          title: "Home Battery Assistant — test notification"
+          message: "Notifications are working correctly."
+          tag: hba_notify_test

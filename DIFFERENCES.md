@@ -62,11 +62,17 @@ warning above is most relevant for 1 s meters.
 
 ### Built-in presets
 
-**Very safe**, **Safe**, and **Regular (original HBC)** are carried over from HBC.
-HBA introduces a new **Regular** preset with values that appear to work better in
-practice — it is still under review. The original HBC Regular preset is preserved
-as **Regular (original HBC)**. Treat all presets as starting points, not tuned
-recommendations.
+**PID values from the Node-RED HBC project are not transferable to HBA.** HBC gates its
+PID behind a rate limiter (it runs only when grid power moved **>20 W *and* >2 %**, with a
+cooldown after a slow cycle); HBA runs the PID on **every** P1 update, subject only to a
+15 W deadband. The integrator accumulates far more often here, so the same Ki is
+dramatically more aggressive in HBA. The former "Regular (original HBC)" preset has been
+removed for this reason.
+
+HBA ships **Very safe / Safe / Regular / Responsive**, differing only in Ki (0.10 / 0.15 /
+0.22 / 0.30) at a fixed Kp 0.35, plus **Low peak (grid limit)** — Regular with output damping
+removed, for installs bounded by an instantaneous fuse or connection limit. Regular is the
+validated default. Full rationale and the measured numbers are in [DEFAULTS.md](DEFAULTS.md).
 
 ### Other PID differences
 
@@ -98,6 +104,7 @@ These are features HBA has that are not in HBC:
 | **Peak shaving — all strategies** | HBC applies peak shaving only in the partials flow (Charge PV, Zero import, Standby). HBA integrates it into `self_consumption`, so Timed and Dynamic also inherit it automatically |
 | **"Disabled" master mode** | HBA adds a fourth option to the Master Battery Mode dropdown alongside the three HBC carries (Manual / Marstek / Full): **Disabled**. Picking it turns off `automation.hba_control_loop_p1_meter_triggered` entirely — no more P1-triggered control loop firing (no ~1 Hz trigger overhead, no dispatch attempts). It also sends a one-shot stop to every reachable battery first (zero force-power + select `stop`, while RS485 is still enabled) so nothing keeps charging/discharging at the last commanded level. Deliberately does NOT change `user_work_mode` or `rs485_control_mode` — it's a pure soft kill-switch; whatever state the previous mode left the batteries in stays. Re-selecting any other mode flips the control loop automation back on. Useful for staging instances, troubleshooting, or any time you want HBA "off" without renaming Modbus YAML files |
 | **Battery Assisted EV Charging** | Forcibly discharges batteries during a configured time window to direct that capacity to an EV charger — useful when you have excess battery reserves and want to maximize EV charge before the car is needed. Controlled via `input_boolean.hba_battery_assist_enabled`, a start/end time window, and a minimum SoC floor. `binary_sensor.hba_battery_assist_active` is the live gate used by the strategy dispatcher and can be used in an external automation to start/stop EV charging. An overflow guard (`binary_sensor.hba_grid_exporting_sustained`) detects sustained high export (>1 kW for 2+ min with batteries discharging) and temporarily falls back to self-consumption to prevent unnecessary grid feed-in. HBC has no equivalent feature. |
+| **Solar-aware strategy** | New strategy (`hba_strategy_solar_aware`) that decides each control cycle whether to export solar to the grid (Zero import) or absorb it locally (Self-consumption). Decision is driven by `sensor.hba_solar_charge_outlook`, which computes net solar energy expected during today's remaining cheap slots (Solcast `detailedForecast` × slot overlap, minus configurable house load). Six-step decision tree: (1) no cheap slots remain → Self-consumption; (2) Solcast unavailable → Zero import (fallback); (3) total solar forecast below threshold → Self-consumption (not a solar day); (4) solar covers the full charge need → Zero import; (5) current time before `self_consume_deadline` (the latest point to switch to avoid under-charging) → Zero import; (6) else → Self-consumption. Designed as the Dynamic v2 default sub-strategy for households that charge during cheap/negative hours and want to maximize export revenue during the pre-cheap solar window. HBC has no equivalent. |
 
 ---
 
@@ -119,6 +126,18 @@ update the entity ID there — for example:
 - `sensor.frank_energie_prices_current_electricity_market_price` (English, market price ex taxes)
 
 This applies to both v1 and v2.
+
+### PT15M resolution (Frank Energie)
+
+The Frank Energie integration supports a configurable price resolution
+(`select.frank_energie_settings_resolution`). When set to `pt15m`, the `prices` attribute
+contains 96 entries per day instead of 24, with genuine imbalance-market prices per
+15-minute slot.
+
+HBA's `sensor.hba_energy_prices_data` detects the resolution dynamically from the interval
+between the first two raw entries and sets `datapoints_per_hour` accordingly. All
+downstream calculations — slot expiry checks, cheap/expensive caps, mark timestamps —
+scale automatically. HBC does not support sub-hourly resolution.
 
 ---
 

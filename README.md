@@ -1,4 +1,4 @@
-# Home Battery Assistant (HBA) — v4.10.1-r11
+# Home Battery Assistant (HBA) — v4.10.1-r21
 
 A native Home Assistant replacement for the Node-RED battery control flows in
 [gitcodebob/marstek-venus-rs485-node-red](https://github.com/gitcodebob/marstek-venus-rs485-node-red).
@@ -98,13 +98,24 @@ the I-term accumulates proportionally slower, so the system is more conservative
 The Ki warning above is most relevant for 1 s meters; at slower rates HBA and HBC
 behave more similarly.
 
-The built-in presets **Very safe**, **Safe**, and **Regular (original HBC)** are carried
-over from HBC. A new **Regular** preset has been introduced in HBA with values that
-appear to work better in practice — it is still being reviewed, so treat it as a starting
-point. The original HBC values are preserved as **Regular (original HBC)** for reference.
-All presets are still being reviewed for optimal values with HBA's implementation.
-[docs.homebatterycontrol.com/04-setup-self-consumption](https://docs.homebatterycontrol.com/04-setup-self-consumption)
-covers PID tuning in general; the HBA-specific starting point is a lower Ki.
+> ⚠️ **PID values from the Node-RED HBC project are not transferable to HBA.** HBC gates its
+> PID behind a rate limiter (it runs only when grid power moved **>20 W *and* >2 %**, with a
+> cooldown after a slow cycle); HBA runs the PID on **every** P1 update, subject only to a
+> 15 W deadband. The integrator accumulates far more often here, so the same Ki is
+> dramatically more aggressive in HBA. The former "Regular (original HBC)" preset has been
+> removed for this reason.
+
+The everyday presets are **Very safe / Safe / Regular / Responsive**. They share Kp 0.35,
+Kd 0.1 and the damping settings, and differ **only in Ki**, because Kp 0.35 is a *measured*
+optimum — swept on production and bracketed on both sides, it is the cheapest per disturbance,
+so there is nothing to gain by varying it. **Regular** is the validated default (measured on
+production: 143 W residual 8 s after a 2.25 kW step, zero setpoint crossings).
+
+A fifth preset, **Low peak (grid limit)**, is Regular with output damping removed: ~−10 % on the
+instantaneous peak at no extra cost, for installs with a hard fuse or connection limit. It does
+*not* help with a capacity tariff billed on 15-minute averages — use `power_limit_import`.
+
+See [DEFAULTS.md](DEFAULTS.md) for the full table, the measurements and the loop-period caveat.
 
 ### Switching between HBA and HBC
 
@@ -172,7 +183,7 @@ The script downloads all HBA files, skips files you have already configured (P1 
 
 > **Tip:** The [SSH & Web Terminal add-on](https://github.com/hassio-addons/addon-ssh) gives you a terminal on your HA instance. Run the command above from `/config`.
 
-To install a specific version: `HBA_VERSION=v4.10.1-r11 bash <(curl -fsSL ...)`
+To install a specific version: `HBA_VERSION=v4.10.1-r21 bash <(curl -fsSL ...)`
 
 **Option B — Manual**
 
