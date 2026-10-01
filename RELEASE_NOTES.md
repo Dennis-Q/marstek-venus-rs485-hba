@@ -70,6 +70,9 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Added
 
+- **Entity health: notification** (`automation.hba_notify_entity_health` / `_resolved`) — when a
+  critical HBA entity is missing or registered under a different entity ID for 5+ minutes, a
+  push and persistent notification now list them (previously only the Overview banner).
 - **Battery offline: notification** (`automation.hba_notify_battery_offline` / `_resolved`) — a
   configured battery that is unreachable over Modbus for 3+ minutes now sends a push and a
   persistent notification naming it (previously only the Overview banner showed this), and a

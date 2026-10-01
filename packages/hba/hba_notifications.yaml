@@ -10,6 +10,7 @@
 #   • hba_notify_rs485_mode_mismatch / _resolved    — Full control vs RS485 state
 #   • hba_notify_battery_overtemperature / _resolved — internal temp ≥ 60 °C per battery
 #   • hba_notify_battery_offline / _resolved         — configured battery unreachable 3+ min
+#   • hba_notify_entity_health / _resolved           — critical HBA entity missing / wrong entity_id
 
 automation:
   # ── Unexpected sustained export notification ──────────────────────────────────
@@ -598,6 +599,68 @@ automation:
           title: "HBA: Batteries back online"
           message: "All configured batteries are reachable again."
           tag: hba_battery_offline
+          color: green
+
+  # ── Entity health ─────────────────────────────────────────────────────────────
+  # binary_sensor.hba_entity_health: a critical HBA entity is registered under the
+  # wrong entity_id (or missing), which makes notifications / anti-windup fail
+  # silently. Mirrors the Overview banner. 5 minutes, because entities are briefly
+  # unavailable while HA starts.
+  - id: hba_notify_entity_health
+    alias: "HBA: Notify entity health"
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_entity_health
+        to: "on"
+        for: "00:05:00"
+    actions:
+      - variables:
+          missing: "{{ state_attr('binary_sensor.hba_entity_health', 'missing_entity_ids') | default('', true) }}"
+      - action: script.hba_notify_dispatch
+        data:
+          title: "HBA: Entity ID mismatch"
+          message: >-
+            HBA entities are missing or registered under a different entity ID:
+            {{ missing }}. Parts of HBA fail silently until this is fixed — rename
+            them in Settings → Entities (see the HBA Overview).
+          tag: hba_entity_health
+          color: red
+          priority: high
+      - action: persistent_notification.create
+        data:
+          notification_id: hba_entity_health
+          title: "HBA: Entity ID mismatch"
+          message: >-
+            These HBA entities are missing or registered under a different entity ID:
+            **{{ missing }}**
+
+            Parts of HBA (notifications, anti-windup) fail silently until fixed. Go to
+            **Settings → Entities**, search for the entity by its friendly name and
+            rename its entity ID to the expected value.
+
+  - id: hba_notify_entity_health_resolved
+    alias: "HBA: Entity health — resolved"
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_entity_health
+        to: "off"
+    conditions:
+      - condition: template
+        value_template: >-
+          {% set raised = state_attr('automation.hba_notify_entity_health', 'last_triggered') %}
+          {% set mine = this.attributes.last_triggered if this is defined and this.attributes is defined else none %}
+          {{ raised is not none and (mine is none or raised > mine) }}
+    actions:
+      - action: persistent_notification.dismiss
+        data:
+          notification_id: hba_entity_health
+      - action: script.hba_notify_dispatch
+        data:
+          title: "HBA: Entity IDs fixed"
+          message: "All critical HBA entities are present under their expected entity IDs."
+          tag: hba_entity_health
           color: green
 
 script:
