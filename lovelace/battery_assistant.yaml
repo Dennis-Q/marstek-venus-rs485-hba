@@ -67,7 +67,7 @@ views:
               - **Strategy:** if *Choose strategy* shows **Full stop**, select **Dynamic** again.
               - **Re-enter** *Max # cheap hrs* and *Max # expensive hrs* in [Timed / Dynamic](/home-battery-assistant/timed-dynamic) — they start at 0 (no cap).
               {% if leftovers -%}
-              - **Delete the leftover entities** in **Settings → Entities** (shown as *unavailable* / *no longer provided*).
+              - **Delete the leftover entities** — in **Developer Tools → States**, filter entities on `hba` and state on `unavailable`; for each one click the ⓘ icon, then the cog → **Delete**. (To delete several at once: **Settings → Entities**, search `hba`, select them, delete.)
               {% endif %}
               {%- if leftovers %}
               <details><summary>Show {{ leftovers.split(', ') | count }} leftover entities</summary>

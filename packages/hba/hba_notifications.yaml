@@ -654,8 +654,8 @@ automation:
           message: >-
             This HBA update removed Dynamic v1 and renamed Dynamic v2 to Dynamic.
             If the strategy shows Full stop, select Dynamic again; re-enter the max
-            cheap/expensive hours; then delete the leftover entities listed on the
-            HBA Overview.
+            cheap/expensive hours; then delete the leftover entities (Developer Tools →
+            States, filter "hba" + state "unavailable", ⓘ → cog → Delete).
           tag: hba_dynamic_migration
           color: orange
           persistent_id: hba_dynamic_migration
@@ -664,7 +664,9 @@ automation:
 
             - If *Choose strategy* shows **Full stop**, select **Dynamic** again.
             - Re-enter **max cheap / expensive hours** (Timed / Dynamic view).
-            - Delete the leftover entities listed in the banner on the **HBA Overview**.
+            - Delete the leftover entities (listed in the banner on the **HBA Overview**): in
+              **Developer Tools → States**, filter entities on `hba` and state on `unavailable`;
+              for each one click the ⓘ icon, then the cog → **Delete**.
 
   - id: hba_notify_dynamic_migration_resolved
     alias: "HBA: Dynamic migration — resolved"

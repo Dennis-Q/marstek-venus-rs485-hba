@@ -60,8 +60,9 @@ open), so the version prefix stays at 4.10.1 for now.
   **`install.sh` overwrites `packages/hba/hba_strategy_dynamic.yaml` with the new Dynamic and
   deletes the old `hba_strategy_dynamic_v2.yaml`** — if you install manually, do both
   yourself, or `sensor.hba_energy_prices_data` is defined twice.
-  **Orphaned entities to delete from Settings → Entities** (they show as unavailable or
-  "no longer provided"): `automation.hba_dynamic_period_calculation`,
+  **Orphaned entities to delete** — quickest way: **Developer Tools → States**, filter entities
+  on `hba` and state on `unavailable`, then for each one click the ⓘ icon, the cog, **Delete**
+  (or select several at once in **Settings → Entities** and delete them together). The full list: `automation.hba_dynamic_period_calculation`,
   `script.hba_strategy_dynamic`, `input_datetime.hba_strategy_dynamic_cheapest_start` /
   `_cheapest_end` / `_expensive_start` / `_expensive_end`,
   `input_number.hba_strategy_dynamic_cheapest_hrs` / `_expensive_hrs` /
