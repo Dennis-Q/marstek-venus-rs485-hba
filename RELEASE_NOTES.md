@@ -19,6 +19,11 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Fixed
 
+- **Overtemperature: Overview banner + working "resolved"** — a banner now lists every battery
+  above 60 °C with its temperature (the notification already existed). The "resolved"
+  notification could never fire: its condition checked that the reading *before* cooling below
+  55 °C was ≥ 60 °C, which a `below: 55` trigger never sees — so the persistent notification
+  also stayed forever. It now fires when an overtemperature alert was raised since it last ran.
 - **`script.hba_apply_defaults` aborted on installs without the coexistence package** — its
   last step wrote the Node-RED add-on slug to a helper that only exists with
   `hba_hbc_coexistence.yaml`. That step is now skipped when the helper is absent.

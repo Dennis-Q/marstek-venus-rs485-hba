@@ -462,9 +462,19 @@ automation:
         entity_id: sensor.marstek_m6_internal_temperature
         below: 55
         for: "00:05:00"
+    # Only send "resolved" after an overtemperature alert was actually raised. The
+    # previous `trigger.from_state >= 60` check could never pass: a numeric_state
+    # trigger with `below: 55` fires on the crossing, so from_state is the reading
+    # just above 55, never >= 60 -- the resolved message and the dismiss of the
+    # persistent notification never ran. Stateless replacement: the alert fired
+    # since this automation last ran. (If two batteries cool down together, only
+    # the first gets a "resolved"; the Overview banner always shows the live state.)
     conditions:
       - condition: template
-        value_template: "{{ trigger.from_state is not none and trigger.from_state.state | float(0) >= 60 }}"
+        value_template: >-
+          {% set raised = state_attr('automation.hba_notify_battery_overtemperature', 'last_triggered') %}
+          {% set mine = this.attributes.last_triggered if this is defined and this.attributes is defined else none %}
+          {{ raised is not none and (mine is none or raised > mine) }}
     actions:
       - variables:
           batt: >-
