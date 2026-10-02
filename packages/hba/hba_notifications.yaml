@@ -38,17 +38,19 @@ automation:
         data:
           title: "HBA: Unexpected grid export"
           message: >
-            Grid has been exporting >1 kW for over a minute while batteries are discharging
-            (P1: {{ states('sensor.p1_meter_power') | int }} W,
-            batteries: {{ states('sensor.hba_total_battery_power') | int }} W).
-            Check strategy configuration.
+            {%- set bat = states('sensor.hba_total_battery_power') | int(0) -%}
+            {%- set exp = [-(states('sensor.p1_meter_power') | int(0)), 0] | max -%}
+            Batteries have been discharging ({{ bat }} W) for over a minute while
+            {{ exp }} W goes to the grid — about {{ [bat, exp] | min }} W of that is
+            battery energy, the rest solar. Check strategy configuration.
           tag: hba_unexpected_export
           persistent_id: hba_unexpected_export
           persistent_message: >-
-            The batteries are discharging
-            (**{{ states('sensor.hba_total_battery_power') | int }} W**) while
-            **{{ (states('sensor.p1_meter_power') | int) | abs }} W** goes to the grid,
-            and neither Sell nor Timed EV charge is active
+            {%- set bat = states('sensor.hba_total_battery_power') | int(0) -%}
+            {%- set exp = [-(states('sensor.p1_meter_power') | int(0)), 0] | max -%}
+            The batteries are discharging **{{ bat }} W** while {{ exp }} W goes to the
+            grid — about **{{ [bat, exp] | min }} W of that is battery energy**, the rest
+            is solar. Neither Sell nor Timed EV charge is active
             (strategy: {{ states('sensor.hba_active_strategy') }}).
             Check the strategy configuration.
 

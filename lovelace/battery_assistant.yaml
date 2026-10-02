@@ -242,14 +242,22 @@ views:
           - condition: state
             entity: sensor.hba_active_strategy
             state_not: Sell
+          # Live check too: the sustained sensor holds 30 s after export stops (delay_off),
+          # so right after leaving Sell the banner showed while the batteries had already
+          # stopped (prod 2026-10-02 10:28).
+          - condition: numeric_state
+            entity: sensor.hba_total_battery_power
+            above: 500
         cards:
           - type: markdown
             grid_options:
               columns: full
             content: |-
+              {%- set bat = states('sensor.hba_total_battery_power') | int(0) -%}
+              {%- set exp = [-(states('sensor.p1_meter_power') | int(0)), 0] | max -%}
               <ha-alert alert-type="warning" title="Batteries are exporting to the grid">
 
-              The batteries are discharging (**{{ states('sensor.hba_total_battery_power') | int(0) }} W**) while **{{ (states('sensor.p1_meter_power') | int(0)) | abs }} W** goes to the grid, and neither Sell nor Timed EV charge is active.
+              The batteries are discharging **{{ bat }} W** while {{ exp }} W goes to the grid — about **{{ [bat, exp] | min }} W of that is battery energy**, the rest is solar. Neither Sell nor Timed EV charge is active.
 
               Check the strategy configuration (active: **{{ states('sensor.hba_active_strategy') }}**).
 

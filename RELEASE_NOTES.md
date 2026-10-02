@@ -19,6 +19,12 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Fixed
 
+- **"Batteries are exporting to the grid" blamed the batteries for solar export** — it showed the
+  full grid export (e.g. 4,400 W, mostly solar) as battery export, and after switching away
+  from Sell it lingered ~30 s although the batteries had already stopped (the sustained sensor
+  holds 30 s). The banner now also requires the batteries to be discharging > 500 W right now,
+  and banner + notification show the battery share of the export (≈ min(discharge, export))
+  separately from the solar part.
 - **Solar-aware switched from Zero import far too late when the cheap slots fall short** —
   the switch deadline was "start of the *last* cheap slot minus deficit ÷ max charge power",
   e.g. 14:35 with cheap hours 12:00–16:00 and a 4 kWh shortfall, so it exported all morning
