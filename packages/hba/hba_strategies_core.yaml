@@ -807,11 +807,16 @@ script:
                     {{ p if (1 <= p and p <= count) else 1 }}
               - variables:
                   shares_json: >-
-                    {%- set ns = namespace(remaining=desired | abs, shares={}, order=[priority_bat]) -%}
-                    {%- for i in range(1, count + 1) -%}
-                      {%- if i != priority_bat -%}
-                        {%- set ns.order = ns.order + [i] -%}
-                      {%- endif -%}
+                    {%- set ns = namespace(remaining=desired | abs, shares={}, order=[]) -%}
+                    {#- Cyclic from the priority battery: p, p+1, ..., count, 1, ..., p-1.
+                        HBC (and HBA until 2026-10-02) used p then 1, 2, 3 ... -- the overflow
+                        then always went to the LOWEST-numbered battery, so M1 drained and
+                        filled first and the last battery lagged no matter how the priority
+                        rotated (prod 10-01/02: SoC spread up to 55-68 %, priority M3 never
+                        paired with M4 when charging). Cyclic, each battery is second in line
+                        equally often as the priority rotates. -#}
+                    {%- for k in range(count) -%}
+                      {%- set ns.order = ns.order + [((priority_bat - 1 + k) % count) + 1] -%}
                     {%- endfor -%}
                     {%- for bat in ns.order -%}
                       {%- set soc = states('sensor.marstek_m' ~ bat ~ '_battery_state_of_charge') | float(0) -%}
@@ -902,11 +907,16 @@ script:
                     {{ p if (1 <= p and p <= count) else 1 }}
               - variables:
                   shares_json: >-
-                    {%- set ns = namespace(remaining=desired | abs, shares={}, order=[priority_bat]) -%}
-                    {%- for i in range(1, count + 1) -%}
-                      {%- if i != priority_bat -%}
-                        {%- set ns.order = ns.order + [i] -%}
-                      {%- endif -%}
+                    {%- set ns = namespace(remaining=desired | abs, shares={}, order=[]) -%}
+                    {#- Cyclic from the priority battery: p, p+1, ..., count, 1, ..., p-1.
+                        HBC (and HBA until 2026-10-02) used p then 1, 2, 3 ... -- the overflow
+                        then always went to the LOWEST-numbered battery, so M1 drained and
+                        filled first and the last battery lagged no matter how the priority
+                        rotated (prod 10-01/02: SoC spread up to 55-68 %, priority M3 never
+                        paired with M4 when charging). Cyclic, each battery is second in line
+                        equally often as the priority rotates. -#}
+                    {%- for k in range(count) -%}
+                      {%- set ns.order = ns.order + [((priority_bat - 1 + k) % count) + 1] -%}
                     {%- endfor -%}
                     {%- for bat in ns.order -%}
                       {%- set soc = states('sensor.marstek_m' ~ bat ~ '_battery_state_of_charge') | float(0) -%}

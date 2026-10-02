@@ -135,6 +135,13 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Changed
 
+- **Batteries now level out: after the priority battery, power goes to the next battery in
+  line, not always to battery 1** — HBA (like HBC) filled/emptied the priority battery and then
+  batteries 1, 2, 3 … in number order, so the overflow always went to the lowest-numbered
+  battery and the highest one lagged, however the priority rotated (production, 4 batteries:
+  SoC spread up to 55–68 %; with priority 3, batteries 3+4 almost never shared the load). The
+  order is now cyclic from the priority battery (priority 3 → 3, 4, 1, 2), for charging and
+  discharging, so each battery is second in line equally often as the priority rotates.
 - **Solar-forecast charge goal: the house reserve now shrinks with the remaining day** —
   *Solar reserved for house* is a whole-day amount, but it was subtracted from the
   *remaining* forecast, so the charge target ran away during the day (production, 1 Oct: 12.0
