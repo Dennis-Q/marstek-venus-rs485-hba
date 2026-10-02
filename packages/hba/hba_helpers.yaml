@@ -968,6 +968,20 @@ template:
           {% set e = states('input_text.hba_strategy_solar_forecast_tomorrow_entity_id') | trim %}
           {{ states(e) | float(0) if e not in ['', 'unknown', 'unavailable'] else 0 }}
 
+      # Single source for today's solar surplus (charge target, distribution card,
+      # "covers battery" and the Charge script all read it).
+      #
+      # The house reserve is a WHOLE-DAY amount but the charge goal uses the REMAINING
+      # forecast, so it is scaled by the share of today's sun still to come:
+      #   reserve_now = reserve x remaining / whole_day
+      # Subtracting the full reserve from a shrinking remaining forecast made the target
+      # run away during the day (prod 2026-10-01: 12.0 -> 18.0 kWh while the sun filled
+      # the battery 9.4 -> 13.1 kWh) until any cheap afternoon slot charged from grid.
+      # Scaled, target and available move together (shortfall 2.6 / 2.3 / 3.3 kWh at
+      # 07 / 12 / 15 h that day). Before sunrise remaining == whole day, so nothing
+      # changes then. Whole-day figure: the Solar-aware forecast entity (needs
+      # ..._forecast_today); unset or identical to the remaining entity -> ratio 1, i.e.
+      # the previous behaviour.
       - name: "HBA Solar Forecast Surplus Today"
         unique_id: hba_solar_forecast_surplus_today
         unit_of_measurement: kWh
@@ -976,9 +990,26 @@ template:
         icon: mdi:solar-power-variant
         state: >
           {% set e = states('input_text.hba_strategy_solar_forecast_entity_id') | trim %}
-          {% set forecast = states(e) | float(0) if e not in ['', 'unknown', 'unavailable'] else 0 %}
-          {% set reserved = states('input_number.hba_solar_reserved_for_house') | float(5) %}
-          {{ [forecast - reserved, 0] | max | round(2) }}
+          {% set remaining = states(e) | float(0) if e not in ['', 'unknown', 'unavailable'] else 0 %}
+          {% set w = states('input_text.hba_strategy_solar_aware_forecast_entity_id') | trim %}
+          {% set whole = states(w) | float(0) if w not in ['', 'unknown', 'unavailable', e] else 0 %}
+          {% set ratio = ([remaining / whole, 1] | min) if whole > 0 else 1 %}
+          {% set reserved = states('input_number.hba_solar_reserved_for_house') | float(5) * ratio %}
+          {{ [remaining - reserved, 0] | max | round(2) }}
+        attributes:
+          house_reserve_remaining: >
+            {% set e = states('input_text.hba_strategy_solar_forecast_entity_id') | trim %}
+            {% set remaining = states(e) | float(0) if e not in ['', 'unknown', 'unavailable'] else 0 %}
+            {% set w = states('input_text.hba_strategy_solar_aware_forecast_entity_id') | trim %}
+            {% set whole = states(w) | float(0) if w not in ['', 'unknown', 'unavailable', e] else 0 %}
+            {% set ratio = ([remaining / whole, 1] | min) if whole > 0 else 1 %}
+            {{ (states('input_number.hba_solar_reserved_for_house') | float(5) * ratio) | round(2) }}
+          remaining_share: >
+            {% set e = states('input_text.hba_strategy_solar_forecast_entity_id') | trim %}
+            {% set remaining = states(e) | float(0) if e not in ['', 'unknown', 'unavailable'] else 0 %}
+            {% set w = states('input_text.hba_strategy_solar_aware_forecast_entity_id') | trim %}
+            {% set whole = states(w) | float(0) if w not in ['', 'unknown', 'unavailable', e] else 0 %}
+            {{ (([remaining / whole, 1] | min) if whole > 0 else 1) | round(3) }}
 
       - name: "HBA Solar Forecast Surplus Tomorrow"
         unique_id: hba_solar_forecast_surplus_tomorrow
@@ -992,12 +1023,14 @@ template:
           {% set reserved = states('input_number.hba_solar_reserved_for_house') | float(5) %}
           {{ [forecast - reserved, 0] | max | round(2) }}
 
-      - name: "HBA Charge Target Energy"
-        unique_id: hba_charge_target_energy
+      # Usable capacity between the per-battery cutoffs -- single source for the charge
+      # target, the distribution card and "surplus covers battery".
+      - name: "HBA Usable Battery Energy"
+        unique_id: hba_usable_battery_energy
         unit_of_measurement: kWh
         device_class: energy_storage
         state_class: measurement
-        icon: mdi:battery-arrow-up
+        icon: mdi:battery-high
         state: >
           {% set count = states('input_number.hba_battery_count') | int(1) %}
           {% set ns = namespace(energy_max=0) %}
@@ -1007,11 +1040,20 @@ template:
             {% set soc_min = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) %}
             {% set ns.energy_max = ns.energy_max + (soc_max - soc_min) / 100 * cap %}
           {% endfor %}
-          {% set e = states('input_text.hba_strategy_solar_forecast_entity_id') | trim %}
-          {% set forecast = states(e) | float(0) if e not in ['', 'unknown', 'unavailable'] else 0 %}
-          {% set threshold = states('input_number.hba_solar_reserved_for_house') | float(5) %}
-          {% set solar_surplus = [forecast - threshold, 0] | max %}
-          {{ [ns.energy_max - solar_surplus, 0] | max | round(2) }}
+          {{ ns.energy_max | round(2) }}
+
+      # Solar-forecast charge goal: what must still come from the grid. Read by the
+      # Charge script, binary_sensor.hba_charge_goal_reached and the Charge/Sell view.
+      - name: "HBA Charge Target Energy"
+        unique_id: hba_charge_target_energy
+        unit_of_measurement: kWh
+        device_class: energy_storage
+        state_class: measurement
+        icon: mdi:battery-arrow-up
+        state: >
+          {% set usable = states('sensor.hba_usable_battery_energy') | float(0) %}
+          {% set surplus = states('sensor.hba_solar_forecast_surplus_today') | float(0) %}
+          {{ [usable - surplus, 0] | max | round(2) }}
 
       - name: "HBA Charge Grid Energy Portion"
         unique_id: hba_charge_grid_energy_portion
@@ -1020,21 +1062,9 @@ template:
         state_class: measurement
         icon: mdi:transmission-tower
         state: >
-          {% set count = states('input_number.hba_battery_count') | int(1) %}
-          {% set ns = namespace(energy_max=0) %}
-          {% for i in range(1, count + 1) %}
-            {% set cap = states('sensor.marstek_m' ~ i ~ '_battery_total_energy') | float(0) %}
-            {% set soc_max = states('input_number.hba_marstek_m' ~ i ~ '_charging_cutoff_capacity') | float(100) %}
-            {% set soc_min = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) %}
-            {% set ns.energy_max = ns.energy_max + (soc_max - soc_min) / 100 * cap %}
-          {% endfor %}
-          {% set e = states('input_text.hba_strategy_solar_forecast_entity_id') | trim %}
-          {% set forecast = states(e) | float(0) if e not in ['', 'unknown', 'unavailable'] else 0 %}
-          {% set threshold = states('input_number.hba_solar_reserved_for_house') | float(5) %}
-          {% set solar_surplus = [forecast - threshold, 0] | max %}
-          {% set energy_desired = [ns.energy_max - solar_surplus, 0] | max %}
+          {% set target = states('sensor.hba_charge_target_energy') | float(0) %}
           {% set available = states('sensor.hba_charge_available_energy') | float(0) %}
-          {{ [energy_desired - available, 0] | max | round(2) }}
+          {{ [target - available, 0] | max | round(2) }}
 
       - name: "HBA Charge Solar Energy Portion"
         unique_id: hba_charge_solar_energy_portion
@@ -1043,22 +1073,11 @@ template:
         state_class: measurement
         icon: mdi:solar-power
         state: >
-          {% set count = states('input_number.hba_battery_count') | int(1) %}
-          {% set ns = namespace(energy_max=0) %}
-          {% for i in range(1, count + 1) %}
-            {% set cap = states('sensor.marstek_m' ~ i ~ '_battery_total_energy') | float(0) %}
-            {% set soc_max = states('input_number.hba_marstek_m' ~ i ~ '_charging_cutoff_capacity') | float(100) %}
-            {% set soc_min = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) %}
-            {% set ns.energy_max = ns.energy_max + (soc_max - soc_min) / 100 * cap %}
-          {% endfor %}
-          {% set e = states('input_text.hba_strategy_solar_forecast_entity_id') | trim %}
-          {% set forecast = states(e) | float(0) if e not in ['', 'unknown', 'unavailable'] else 0 %}
-          {% set threshold = states('input_number.hba_solar_reserved_for_house') | float(5) %}
-          {% set solar_surplus = [forecast - threshold, 0] | max %}
-          {% set charge_target = [ns.energy_max - solar_surplus, 0] | max %}
+          {% set usable = states('sensor.hba_usable_battery_energy') | float(0) %}
+          {% set target = states('sensor.hba_charge_target_energy') | float(0) %}
           {% set available = states('sensor.hba_charge_available_energy') | float(0) %}
-          {% set filled = [charge_target, available] | max %}
-          {{ [ns.energy_max - filled, 0] | max | round(2) if ns.energy_max > 0 else 0 }}
+          {% set filled = [target, available] | max %}
+          {{ [usable - filled, 0] | max | round(2) if usable > 0 else 0 }}
 
   - binary_sensor:
       - name: "HBA EV Is Active"
@@ -1076,36 +1095,14 @@ template:
         unique_id: hba_solar_surplus_covers_battery_capacity
         icon: mdi:solar-power
         state: >
-          {% set count = states('input_number.hba_battery_count') | int(1) %}
-          {% set ns = namespace(energy_max=0) %}
-          {% for i in range(1, count + 1) %}
-            {% set cap = states('sensor.marstek_m' ~ i ~ '_battery_total_energy') | float(0) %}
-            {% set soc_max = states('input_number.hba_marstek_m' ~ i ~ '_charging_cutoff_capacity') | float(100) %}
-            {% set soc_min = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) %}
-            {% set ns.energy_max = ns.energy_max + (soc_max - soc_min) / 100 * cap %}
-          {% endfor %}
-          {% set e = states('input_text.hba_strategy_solar_forecast_entity_id') | trim %}
-          {% set forecast = states(e) | float(0) if e not in ['', 'unknown', 'unavailable'] else 0 %}
-          {% set threshold = states('input_number.hba_solar_reserved_for_house') | float(5) %}
-          {% set solar_surplus = [forecast - threshold, 0] | max %}
-          {{ solar_surplus >= ns.energy_max }}
+          {{ states('sensor.hba_solar_forecast_surplus_today') | float(0)
+             >= states('sensor.hba_usable_battery_energy') | float(0) }}
       - name: "HBA Solar Surplus Covers Battery Capacity Tomorrow"
         unique_id: hba_solar_surplus_covers_battery_capacity_tomorrow
         icon: mdi:solar-power
         state: >
-          {% set count = states('input_number.hba_battery_count') | int(1) %}
-          {% set ns = namespace(energy_max=0) %}
-          {% for i in range(1, count + 1) %}
-            {% set cap = states('sensor.marstek_m' ~ i ~ '_battery_total_energy') | float(0) %}
-            {% set soc_max = states('input_number.hba_marstek_m' ~ i ~ '_charging_cutoff_capacity') | float(100) %}
-            {% set soc_min = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) %}
-            {% set ns.energy_max = ns.energy_max + (soc_max - soc_min) / 100 * cap %}
-          {% endfor %}
-          {% set e = states('input_text.hba_strategy_solar_forecast_tomorrow_entity_id') | trim %}
-          {% set forecast = states(e) | float(0) if e not in ['', 'unknown', 'unavailable'] else 0 %}
-          {% set threshold = states('input_number.hba_solar_reserved_for_house') | float(5) %}
-          {% set solar_surplus = [forecast - threshold, 0] | max %}
-          {{ solar_surplus >= ns.energy_max }}
+          {{ states('sensor.hba_solar_forecast_surplus_tomorrow') | float(0)
+             >= states('sensor.hba_usable_battery_energy') | float(0) }}
       - name: "HBA Charge Goal Reached"
         unique_id: hba_charge_goal_reached
         icon: mdi:battery-check
@@ -1132,19 +1129,8 @@ template:
             {% elif goal == 'energy reserve' %}
               {{ states('sensor.hba_charge_available_energy') | float(0) >= states('input_number.hba_strategy_charge_target_energy') | float(5) }}
             {% elif goal == 'solar forecast' %}
-              {% set ns2 = namespace(energy_max=0) %}
-              {% for i in range(1, count + 1) %}
-                {% set cap = states('sensor.marstek_m' ~ i ~ '_battery_total_energy') | float(0) %}
-                {% set soc_max = states('input_number.hba_marstek_m' ~ i ~ '_charging_cutoff_capacity') | float(100) %}
-                {% set soc_min = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) %}
-                {% set ns2.energy_max = ns2.energy_max + (soc_max - soc_min) / 100 * cap %}
-              {% endfor %}
-              {% set e_today = states('input_text.hba_strategy_solar_forecast_entity_id') | trim %}
-              {% set forecast_kwh = states(e_today) | float(0) if e_today not in ['', 'unknown', 'unavailable'] else 0 %}
-              {% set threshold = states('input_number.hba_solar_reserved_for_house') | float(5) %}
-              {% set solar_surplus = [forecast_kwh - threshold, 0] | max %}
-              {% set energy_desired = [ns2.energy_max - solar_surplus, 0] | max %}
-              {{ states('sensor.hba_charge_available_energy') | float(0) >= energy_desired }}
+              {{ states('sensor.hba_charge_available_energy') | float(0)
+                 >= states('sensor.hba_charge_target_energy') | float(0) }}
             {% else %}
               false
             {% endif %}

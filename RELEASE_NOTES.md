@@ -112,6 +112,19 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Changed
 
+- **Solar-forecast charge goal: the house reserve now shrinks with the remaining day** —
+  *Solar reserved for house* is a whole-day amount, but it was subtracted from the
+  *remaining* forecast, so the charge target ran away during the day (production, 1 Oct: 12.0
+  → 18.0 kWh while the sun filled the battery 9.4 → 13.1 kWh) until a cheap afternoon slot
+  charged from the grid. The reserve is now scaled by the share of today's sun still to come
+  (remaining ÷ whole-day forecast); target and available then move together (shortfall 2.6 /
+  2.3 / 3.3 kWh at 07 / 12 / 15 h that day instead of 2.6 → 6.0). Before sunrise nothing
+  changes. Uses the Solar-aware forecast entity (`…_forecast_today`) as the whole-day figure;
+  if that is unset or the same entity, behaviour is unchanged. New
+  `sensor.hba_usable_battery_energy`; `sensor.hba_solar_forecast_surplus_today` shows
+  `house_reserve_remaining` and `remaining_share`. The charge target, distribution card,
+  goal-reached and "covers battery" sensors and the Charge script now all read these instead of
+  six separate copies of the calculation.
 - **Installer shows the commit for non-release installs, and uses the target's own file list**
   — `HBA_BRANCH=dev` (or the `main` fallback) now prints `branch : dev @ <hash> (<date>)` plus
   the commit subject, repeats it on the Done screen, and downloads every file from that exact
