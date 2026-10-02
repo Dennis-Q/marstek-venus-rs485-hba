@@ -2555,17 +2555,19 @@ views:
               {%- set detail = state_attr(solar_entity, 'detailedForecast') if solar_ok else none -%}
               {%- set detail_n = detail | length if detail is sequence else 0 -%}
               {%- set threshold = states('input_number.hba_strategy_solar_aware_forecast_threshold_kwh') | float(20) -%}
-              {%- if slots == 0 %}decision: **Self-consumption** (no cheap slots remaining)
+              **Solar-aware — now**
+              {% if slots == 0 %}decision: **Self-consumption** (no cheap slots remaining)
               {%- elif outlook == 'No solar entity' %}decision: **Zero import** (fallback — solar forecast entity not set or unavailable)
               {%- elif outlook == 'No solar detail' %}decision: **Zero import** (fallback — entity has no detailedForecast attribute)
               {%- elif outlook == 'No price data' %}decision: **Zero import** (fallback — no energy price marks)
               {%- elif outlook in ['No data', 'unavailable', 'unknown'] %}decision: **Zero import** (fallback — outlook sensor {{ outlook }})
               {%- elif threshold > 0 and solar_today > 0 and solar_today < threshold %}decision: **Self-consumption** (solar {{ solar_today | round(1) }} kWh below threshold {{ threshold }} kWh)
               {%- elif covers %}decision: **Zero import** (solar covers charge)
-              {%- elif deadline != 'none' %}decision: **Zero import** until {{ deadline | as_timestamp(0) | timestamp_custom('%H:%M') }}, then Self-consumption
+              {%- elif deadline != 'none' and as_timestamp(now()) < deadline | as_timestamp(0) %}decision: **Zero import** until {{ deadline | as_timestamp(0) | timestamp_custom('%H:%M') }}, then Self-consumption
+              {%- elif deadline != 'none' %}decision: **Self-consumption** — storing solar since {{ deadline | as_timestamp(0) | timestamp_custom('%H:%M') }} to cover the shortfall before the first cheap slot
               {%- else %}decision: **Self-consumption**
               {%- endif %}
-              **Solar-aware — now** | outlook: {{ outlook }}
+              Outlook: {{ outlook }}
               Solar entity: {{ solar_entity if solar_entity else '(not set)' }}{{ ' (inherited from Charge goal)' if sa_e in ['', 'unknown', 'unavailable'] and solar_entity }}{{ ' — unavailable ⚠️' if solar_entity and not solar_ok }}
               {%- if solar_ok %} | detail: {{ detail_n }}×30 min{{ ' ⚠️ missing — set the Solar-aware forecast entity to sensor.solcast_pv_forecast_forecast_today + enable the half-hourly detail attribute' if detail_n == 0 }}{% endif %}
               Solar today: {{ solar_today | round(1) }} kWh | in cheap slots (net): {{ solar_kwh | round(2) }} kWh | needed: {{ needed | round(2) }} kWh

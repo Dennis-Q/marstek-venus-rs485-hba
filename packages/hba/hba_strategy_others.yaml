@@ -209,9 +209,37 @@ template:
                 {%- set deficit = [needed - [ns_solar.kwh, 0] | max, 0] | max -%}
                 {%- if deficit <= 0 -%}none
                 {%- else -%}
-                  {%- set charge_kw = states('sensor.hba_total_max_charge_power') | float(1) / 1000 -%}
-                  {%- set deadline_ts = ns_slots.last_ts - (deficit / charge_kw * 3600) | int -%}
-                  {{ deadline_ts | timestamp_custom('%Y-%m-%dT%H:%M:%SZ', false) }}
+                  {#- The solar INSIDE the cheap slots is already counted, so the deficit
+                      must be stored BEFORE the first upcoming cheap slot (from then on
+                      Dynamic runs its cheap sub-strategy anyway). Walk Solcast's 30-min
+                      periods backwards from that slot, adding net solar (pv - house load,
+                      capped at battery charge power) until the deficit is covered: that
+                      point is the latest moment to stop exporting. Not enough morning sun
+                      at all -> deadline = now (store from now on).
+                      Was: last cheap slot START - deficit / max charge power. Wrong
+                      reference and wrong rate: prod 2026-10-02 (cheap 12-16 h, deficit
+                      4.04 kWh) gave 14:35, so it exported all morning; this gives ~10:36. -#}
+                  {%- set future_starts = ns_slots.slots | map(attribute='start') | select('ge', now_ts) | list -%}
+                  {%- set first_ts = (future_starts | min) if future_starts else (ns_slots.slots | map(attribute='start') | min) -%}
+                  {%- set charge_kw = states('sensor.hba_total_max_charge_power') | float(1000) / 1000 -%}
+                  {%- set ns_d = namespace(acc=0.0, ts=first_ts, done=false) -%}
+                  {%- for period in detailed | sort(attribute='period_start', reverse=true) -%}
+                    {%- set p_start = as_timestamp(period.period_start) | int -%}
+                    {%- set p_end = p_start + 1800 -%}
+                    {%- if not ns_d.done and p_start < first_ts and p_end > now_ts -%}
+                      {%- set seg_start = [p_start, now_ts] | max -%}
+                      {%- set seg_end = [p_end, first_ts] | min -%}
+                      {%- set rate = [[period.pv_estimate | float(0) - house_kw, 0] | max, charge_kw] | min -%}
+                      {%- set seg_kwh = rate * (seg_end - seg_start) / 3600 -%}
+                      {%- if rate > 0 and ns_d.acc + seg_kwh >= deficit -%}
+                        {%- set ns_d.ts = (seg_end - ((deficit - ns_d.acc) / rate * 3600)) | int -%}
+                        {%- set ns_d.done = true -%}
+                      {%- else -%}
+                        {%- set ns_d.acc = ns_d.acc + seg_kwh -%}
+                      {%- endif -%}
+                    {%- endif -%}
+                  {%- endfor -%}
+                  {{ (ns_d.ts if ns_d.done else now_ts) | timestamp_custom('%Y-%m-%dT%H:%M:%SZ', false) }}
                 {%- endif -%}
               {%- endif -%}
             {%- endif -%}
@@ -378,7 +406,9 @@ script:
   #      sensor comment above; "No data" kept for pre-rename compatibility)
   #   3. total solar forecast today < threshold  → Self-consumption (not a solar day)
   #   4. solar in cheap slots covers charge need → Zero import (export surplus)
-  #   5. now < self_consume_deadline             → Zero import (still time to export)
+  #   5. now < self_consume_deadline             → Zero import (still time to export;
+  #      the deadline is the latest moment that still lets morning solar cover the
+  #      deficit before the first cheap slot)
   #   6. else                                    → Self-consumption (switch now)
   #
   # flow_prefix: caller prefix for active_flow label (e.g. "Dynamic →").

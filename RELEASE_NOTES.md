@@ -19,6 +19,16 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Fixed
 
+- **Solar-aware switched from Zero import far too late when the cheap slots fall short** —
+  the switch deadline was "start of the *last* cheap slot minus deficit ÷ max charge power",
+  e.g. 14:35 with cheap hours 12:00–16:00 and a 4 kWh shortfall, so it exported all morning
+  and the shortfall was never stored. The solar *inside* the cheap slots is already counted,
+  so the shortfall has to be stored *before the first* cheap slot, at the rate the morning sun
+  actually delivers: the deadline now walks the Solcast half-hour forecast backwards from the
+  first cheap slot (net of house load, capped at charge power) — ~10:36 for that example. Not
+  enough morning sun at all → store from now on. The Insights card shows the title first and,
+  once the deadline has passed, "Self-consumption — storing solar since …" instead of a stale
+  "Zero import until …".
 - **Notifications were lost when the push target is invalid** — the "Notify action invalid"
   notice promises a fallback to persistent notifications, but the dispatch only checked
   whether the target was *empty*; an invalid one was still called and failed with "Action …
