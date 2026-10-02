@@ -76,7 +76,9 @@ script:
               {% set forecast_kwh = states(e_today) | float(0) if e_today not in ['', 'unknown', 'unavailable'] else 0 %}
               {% set threshold = states('input_number.hba_solar_reserved_for_house') | float(5) %}
               {% set solar_surplus = [forecast_kwh - threshold, 0] | max %}
-              {{ [ns2.energy_max - solar_surplus, 0] | max | round(3) }}
+              {#- round(2): identical to sensor.hba_charge_target_energy, which the
+                  Charge/Sell view shows to explain this decision -#}
+              {{ [ns2.energy_max - solar_surplus, 0] | max | round(2) }}
             {% else %}
               -1
             {% endif %}

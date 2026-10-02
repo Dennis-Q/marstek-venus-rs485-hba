@@ -1556,6 +1556,27 @@ views:
           - type: entities
             entities:
               - entity: input_select.hba_strategy_charge_goal_reached
+          # Which way "Charge PV, or Self-consumption when solar fills battery" goes right
+          # now: sensor.hba_charge_target_energy is the same solar-goal target the Charge
+          # script checks (0 = solar fills the battery).
+          - type: markdown
+            text_only: true
+            visibility:
+              - condition: state
+                entity: input_select.hba_strategy_charge_goal_reached
+                state: "Charge PV, or Self-consumption when solar fills battery"
+            content: |-
+              {%- set goal = states('input_select.hba_strategy_charge_goal') -%}
+              {%- set t = states('sensor.hba_charge_target_energy') | float(-1) -%}
+              {%- if goal != 'solar forecast' -%}
+              <font color=grey><i>With the goal *{{ goal }}* this option behaves like **Charge PV**; the solar check only applies to the *solar forecast* goal.</i></font>
+              {%- elif t < 0 -%}
+              <font color=grey><i>Grid charge target not available yet (solar forecast or battery capacity unknown).</i></font>
+              {%- elif t == 0 -%}
+              <font color=grey><i>☀️ Solar fills the battery (grid charge target **0 kWh**) → after the goal: **Self-consumption**.</i></font>
+              {%- else -%}
+              <font color=grey><i>🔋 Grid charge needed (target **{{ t | round(1) }} kWh**) → after the goal: **hold (Charge PV)**, so the bought energy is kept for the expensive hours.</i></font>
+              {%- endif %}
           - type: markdown
             content: >-
               <font color=grey><i>Visit the '<ha-icon
