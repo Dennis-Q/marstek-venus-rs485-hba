@@ -94,7 +94,7 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Added
 
-- **New "When done charging" option: *Charge PV, or Self-consumption when solar fills battery***
+- **New "When done charging" option: *Charge PV — use battery if the sun refills it***
   — with the *solar forecast* charge goal, it holds the battery (Charge PV) only when energy
   had to come from the grid; when the forecast surplus covers the whole usable capacity
   (charge target 0 kWh) it continues with Self-consumption. A cheap night hour on a sunny day
@@ -102,6 +102,8 @@ open), so the version prefix stays at 4.10.1 for now.
   anyway; on a cloudy day the grid-charged energy is still kept for the expensive hours.
   Target 0 stays 0 however far the battery discharges, so it cannot flip back to grid
   charging. With other charge goals the option behaves exactly like Charge PV.
+  It is the new default set by `script.hba_apply_defaults` (was *Full stop*); existing
+  installs keep their setting until defaults are applied.
 - **Dynamic migration: notification** (`automation.hba_notify_dynamic_migration` / `_resolved`)
   — after the r22 update, a push and persistent notification point to the Overview banner and
   list the two steps every upgrade needs (re-select Dynamic, re-enter max hours).

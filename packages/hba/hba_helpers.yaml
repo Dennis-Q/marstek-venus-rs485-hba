@@ -760,7 +760,7 @@ input_select:
       - "Full stop"
       - "Self-consumption"
       - "Charge PV"
-      - "Charge PV, or Self-consumption when solar fills battery"
+      - "Charge PV — use battery if the sun refills it"
       - "Sell"
       - "Zero import"
       - "Standby / peak shave"

@@ -153,7 +153,7 @@ Reduces max charge power near full SoC to protect battery cells. Set a limit to 
 | Helper | Default | Notes |
 |---|---|---|
 | `input_select.hba_strategy_charge_goal` | `batteries are full` | |
-| `input_select.hba_strategy_charge_goal_reached` | `Full stop` | |
+| `input_select.hba_strategy_charge_goal_reached` | `Charge PV — use battery if the sun refills it` | With the *solar forecast* goal: Self-consumption when solar fills the battery (target 0 kWh), else Charge PV. Other goals: Charge PV. |
 | `input_number.hba_strategy_charge_target_soc` | `90` % | Used when goal = state of charge |
 | `input_number.hba_strategy_charge_target_energy` | `5` kWh | Used when goal = energy reserve |
 | `input_number.hba_solar_reserved_for_house` | `0` kWh | Expected house consumption during daylight hours; solar surplus beyond this charges the battery |

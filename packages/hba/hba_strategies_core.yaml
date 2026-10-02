@@ -1105,7 +1105,9 @@ script:
         data: { option: "batteries are full" }
       - action: input_select.select_option
         target: { entity_id: input_select.hba_strategy_charge_goal_reached }
-        data: { option: "Full stop" }
+        # Holds grid-bought energy for the expensive hours, but lets the battery work when
+        # the solar forecast fills it anyway (solar forecast goal); Charge PV otherwise.
+        data: { option: "Charge PV — use battery if the sun refills it" }
       - action: input_number.set_value
         target: { entity_id: input_number.hba_strategy_charge_target_energy }
         data: { value: 5 }
