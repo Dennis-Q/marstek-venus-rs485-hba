@@ -1392,6 +1392,19 @@ views:
                 row:
                   entity: input_number.hba_solar_reserved_for_house
                   name: Solar reserved for house
+              # The reserve shrinks with the share of today's sun still to come
+              # (sensor.hba_solar_forecast_surplus_today); this is the part that counts now.
+              - type: conditional
+                conditions:
+                  - entity: input_select.hba_strategy_charge_goal
+                    state: solar forecast
+                row:
+                  type: attribute
+                  entity: sensor.hba_solar_forecast_surplus_today
+                  attribute: house_reserve_remaining
+                  name: Still reserved for the rest of today
+                  suffix: kWh
+                  icon: mdi:home-clock-outline
               - type: conditional
                 conditions:
                   - entity: input_select.hba_strategy_charge_goal
