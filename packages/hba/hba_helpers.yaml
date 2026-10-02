@@ -1042,8 +1042,17 @@ template:
           {% endfor %}
           {{ ns.energy_max | round(2) }}
 
-      # Solar-forecast charge goal: what must still come from the grid. Read by the
-      # Charge script, binary_sensor.hba_charge_goal_reached and the Charge/Sell view.
+      # Solar-forecast charge goal: the energy the batteries should hold now (the grid
+      # tops up the difference). Read by the Charge script, binary_sensor.hba_charge_goal_reached
+      # and the Charge/Sell view.
+      # Once today's sun is done (remaining forecast ~0) the next sun is TOMORROW's, so the
+      # target switches to tomorrow's surplus. Today's alone made it "fill completely"
+      # from sunset to midnight (prod 2026-10-01/02: 18 kWh with 29-32 kWh of sun
+      # forecast for the next day) and then drop to 0 when Solcast rolled over -- a cheap
+      # evening slot would have bought ~10 kWh the sun replaces anyway. After midnight
+      # "today" is that same day again, so the evening now matches the night.
+      # Only switches when both forecast entities are set; otherwise today, as before.
+      # Afternoon only: a dark day's ~0 forecast must not switch in the morning.
       - name: "HBA Charge Target Energy"
         unique_id: hba_charge_target_energy
         unit_of_measurement: kWh
@@ -1051,9 +1060,28 @@ template:
         state_class: measurement
         icon: mdi:battery-arrow-up
         state: >
+          {% set e = states('input_text.hba_strategy_solar_forecast_entity_id') | trim %}
+          {% set t = states('input_text.hba_strategy_solar_forecast_tomorrow_entity_id') | trim %}
+          {% set sun_done = e not in ['', 'unknown', 'unavailable'] and t not in ['', 'unknown', 'unavailable']
+                            and states(e) | float(-1) >= 0 and states(e) | float(-1) < 0.1 and now().hour >= 12 %}
           {% set usable = states('sensor.hba_usable_battery_energy') | float(0) %}
-          {% set surplus = states('sensor.hba_solar_forecast_surplus_today') | float(0) %}
+          {% set surplus = states('sensor.hba_solar_forecast_surplus_' ~ ('tomorrow' if sun_done else 'today')) | float(0) %}
           {{ [usable - surplus, 0] | max | round(2) }}
+        attributes:
+          # 'today' or 'tomorrow': whose sun the target counts on.
+          forecast_day: >
+            {% set e = states('input_text.hba_strategy_solar_forecast_entity_id') | trim %}
+            {% set t = states('input_text.hba_strategy_solar_forecast_tomorrow_entity_id') | trim %}
+            {% set sun_done = e not in ['', 'unknown', 'unavailable'] and t not in ['', 'unknown', 'unavailable']
+                              and states(e) | float(-1) >= 0 and states(e) | float(-1) < 0.1 and now().hour >= 12 %}
+            {{ 'tomorrow' if sun_done else 'today' }}
+          # The solar surplus behind the target (kWh).
+          solar_surplus: >
+            {% set e = states('input_text.hba_strategy_solar_forecast_entity_id') | trim %}
+            {% set t = states('input_text.hba_strategy_solar_forecast_tomorrow_entity_id') | trim %}
+            {% set sun_done = e not in ['', 'unknown', 'unavailable'] and t not in ['', 'unknown', 'unavailable']
+                              and states(e) | float(-1) >= 0 and states(e) | float(-1) < 0.1 and now().hour >= 12 %}
+            {{ states('sensor.hba_solar_forecast_surplus_' ~ ('tomorrow' if sun_done else 'today')) | float(0) }}
 
       - name: "HBA Charge Grid Energy Portion"
         unique_id: hba_charge_grid_energy_portion

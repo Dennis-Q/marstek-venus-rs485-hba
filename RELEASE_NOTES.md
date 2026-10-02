@@ -19,6 +19,14 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Fixed
 
+- **Solar-forecast charge target jumped to "fill completely" every evening** — the target
+  only counted *today's* remaining sun, so after sunset it became the full usable capacity
+  (18 kWh on prod while ~30 kWh of sun was forecast for the next day) until Solcast rolled
+  over at midnight and it fell back to 0. A cheap evening slot would have bought ~10 kWh from
+  the grid that the next morning's sun replaces anyway. Once today's sun is done (remaining
+  forecast < 0.1 kWh, afternoon) the target now counts on tomorrow's surplus — the same
+  figure it uses after midnight. The Charge/Sell view shows which day the target counts on;
+  "use battery if the sun refills it" follows the same surplus.
 - **"Batteries are exporting to the grid" blamed the batteries for solar export** — it showed the
   full grid export (e.g. 4,400 W, mostly solar) as battery export, and after switching away
   from Sell it lingered ~30 s although the batteries had already stopped (the sustained sensor
