@@ -150,6 +150,12 @@ script:
                         data: { value: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Charge → Standby / peak shave" }
                       - action: script.hba_strategy_standby
                         data: { skip_label: true }
+                  # Offered by the select, but had no branch: choosing it fell through to
+                  # Full stop.
+                  - conditions: "{{ next == 'Solar-aware' }}"
+                    sequence:
+                      - action: script.hba_strategy_solar_aware
+                        data: { flow_prefix: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Charge" }
                 default:
                   - action: input_text.set_value
                     target: { entity_id: input_text.hba_strategy_active_flow }
@@ -233,6 +239,12 @@ script:
                         data: { value: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Sell → Standby / peak shave" }
                       - action: script.hba_strategy_standby
                         data: { skip_label: true }
+                  # Offered by the select, but had no branch: choosing it fell through to
+                  # Full stop.
+                  - conditions: "{{ next == 'Solar-aware' }}"
+                    sequence:
+                      - action: script.hba_strategy_solar_aware
+                        data: { flow_prefix: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Sell" }
                 default:
                   - action: input_text.set_value
                     target: { entity_id: input_text.hba_strategy_active_flow }

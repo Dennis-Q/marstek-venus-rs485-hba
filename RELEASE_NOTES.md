@@ -19,6 +19,8 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Fixed
 
+- **"When done charging / selling → Solar-aware" fell back to Full stop** — the option was in
+  both selects but neither script had a branch for it. Both now run Solar-aware.
 - **Master mode periodic reapply no longer fights the battery** — the first version also forced
   work mode *manual* in Full control. A Marstek with RS485 control enabled reports *anti-feed*,
   and writing *manual* takes it out of RS485 control, so every 5 minutes the automation fixed
