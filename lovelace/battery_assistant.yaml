@@ -1589,11 +1589,13 @@ views:
             content: |-
               {%- set goal = states('input_select.hba_strategy_charge_goal') -%}
               {%- set t = states('sensor.hba_charge_target_energy') | float(-1) -%}
+              {%- set usable = states('sensor.hba_usable_battery_energy') | float(0) -%}
+              {%- set surplus = states('sensor.hba_solar_forecast_surplus_today') | float(0) -%}
               {%- if goal != 'solar forecast' -%}
               <font color=grey><i>With the goal *{{ goal }}* this option behaves like **Charge PV**; the solar check only applies to the *solar forecast* goal.</i></font>
-              {%- elif t < 0 -%}
+              {%- elif t < 0 or usable <= 0 -%}
               <font color=grey><i>Grid charge target not available yet (solar forecast or battery capacity unknown).</i></font>
-              {%- elif t == 0 -%}
+              {%- elif t == 0 and surplus > 0 -%}
               <font color=grey><i>☀️ Solar fills the battery (grid charge target **0 kWh**) → after the goal: **Self-consumption**.</i></font>
               {%- else -%}
               <font color=grey><i>🔋 Grid charge needed (target **{{ t | round(1) }} kWh**) → after the goal: **hold (Charge PV)**, so the bought energy is kept for the expensive hours.</i></font>

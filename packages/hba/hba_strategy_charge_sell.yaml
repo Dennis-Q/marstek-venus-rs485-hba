@@ -100,7 +100,13 @@ script:
                   # hour on a sunny day. With grid energy bought (target > 0, cloudy day)
                   # holding is right, so it stays Charge PV. Target 0 cannot flap: it stays
                   # 0 however far the batteries discharge.
-                  solar_fills_battery: "{{ goal == 'solar forecast' and solar_energy_desired | float(-1) == 0 }}"
+                  # Also require real capacity and a real surplus: right after a restart the
+                  # capacity sensors can be unknown (usable 0 -> target 0), which must not
+                  # read as "the sun refills the battery" -- nor may a missing forecast.
+                  solar_fills_battery: >-
+                    {{ goal == 'solar forecast' and solar_energy_desired | float(-1) == 0
+                       and states('sensor.hba_usable_battery_energy') | float(0) > 0
+                       and states('sensor.hba_solar_forecast_surplus_today') | float(0) > 0 }}
               - choose:
                   - conditions: "{{ next == 'Charge PV — use battery if the sun refills it' and solar_fills_battery }}"
                     sequence:
