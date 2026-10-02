@@ -731,9 +731,13 @@ script:
       - variables:
           _pid: "{{ persistent_id | default('') | trim }}"
           _rid: "{{ resolve_id | default('') | trim }}"
+          # An invalid target (binary_sensor.hba_notify_target_invalid) counts as no
+          # target: calling it fails with "Action ... not found" and the alert was
+          # lost, while the target-invalid notice promises a persistent fallback.
           _target: >-
             {%- set t = states('input_text.hba_notify_entity_id') | trim -%}
-            {{ t if t not in ['', 'unknown', 'unavailable'] else '' }}
+            {{ t if t not in ['', 'unknown', 'unavailable']
+                    and not is_state('binary_sensor.hba_notify_target_invalid', 'on') else '' }}
       - if:
           - "{{ _pid != '' }}"
         then:
@@ -758,10 +762,12 @@ script:
             data:
               title: "{{ title }}"
               message: "{{ message }}"
+              # The fields' `default:` is not applied when a caller omits them (the
+              # trace showed empty priority/colour), so default explicitly.
               data:
-                priority: "{{ priority }}"
-                tag: "{{ tag }}"
-                color: "{{ color }}"
+                priority: "{{ priority | default('normal', true) }}"
+                tag: "{{ tag | default('hba_notification', true) }}"
+                color: "{{ color | default('blue', true) }}"
 
   hba_notify_test:
     alias: "HBA: Send test notification"

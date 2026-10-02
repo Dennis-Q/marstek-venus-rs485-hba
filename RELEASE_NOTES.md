@@ -19,6 +19,11 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Fixed
 
+- **Notifications were lost when the push target is invalid** — the "Notify action invalid"
+  notice promises a fallback to persistent notifications, but the dispatch only checked
+  whether the target was *empty*; an invalid one was still called and failed with "Action …
+  not found", dropping the alert. It now falls back as promised. Missing priority / tag /
+  colour also default properly (they were sent empty).
 - **"When done charging / selling → Solar-aware" fell back to Full stop** — the option was in
   both selects but neither script had a branch for it. Both now run Solar-aware.
 - **Master mode periodic reapply no longer fights the battery** — the first version also forced
