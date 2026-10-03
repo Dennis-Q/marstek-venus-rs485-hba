@@ -1163,6 +1163,11 @@ template:
               false
             {% endif %}
           {% endif %}
+      # A battery is offline when Modbus lost it (inverter_state unavailable) OR its link
+      # hangs: battery_power (polled every 10 s) has not reported for 30+ s. A hung link
+      # (prod 2026-10-02, M3 cable) stays "available" for ~10 min while HA waits on it;
+      # HBA already skips such a battery (hba_write_battery). now() re-renders this each
+      # minute; the notification adds its own 3 minutes.
       - name: "HBA Any Battery Offline"
         unique_id: hba_any_battery_offline
         icon: mdi:battery-alert
@@ -1171,11 +1176,29 @@ template:
           {% set ns = namespace(offline=false) %}
           {% for i in range(1, count + 1) %}
             {% set inv = states('sensor.marstek_m' ~ i ~ '_inverter_state') %}
-            {% if inv in ['unavailable', 'unknown', ''] %}
+            {% set hb = states.sensor['marstek_m' ~ i ~ '_battery_power'] %}
+            {% set silent = hb is none or hb.state in ['unavailable', 'unknown']
+                            or (now() - hb.last_reported).total_seconds() > 30 %}
+            {% if inv in ['unavailable', 'unknown', ''] or silent %}
               {% set ns.offline = true %}
             {% endif %}
           {% endfor %}
           {{ ns.offline }}
+        attributes:
+          # e.g. "M3" -- read by the banners and the notification.
+          batteries: >
+            {% set count = states('input_number.hba_battery_count') | int(1) %}
+            {% set ns = namespace(off=[]) %}
+            {% for i in range(1, count + 1) %}
+              {% set inv = states('sensor.marstek_m' ~ i ~ '_inverter_state') %}
+              {% set hb = states.sensor['marstek_m' ~ i ~ '_battery_power'] %}
+              {% set silent = hb is none or hb.state in ['unavailable', 'unknown']
+                              or (now() - hb.last_reported).total_seconds() > 30 %}
+              {% if inv in ['unavailable', 'unknown', ''] or silent %}
+                {% set ns.off = ns.off + ['M' ~ i] %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.off | join(', ') }}
 
       - name: "HBA Battery Assist Active"
         unique_id: hba_battery_assist_active

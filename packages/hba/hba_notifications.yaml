@@ -9,7 +9,7 @@
 #   • hba_notify_battery_not_responding / _resolved — RS485 non-response per battery
 #   • hba_notify_rs485_mode_mismatch / _resolved    — Full control vs RS485 state
 #   • hba_notify_battery_overtemperature / _resolved — internal temp ≥ 60 °C per battery
-#   • hba_notify_battery_offline / _resolved         — configured battery unreachable 3+ min
+#   • hba_notify_battery_offline / _resolved         — battery unreachable or silent 3+ min
 #   • hba_notify_entity_health / _resolved           — critical HBA entity missing / wrong entity_id
 #   • hba_notify_dynamic_migration / _resolved       — r22 Dynamic v1/v2 leftovers to clean up
 
@@ -517,8 +517,8 @@ automation:
           resolve_id: "hba_battery_overtemperature_{{ batt }}"
 
   # ── Battery offline ───────────────────────────────────────────────────────────
-  # binary_sensor.hba_any_battery_offline: a configured battery's inverter_state is
-  # unavailable/unknown, i.e. Modbus lost it. Mirrors the Overview banner; the
+  # binary_sensor.hba_any_battery_offline: a configured battery is unavailable over
+  # Modbus or has stopped reporting (hung link). Mirrors the Overview banner; the
   # 3-minute `for:` keeps a brief network blip or an HA restart from notifying.
   - id: hba_notify_battery_offline
     alias: "HBA: Notify battery offline"
@@ -530,29 +530,21 @@ automation:
         for: "00:03:00"
     actions:
       - variables:
-          offline: >-
-            {% set count = states('input_number.hba_battery_count') | int(1) %}
-            {% set ns = namespace(off=[]) %}
-            {% for i in range(1, count + 1) %}
-              {% if states('sensor.marstek_m' ~ i ~ '_inverter_state') in ['unavailable', 'unknown', ''] %}
-                {% set ns.off = ns.off + ['M' ~ i] %}
-              {% endif %}
-            {% endfor %}
-            {{ ns.off | join(', ') }}
+          offline: "{{ state_attr('binary_sensor.hba_any_battery_offline', 'batteries') or 'unknown' }}"
       - action: script.hba_notify_dispatch
         data:
           title: "HBA: Battery offline"
           message: >-
-            Battery {{ offline }} is not reachable over Modbus for 3+ minutes; HBA
-            cannot control it. Check its network connection and power, or lower
-            the battery count in HBA if it was removed.
+            Battery {{ offline }} has not answered over Modbus for 3+ minutes; HBA
+            skips it and the other batteries take over. Check its network cable and
+            power, or lower the battery count in HBA if it was removed.
           tag: hba_battery_offline
           color: red
           priority: high
           persistent_id: hba_battery_offline
           persistent_message: >-
-            Battery **{{ offline }}** is not reachable over Modbus (3+ minutes) — HBA
-            cannot control it.
+            Battery **{{ offline }}** has not answered over Modbus for 3+ minutes —
+            HBA skips it and the other batteries take over.
 
             Check the battery's network connection and power. If you removed a
             battery, lower **Battery count** in HBA.

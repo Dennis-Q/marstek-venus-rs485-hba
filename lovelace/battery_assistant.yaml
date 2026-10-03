@@ -498,15 +498,7 @@ views:
                 entity: binary_sensor.hba_any_battery_offline
                 state: "on"
             content: >
-              {% set count = states('input_number.hba_battery_count') | int(1) %}
-              {% set ns = namespace(offline=[]) %}
-              {% for i in range(1, count + 1) %}
-                {% set inv = states('sensor.marstek_m' ~ i ~ '_inverter_state') %}
-                {% if inv in ['unavailable', 'unknown', ''] %}
-                  {% set ns.offline = ns.offline + ['M' ~ i] %}
-                {% endif %}
-              {% endfor %}
-              <ha-alert alert-type="error">Battery {{ ns.offline | join(', ') }} offline — check connectivity or reduce battery count in settings.</ha-alert>
+              <ha-alert alert-type="error">Battery {{ state_attr('binary_sensor.hba_any_battery_offline', 'batteries') }} offline — not answering over Modbus, HBA skips it and the other batteries take over. Check its network cable and power, or reduce the battery count in settings.</ha-alert>
           - type: heading
             heading: Master Battery Control
             heading_style: title
@@ -2676,15 +2668,7 @@ views:
         cards:
           - type: markdown
             content: >
-              {% set count = states('input_number.hba_battery_count') | int(1) %}
-              {% set ns = namespace(offline=[]) %}
-              {% for i in range(1, count + 1) %}
-                {% set inv = states('sensor.marstek_m' ~ i ~ '_inverter_state') %}
-                {% if inv in ['unavailable', 'unknown', ''] %}
-                  {% set ns.offline = ns.offline + ['M' ~ i] %}
-                {% endif %}
-              {% endfor %}
-              <ha-alert alert-type="error">Battery {{ ns.offline | join(', ') }} offline — check connectivity or reduce battery count in settings.</ha-alert>
+              <ha-alert alert-type="error">Battery {{ state_attr('binary_sensor.hba_any_battery_offline', 'batteries') }} offline — not answering over Modbus, HBA skips it and the other batteries take over. Check its network cable and power, or reduce the battery count in settings.</ha-alert>
       - type: grid
         cards:
           - type: heading

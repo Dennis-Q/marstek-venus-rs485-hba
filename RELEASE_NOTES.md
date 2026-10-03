@@ -19,6 +19,15 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Fixed
 
+- **One battery with a hung network link froze control of all batteries** — when a battery's
+  Modbus TCP connection hangs (prod: a touched cable), HA keeps it "available" for minutes
+  while it waits (timeout 20 s + retries). The next write to it blocked the control loop:
+  10.5 minutes without PID updates or writes to *any* battery. HBA now treats a battery whose
+  battery power has not reported for 30 s (3 polls) as offline: it skips writes to it, gives
+  its share to the other batteries, and re-sends the command as soon as it reports again. The
+  "Battery offline" banner, notification and persistent notification now also cover a silent
+  battery (3+ minutes), naming it from the new `batteries` attribute of
+  `binary_sensor.hba_any_battery_offline`.
 - **Solar-forecast charge target jumped to "fill completely" every evening** — the target
   only counted *today's* remaining sun, so after sunset it became the full usable capacity
   (18 kWh on prod while ~30 kWh of sun was forecast for the next day) until Solcast rolled

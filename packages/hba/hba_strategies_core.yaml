@@ -641,8 +641,9 @@ script:
   # ── Battery power distribution ────────────────────────────────────────────────
   # Distributes a target power across N batteries using priority-first waterfall fill:
   #   1. Priority battery takes as much as it can (hw max, SoC eligibility, slow-charge cap).
-  #   2. Each remaining battery in ascending index order takes as much of the remainder as it can.
-  # Per-battery eligibility: SoC within cutoffs (±0.5 % buffer) and inverter not faulted.
+  #   2. The others follow cyclically (p+1 … count, 1 … p-1), each taking what it can.
+  # Per-battery eligibility: SoC within cutoffs (±0.5 % buffer), inverter not faulted and
+  # the battery reported over Modbus within the last 30 s.
   # Shares are pre-computed in a single Jinja2 namespace loop into shares_json before the
   # repeat, because Jinja2 loop iterations cannot share mutable state — variables: steps in
   # a repeat are independent and cannot decrement a running remainder across iterations.
@@ -715,6 +716,28 @@ script:
               999999
             {%- endif -%}
           _same: "{{ _cached.rsplit('|', 1)[0] == _want }}"
+      # A battery whose Modbus link hangs must not freeze control of the others. Its
+      # battery_power (polled every 10 s) then stops reporting; a write to it would wait
+      # on that hub (timeout 20 s + retries) and, the control loop being mode: single,
+      # stall every battery. Prod 2026-10-02 22:59: M3's cable was touched, the next
+      # write to M3 blocked the loop for 10.5 min (no PID, no writes, M2 frozen at
+      # 527 W). No report for 30 s (3 polls) -> skip, and clear the cache so the first
+      # cycle after it reports again re-sends the command.
+      - variables:
+          _silent: >-
+            {%- set hb = states.sensor['marstek_m' ~ _bat ~ '_battery_power'] -%}
+            {{ hb is none or hb.state in ['unavailable', 'unknown']
+               or (now() - hb.last_reported).total_seconds() > 30 }}
+      - alias: "Battery silent on Modbus — skip so a hung link cannot block the loop"
+        if:
+          - condition: template
+            value_template: "{{ _silent }}"
+        then:
+          - action: input_text.set_value
+            target:
+              entity_id: "input_text.hba_last_cmd_m{{ _bat }}"
+            data: { value: "" }
+          - stop: "Battery silent on Modbus for 30+ s — write skipped"
       - alias: "Unchanged and still fresh — skip the three Modbus round trips"
         if:
           - condition: template
@@ -823,7 +846,12 @@ script:
                       {%- set soc_max = states('input_number.hba_marstek_m' ~ bat ~ '_charging_cutoff_capacity') | float(100) -%}
                       {%- set hw_max = states('number.marstek_m' ~ bat ~ '_max_charge_power') | float(2500) | int -%}
                       {%- set inv = states('sensor.marstek_m' ~ bat ~ '_inverter_state') -%}
-                      {%- set eligible = soc < soc_max - 0.5 and inv not in ['Fault','unknown','unavailable'] -%}
+                      {#- Silent on Modbus 30+ s (see hba_write_battery): its write is skipped,
+                          so give its share to the next battery instead. -#}
+                      {%- set hb = states.sensor['marstek_m' ~ bat ~ '_battery_power'] -%}
+                      {%- set live = hb is not none and hb.state not in ['unavailable', 'unknown']
+                                     and (now() - hb.last_reported).total_seconds() <= 30 -%}
+                      {%- set eligible = live and soc < soc_max - 0.5 and inv not in ['Fault','unknown','unavailable'] -%}
                       {%- if eligible -%}
                         {%- set eff_max = hw_max -%}
                         {%- if sc_lim2 > 0 and soc >= sc_thr2 -%}
@@ -923,7 +951,12 @@ script:
                       {%- set soc_min = states('input_number.hba_marstek_m' ~ bat ~ '_discharging_cutoff_capacity') | float(13) -%}
                       {%- set hw_max = states('number.marstek_m' ~ bat ~ '_max_discharge_power') | float(2500) | int -%}
                       {%- set inv = states('sensor.marstek_m' ~ bat ~ '_inverter_state') -%}
-                      {%- set eligible = soc > soc_min + 0.5 and inv not in ['Fault','unknown','unavailable'] -%}
+                      {#- Silent on Modbus 30+ s (see hba_write_battery): its write is skipped,
+                          so give its share to the next battery instead. -#}
+                      {%- set hb = states.sensor['marstek_m' ~ bat ~ '_battery_power'] -%}
+                      {%- set live = hb is not none and hb.state not in ['unavailable', 'unknown']
+                                     and (now() - hb.last_reported).total_seconds() <= 30 -%}
+                      {%- set eligible = live and soc > soc_min + 0.5 and inv not in ['Fault','unknown','unavailable'] -%}
                       {%- if eligible -%}
                         {%- set share = [ns.remaining, hw_max] | min | round(0) | int -%}
                         {%- set ns.remaining = ns.remaining - share -%}
