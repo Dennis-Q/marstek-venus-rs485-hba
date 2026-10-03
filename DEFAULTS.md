@@ -173,10 +173,14 @@ Reduces max charge power near full SoC to protect battery cells. Set a limit to 
 |---|---|
 | `input_boolean.hba_strategy_timed_has_period_b` | `off` |
 | `input_boolean.hba_strategy_timed_has_period_c` | `off` |
+| `input_boolean.hba_strategy_timed_has_period_d` | `off` |
+| `input_boolean.hba_strategy_timed_has_period_e` | `off` |
 | `input_select.hba_strategy_timed_strat_0` | `Self-consumption` (default / no period match) |
 | `input_select.hba_strategy_timed_strat_a` | `Charge` |
 | `input_select.hba_strategy_timed_strat_b` | `Sell` |
 | `input_select.hba_strategy_timed_strat_c` | `Self-consumption` |
+| `input_select.hba_strategy_timed_strat_d` | `Self-consumption` |
+| `input_select.hba_strategy_timed_strat_e` | `Self-consumption` |
 
 Period times (`input_datetime.hba_strategy_timed_period_a1` etc.) are not set by apply_defaults — configure them manually.
 

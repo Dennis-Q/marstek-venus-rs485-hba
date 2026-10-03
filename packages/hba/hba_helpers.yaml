@@ -5,6 +5,12 @@ input_boolean:
   hba_strategy_timed_has_period_c:
     name: "Enable additional period C"
     icon: mdi:clock-plus
+  hba_strategy_timed_has_period_d:
+    name: "Enable additional period D"
+    icon: mdi:clock-plus
+  hba_strategy_timed_has_period_e:
+    name: "Enable additional period E"
+    icon: mdi:clock-plus
   hba_control_has_power_limit_import:
     name: "Enable import peak shaving"
     icon: mdi:transmission-tower-import
@@ -47,6 +53,22 @@ input_datetime:
     has_time: true
   hba_strategy_timed_period_c2:
     name: "Period C stop"
+    has_date: false
+    has_time: true
+  hba_strategy_timed_period_d1:
+    name: "Period D start"
+    has_date: false
+    has_time: true
+  hba_strategy_timed_period_d2:
+    name: "Period D stop"
+    has_date: false
+    has_time: true
+  hba_strategy_timed_period_e1:
+    name: "Period E start"
+    has_date: false
+    has_time: true
+  hba_strategy_timed_period_e2:
+    name: "Period E stop"
     has_date: false
     has_time: true
   hba_last_active_m1:
@@ -697,6 +719,28 @@ input_select:
     icon: mdi:clock-end
   hba_strategy_timed_strat_c:
     name: "Timed strategy period C"
+    options:
+      - "Full stop"
+      - "Self-consumption"
+      - "Charge"
+      - "Charge PV"
+      - "Sell"
+      - "Zero import"
+      - "Standby / peak shave"
+    icon: mdi:clock-end
+  hba_strategy_timed_strat_d:
+    name: "Timed strategy period D"
+    options:
+      - "Full stop"
+      - "Self-consumption"
+      - "Charge"
+      - "Charge PV"
+      - "Sell"
+      - "Zero import"
+      - "Standby / peak shave"
+    icon: mdi:clock-end
+  hba_strategy_timed_strat_e:
+    name: "Timed strategy period E"
     options:
       - "Full stop"
       - "Self-consumption"

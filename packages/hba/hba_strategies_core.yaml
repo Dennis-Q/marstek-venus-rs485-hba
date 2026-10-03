@@ -1212,6 +1212,8 @@ script:
           entity_id:
             - input_boolean.hba_strategy_timed_has_period_b
             - input_boolean.hba_strategy_timed_has_period_c
+            - input_boolean.hba_strategy_timed_has_period_d
+            - input_boolean.hba_strategy_timed_has_period_e
       - action: input_select.select_option
         target: { entity_id: input_select.hba_strategy_timed_strat_0 }
         data: { option: "Self-consumption" }
@@ -1223,6 +1225,12 @@ script:
         data: { option: "Sell" }
       - action: input_select.select_option
         target: { entity_id: input_select.hba_strategy_timed_strat_c }
+        data: { option: "Self-consumption" }
+      - action: input_select.select_option
+        target: { entity_id: input_select.hba_strategy_timed_strat_d }
+        data: { option: "Self-consumption" }
+      - action: input_select.select_option
+        target: { entity_id: input_select.hba_strategy_timed_strat_e }
         data: { option: "Self-consumption" }
       # ── Dynamic strategy ──────────────────────────────────────────────────────
       - action: input_select.select_option
