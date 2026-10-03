@@ -113,9 +113,15 @@ open), so the version prefix stays at 4.10.1 for now.
   / `_v2_max_expensive_hours_per_day`. Which of these exist depends on the install — the
   banner shows yours.
 - **Lab features dashboard view** — Dynamic's settings, price table and chart moved into the
-  Timed / Dynamic view, as in HBC.
+  Dynamic view (see Changed: Timed and Dynamic have their own views).
 
 ### Added
+
+- **Timed: periods D and E** (HBC v4.12) — up to five periods (A–E), each with its own start,
+  stop and strategy; add/remove them with the + / − tiles as before. New
+  `sensor.hba_timed_active_period` shows which period applies now (A–E or Default; HBC's
+  "Current period"); the Timed view shows it with a clock while Timed is the strategy.
+  Apply defaults sets D/E off and their strategy to Self-consumption.
 
 - **Priority battery change interval: "Auto balance (SoC)"** (HBA-only) — "Auto balance" (as
   in HBC) rotates the priority every 30 minutes regardless of SoC. With batteries of different
@@ -165,6 +171,14 @@ open), so the version prefix stays at 4.10.1 for now.
   section as "Grid cycle profit today".
 
 ### Changed
+
+- **Timed and Dynamic have their own views** (HBA layout; HBC keeps one combined view) — the
+  "Timed / Dynamic" view is split into **Timed** (`/home-battery-assistant/timed`) and
+  **Dynamic** (`/home-battery-assistant/dynamic`). Cards are unchanged; links and the Dynamic
+  migration banner point to the new Dynamic view.
+- **Timed periods can run past midnight** — a stop time earlier than the start (e.g.
+  22:00 → 06:00) now wraps, as in HBC; before, such a period never matched. A period now runs
+  up to (not including) its stop time, so back-to-back periods no longer overlap by a second.
 
 - **Batteries now level out: after the priority battery, power goes to the next battery in
   line, not always to battery 1** — HBA (like HBC) filled/emptied the priority battery and then

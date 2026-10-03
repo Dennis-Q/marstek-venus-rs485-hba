@@ -191,10 +191,21 @@ vertical layout — one row per hour, today and tomorrow side by side:
 This scales better for 24+ rows and avoids horizontal scrolling. The data shown is
 identical; the layout is intentionally different.
 
-### Dynamic in the Timed / Dynamic view
+### Separate Timed and Dynamic views
 
-As in HBC v4.11.0, the Dynamic settings, price marks table and 48-hour ApexCharts bar
-chart live in the Timed / Dynamic view; the separate Lab features view is gone.
+HBC (up to v4.15.1) shows Timed and Dynamic in one combined "Timed/Dynamic" view. HBA splits
+it into a **Timed** view and a **Dynamic** view — with the price marks table, the 48-hour
+chart and five timed periods the combined view became very long. The cards themselves are
+the same as HBC's: Dynamic settings, price marks table and the 48-hour ApexCharts bar chart in
+Dynamic (the separate Lab features view is gone, as in HBC v4.11.0); default strategy,
+periods A–E and the "Current period" row in Timed.
+
+### Timed periods past midnight
+
+HBC's time-range switch lets a period run past midnight (stop earlier than start, e.g.
+22:00 → 06:00). HBA's Timed used a plain "start ≤ now ≤ stop" check, so such a period never
+matched; it now wraps the same way. A period runs from its start up to (not including) its
+stop, so back-to-back periods (A until 06:00, B from 06:00) don't overlap.
 
 ---
 

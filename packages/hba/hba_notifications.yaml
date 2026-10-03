@@ -657,7 +657,7 @@ automation:
             This HBA update removed **Dynamic v1** and renamed **Dynamic v2** to **Dynamic**.
 
             - If *Choose strategy* shows **Full stop**, select **Dynamic** again.
-            - Re-enter **max cheap / expensive hours** (Timed / Dynamic view).
+            - Re-enter **max cheap / expensive hours** (Dynamic view).
             - Delete the leftover entities (listed in the banner on the **HBA Overview**): in
               **Developer Tools → States**, filter entities on `hba` and state on `unavailable`;
               for each one click the ⓘ icon, then the cog → **Delete**.

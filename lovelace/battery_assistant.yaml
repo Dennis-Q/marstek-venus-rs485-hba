@@ -65,7 +65,7 @@ views:
               - **Missing:** {{ missing }} — install the r22 package files (re-run `install.sh`) and restart.
               {% endif -%}
               - **Strategy:** if *Choose strategy* shows **Full stop**, select **Dynamic** again.
-              - **Re-enter** *Max # cheap hrs* and *Max # expensive hrs* in [Timed / Dynamic](/home-battery-assistant/timed-dynamic) — they start at 0 (no cap).
+              - **Re-enter** *Max # cheap hrs* and *Max # expensive hrs* in [Dynamic](/home-battery-assistant/dynamic) — they start at 0 (no cap).
               {% if leftovers -%}
               - **Delete the leftover entities** — in **Developer Tools → States**, filter entities on `hba` and state on `unavailable`; for each one click the ⓘ icon, then the cog → **Delete**. (To delete several at once: **Settings → Entities**, search `hba`, select them, delete.)
               {% endif %}
@@ -666,7 +666,7 @@ views:
             heading_style: subtitle
             tap_action:
               action: navigate
-              navigation_path: /home-battery-assistant/timed-dynamic
+              navigation_path: /home-battery-assistant/dynamic
             visibility:
               - condition: state
                 entity: input_select.hba_strategy
@@ -1684,11 +1684,11 @@ views:
               </i></font>
             text_only: true
 
-  # ── VIEW 4: TIMED/DYNAMIC ───────────────────────────────────────────────────
+  # ── VIEW 4a: TIMED ──────────────────────────────────────────────────────────
   - type: sections
     max_columns: 3
-    title: Timed / Dynamic
-    path: timed-dynamic
+    title: Timed
+    path: timed
     icon: mdi:timer-cog-outline
     cards: []
     badges:
@@ -1714,7 +1714,295 @@ views:
       card:
         type: markdown
         text_only: true
-        content: '### Timed / Dynamic *(HBA v4.10.1-r21)*'
+        content: '### Timed *(HBA v4.10.1-r21)*'
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Timed strategy
+            heading_style: title
+          - type: heading
+            icon: mdi:youtube
+            heading: Using the timed strategy
+            heading_style: subtitle
+            tap_action:
+              action: url
+              url_path: https://youtu.be/UbeJaRjFK_o?t=53s
+              confirmation:
+                text: >-
+                  Opens HBC documentation or video. HBA is closely based on HBC,
+                  so most content also applies.
+          # Which period applies now (sensor.hba_timed_active_period, as HBC's
+          # "Current period"); only while Timed is the strategy.
+          - type: entities
+            entities:
+              - entity: sensor.hba_timed_active_period
+                type: simple-entity
+                name: Current period
+            grid_options:
+              columns: 9
+              rows: auto
+            visibility:
+              - condition: state
+                entity: input_select.hba_strategy
+                state: Timed
+          - clock_style: digital
+            clock_size: small
+            show_seconds: false
+            no_background: true
+            type: clock
+            grid_options:
+              columns: 3
+              rows: 1
+            title: Time
+            face_style: markers
+            visibility:
+              - condition: state
+                entity: input_select.hba_strategy
+                state: Timed
+          - type: entities
+            entities:
+              - entity: input_select.hba_strategy_timed_strat_0
+                name: Default strategy
+            grid_options:
+              columns: full
+              rows: auto
+          - type: entities
+            entities:
+              - entity: input_datetime.hba_strategy_timed_period_a1
+              - entity: input_select.hba_strategy_timed_strat_a
+              - entity: input_datetime.hba_strategy_timed_period_a2
+          - type: tile
+            grid_options:
+              columns: full
+            entity: input_boolean.hba_strategy_timed_has_period_b
+            name: Add period
+            icon: mdi:plus
+            color: blue-grey
+            show_entity_picture: false
+            hide_state: true
+            vertical: false
+            tap_action:
+              action: toggle
+            features_position: bottom
+            visibility:
+              - condition: state
+                entity: input_boolean.hba_strategy_timed_has_period_b
+                state: 'off'
+          - type: entities
+            entities:
+              - entity: input_datetime.hba_strategy_timed_period_b1
+              - entity: input_select.hba_strategy_timed_strat_b
+              - entity: input_datetime.hba_strategy_timed_period_b2
+            visibility:
+              - condition: state
+                entity: input_boolean.hba_strategy_timed_has_period_b
+                state: 'on'
+          - type: tile
+            entity: input_boolean.hba_strategy_timed_has_period_c
+            name: Add period
+            icon: mdi:plus
+            color: blue-grey
+            show_entity_picture: false
+            hide_state: true
+            vertical: false
+            tap_action:
+              action: toggle
+            features_position: bottom
+            visibility:
+              - condition: and
+                conditions:
+                  - condition: state
+                    entity: input_boolean.hba_strategy_timed_has_period_b
+                    state: 'on'
+                  - condition: state
+                    entity: input_boolean.hba_strategy_timed_has_period_c
+                    state: 'off'
+          - type: tile
+            entity: input_boolean.hba_strategy_timed_has_period_b
+            name: Remove period
+            icon: mdi:minus
+            color: red
+            show_entity_picture: false
+            hide_state: true
+            vertical: false
+            tap_action:
+              action: toggle
+            features_position: bottom
+            visibility:
+              - condition: and
+                conditions:
+                  - condition: state
+                    entity: input_boolean.hba_strategy_timed_has_period_b
+                    state: 'on'
+                  - condition: state
+                    entity: input_boolean.hba_strategy_timed_has_period_c
+                    state: 'off'
+          - type: entities
+            entities:
+              - entity: input_datetime.hba_strategy_timed_period_c1
+              - entity: input_select.hba_strategy_timed_strat_c
+              - entity: input_datetime.hba_strategy_timed_period_c2
+            visibility:
+              - condition: state
+                entity: input_boolean.hba_strategy_timed_has_period_c
+                state: 'on'
+          - type: tile
+            entity: input_boolean.hba_strategy_timed_has_period_d
+            name: Add period
+            icon: mdi:plus
+            color: blue-grey
+            show_entity_picture: false
+            hide_state: true
+            vertical: false
+            tap_action:
+              action: toggle
+            features_position: bottom
+            visibility:
+              - condition: and
+                conditions:
+                  - condition: state
+                    entity: input_boolean.hba_strategy_timed_has_period_c
+                    state: 'on'
+                  - condition: state
+                    entity: input_boolean.hba_strategy_timed_has_period_d
+                    state: 'off'
+          - type: tile
+            entity: input_boolean.hba_strategy_timed_has_period_c
+            name: Remove period
+            icon: mdi:minus
+            color: red
+            show_entity_picture: false
+            hide_state: true
+            vertical: false
+            tap_action:
+              action: toggle
+            features_position: bottom
+            visibility:
+              - condition: and
+                conditions:
+                  - condition: state
+                    entity: input_boolean.hba_strategy_timed_has_period_c
+                    state: 'on'
+                  - condition: state
+                    entity: input_boolean.hba_strategy_timed_has_period_d
+                    state: 'off'
+          - type: entities
+            entities:
+              - entity: input_datetime.hba_strategy_timed_period_d1
+              - entity: input_select.hba_strategy_timed_strat_d
+              - entity: input_datetime.hba_strategy_timed_period_d2
+            visibility:
+              - condition: state
+                entity: input_boolean.hba_strategy_timed_has_period_d
+                state: 'on'
+          - type: tile
+            entity: input_boolean.hba_strategy_timed_has_period_e
+            name: Add period
+            icon: mdi:plus
+            color: blue-grey
+            show_entity_picture: false
+            hide_state: true
+            vertical: false
+            tap_action:
+              action: toggle
+            features_position: bottom
+            visibility:
+              - condition: and
+                conditions:
+                  - condition: state
+                    entity: input_boolean.hba_strategy_timed_has_period_d
+                    state: 'on'
+                  - condition: state
+                    entity: input_boolean.hba_strategy_timed_has_period_e
+                    state: 'off'
+          - type: tile
+            entity: input_boolean.hba_strategy_timed_has_period_d
+            name: Remove period
+            icon: mdi:minus
+            color: red
+            show_entity_picture: false
+            hide_state: true
+            vertical: false
+            tap_action:
+              action: toggle
+            features_position: bottom
+            visibility:
+              - condition: and
+                conditions:
+                  - condition: state
+                    entity: input_boolean.hba_strategy_timed_has_period_d
+                    state: 'on'
+                  - condition: state
+                    entity: input_boolean.hba_strategy_timed_has_period_e
+                    state: 'off'
+          - type: entities
+            entities:
+              - entity: input_datetime.hba_strategy_timed_period_e1
+              - entity: input_select.hba_strategy_timed_strat_e
+              - entity: input_datetime.hba_strategy_timed_period_e2
+            visibility:
+              - condition: state
+                entity: input_boolean.hba_strategy_timed_has_period_e
+                state: 'on'
+          - type: tile
+            grid_options:
+              columns: full
+            entity: input_boolean.hba_strategy_timed_has_period_e
+            name: Remove period
+            icon: mdi:minus
+            color: red
+            show_entity_picture: false
+            hide_state: true
+            vertical: false
+            tap_action:
+              action: toggle
+            features_position: bottom
+            visibility:
+              - condition: state
+                entity: input_boolean.hba_strategy_timed_has_period_e
+                state: 'on'
+          - type: markdown
+            text_only: true
+            content: >-
+              <font color=grey><i>Periods are checked A → E; the first one that
+              covers the current time wins, otherwise the default strategy runs. A
+              stop time earlier than the start runs past midnight (e.g. 22:00 → 06:00).
+              </i></font>
+
+  # ── VIEW 4b: DYNAMIC ────────────────────────────────────────────────────────
+  # HBA splits HBC's combined "Timed/Dynamic" view into a Timed and a Dynamic view
+  # (cards unchanged): the combined view got long with the price marks and 5 timed periods.
+  - type: sections
+    max_columns: 3
+    title: Dynamic
+    path: dynamic
+    icon: mdi:chart-timeline-variant-shimmer
+    cards: []
+    badges:
+      - type: entity
+        show_name: true
+        show_state: true
+        show_icon: true
+        entity: input_select.hba_strategy
+        name: Choose strategy
+        tap_action:
+          action: more-info
+      - type: entity
+        show_name: true
+        show_state: true
+        show_icon: true
+        entity: sensor.hba_active_strategy
+        show_entity_picture: false
+        name: Executing
+    header:
+      layout: center
+      badges_position: top
+      badges_wrap: scroll
+      card:
+        type: markdown
+        text_only: true
+        content: '### Dynamic *(HBA v4.10.1-r21)*'
     sections:
       # ── Dynamic: config column ────────────────────────────────────────────────────────
       - type: grid
@@ -1959,136 +2247,6 @@ views:
                   }));
 
       # ── Timed ─────────────────────────────────────────────────────────────────
-      - type: grid
-        cards:
-          - type: heading
-            heading: Timed strategy
-            heading_style: title
-          - type: heading
-            icon: mdi:youtube
-            heading: Using the timed strategy
-            heading_style: subtitle
-            tap_action:
-              action: url
-              url_path: https://youtu.be/UbeJaRjFK_o?t=53s
-              confirmation:
-                text: >-
-                  Opens HBC documentation or video. HBA is closely based on HBC,
-                  so most content also applies.
-          - type: entities
-            entities:
-              - entity: input_select.hba_strategy_timed_strat_0
-                name: Default strategy
-            grid_options:
-              columns: 9
-              rows: auto
-          - clock_style: digital
-            clock_size: small
-            show_seconds: false
-            no_background: true
-            type: clock
-            grid_options:
-              columns: 3
-              rows: 1
-            title: Time
-            face_style: markers
-          - type: entities
-            entities:
-              - entity: input_datetime.hba_strategy_timed_period_a1
-              - entity: input_select.hba_strategy_timed_strat_a
-              - entity: input_datetime.hba_strategy_timed_period_a2
-          - type: tile
-            grid_options:
-              columns: full
-            entity: input_boolean.hba_strategy_timed_has_period_b
-            name: Add period
-            icon: mdi:plus
-            color: blue-grey
-            show_entity_picture: false
-            hide_state: true
-            vertical: false
-            tap_action:
-              action: toggle
-            features_position: bottom
-            visibility:
-              - condition: state
-                entity: input_boolean.hba_strategy_timed_has_period_b
-                state: 'off'
-          - type: entities
-            entities:
-              - entity: input_datetime.hba_strategy_timed_period_b1
-              - entity: input_select.hba_strategy_timed_strat_b
-              - entity: input_datetime.hba_strategy_timed_period_b2
-            visibility:
-              - condition: state
-                entity: input_boolean.hba_strategy_timed_has_period_b
-                state: 'on'
-          - type: tile
-            entity: input_boolean.hba_strategy_timed_has_period_c
-            name: Add period
-            icon: mdi:plus
-            color: blue-grey
-            show_entity_picture: false
-            hide_state: true
-            vertical: false
-            tap_action:
-              action: toggle
-            features_position: bottom
-            visibility:
-              - condition: and
-                conditions:
-                  - condition: state
-                    entity: input_boolean.hba_strategy_timed_has_period_b
-                    state: 'on'
-                  - condition: state
-                    entity: input_boolean.hba_strategy_timed_has_period_c
-                    state: 'off'
-          - type: tile
-            entity: input_boolean.hba_strategy_timed_has_period_b
-            name: Remove period
-            icon: mdi:minus
-            color: red
-            show_entity_picture: false
-            hide_state: true
-            vertical: false
-            tap_action:
-              action: toggle
-            features_position: bottom
-            visibility:
-              - condition: and
-                conditions:
-                  - condition: state
-                    entity: input_boolean.hba_strategy_timed_has_period_b
-                    state: 'on'
-                  - condition: state
-                    entity: input_boolean.hba_strategy_timed_has_period_c
-                    state: 'off'
-          - type: entities
-            entities:
-              - entity: input_datetime.hba_strategy_timed_period_c1
-              - entity: input_select.hba_strategy_timed_strat_c
-              - entity: input_datetime.hba_strategy_timed_period_c2
-            visibility:
-              - condition: state
-                entity: input_boolean.hba_strategy_timed_has_period_c
-                state: 'on'
-          - type: tile
-            grid_options:
-              columns: full
-            visibility:
-              - condition: state
-                entity: input_boolean.hba_strategy_timed_has_period_c
-                state: 'on'
-            entity: input_boolean.hba_strategy_timed_has_period_c
-            name: Remove period
-            icon: mdi:minus
-            color: red
-            show_entity_picture: false
-            hide_state: true
-            vertical: false
-            tap_action:
-              action: toggle
-            features_position: bottom
 
   # ── VIEW 5: INSIGHTS (DEBUG) ────────────────────────────────────────────────
   - type: sections
