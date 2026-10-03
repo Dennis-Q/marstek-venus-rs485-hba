@@ -117,6 +117,18 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Added
 
+- **Priority battery change interval: "Auto balance (SoC)"** (HBA-only) — "Auto balance" (as
+  in HBC) rotates the priority every 30 minutes regardless of SoC. With batteries of different
+  power that does not balance: on prod the 800 W battery gave far less per turn in the evening
+  peak and stayed ~50 % above the others all night. The new option decides the order from SoC
+  every 30 minutes — fullest battery discharges first, emptiest charges first, and a load or
+  solar surplus above one battery's max flows to the next in line — and keeps it until the
+  next half hour, so a running charge or discharge is never reshuffled. A battery only moves
+  up when its SoC differs by more than 3 points. New `sensor.hba_battery_order` (state = the
+  battery that discharges first, also mirrored to the priority battery; attributes
+  `discharge_order` / `charge_order`); the order is shown under the setting in Advanced
+  Settings. "Auto balance", "Daily", "Weekly" and "Never" are unchanged.
+
 - **New "When done charging" option: *Charge PV — use battery if the sun refills it***
   — with the *solar forecast* charge goal, it holds the battery (Charge PV) only when energy
   had to come from the grid; when the forecast surplus covers the whole usable capacity

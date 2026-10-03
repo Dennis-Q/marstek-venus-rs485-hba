@@ -265,6 +265,8 @@ automation:
 
   # ── Auto-cycle priority battery ───────────────────────────────────────────────
   # Rotates hba_control_prioritize_battery to spread wear across batteries.
+  # "Auto balance (SoC)": the order comes from sensor.hba_battery_order; the priority
+  # battery only mirrors its discharge-first battery for the dashboard.
   - id: hba_cycle_priority
     alias: "HBA: Auto-cycle priority battery"
     mode: single
@@ -275,6 +277,11 @@ automation:
       - trigger: time_pattern
         minutes: "/30"
         id: periodic
+      - trigger: state
+        entity_id:
+          - sensor.hba_battery_order
+          - input_select.hba_control_priority_change_interval
+        id: soc_order
     actions:
       - variables:
           interval: "{{ states('input_select.hba_control_priority_change_interval') }}"
@@ -291,6 +298,13 @@ automation:
             sequence:
               - action: script.hba_advance_priority
                 data: {}
+          - conditions: >-
+              {{ interval == 'Auto balance (SoC)' and trigger.id == 'soc_order'
+                 and states('sensor.hba_battery_order') | int(0) > 0 }}
+            sequence:
+              - action: input_number.set_value
+                target: { entity_id: input_number.hba_control_prioritize_battery }
+                data: { value: "{{ states('sensor.hba_battery_order') | int }}" }
 
   # ── Timed EV Charge: PID reset on transitions ────────────────────────────────
   - id: hba_battery_assist_pid_reset
@@ -642,6 +656,7 @@ script:
   # Distributes a target power across N batteries using priority-first waterfall fill:
   #   1. Priority battery takes as much as it can (hw max, SoC eligibility, slow-charge cap).
   #   2. The others follow cyclically (p+1 … count, 1 … p-1), each taking what it can.
+  #   "Auto balance (SoC)" replaces this order with sensor.hba_battery_order (by SoC).
   # Per-battery eligibility: SoC within cutoffs (±0.5 % buffer), inverter not faulted and
   # the battery reported over Modbus within the last 30 s.
   # Shares are pre-computed in a single Jinja2 namespace loop into shares_json before the
@@ -838,8 +853,17 @@ script:
                         rotated (prod 10-01/02: SoC spread up to 55-68 %, priority M3 never
                         paired with M4 when charging). Cyclic, each battery is second in line
                         equally often as the priority rotates. -#}
+                    {#- "Auto balance (SoC)": the 30-min SoC order (sensor.hba_battery_order). -#}
+                    {%- set soc_order = state_attr('sensor.hba_battery_order', 'charge_order') -%}
+                    {%- if states('input_select.hba_control_priority_change_interval') == 'Auto balance (SoC)'
+                          and soc_order is sequence and soc_order is not string -%}
+                      {%- for b in soc_order | map('int') if 1 <= b <= count and b not in ns.order -%}
+                        {%- set ns.order = ns.order + [b] -%}
+                      {%- endfor -%}
+                    {%- endif -%}
                     {%- for k in range(count) -%}
-                      {%- set ns.order = ns.order + [((priority_bat - 1 + k) % count) + 1] -%}
+                      {%- set b = ((priority_bat - 1 + k) % count) + 1 -%}
+                      {%- if b not in ns.order -%}{%- set ns.order = ns.order + [b] -%}{%- endif -%}
                     {%- endfor -%}
                     {%- for bat in ns.order -%}
                       {%- set soc = states('sensor.marstek_m' ~ bat ~ '_battery_state_of_charge') | float(0) -%}
@@ -943,8 +967,17 @@ script:
                         rotated (prod 10-01/02: SoC spread up to 55-68 %, priority M3 never
                         paired with M4 when charging). Cyclic, each battery is second in line
                         equally often as the priority rotates. -#}
+                    {#- "Auto balance (SoC)": the 30-min SoC order (sensor.hba_battery_order). -#}
+                    {%- set soc_order = state_attr('sensor.hba_battery_order', 'discharge_order') -%}
+                    {%- if states('input_select.hba_control_priority_change_interval') == 'Auto balance (SoC)'
+                          and soc_order is sequence and soc_order is not string -%}
+                      {%- for b in soc_order | map('int') if 1 <= b <= count and b not in ns.order -%}
+                        {%- set ns.order = ns.order + [b] -%}
+                      {%- endfor -%}
+                    {%- endif -%}
                     {%- for k in range(count) -%}
-                      {%- set ns.order = ns.order + [((priority_bat - 1 + k) % count) + 1] -%}
+                      {%- set b = ((priority_bat - 1 + k) % count) + 1 -%}
+                      {%- if b not in ns.order -%}{%- set ns.order = ns.order + [b] -%}{%- endif -%}
                     {%- endfor -%}
                     {%- for bat in ns.order -%}
                       {%- set soc = states('sensor.marstek_m' ~ bat ~ '_battery_state_of_charge') | float(0) -%}

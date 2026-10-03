@@ -781,6 +781,8 @@ input_select:
     name: "Priority battery change interval"
     options:
       - "Auto balance"
+      # HBA-only: order by SoC every 30 min (sensor.hba_battery_order).
+      - "Auto balance (SoC)"
       - "Weekly"
       - "Daily"
       - "Never"
@@ -1765,6 +1767,71 @@ template:
               {% if not has_value(e) %}{% set ns.missing = ns.missing + [e] %}{% endif %}
             {% endfor %}
             {{ ns.missing | join(', ') if ns.missing else '' }}
+
+  # ── Battery order for "Auto balance (SoC)" ────────────────────────────────────
+  # HBA-only priority mode. "Auto balance" (as in HBC) rotates the priority every 30 min
+  # regardless of SoC, so batteries that differ in power drift apart: on prod (2026-10-02)
+  # the 800 W M4 gave far less per turn in the evening peak and stayed ~50 % above the
+  # others all night. This decides the order from SoC instead, frozen for 30 min so a
+  # running charge or discharge is never reshuffled:
+  #   discharge_order: most energy above the discharge cutoff first
+  #   charge_order:    most room below the charge cutoff first
+  # The distribution (hba_set_batteries) fills batteries in that order, each up to its
+  # max, so a load above one battery's max goes to the next-fullest battery and solar
+  # above it to the next-emptiest. A battery only overtakes the one ahead of it by more
+  # than 3 SoC points, so near-equal batteries keep their place instead of swapping
+  # every tick. Battery with unknown SoC goes last.
+  - triggers:
+      - trigger: time_pattern
+        minutes: "/30"
+      - trigger: homeassistant
+        event: start
+      - trigger: event
+        event_type: event_template_reloaded
+      - trigger: state
+        entity_id:
+          - input_select.hba_control_priority_change_interval
+          - input_number.hba_battery_count
+    actions:
+      - variables:
+          orders: >-
+            {%- set count = states('input_number.hba_battery_count') | int(1) -%}
+            {%- set ns = namespace(dis={}, chg={}) -%}
+            {%- for i in range(1, count + 1) -%}
+              {%- set soc = states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') | float(-1) -%}
+              {%- set lo = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) -%}
+              {%- set hi = states('input_number.hba_marstek_m' ~ i ~ '_charging_cutoff_capacity') | float(100) -%}
+              {%- set ns.dis = ns.dis | combine({i | string: (soc - lo) if soc >= 0 else -999}) -%}
+              {%- set ns.chg = ns.chg | combine({i | string: (hi - soc) if soc >= 0 else -999}) -%}
+            {%- endfor -%}
+            {%- set ns2 = namespace(out={}) -%}
+            {%- for key, val in [('discharge_order', ns.dis), ('charge_order', ns.chg)] -%}
+              {%- set prev = (this.attributes.get(key) if this is defined and this.attributes is defined else none) or [] -%}
+              {%- set prev = (prev if prev is sequence and prev is not string else []) | map('int') | list -%}
+              {%- set o = namespace(l=[]) -%}
+              {%- for b in prev if 1 <= b <= count and b not in o.l -%}{%- set o.l = o.l + [b] -%}{%- endfor -%}
+              {%- for b in range(1, count + 1) if b not in o.l -%}{%- set o.l = o.l + [b] -%}{%- endfor -%}
+              {#- Bubble sort that only swaps neighbours more than 3 points apart. -#}
+              {%- for _ in range(count) -%}
+                {%- for k in range(count - 1) -%}
+                  {%- if val[o.l[k + 1] | string] > val[o.l[k] | string] + 3 -%}
+                    {%- set o.l = o.l[:k] + [o.l[k + 1], o.l[k]] + o.l[k + 2:] -%}
+                  {%- endif -%}
+                {%- endfor -%}
+              {%- endfor -%}
+              {%- set ns2.out = ns2.out | combine({key: o.l}) -%}
+            {%- endfor -%}
+            {{ ns2.out | tojson }}
+    sensor:
+      - name: "HBA Battery Order"
+        unique_id: hba_battery_order
+        icon: mdi:sort-descending
+        # The battery that discharges first (also synced to the priority battery).
+        state: "{{ (orders | from_json if orders is string else orders).discharge_order[0] }}"
+        attributes:
+          discharge_order: "{{ (orders | from_json if orders is string else orders).discharge_order }}"
+          charge_order: "{{ (orders | from_json if orders is string else orders).charge_order }}"
+          decided_at: "{{ now().isoformat() }}"
 
 ######################################################################################################
 # RECORDER

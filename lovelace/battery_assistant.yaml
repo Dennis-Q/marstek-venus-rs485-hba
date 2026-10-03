@@ -2720,6 +2720,24 @@ views:
               - entity: input_select.hba_control_priority_change_interval
             state_color: false
             columns: 3
+          # HBA-only: the frozen 30-min SoC order (sensor.hba_battery_order).
+          - type: markdown
+            text_only: true
+            visibility:
+              - condition: state
+                entity: input_select.hba_control_priority_change_interval
+                state: "Auto balance (SoC)"
+            content: |-
+              {%- set d = state_attr('sensor.hba_battery_order', 'discharge_order') or [] -%}
+              {%- set c = state_attr('sensor.hba_battery_order', 'charge_order') or [] -%}
+              {%- set at = state_attr('sensor.hba_battery_order', 'decided_at') -%}
+              {%- set t30 = (as_datetime(at) + timedelta(minutes=30)) if at else none -%}
+              {%- set nxt = t30.replace(minute=(0 if t30.minute < 30 else 30), second=0, microsecond=0) if t30 else none -%}
+              <font color=grey><i>
+              **Discharge order:** {% for b in d %}M{{ b }}{{ ' → ' if not loop.last }}{% endfor %}<br>
+              **Charge order:** {% for b in c %}M{{ b }}{{ ' → ' if not loop.last }}{% endfor %}<br>
+              Fullest battery discharges first, emptiest charges first; a load or solar surplus above one battery's max flows to the next in line. Decided every 30 minutes{{ (' — next at ' ~ nxt.strftime('%H:%M')) if nxt }}, and kept until then so a running charge or discharge is never reshuffled. A battery only moves up when its SoC differs by more than 3 points.
+              </i></font>
           - type: heading
             icon: mdi:information
             heading: Optimize stop and go behavior
