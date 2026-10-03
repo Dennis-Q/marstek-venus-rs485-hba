@@ -201,38 +201,43 @@ input_number:
     icon: mdi:waves-arrow-right
 
   # --- PID internal state (written by controller script) ---
+  # Range ±100 kW. HBC's ±15 kW (error/output) and ±10 kW (terms) are display-only in
+  # Node-RED, but here these helpers ARE the controller state: a value outside the range
+  # makes input_number.set_value fail and aborts the whole control cycle. A 3 x 25 A
+  # connection already allows ~17 kW, and the I-term reaches 15 kW with six batteries.
+  # The controller also clamps every write to this range (hba_strategy_self_consumption).
   hba_control_error_signal:
     name: "PID error signal"
-    min: -15000
-    max: 15000
+    min: -100000
+    max: 100000
     step: 1
     unit_of_measurement: W
     icon: mdi:sine-wave
   hba_control_pid_output:
     name: "PID output"
-    min: -15000
-    max: 15000
+    min: -100000
+    max: 100000
     step: 1
     unit_of_measurement: W
     icon: mdi:gauge
   hba_control_p_term:
     name: "PID P term"
-    min: -10000
-    max: 10000
+    min: -100000
+    max: 100000
     step: 1
     unit_of_measurement: W
     icon: mdi:alpha-p-circle
   hba_control_i_term:
     name: "PID I term"
-    min: -10000
-    max: 10000
+    min: -100000
+    max: 100000
     step: 1
     unit_of_measurement: W
     icon: mdi:alpha-i-circle
   hba_control_d_term:
     name: "PID D term"
-    min: -10000
-    max: 10000
+    min: -100000
+    max: 100000
     step: 1
     unit_of_measurement: W
     icon: mdi:alpha-d-circle

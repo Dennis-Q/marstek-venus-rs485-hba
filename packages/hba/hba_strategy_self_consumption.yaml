@@ -221,21 +221,23 @@ script:
                   - action: input_text.set_value
                     target: { entity_id: input_text.hba_strategy_active_flow }
                     data: { value: "Self-consumption" }
+          # Clamped to the helpers' ±100 kW range: an out-of-range set_value fails and
+          # would abort the cycle (and with it all battery control) on an extreme reading.
           - action: input_number.set_value
             target: { entity_id: input_number.hba_control_error_signal }
-            data: { value: "{{ effective_err | round(1) }}" }
+            data: { value: "{{ [[effective_err, -100000] | max, 100000] | min | round(1) }}" }
           - action: input_number.set_value
             target: { entity_id: input_number.hba_control_p_term }
-            data: { value: "{{ p_term | round(1) }}" }
+            data: { value: "{{ [[p_term, -100000] | max, 100000] | min | round(1) }}" }
           - action: input_number.set_value
             target: { entity_id: input_number.hba_control_i_term }
-            data: { value: "{{ new_i | round(1) }}" }
+            data: { value: "{{ [[new_i, -100000] | max, 100000] | min | round(1) }}" }
           - action: input_number.set_value
             target: { entity_id: input_number.hba_control_d_term }
-            data: { value: "{{ d_term | round(1) }}" }
+            data: { value: "{{ [[d_term, -100000] | max, 100000] | min | round(1) }}" }
           - action: input_number.set_value
             target: { entity_id: input_number.hba_control_pid_output }
-            data: { value: "{{ peak_shaving_output }}" }
+            data: { value: "{{ [[peak_shaving_output | int, -100000] | max, 100000] | min }}" }
           - choose:
               # Output non-zero after guard — send command and mark batteries as active
               - conditions: "{{ peak_shaving_output != 0 }}"

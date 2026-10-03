@@ -19,6 +19,12 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Fixed
 
+- **Large grid connections or six batteries could stop battery control** — the PID helpers
+  had HBC's ranges (error and output ±15 kW, P/I/D terms ±10 kW). In HBC those are display
+  values; in HBA they *are* the controller state, so a value outside the range made the write
+  fail and aborted the control cycle. A 3 × 25 A connection already allows ~17 kW, and the
+  I-term reaches 15 kW with six batteries. The ranges are now ±100 kW and every write is
+  clamped to that range.
 - **One battery with a hung network link froze control of all batteries** — when a battery's
   Modbus TCP connection hangs (prod: a touched cable), HA keeps it "available" for minutes
   while it waits (timeout 20 s + retries). The next write to it blocked the control loop:
