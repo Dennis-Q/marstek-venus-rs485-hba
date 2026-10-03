@@ -780,9 +780,10 @@ input_select:
   hba_control_priority_change_interval:
     name: "Priority battery change interval"
     options:
-      - "Auto balance"
-      # HBA-only: order by SoC every 30 min (sensor.hba_battery_order).
+      # HBA-only: order by SoC every 30 min (sensor.hba_battery_order). First, so a
+      # fresh install starts with it (HBA default; HBC's is the plain rotation below).
       - "Auto balance (SoC)"
+      - "Auto balance"
       - "Weekly"
       - "Daily"
       - "Never"

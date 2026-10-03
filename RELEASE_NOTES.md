@@ -127,7 +127,9 @@ open), so the version prefix stays at 4.10.1 for now.
   up when its SoC differs by more than 3 points. New `sensor.hba_battery_order` (state = the
   battery that discharges first, also mirrored to the priority battery; attributes
   `discharge_order` / `charge_order`); the order is shown under the setting in Advanced
-  Settings. "Auto balance", "Daily", "Weekly" and "Never" are unchanged.
+  Settings. "Auto balance", "Daily", "Weekly" and "Never" are unchanged. **It is the new
+  default** (apply defaults and fresh installs); existing installs keep their current setting
+  until you select it.
 
 - **New "When done charging" option: *Charge PV — use battery if the sun refills it***
   — with the *solar forecast* charge goal, it holds the battery (Charge PV) only when energy

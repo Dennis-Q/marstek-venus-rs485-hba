@@ -14,7 +14,7 @@ PID tuning, strategy settings, and SoC cutoffs. It never touches internal state
 | `input_select.hba_strategy` | `Self-consumption` |
 | `input_number.hba_battery_count` | `1` |
 | `input_number.hba_control_prioritize_battery` | `1` |
-| `input_select.hba_control_priority_change_interval` | `Auto balance` |
+| `input_select.hba_control_priority_change_interval` | `Auto balance (SoC)` — HBA-only; HBC defaults to `Auto balance` (plain 30-min rotation) |
 
 ## PID Parameters
 

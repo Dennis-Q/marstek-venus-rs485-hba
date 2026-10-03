@@ -1114,9 +1114,10 @@ script:
       - action: input_number.set_value
         target: { entity_id: input_number.hba_control_prioritize_battery }
         data: { value: 1 }
+      # HBA default: SoC-based balancing (HBC's default is the plain "Auto balance" rotation).
       - action: input_select.select_option
         target: { entity_id: input_select.hba_control_priority_change_interval }
-        data: { option: "Auto balance" }
+        data: { option: "Auto balance (SoC)" }
       # ── PID parameters ────────────────────────────────────────────────────────
       - action: input_select.select_option
         target: { entity_id: input_select.hba_control_pid_presets }
