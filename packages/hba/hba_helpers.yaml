@@ -1856,7 +1856,12 @@ template:
             {%- endfor -%}
             {%- set ns2 = namespace(out={}) -%}
             {%- for key, val in [('discharge_order', ns.dis), ('charge_order', ns.chg)] -%}
-              {%- set prev = (this.attributes.get(key) if this is defined and this.attributes is defined else none) or [] -%}
+              {#- Previous order from the state machine. `this` is not usable in a trigger
+                  template's actions: it came back empty, so the order was re-seeded 1..n
+                  every tick and, within 3 points, the LOWEST battery number went first
+                  even when it had the least SoC (prod 2026-10-04 02:00-07:00: M1 first at
+                  27 % with M3 at 31 %). -#}
+              {%- set prev = state_attr('sensor.hba_battery_order', key) or [] -%}
               {%- set prev = (prev if prev is sequence and prev is not string else []) | map('int') | list -%}
               {%- set o = namespace(l=[]) -%}
               {%- for b in prev if 1 <= b <= count and b not in o.l -%}{%- set o.l = o.l + [b] -%}{%- endfor -%}
