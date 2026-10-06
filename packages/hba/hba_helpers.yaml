@@ -649,7 +649,8 @@ input_select:
       - "Charge PV"
     icon: mdi:car-electric-outline
   # PID presets. The four everyday presets use Kp 0.35 / Kd 0.1 / damping 20-10 and
-  # differ ONLY in Ki. "Low peak (grid limit)" is the exception -- see below.
+  # differ ONLY in Ki: Very safe 0.15 / Safe 0.22 / Regular 0.30 / Responsive 0.40.
+  # "Low peak (grid limit)" is the exception -- see below.
   #
   # Kp 0.35 is the MEASURED optimum, bracketed on both sides against a real 2250 W
   # load on production (Ki held at 0.22): cost per disturbance 0.74 / 0.61 / 0.71 ct

@@ -125,7 +125,8 @@ automation:
   # ── PID preset changed ────────────────────────────────────────────────────────
   # Writes Kp/Ki/Kd and dampening values for the selected named preset.
   # ── PID preset changed ────────────────────────────────────────────────────────
-  # All presets share Kp 0.35 / Kd 0.1 / damping 20-10 and differ ONLY in Ki.
+  # The four everyday presets share Kp 0.35 / Kd 0.1 / damping 20-10 and differ ONLY in
+  # Ki: 0.15 / 0.22 / 0.30 / 0.40 (~x1.35 per step). "Low peak (grid limit)" is the exception.
   #
   # Kp 0.35 is the MEASURED optimum: cost per disturbance 0.74 / 0.61 / 0.71 ct at
   # Kp 0.20 / 0.35 / 0.55 against a real 2250 W load (three nights, Ki held at 0.22).
@@ -154,28 +155,7 @@ automation:
                 entity_id: input_select.hba_control_pid_presets
                 state: "Very safe"
             sequence:
-              # Calmest. ~2x the grid energy per disturbance of Regular, least battery activity.
-              - action: input_number.set_value
-                target: { entity_id: input_number.hba_control_kp }
-                data: { value: 0.35 }
-              - action: input_number.set_value
-                target: { entity_id: input_number.hba_control_ki }
-                data: { value: 0.1 }
-              - action: input_number.set_value
-                target: { entity_id: input_number.hba_control_kd }
-                data: { value: 0.1 }
-              - action: input_number.set_value
-                target: { entity_id: input_number.hba_control_error_signal_dampening }
-                data: { value: 20 }
-              - action: input_number.set_value
-                target: { entity_id: input_number.hba_control_pid_output_dampening }
-                data: { value: 10 }
-          - conditions:
-              - condition: state
-                entity_id: input_select.hba_control_pid_presets
-                state: "Safe"
-            sequence:
-              # Measured 4.4 Wh per 863 W step vs Regular's 3.7. Noticeably slower tail.
+              # Calmest, least battery activity. Measured 4.4 Wh per 863 W step vs Regular's 3.2.
               - action: input_number.set_value
                 target: { entity_id: input_number.hba_control_kp }
                 data: { value: 0.35 }
@@ -194,9 +174,10 @@ automation:
           - conditions:
               - condition: state
                 entity_id: input_select.hba_control_pid_presets
-                state: "Regular"
+                state: "Safe"
             sequence:
-              # DEFAULT. Validated on prod against the 2.25 kW night pulse: residual 143 W at +8 s, zero setpoint crossings.
+              # The Regular of r21 and earlier. 3.7 Wh per 863 W step; residual 410 W at +8 s
+              # after a 2.25 kW step on four batteries (Regular: 137 W). No setpoint crossings.
               - action: input_number.set_value
                 target: { entity_id: input_number.hba_control_kp }
                 data: { value: 0.35 }
@@ -215,9 +196,10 @@ automation:
           - conditions:
               - condition: state
                 entity_id: input_select.hba_control_pid_presets
-                state: "Responsive"
+                state: "Regular"
             sequence:
-              # Fastest measured (3.2 Wh vs Regular's 3.7 on an 863 W step). Untested against 2.25 kW steps -- may overshoot, since overshoot scales with step size.
+              # DEFAULT. Validated on prod against the 2.25 kW night pulse (four batteries,
+              # 2026-10-05): residual 137 W at +8 s (Ki 0.22: 410 W), worst undershoot -188 W.
               - action: input_number.set_value
                 target: { entity_id: input_number.hba_control_kp }
                 data: { value: 0.35 }
@@ -236,10 +218,34 @@ automation:
           - conditions:
               - condition: state
                 entity_id: input_select.hba_control_pid_presets
+                state: "Responsive"
+            sequence:
+              # Fastest. NOT YET MEASURED: one step above Regular on the same ~x1.35 ladder.
+              # Regular already undershoots briefly (to -188 W) on a 2.25 kW step, so expect
+              # setpoint crossings on large steps.
+              - action: input_number.set_value
+                target: { entity_id: input_number.hba_control_kp }
+                data: { value: 0.35 }
+              - action: input_number.set_value
+                target: { entity_id: input_number.hba_control_ki }
+                data: { value: 0.4 }
+              - action: input_number.set_value
+                target: { entity_id: input_number.hba_control_kd }
+                data: { value: 0.1 }
+              - action: input_number.set_value
+                target: { entity_id: input_number.hba_control_error_signal_dampening }
+                data: { value: 20 }
+              - action: input_number.set_value
+                target: { entity_id: input_number.hba_control_pid_output_dampening }
+                data: { value: 10 }
+          - conditions:
+              - condition: state
+                entity_id: input_select.hba_control_pid_presets
                 state: "Low peak (grid limit)"
             sequence:
-              # Regular's gains with output dampening removed. The ONLY preset that is not
-              # a pure Ki step. Measured against Regular on the 2250 W production load over
+              # Safe's gains (Ki 0.22, the Regular of r21) with output dampening removed. The ONLY
+              # preset that is not a pure Ki step. Measured against Ki 0.22 + 10 % output
+              # dampening on the 2250 W production load over
               # two nights, arms interleaved per pulse and the arm order reversed on the
               # second night: peak (+3 s) is ~10 % lower (1630 -> 1320 W, then 1410 -> 1320 W;
               # p = 0.0008 stratified by night, 29 pulses). Tail (+8 s) and cost per
@@ -1130,7 +1136,7 @@ script:
         data: { value: 0.35 }
       - action: input_number.set_value
         target: { entity_id: input_number.hba_control_ki }
-        data: { value: 0.1 }
+        data: { value: 0.15 }
       - action: input_number.set_value
         target: { entity_id: input_number.hba_control_kd }
         data: { value: 0.1 }

@@ -108,10 +108,11 @@ behave more similarly.
 The everyday presets are **Very safe / Safe / Regular / Responsive**. They share Kp 0.35,
 Kd 0.1 and the damping settings, and differ **only in Ki**, because Kp 0.35 is a *measured*
 optimum — swept on production and bracketed on both sides, it is the cheapest per disturbance,
-so there is nothing to gain by varying it. **Regular** is the validated default (measured on
-production: 143 W residual 8 s after a 2.25 kW step, zero setpoint crossings).
+so there is nothing to gain by varying it. **Regular** (Ki 0.30) is the validated default
+(measured on production: 137 W residual 8 s after a 2.25 kW step, against 410 W at Ki 0.22).
+**Responsive** (Ki 0.40) has not been measured yet.
 
-A fifth preset, **Low peak (grid limit)**, is Regular with output damping removed: ~−10 % on the
+A fifth preset, **Low peak (grid limit)**, is Safe (Ki 0.22) with output damping removed: ~−10 % on the
 instantaneous peak at no extra cost, for installs with a hard fuse or connection limit. It does
 *not* help with a capacity tariff billed on 15-minute averages — use `power_limit_import`.
 

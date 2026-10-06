@@ -178,6 +178,14 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Changed
 
+- **PID presets shifted up one Ki step; `Regular` is now Ki 0.30** — **Very safe / Safe /
+  Regular / Responsive** are now Ki **0.15 / 0.22 / 0.30 / 0.40** (was 0.10 / 0.15 / 0.22 /
+  0.30). Measured on production against the 2.25 kW night load on four batteries: residual
+  8 s after the step **410 → 137 W**, cost per pulse 0.77 → 0.72 ct, worst brief undershoot
+  −188 W. `Safe` is the previous `Regular`. `Responsive` (0.40) has not been measured yet.
+  `Low peak (grid limit)` keeps its measured Ki 0.22 (now: Safe without output damping).
+  `script.hba_apply_defaults` sets Ki 0.15 to match `Very safe`. Existing installs keep their
+  current values until a preset is selected again.
 - **Timed and Dynamic have their own views** (HBA layout; HBC keeps one combined view) — the
   "Timed / Dynamic" view is split into **Timed** (`/home-battery-assistant/timed`) and
   **Dynamic** (`/home-battery-assistant/dynamic`). Cards are unchanged; links and the Dynamic

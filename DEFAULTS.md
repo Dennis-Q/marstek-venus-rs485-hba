@@ -23,10 +23,10 @@ are always consistent with "Very safe" so the preset selector is not misleading.
 
 | Helper | Default | Notes |
 |---|---|---|
-| `input_select.hba_control_pid_presets` | `Very safe` | Deliberately conservative for an unverified install. **Switch to `Regular` once the batteries are confirmed responding** — it is the validated operating point and roughly halves the grid energy per disturbance. |
+| `input_select.hba_control_pid_presets` | `Very safe` | Deliberately conservative for an unverified install. **Switch to `Regular` once the batteries are confirmed responding** — it is the validated operating point (residual 137 W vs ~410 W at Ki 0.22, 8 s after a 2.25 kW step). |
 | `input_number.hba_target_grid_consumption` | `0` W | Keep grid import at 0 W |
 | `input_number.hba_control_kp` | `0.35` | Matches Very safe preset |
-| `input_number.hba_control_ki` | `0.1` | Matches Very safe preset |
+| `input_number.hba_control_ki` | `0.15` | Matches Very safe preset |
 | `input_number.hba_control_kd` | `0.1` | Matches Very safe preset |
 | `input_number.hba_control_pid_output_dampening` | `10` % | Matches Very safe preset |
 | `input_number.hba_control_error_signal_dampening` | `20` % | Matches Very safe preset |
@@ -79,17 +79,23 @@ reason to change — see `Low peak (grid limit)` below.
 
 | Preset | Ki | Character | Measured on an 863 W step |
 |---|---|---|---|
-| Very safe | 0.10 | Calmest, least battery activity | 6.1 Wh, ~38 s to settle |
-| Safe | 0.15 | Noticeably slower tail | 4.4 Wh |
-| **Regular** *(default)* | **0.22** | **Validated on production** | 3.7 Wh. Against a real 2.25 kW step: residual **143 W at +8 s**, zero setpoint crossings |
-| Responsive | 0.30 | Fastest measured | 3.2 Wh. Untested against 2.25 kW steps — may overshoot, as overshoot scales with step size |
+| Very safe | 0.15 | Calmest, least battery activity | 4.4 Wh |
+| Safe | 0.22 | The `Regular` of r21 and earlier | 3.7 Wh. Against a real 2.25 kW step (four batteries): residual 410 W at +8 s, zero setpoint crossings |
+| **Regular** *(default)* | **0.30** | **Validated on production** | 3.2 Wh. Against a real 2.25 kW step (four batteries, 2026-10-05): residual **137 W at +8 s**, worst brief undershoot −188 W, cost per pulse 0.72 ct (Ki 0.22: 0.77 ct) |
+| Responsive | 0.40 | Fastest — **not yet measured** | One step above Regular on the same ~×1.35 ladder. Regular already undershoots briefly on large steps, so expect setpoint crossings |
+
+The ladder was shifted up one step in r22: Ki 0.10 (6.1 Wh, ~38 s to settle on an 863 W step)
+was too slow to be useful even as a first-install setting, and Ki 0.30 beat 0.22 on production
+with no overshoot beyond the −200 W pass limit. Presets only ship measured values; Responsive
+is the one exception until it has had a production night.
 
 #### `Low peak (grid limit)` — the one preset that is not a Ki step
 
-`Kp 0.35 / Ki 0.22 / Kd 0.1 / error damping 20 % / **output damping 0 %**` — Regular's gains
-with output damping removed.
+`Kp 0.35 / Ki 0.22 / Kd 0.1 / error damping 20 % / **output damping 0 %**` — Safe's gains
+(the `Regular` of r21 and earlier) with output damping removed. It keeps Ki 0.22 because that
+is the combination that was measured; Ki 0.30 without output damping has not been tested.
 
-Measured on production over **two nights** (2026-08-06 and 08-07) against Regular on the same
+Measured on production over **two nights** (2026-08-06 and 08-07) against Ki 0.22 + 10 % output damping (then `Regular`) on the same
 2250 W load, with the two arms **interleaved pulse by pulse** so SoC, weather and household
 drift hit both equally, and with the arm order reversed on the second night so a
 first-vs-second-in-cycle artefact would have shown up as a sign flip. It did not:
