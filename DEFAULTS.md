@@ -82,12 +82,30 @@ reason to change — see `Low peak (grid limit)` below.
 | Very safe | 0.15 | Calmest, least battery activity | 4.4 Wh |
 | Safe | 0.22 | The `Regular` of r21 and earlier | 3.7 Wh. Against a real 2.25 kW step (four batteries): residual 410 W at +8 s, zero setpoint crossings |
 | **Regular** *(default)* | **0.30** | **Validated on production** | 3.2 Wh. Against a real 2.25 kW step (four batteries, 2026-10-05): residual **137 W at +8 s**, worst brief undershoot −188 W, cost per pulse 0.72 ct (Ki 0.22: 0.77 ct) |
-| Responsive | 0.40 | Fastest — **not yet measured** | One step above Regular on the same ~×1.35 ladder. Regular already undershoots briefly on large steps, so expect setpoint crossings |
+| Responsive | 0.40 | Fastest, but overshoots and jitters — see the trade-off below | Against a real 2.25 kW step (four batteries, 2026-10-06): residual **−138 W at +8 s** (it overshoots into export), 9 of 23 steps below −200 W, worst −795 W; cost per pulse 0.64 ct |
 
 The ladder was shifted up one step in r22: Ki 0.10 (6.1 Wh, ~38 s to settle on an 863 W step)
 was too slow to be useful even as a first-install setting, and Ki 0.30 beat 0.22 on production
-with no overshoot beyond the −200 W pass limit. Presets only ship measured values; Responsive
-is the one exception until it has had a production night.
+with no overshoot beyond the −200 W pass limit. Every preset value has now been measured on
+production.
+
+**Responsive — the trade-off.** Measured for a night and a day on production (four batteries,
+1 s P1 meter), against Regular the day and night before:
+
+| | Regular (0.30) | Responsive (0.40) |
+|---|---|---|
+| residual 8 s after a 2.25 kW step (median) | 137 W | −138 W (overshoot) |
+| steps that overshoot below −200 W at +8/+10 s | 0 of 13 | 9 of 23 (worst −795 W) |
+| cost per step @ 30/10 ct | 0.72 ct | **0.64 ct** |
+| grid-power wobble by day (std. dev. per minute, same output band) | ~100 W | ~145–165 W |
+| charge↔discharge switches per hour near solar balance | ≤ 16 | **434–525** |
+
+It reaches zero faster and the overshoot goes into export, so a step costs a little less. The
+price is a loop on the edge of oscillating: near solar balance it settled into a steady
+~4.5 s swing of roughly ±500 W, switching between charge and discharge several times a minute
+(this does not wear a relay — HBA's earlier measurements found no mechanical switching on a
+direction change — but it is a visibly restless grid reading). Choose Responsive only if
+night-time load steps dominate and you do not mind that; otherwise stay on Regular.
 
 #### `Low peak (grid limit)` — the one preset that is not a Ki step
 
@@ -128,10 +146,21 @@ both arms.
 > Regular remains the default: `Low peak` buys a few seconds of lower excursion and nothing
 > else, so it is only worth selecting if an instantaneous limit actually binds.
 
-> **These Ki values assume a ~1.1 s control loop**, i.e. Modbus write de-duplication enabled
-> (`input_number.hba_control_write_refresh_secs` > 0, v4.10.1-r15+). With de-duplication off
-> the loop runs at ~2.2 s and the integrator accumulates half as fast per second, so every
-> preset behaves roughly one step slower than its name suggests.
+> **These Ki values assume a ~1.1 s control loop**: a P1 meter that updates every second
+> (DSMR 5) and Modbus write de-duplication enabled
+> (`input_number.hba_control_write_refresh_secs` > 0, v4.10.1-r15+). HBA runs one PID cycle per
+> P1 update and adds `Ki × error` to the integrator **per cycle**, not per second. So the
+> control loop runs at the slower of the two: the P1 update interval or ~1.1 s (~2.2 s with
+> de-duplication off).
+>
+> **With a slower loop the presets stay safe but get slower.** How far the integrator moves per
+> cycle is unchanged; there are just fewer cycles per second.
+>
+> | loop period | what to expect |
+> |---|---|
+> | ~1 s (DSMR 5, de-duplication on) | as measured above |
+> | ~2 s (de-duplication off, or a 2 s P1 reader) | every preset about one step slower. Measured at 2.24 s: Ki 0.30 left 321 W at +8 s (167 W at 1.1 s), Ki 0.45 overshot. Responsive is then a reasonable choice |
+> | 5–10 s (DSMR 4 / older meters, throttled readers) | **not measured.** The batteries finish reacting within one meter update, so overshoot becomes unlikely at these Ki values; but a large step takes roughly 1–2 minutes to settle on Regular. Responsive is the better starting point. Higher Ki than 0.40 is probably fine here, but HBA has no measurement to back a number, so tune it in `Custom` and watch for the grid reading swinging back and forth |
 
 
 ## Peak Shaving

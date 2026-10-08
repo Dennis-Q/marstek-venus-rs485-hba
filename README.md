@@ -94,7 +94,8 @@ I-term. **Start with a lower Ki than you used in HBC** and tune from there.
 
 **P1 update rate matters:** DSMR 5.0 meters update every 1 s; older meters may update
 every 3–10 s. HBA runs at whatever rate the P1 sensor updates — with a slower meter
-the I-term accumulates proportionally slower, so the system is more conservative.
+the I-term accumulates proportionally slower, so the system is more conservative: the presets
+stay stable but settle more slowly (on a 5–10 s meter, start with `Responsive`; see DEFAULTS.md).
 The Ki warning above is most relevant for 1 s meters; at slower rates HBA and HBC
 behave more similarly.
 
@@ -110,7 +111,8 @@ Kd 0.1 and the damping settings, and differ **only in Ki**, because Kp 0.35 is a
 optimum — swept on production and bracketed on both sides, it is the cheapest per disturbance,
 so there is nothing to gain by varying it. **Regular** (Ki 0.30) is the validated default
 (measured on production: 137 W residual 8 s after a 2.25 kW step, against 410 W at Ki 0.22).
-**Responsive** (Ki 0.40) has not been measured yet.
+**Responsive** (Ki 0.40) is faster and a little cheaper per load step, but overshoots on large
+steps and jitters around solar balance — see the trade-off in DEFAULTS.md.
 
 A fifth preset, **Low peak (grid limit)**, is Safe (Ki 0.22) with output damping removed: ~−10 % on the
 instantaneous peak at no extra cost, for installs with a hard fuse or connection limit. It does

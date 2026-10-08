@@ -220,9 +220,10 @@ automation:
                 entity_id: input_select.hba_control_pid_presets
                 state: "Responsive"
             sequence:
-              # Fastest. NOT YET MEASURED: one step above Regular on the same ~x1.35 ladder.
-              # Regular already undershoots briefly (to -188 W) on a 2.25 kW step, so expect
-              # setpoint crossings on large steps.
+              # Fastest, at a price. Measured 2026-10-06 (four batteries, 1 s P1): -138 W at +8 s
+              # after a 2.25 kW step (overshoot; 9 of 23 steps below -200 W), 0.64 ct per step
+              # vs Regular's 0.72; by day a ~4.5 s +-500 W swing near solar balance. On a slow
+              # (5-10 s) P1 meter it is the better starting point -- see DEFAULTS.md.
               - action: input_number.set_value
                 target: { entity_id: input_number.hba_control_kp }
                 data: { value: 0.35 }

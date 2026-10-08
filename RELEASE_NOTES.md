@@ -182,7 +182,10 @@ open), so the version prefix stays at 4.10.1 for now.
   Regular / Responsive** are now Ki **0.15 / 0.22 / 0.30 / 0.40** (was 0.10 / 0.15 / 0.22 /
   0.30). Measured on production against the 2.25 kW night load on four batteries: residual
   8 s after the step **410 → 137 W**, cost per pulse 0.77 → 0.72 ct, worst brief undershoot
-  −188 W. `Safe` is the previous `Regular`. `Responsive` (0.40) has not been measured yet.
+  −188 W. `Safe` is the previous `Regular`. `Responsive` (0.40), measured a night and a day:
+  cheaper per step (0.64 ct) but overshoots on large steps (worst −795 W) and oscillates around
+  solar balance (~4.5 s swing, hundreds of charge↔discharge switches per hour) — trade-off
+  table in DEFAULTS.md, which now also explains what to expect with a slower P1 meter.
   `Low peak (grid limit)` keeps its measured Ki 0.22 (now: Safe without output damping).
   `script.hba_apply_defaults` sets Ki 0.15 to match `Very safe`. Existing installs keep their
   current values until a preset is selected again.
