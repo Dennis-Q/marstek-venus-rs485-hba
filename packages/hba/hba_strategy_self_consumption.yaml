@@ -73,7 +73,9 @@ script:
       # Script fields are accessible in `variables:` steps but can fail to resolve
       # inside deeply-nested `choose:` conditions in some HA versions.
       - variables:
-          _discharge_disabled: "{{ discharge_disabled | default(false) }}"
+          # Charge alongside EV: never discharge into the car (and keep the PID from
+          # winding up against a discharge that hba_set_batteries would drop anyway).
+          _discharge_disabled: "{{ discharge_disabled | default(false) or is_state('binary_sensor.hba_ev_charge_alongside', 'on') }}"
           _charge_disabled: "{{ charge_disabled | default(false) }}"
           _setpoint_override: "{{ setpoint_override | default(none) }}"
       - variables:

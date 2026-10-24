@@ -183,6 +183,14 @@ Reduces max charge power near full SoC to protect battery cells. Set a limit to 
 | `input_number.hba_control_slow_charge_soc_threshold_2` | `99` % |
 | `input_number.hba_control_slow_charge_power_limit_2` | `1000` W, `0` (off) when every battery is a Venus E 3.0 |
 
+## Charge alongside EV
+
+| Helper | Default | Notes |
+|---|---|---|
+| `input_number.hba_ev_battery_priority_energy` | `0` kWh | Batteries first below this usable energy; 0 = the car always first |
+| `input_number.hba_ev_phase_current_limit` | `22` A | Car first: batteries keep each phase below this (Peblar throttles at ~22.5 A) |
+| `input_select.hba_marstek_m{1-6}_phase` | `Not set` | L1 / L2 / L3; Not set counts against every phase |
+
 ## Power Groups
 
 A combined power limit for several batteries (shared breaker, a limit per phase, plug-in

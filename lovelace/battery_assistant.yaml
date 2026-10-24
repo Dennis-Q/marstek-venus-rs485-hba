@@ -3227,6 +3227,16 @@ views:
             features_position: inline
             grid_options:
               columns: full
+          - type: tile
+            entity: input_select.hba_marstek_m1_phase
+            name: Phase
+            vertical: false
+            hide_state: true
+            features:
+              - type: select-options
+            features_position: inline
+            grid_options:
+              columns: full
           - type: vertical-stack
             grid_options:
               columns: full
@@ -3364,6 +3374,16 @@ views:
             entity: input_select.hba_marstek_m2_power_group
             name: Power group
             icon: mdi:fuse
+            vertical: false
+            hide_state: true
+            features:
+              - type: select-options
+            features_position: inline
+            grid_options:
+              columns: full
+          - type: tile
+            entity: input_select.hba_marstek_m2_phase
+            name: Phase
             vertical: false
             hide_state: true
             features:
@@ -3519,6 +3539,16 @@ views:
             features_position: inline
             grid_options:
               columns: full
+          - type: tile
+            entity: input_select.hba_marstek_m3_phase
+            name: Phase
+            vertical: false
+            hide_state: true
+            features:
+              - type: select-options
+            features_position: inline
+            grid_options:
+              columns: full
           - type: vertical-stack
             grid_options:
               columns: full
@@ -3660,6 +3690,16 @@ views:
             entity: input_select.hba_marstek_m4_power_group
             name: Power group
             icon: mdi:fuse
+            vertical: false
+            hide_state: true
+            features:
+              - type: select-options
+            features_position: inline
+            grid_options:
+              columns: full
+          - type: tile
+            entity: input_select.hba_marstek_m4_phase
+            name: Phase
             vertical: false
             hide_state: true
             features:
@@ -3815,6 +3855,16 @@ views:
             features_position: inline
             grid_options:
               columns: full
+          - type: tile
+            entity: input_select.hba_marstek_m5_phase
+            name: Phase
+            vertical: false
+            hide_state: true
+            features:
+              - type: select-options
+            features_position: inline
+            grid_options:
+              columns: full
           - type: vertical-stack
             grid_options:
               columns: full
@@ -3956,6 +4006,16 @@ views:
             entity: input_select.hba_marstek_m6_power_group
             name: Power group
             icon: mdi:fuse
+            vertical: false
+            hide_state: true
+            features:
+              - type: select-options
+            features_position: inline
+            grid_options:
+              columns: full
+          - type: tile
+            entity: input_select.hba_marstek_m6_phase
+            name: Phase
             vertical: false
             hide_state: true
             features:
@@ -4523,8 +4583,44 @@ views:
               power limits. **Charge PV** — charge the solar surplus the EV cannot
               take (e.g. between 1-phase max and the 3-phase switch threshold);
               discharge stays disabled, so the batteries never compete with the
-              charger.</font>
+              charger. **Charge alongside EV** — the normal strategy keeps
+              running (it decides whether the batteries charge, e.g. a cheap hour)
+              but never discharges into the car; below the battery-priority energy
+              the batteries charge at full power and the charger's load balancing
+              slows the car, above it the batteries only use what is left under
+              the phase limit.</font>
             text_only: true
+          - type: entities
+            entities:
+              - entity: input_number.hba_ev_battery_priority_energy
+                name: Batteries first below
+              - entity: input_number.hba_ev_phase_current_limit
+                name: Phase limit (car first)
+              - entity: binary_sensor.hba_ev_charge_alongside
+                name: Charging alongside now
+                secondary_info: none
+              - type: attribute
+                entity: binary_sensor.hba_ev_charge_alongside
+                attribute: mode
+                name: Priority now
+            visibility:
+              - condition: state
+                entity: input_select.hba_control_strategy_during_ev_charge
+                state: "Charge alongside EV"
+          - type: markdown
+            content: >-
+              <font color=grey>**Batteries first below**: usable energy (kWh above
+              the discharge cutoffs) the batteries may claim before the car, e.g.
+              what the house needs at night; 0 = the car always first.
+              **Phase limit**: per phase, set just below where your charger's load
+              balancing starts slowing the car (a Peblar at ~22.5 A). Set each
+              battery's **phase** in Advanced settings. Requires an EV charger with
+              its own load balancing measuring the whole connection.</font>
+            text_only: true
+            visibility:
+              - condition: state
+                entity: input_select.hba_control_strategy_during_ev_charge
+                state: "Charge alongside EV"
           - type: entities
             entities:
               - entity: input_text.hba_strategy_ev_saturated_entity_id

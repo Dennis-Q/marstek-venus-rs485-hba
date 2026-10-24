@@ -167,6 +167,25 @@ open), so the version prefix stays at 4.10.1 for now.
     intended limits, groups, full/empty, last known limits as attributes),
     `automation.hba_power_groups_apply_limit_registers`, a *Power groups* section in
     Advanced settings; the register tiles per battery only show while it is in *Own*.
+- **Strategy during EV charge: "Charge alongside EV"** (HBA-only) — while the car charges,
+  the normal strategy keeps running instead of being replaced: it alone decides *whether*
+  the batteries charge (e.g. a cheap hour), but they never discharge into the car (*Timed EV
+  charge* still does, on purpose). Who gets the connection depends on the energy in the
+  batteries:
+  - below **Batteries first below** (`input_number.hba_ev_battery_priority_energy`, kWh of
+    usable energy — e.g. what the house needs at night) the batteries charge at full power
+    and the charger's own load balancing slows the car;
+  - above it the car keeps its speed: the batteries only use what keeps each phase under
+    **Phase limit** (`input_number.hba_ev_phase_current_limit`, default 22 A — just below a
+    Peblar's ~22.5 A load-balancing threshold), computed every cycle from the P1 per-phase
+    power (DSMR phase current has no sign).
+  - Needs the phase of each battery (`input_select.hba_marstek_mX_phase`, Advanced settings;
+    *Not set* counts against every phase) and an EV charger whose load balancing measures the
+    whole connection (CT clamps at the grid connection). The per-phase cap goes into the
+    1-second commands, not the EEPROM limit registers.
+  - New: `binary_sensor.hba_ev_charge_alongside` (attributes `mode` — *Batteries first* /
+    *EV first* — and `room_w` per phase).
+
 - **Battery restart: notification + limits written back** — a restarted battery is
   recognised by its limit registers coming back as 0 after it was unreachable (see Fixed).
   HBA writes the last known values back and sends *Battery Mx restarted*. If the limits still

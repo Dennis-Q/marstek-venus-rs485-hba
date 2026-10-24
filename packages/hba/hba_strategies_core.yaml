@@ -716,7 +716,10 @@ script:
             sequence:
               - action: script.hba_strategy_charge_pv
                 data: { flow_prefix: "During EV charge →" }
-          - conditions: "{{ ev_active }}"
+          # Charge alongside EV: no override — the normal strategy below decides whether
+          # the batteries charge; binary_sensor.hba_ev_charge_alongside makes
+          # hba_set_batteries skip discharging and cap charging per phase (EV first).
+          - conditions: "{{ ev_active and ev_policy != 'Charge alongside EV' }}"
             sequence:
               - action: input_text.set_value
                 target: { entity_id: input_text.hba_strategy_active_flow }
@@ -1053,7 +1056,12 @@ script:
     sequence:
       - variables:
           count: "{{ states('input_number.hba_battery_count') | int(1) }}"
-          desired: "{{ desired_power_w | int(0) }}"
+          # Charge alongside EV: never discharge into the car — a discharge request
+          # becomes a stop. (Timed EV charge discharges on purpose; the sensor is off then.)
+          along: "{{ is_state('binary_sensor.hba_ev_charge_alongside', 'on') }}"
+          desired: >-
+            {%- set d = desired_power_w | int(0) -%}
+            {{ 0 if is_state('binary_sensor.hba_ev_charge_alongside', 'on') and d < 0 else d }}
       - choose:
           # FULL STOP
           - conditions: "{{ mode == 'stop' or desired == 0 }}"
@@ -1094,6 +1102,14 @@ script:
               - variables:
                   shares_json: >-
                     {%- set ns = namespace(remaining=desired | abs, shares={}, order=[]) -%}
+                    {#- Charge alongside EV, car first: the batteries on a phase may draw at most
+                        what keeps that phase under the limit (binary_sensor.hba_ev_charge_alongside
+                        room_w). A battery with no phase set counts against every phase. -#}
+                    {%- set rm = namespace(d={}) -%}
+                    {%- if along and is_state_attr('binary_sensor.hba_ev_charge_alongside', 'mode', 'EV first') -%}
+                      {%- set r = state_attr('binary_sensor.hba_ev_charge_alongside', 'room_w') -%}
+                      {%- set rm.d = r if r is mapping else {} -%}
+                    {%- endif -%}
                     {#- Cyclic from the priority battery: p, p+1, ..., count, 1, ..., p-1.
                         HBC (and HBA until 2026-10-02) used p then 1, 2, 3 ... -- the overflow
                         then always went to the LOWEST-numbered battery, so M1 drained and
@@ -1151,9 +1167,18 @@ script:
                         {%- elif sc_lim1 > 0 and soc >= sc_thr1 -%}
                           {%- set eff_max = [hw_max, sc_lim1] | min -%}
                         {%- endif -%}
+                        {%- set ph = states('input_select.hba_marstek_m' ~ bat ~ '_phase') -%}
+                        {%- if rm.d -%}
+                          {%- set eff_max = [eff_max, rm.d[ph] if ph in rm.d else (rm.d.values() | min)] | min -%}
+                        {%- endif -%}
                         {%- set share = [ns.remaining, eff_max] | min | round(0) | int -%}
                         {%- set ns.remaining = ns.remaining - share -%}
                         {%- set ns.shares = ns.shares | combine({bat | string: share}) -%}
+                        {%- if rm.d and ph in rm.d -%}
+                          {%- set rm.d = rm.d | combine({ph: rm.d[ph] - share}) -%}
+                        {%- elif rm.d -%}
+                          {%- set rm.d = rm.d | combine({'L1': rm.d.L1 - share, 'L2': rm.d.L2 - share, 'L3': rm.d.L3 - share}) -%}
+                        {%- endif -%}
                       {%- else -%}
                         {%- set ns.shares = ns.shares | combine({bat | string: 0}) -%}
                       {%- endif -%}
@@ -1571,6 +1596,26 @@ script:
               data:
                 value: >-
                   {{ 13 if states('sensor.marstek_m' ~ repeat.item ~ '_device_name') | trim is match('VNSE3') else 12 }}
+      # ── Charge alongside EV ───────────────────────────────────────────────────
+      # Phases unknown until the user sets them ("Not set" counts against every phase);
+      # 22 A sits just under a Peblar's load-balancing threshold (~22.5 A); 0 kWh = the
+      # car always first.
+      - action: input_select.select_option
+        target:
+          entity_id:
+            - input_select.hba_marstek_m1_phase
+            - input_select.hba_marstek_m2_phase
+            - input_select.hba_marstek_m3_phase
+            - input_select.hba_marstek_m4_phase
+            - input_select.hba_marstek_m5_phase
+            - input_select.hba_marstek_m6_phase
+        data: { option: "Not set" }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_ev_phase_current_limit }
+        data: { value: 22 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_ev_battery_priority_energy }
+        data: { value: 0 }
       # ── Power groups ──────────────────────────────────────────────────────────
       # Every battery in its own group: HBA leaves the limit registers alone. The own
       # max charge / discharge power per battery back to 0 = not set, so joining a group

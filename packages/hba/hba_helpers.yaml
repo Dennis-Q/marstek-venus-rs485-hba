@@ -516,6 +516,28 @@ input_number:
     unit_of_measurement: "W"
     icon: mdi:lightning-bolt-circle
 
+  # --- Charge alongside EV (input_select.hba_control_strategy_during_ev_charge) ---
+  # Below this much usable energy in the batteries (sensor.hba_charge_available_energy)
+  # they get priority over the car; above it the car does. 0 = the car always first.
+  hba_ev_battery_priority_energy:
+    name: "Battery priority below (EV charging)"
+    min: 0
+    max: 100
+    step: 0.5
+    mode: box
+    unit_of_measurement: kWh
+    icon: mdi:battery-arrow-up
+  # Car first: the batteries keep each phase below this current, so the charger's own
+  # load balancing never has to slow the car down. Set it just below the charger's
+  # threshold (Peblar on prod: starts throttling at ~22.5 A per phase).
+  hba_ev_phase_current_limit:
+    name: "Phase current limit (EV charging)"
+    min: 6
+    max: 63
+    step: 0.5
+    mode: box
+    unit_of_measurement: A
+    icon: mdi:current-ac
   # --- Power groups (batteries sharing one breaker) ---
   # Per battery its own max charge / max discharge power while it is in a power group.
   # In "Own" these limits ARE the battery's registers (44002/44003, set on the dashboard);
@@ -773,12 +795,23 @@ input_select:
   #                          charger without battery awareness would see its
   #                          surplus shrink and back off — pick Full stop or
   #                          Standby with such a setup.
+  #   Charge alongside EV  — the normal strategy keeps running (it decides WHETHER the
+  #                          batteries charge, e.g. a cheap hour), but never discharges
+  #                          into the car. Who gets priority on the connection depends on
+  #                          the energy in the batteries: below
+  #                          input_number.hba_ev_battery_priority_energy the batteries
+  #                          charge at full power and an EV charger with its own load
+  #                          balancing (CT clamps at the grid connection) slows the car
+  #                          down; above it the batteries only take what is left under
+  #                          input_number.hba_ev_phase_current_limit per phase, so the
+  #                          car keeps its speed. Needs the phase of each battery.
   hba_control_strategy_during_ev_charge:
     name: "Strategy during EV charge"
     options:
       - "Full stop"
       - "Standby / peak shave"
       - "Charge PV"
+      - "Charge alongside EV"
     icon: mdi:car-electric-outline
   # PID presets. The four everyday presets use Kp 0.35 / Kd 0.1 / damping 20-10 and
   # differ ONLY in Ki: Very safe 0.15 / Safe 0.22 / Regular 0.30 / Responsive 0.40.
@@ -970,6 +1003,33 @@ input_select:
       - "Daily"
       - "Never"
     icon: mdi:rotate-right
+  # Phase each battery is connected to (single-phase inverters). Used by "Charge
+  # alongside EV" to keep each phase under the limit; "Not set" counts a battery
+  # against every phase (safe, but it gets the least room).
+  hba_marstek_m1_phase:
+    name: "M1 phase"
+    options: ["Not set", "L1", "L2", "L3"]
+    icon: mdi:sine-wave
+  hba_marstek_m2_phase:
+    name: "M2 phase"
+    options: ["Not set", "L1", "L2", "L3"]
+    icon: mdi:sine-wave
+  hba_marstek_m3_phase:
+    name: "M3 phase"
+    options: ["Not set", "L1", "L2", "L3"]
+    icon: mdi:sine-wave
+  hba_marstek_m4_phase:
+    name: "M4 phase"
+    options: ["Not set", "L1", "L2", "L3"]
+    icon: mdi:sine-wave
+  hba_marstek_m5_phase:
+    name: "M5 phase"
+    options: ["Not set", "L1", "L2", "L3"]
+    icon: mdi:sine-wave
+  hba_marstek_m6_phase:
+    name: "M6 phase"
+    options: ["Not set", "L1", "L2", "L3"]
+    icon: mdi:sine-wave
   # Power group per battery. "Own" (first option = what a new install gets) leaves the
   # battery's limit registers alone — exactly the behaviour before power groups.
   hba_marstek_m1_power_group:
@@ -1492,6 +1552,58 @@ template:
               {%- endfor -%}
             {%- endif -%}
             {{ ns.out | join(', ') }}
+
+      # "Charge alongside EV" is in effect: the car charges (EV stop trigger entity on),
+      # the policy is Charge alongside EV, no manual Full stop and no Timed EV charge
+      # (that one discharges into the car on purpose). While on, hba_set_batteries never
+      # discharges and self-consumption runs with discharge disabled. Attributes:
+      #   mode       "Batteries first" below input_number.hba_ev_battery_priority_energy
+      #              of usable energy, else "EV first"
+      #   room_w     per phase, what the batteries on it may charge in total (W) to stay
+      #              under input_number.hba_ev_phase_current_limit; only applied in
+      #              "EV first" (in "Batteries first" the charger's own load balancing
+      #              backs the car off). Phase power from the P1 per-phase sensors —
+      #              DSMR phase current has no sign, so it is derived from the power.
+      - name: "HBA EV Charge Alongside"
+        unique_id: hba_ev_charge_alongside
+        icon: mdi:car-battery
+        state: >-
+          {%- set e = states('input_text.hba_strategy_ev_sensor_entity_id') | trim -%}
+          {%- set ev = e not in ['', 'unknown', 'unavailable'] and states(e) == 'on' -%}
+          {%- set assist = is_state('binary_sensor.hba_battery_assist_active', 'on')
+                           and not is_state('binary_sensor.hba_battery_assist_waiting', 'on') -%}
+          {{ ev and not assist
+             and is_state('input_select.hba_control_strategy_during_ev_charge', 'Charge alongside EV')
+             and not is_state('input_select.hba_strategy', 'Full stop') }}
+        attributes:
+          mode: >-
+            {{ 'Batteries first'
+                 if states('sensor.hba_charge_available_energy') | float(0)
+                    < states('input_number.hba_ev_battery_priority_energy') | float(0)
+                 else 'EV first' }}
+          room_w: >-
+            {%- set lim = states('input_number.hba_ev_phase_current_limit') | float(22) -%}
+            {%- set count = states('input_number.hba_battery_count') | int(1) -%}
+            {%- set bat = namespace(L1=0, L2=0, L3=0) -%}
+            {%- for i in range(1, count + 1) -%}
+              {%- set ph = states('input_select.hba_marstek_m' ~ i ~ '_phase') -%}
+              {#- ac_power is negative while charging -#}
+              {%- set chg = [-(states('sensor.marstek_m' ~ i ~ '_ac_power') | float(0)), 0] | max -%}
+              {%- if ph == 'L1' -%}{%- set bat.L1 = bat.L1 + chg -%}
+              {%- elif ph == 'L2' -%}{%- set bat.L2 = bat.L2 + chg -%}
+              {%- elif ph == 'L3' -%}{%- set bat.L3 = bat.L3 + chg -%}{%- endif -%}
+            {%- endfor -%}
+            {%- set out = namespace(d={}) -%}
+            {%- for ph, b in [('L1', bat.L1), ('L2', bat.L2), ('L3', bat.L3)] -%}
+              {%- set n = ph | lower -%}
+              {%- set v = states('sensor.electricity_meter_voltage_phase_' ~ n) | float(230) -%}
+              {%- set net = states('sensor.electricity_meter_power_consumption_phase_' ~ n) | float(0)
+                          - states('sensor.electricity_meter_power_production_phase_' ~ n) | float(0) -%}
+              {#- what the batteries on this phase may draw in total: the limit minus everything
+                  else on the phase (their own charging is part of the measured import) -#}
+              {%- set out.d = out.d | combine({ph: [lim * v - (net - b), 0] | max | round(0) | int}) -%}
+            {%- endfor -%}
+            {{ out.d }}
 
       - name: "HBA Battery Assist Active"
         unique_id: hba_battery_assist_active
