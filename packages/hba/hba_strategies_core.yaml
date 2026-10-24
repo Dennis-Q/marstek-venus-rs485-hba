@@ -1072,8 +1072,19 @@ script:
                           0 W would be overridden and the battery skipped for nothing. -#}
                       {%- set rbc = states('number.marstek_m' ~ bat ~ '_max_charge_power') | float(2500) -%}
                       {%- set rbd = states('number.marstek_m' ~ bat ~ '_max_discharge_power') | float(2500) -%}
-                      {%- set rb = rbc if 'charge' == 'charge' else rbd -%}
+                      {%- set rb = rbc -%}
                       {%- set hw_max = ((lk[bat | string] if (bat | string) in lk else 2500) if rbc == 0 and rbd == 0 else rb) | int -%}
+                      {#- What the BMS allows right now: the Control caps every charge setpoint
+                          at battery voltage × BMS charge current limit (35111) anyway, so asking
+                          more only loses the difference instead of giving it to the next
+                          battery. Venus E 1/2: ~1270 W from 90 %, ~500 W from 95 %; E 3.0:
+                          100/80/50 A (above the 2500 W inverter max) and 0 A when full; cold
+                          batteries lower. Polled every 90 s; unknown = no cap. -#}
+                      {%- set bms_a = states('sensor.marstek_m' ~ bat ~ '_battery_charge_current_limit') | float(-1) -%}
+                      {%- set volt = states('sensor.marstek_m' ~ bat ~ '_battery_voltage') | float(0) -%}
+                      {%- if bms_a >= 0 and volt > 40 -%}
+                        {%- set hw_max = [hw_max, (bms_a * volt) | int] | min -%}
+                      {%- endif -%}
                       {%- set inv = states('sensor.marstek_m' ~ bat ~ '_inverter_state') -%}
                       {#- Silent on Modbus 30+ s (see hba_write_battery): its write is skipped,
                           so give its share to the next battery instead. -#}
@@ -1195,7 +1206,7 @@ script:
                           0 W would be overridden and the battery skipped for nothing. -#}
                       {%- set rbc = states('number.marstek_m' ~ bat ~ '_max_charge_power') | float(2500) -%}
                       {%- set rbd = states('number.marstek_m' ~ bat ~ '_max_discharge_power') | float(2500) -%}
-                      {%- set rb = rbc if 'discharge' == 'charge' else rbd -%}
+                      {%- set rb = rbd -%}
                       {%- set hw_max = ((lk[bat | string] if (bat | string) in lk else 2500) if rbc == 0 and rbd == 0 else rb) | int -%}
                       {%- set inv = states('sensor.marstek_m' ~ bat ~ '_inverter_state') -%}
                       {#- Silent on Modbus 30+ s (see hba_write_battery): its write is skipped,
@@ -1381,12 +1392,24 @@ script:
       - action: input_number.set_value
         target: { entity_id: input_number.hba_control_slow_charge_soc_threshold_1 }
         data: { value: 95 }
+      # The battery limits charging near full by itself (BMS limit, honoured by
+      # hba_set_batteries). An E 3.0's BMS allows ≥ 2500 W up to full, so HBC's fixed
+      # 1500 / 1000 W would only slow it down: off (0) when every battery is an E 3.0.
+      # Mixed or older batteries keep HBC's values.
+      - variables:
+          _all_e3: >-
+            {%- set n = states('input_number.hba_battery_count') | int(1) -%}
+            {%- set ns = namespace(e3=0) -%}
+            {%- for i in range(1, n + 1) if states('sensor.marstek_m' ~ i ~ '_device_name') | trim is match('VNSE3') -%}
+              {%- set ns.e3 = ns.e3 + 1 -%}
+            {%- endfor -%}
+            {{ ns.e3 == n }}
       - action: input_number.set_value
         target: { entity_id: input_number.hba_control_slow_charge_power_limit_1 }
-        data: { value: 1500 }
+        data: { value: "{{ 0 if _all_e3 else 1500 }}" }
       - action: input_number.set_value
         target: { entity_id: input_number.hba_control_slow_charge_power_limit_2 }
-        data: { value: 1000 }
+        data: { value: "{{ 0 if _all_e3 else 1000 }}" }
       - action: input_number.set_value
         target: { entity_id: input_number.hba_control_slow_charge_soc_threshold_2 }
         data: { value: 99 }

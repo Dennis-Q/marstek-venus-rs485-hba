@@ -219,6 +219,20 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Changed
 
+- **Charging follows the battery's own limit** — near full (and when cold) the BMS lowers its
+  charge current, and the battery caps every charge setpoint at voltage × that limit, also
+  HBA's forced charge. HBA asked for more, the difference was simply lost, and the next
+  battery did not get it. The distribution now caps each battery at what its BMS allows right
+  now (`sensor.marstek_mX_battery_charge_current_limit` × battery voltage), so the rest goes
+  to the other batteries straight away. Venus E 1/2: ~1270 W from 90 %, ~500 W from 95 %;
+  Venus E 3.0: 100/80/50 A (above the 2500 W inverter max) and 0 A when full.
+  `sensor.hba_total_max_charge_power` uses the same cap; a power group treats 0 A (at ≥ 90 %)
+  as full.
+- **Slow charge off by default when every battery is a Venus E 3.0** — its BMS allows
+  ≥ 2500 W up to full, so HBC's fixed 95 % → 1500 W / 99 % → 1000 W only slowed it down.
+  *Apply defaults* now sets both limits to 0 (off) for an all-E 3.0 setup and keeps 1500 /
+  1000 W otherwise. Existing installs keep their values.
+
 - **Discharge cutoff default 13 % on a Venus E 3.0** — the battery stops discharging on its
   own just below 13.0 % (its reserve, 100 − app DoD and at least 12 %, is checked against a
   whole-percent SoC — firmware analysis + prod, where every final stop of four E 3.0s was at

@@ -174,14 +174,14 @@ both arms.
 
 ## Slow Charge Limits
 
-Reduces max charge power near full SoC to protect battery cells. Set a limit to `0` to disable that threshold.
+Reduces max charge power near full SoC to protect battery cells. Set a limit to `0` to disable that threshold. The battery's own BMS limit always applies on top (HBA follows it); an E 3.0's BMS allows ≥ 2500 W up to full, a Venus E 1/2 tapers to ~1270 W from 90 % and ~500 W from 95 % by itself.
 
 | Helper | Default |
 |---|---|
 | `input_number.hba_control_slow_charge_soc_threshold_1` | `95` % |
-| `input_number.hba_control_slow_charge_power_limit_1` | `1500` W |
+| `input_number.hba_control_slow_charge_power_limit_1` | `1500` W, `0` (off) when every battery is a Venus E 3.0 |
 | `input_number.hba_control_slow_charge_soc_threshold_2` | `99` % |
-| `input_number.hba_control_slow_charge_power_limit_2` | `1000` W |
+| `input_number.hba_control_slow_charge_power_limit_2` | `1000` W, `0` (off) when every battery is a Venus E 3.0 |
 
 ## Power Groups
 
