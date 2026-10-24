@@ -211,6 +211,10 @@ The file ships with commented examples. The sensor must be **positive when impor
 from the grid and negative when exporting. Entity names depend on your DSMR reader —
 check **Developer Tools → States** to find the correct ones.
 
+Optional: for **Charge alongside EV** with the car first, also define the per-phase grid power
+`sensor.p1_meter_power_l1/_l2/_l3` (and optionally `sensor.p1_meter_voltage_l1/_l2/_l3`) —
+EXAMPLE 3 in the same file. Only the phases your batteries are on are needed.
+
 ### Step 4 — Set battery IPs
 
 Edit each `packages/hba/marstek_m*.yaml` for the batteries you have and replace the
@@ -333,6 +337,27 @@ Configure it in **Advanced Settings → Battery Assisted EV Charging**:
 The overflow guard (`binary_sensor.hba_grid_exporting_sustained`) watches for sustained
 export >1 kW with batteries discharging. If triggered, assist temporarily falls back to
 self-consumption to prevent unnecessary grid feed-in.
+
+### Charge alongside EV
+
+An option of **Strategy during EV charge** (EV Charge view). While the car charges, your normal
+strategy keeps deciding whether the batteries charge (e.g. a cheap hour) instead of being
+replaced, but they never discharge into the car. Below **Batteries first below** (kWh of usable
+energy, e.g. your night reserve) the batteries charge at full power and the charger's own load
+balancing slows the car; above it the car keeps its speed and the batteries only use the room
+under a per-phase current limit. Needs an EV charger whose load balancing measures the whole
+connection, the phase of each battery (Advanced settings) and the per-phase grid power sensors
+(see Step 3).
+
+### Power groups
+
+Batteries whose combined power must stay within one limit — a shared breaker, a limit per phase,
+or plug-in batteries that together keep to the 800 W guideline — go in group A, B or C
+(Advanced settings, per battery). HBA then writes their max charge / max discharge registers so
+a group never adds up to more than its max power; each battery keeps its own limits on top.
+*Equal* or *One at a time*; a full battery hands its charge share to the others, an empty one its
+discharge share. **Use at your own risk:** it is a software limit, not electrical protection —
+always have an electrician check your installation.
 
 ### Dynamic pricing
 
