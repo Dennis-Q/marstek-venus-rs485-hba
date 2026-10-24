@@ -2737,6 +2737,9 @@ recorder:
     entities:
       # Room per phase for Charge alongside EV — recalculated on every P1 update
       - sensor.hba_ev_phase_room
+      # EV charger total power for Charge alongside EV (user-defined in hba_config.yaml) —
+      # a copy of the charger's own power sensor, which its integration already records
+      - sensor.ev_charger_power
       # Control loop automation — triggers every ~1 s, history is not useful
       - automation.hba_control_loop_p1_meter_triggered
       # Flow trace helpers — updated every control cycle
