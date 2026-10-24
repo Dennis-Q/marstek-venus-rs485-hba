@@ -349,6 +349,10 @@ under a per-phase current limit. Needs an EV charger whose load balancing measur
 connection, the phase of each battery (Advanced settings) and the per-phase grid power sensors
 (see Step 3).
 
+Set the phase as your **P1 meter** numbers it — that can differ from the labels in the meter
+cupboard. To check: let one battery charge or discharge at a steady power with the others idle;
+only that phase's `sensor.p1_meter_power_lX` should move by about that amount.
+
 ### Power groups
 
 Batteries whose combined power must stay within one limit — a shared breaker, a limit per phase,

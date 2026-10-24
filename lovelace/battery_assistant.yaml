@@ -4623,8 +4623,12 @@ views:
               what the house needs at night; 0 = the car always first.
               **Phase limit**: per phase, set just below where your charger's load
               balancing starts slowing the car (a Peblar at ~22.5 A). Set each
-              battery's **phase** in Advanced settings. Requires an EV charger with
-              its own load balancing measuring the whole connection.</font>
+              battery's **phase** in Advanced settings — as your P1 meter numbers
+              the phases, which may differ from the labels in the meter cupboard.
+              **Check it:** let one battery charge or discharge at a steady power
+              with the others idle; only that phase's `sensor.p1_meter_power_lX`
+              should move by about that amount. Requires an EV charger with its own
+              load balancing measuring the whole connection.</font>
             text_only: true
             visibility:
               - condition: state
