@@ -3388,6 +3388,22 @@ views:
                     - type: numeric-input
                       style: buttons
                   features_position: inline
+              # In a power group: what the battery is limited to right now (HBA writes it)
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m1_power_group
+                    state_not: Own
+                card:
+                  type: markdown
+                  text_only: true
+                  content: >-
+                    {%- set w = state_attr('sensor.hba_power_limits', 'discharge') or {} -%}
+                    {%- set r = states('number.marstek_m1_max_discharge_power') | int(0) -%}
+                    <font color="#9b9b9b">Actual discharge limit now: **{{ r }} W**
+                    {%- if '1' in w and w['1'] != r %} → {{ w['1'] }} W{% endif %},
+                    set by HBA from power group {{ states('input_select.hba_marstek_m1_power_group') }} (your max power above is
+                    the upper bound).</font>
           - type: vertical-stack
             grid_options:
               columns: full
@@ -3436,23 +3452,22 @@ views:
                     - type: numeric-input
                       style: buttons
                   features_position: inline
-          - type: markdown
-            text_only: true
-            grid_options:
-              columns: full
-            content: >-
-              {%- set c = state_attr('sensor.hba_power_limits', 'charge') or {} -%}
-              {%- set d = state_attr('sensor.hba_power_limits', 'discharge') or {} -%}
-              {%- set rc = states('number.marstek_m1_max_charge_power') | int(0) -%}
-              {%- set rd = states('number.marstek_m1_max_discharge_power') | int(0) -%}
-              <font color="#9b9b9b">Set by HBA: max charge **{{ rc }} W**
-              {%- if '1' in c and c['1'] != rc %} → {{ c['1'] }} W{% endif %},
-              max discharge **{{ rd }} W**
-              {%- if '1' in d and d['1'] != rd %} → {{ d['1'] }} W{% endif %}.</font>
-            visibility:
-              - condition: state
-                entity: input_select.hba_marstek_m1_power_group
-                state_not: Own
+              # In a power group: what the battery is limited to right now (HBA writes it)
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m1_power_group
+                    state_not: Own
+                card:
+                  type: markdown
+                  text_only: true
+                  content: >-
+                    {%- set w = state_attr('sensor.hba_power_limits', 'charge') or {} -%}
+                    {%- set r = states('number.marstek_m1_max_charge_power') | int(0) -%}
+                    <font color="#9b9b9b">Actual charge limit now: **{{ r }} W**
+                    {%- if '1' in w and w['1'] != r %} → {{ w['1'] }} W{% endif %},
+                    set by HBA from power group {{ states('input_select.hba_marstek_m1_power_group') }} (your max power above is
+                    the upper bound).</font>
           - type: heading
             icon: mdi:information-slab-circle
             heading: Cutoff capacities
@@ -3542,6 +3557,22 @@ views:
                     - type: numeric-input
                       style: buttons
                   features_position: inline
+              # In a power group: what the battery is limited to right now (HBA writes it)
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m2_power_group
+                    state_not: Own
+                card:
+                  type: markdown
+                  text_only: true
+                  content: >-
+                    {%- set w = state_attr('sensor.hba_power_limits', 'discharge') or {} -%}
+                    {%- set r = states('number.marstek_m2_max_discharge_power') | int(0) -%}
+                    <font color="#9b9b9b">Actual discharge limit now: **{{ r }} W**
+                    {%- if '2' in w and w['2'] != r %} → {{ w['2'] }} W{% endif %},
+                    set by HBA from power group {{ states('input_select.hba_marstek_m2_power_group') }} (your max power above is
+                    the upper bound).</font>
           - type: vertical-stack
             grid_options:
               columns: full
@@ -3590,23 +3621,22 @@ views:
                     - type: numeric-input
                       style: buttons
                   features_position: inline
-          - type: markdown
-            text_only: true
-            grid_options:
-              columns: full
-            content: >-
-              {%- set c = state_attr('sensor.hba_power_limits', 'charge') or {} -%}
-              {%- set d = state_attr('sensor.hba_power_limits', 'discharge') or {} -%}
-              {%- set rc = states('number.marstek_m2_max_charge_power') | int(0) -%}
-              {%- set rd = states('number.marstek_m2_max_discharge_power') | int(0) -%}
-              <font color="#9b9b9b">Set by HBA: max charge **{{ rc }} W**
-              {%- if '2' in c and c['2'] != rc %} → {{ c['2'] }} W{% endif %},
-              max discharge **{{ rd }} W**
-              {%- if '2' in d and d['2'] != rd %} → {{ d['2'] }} W{% endif %}.</font>
-            visibility:
-              - condition: state
-                entity: input_select.hba_marstek_m2_power_group
-                state_not: Own
+              # In a power group: what the battery is limited to right now (HBA writes it)
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m2_power_group
+                    state_not: Own
+                card:
+                  type: markdown
+                  text_only: true
+                  content: >-
+                    {%- set w = state_attr('sensor.hba_power_limits', 'charge') or {} -%}
+                    {%- set r = states('number.marstek_m2_max_charge_power') | int(0) -%}
+                    <font color="#9b9b9b">Actual charge limit now: **{{ r }} W**
+                    {%- if '2' in w and w['2'] != r %} → {{ w['2'] }} W{% endif %},
+                    set by HBA from power group {{ states('input_select.hba_marstek_m2_power_group') }} (your max power above is
+                    the upper bound).</font>
           - type: heading
             icon: mdi:information-slab-circle
             heading: Cutoff capacities
@@ -3700,6 +3730,22 @@ views:
                     - type: numeric-input
                       style: buttons
                   features_position: inline
+              # In a power group: what the battery is limited to right now (HBA writes it)
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m3_power_group
+                    state_not: Own
+                card:
+                  type: markdown
+                  text_only: true
+                  content: >-
+                    {%- set w = state_attr('sensor.hba_power_limits', 'discharge') or {} -%}
+                    {%- set r = states('number.marstek_m3_max_discharge_power') | int(0) -%}
+                    <font color="#9b9b9b">Actual discharge limit now: **{{ r }} W**
+                    {%- if '3' in w and w['3'] != r %} → {{ w['3'] }} W{% endif %},
+                    set by HBA from power group {{ states('input_select.hba_marstek_m3_power_group') }} (your max power above is
+                    the upper bound).</font>
           - type: vertical-stack
             grid_options:
               columns: full
@@ -3748,23 +3794,22 @@ views:
                     - type: numeric-input
                       style: buttons
                   features_position: inline
-          - type: markdown
-            text_only: true
-            grid_options:
-              columns: full
-            content: >-
-              {%- set c = state_attr('sensor.hba_power_limits', 'charge') or {} -%}
-              {%- set d = state_attr('sensor.hba_power_limits', 'discharge') or {} -%}
-              {%- set rc = states('number.marstek_m3_max_charge_power') | int(0) -%}
-              {%- set rd = states('number.marstek_m3_max_discharge_power') | int(0) -%}
-              <font color="#9b9b9b">Set by HBA: max charge **{{ rc }} W**
-              {%- if '3' in c and c['3'] != rc %} → {{ c['3'] }} W{% endif %},
-              max discharge **{{ rd }} W**
-              {%- if '3' in d and d['3'] != rd %} → {{ d['3'] }} W{% endif %}.</font>
-            visibility:
-              - condition: state
-                entity: input_select.hba_marstek_m3_power_group
-                state_not: Own
+              # In a power group: what the battery is limited to right now (HBA writes it)
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m3_power_group
+                    state_not: Own
+                card:
+                  type: markdown
+                  text_only: true
+                  content: >-
+                    {%- set w = state_attr('sensor.hba_power_limits', 'charge') or {} -%}
+                    {%- set r = states('number.marstek_m3_max_charge_power') | int(0) -%}
+                    <font color="#9b9b9b">Actual charge limit now: **{{ r }} W**
+                    {%- if '3' in w and w['3'] != r %} → {{ w['3'] }} W{% endif %},
+                    set by HBA from power group {{ states('input_select.hba_marstek_m3_power_group') }} (your max power above is
+                    the upper bound).</font>
           - type: heading
             icon: mdi:information-slab-circle
             heading: Cutoff capacities
@@ -3858,6 +3903,22 @@ views:
                     - type: numeric-input
                       style: buttons
                   features_position: inline
+              # In a power group: what the battery is limited to right now (HBA writes it)
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m4_power_group
+                    state_not: Own
+                card:
+                  type: markdown
+                  text_only: true
+                  content: >-
+                    {%- set w = state_attr('sensor.hba_power_limits', 'discharge') or {} -%}
+                    {%- set r = states('number.marstek_m4_max_discharge_power') | int(0) -%}
+                    <font color="#9b9b9b">Actual discharge limit now: **{{ r }} W**
+                    {%- if '4' in w and w['4'] != r %} → {{ w['4'] }} W{% endif %},
+                    set by HBA from power group {{ states('input_select.hba_marstek_m4_power_group') }} (your max power above is
+                    the upper bound).</font>
           - type: vertical-stack
             grid_options:
               columns: full
@@ -3906,23 +3967,22 @@ views:
                     - type: numeric-input
                       style: buttons
                   features_position: inline
-          - type: markdown
-            text_only: true
-            grid_options:
-              columns: full
-            content: >-
-              {%- set c = state_attr('sensor.hba_power_limits', 'charge') or {} -%}
-              {%- set d = state_attr('sensor.hba_power_limits', 'discharge') or {} -%}
-              {%- set rc = states('number.marstek_m4_max_charge_power') | int(0) -%}
-              {%- set rd = states('number.marstek_m4_max_discharge_power') | int(0) -%}
-              <font color="#9b9b9b">Set by HBA: max charge **{{ rc }} W**
-              {%- if '4' in c and c['4'] != rc %} → {{ c['4'] }} W{% endif %},
-              max discharge **{{ rd }} W**
-              {%- if '4' in d and d['4'] != rd %} → {{ d['4'] }} W{% endif %}.</font>
-            visibility:
-              - condition: state
-                entity: input_select.hba_marstek_m4_power_group
-                state_not: Own
+              # In a power group: what the battery is limited to right now (HBA writes it)
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m4_power_group
+                    state_not: Own
+                card:
+                  type: markdown
+                  text_only: true
+                  content: >-
+                    {%- set w = state_attr('sensor.hba_power_limits', 'charge') or {} -%}
+                    {%- set r = states('number.marstek_m4_max_charge_power') | int(0) -%}
+                    <font color="#9b9b9b">Actual charge limit now: **{{ r }} W**
+                    {%- if '4' in w and w['4'] != r %} → {{ w['4'] }} W{% endif %},
+                    set by HBA from power group {{ states('input_select.hba_marstek_m4_power_group') }} (your max power above is
+                    the upper bound).</font>
           - type: heading
             icon: mdi:information-slab-circle
             heading: Cutoff capacities
@@ -4016,6 +4076,22 @@ views:
                     - type: numeric-input
                       style: buttons
                   features_position: inline
+              # In a power group: what the battery is limited to right now (HBA writes it)
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m5_power_group
+                    state_not: Own
+                card:
+                  type: markdown
+                  text_only: true
+                  content: >-
+                    {%- set w = state_attr('sensor.hba_power_limits', 'discharge') or {} -%}
+                    {%- set r = states('number.marstek_m5_max_discharge_power') | int(0) -%}
+                    <font color="#9b9b9b">Actual discharge limit now: **{{ r }} W**
+                    {%- if '5' in w and w['5'] != r %} → {{ w['5'] }} W{% endif %},
+                    set by HBA from power group {{ states('input_select.hba_marstek_m5_power_group') }} (your max power above is
+                    the upper bound).</font>
           - type: vertical-stack
             grid_options:
               columns: full
@@ -4064,23 +4140,22 @@ views:
                     - type: numeric-input
                       style: buttons
                   features_position: inline
-          - type: markdown
-            text_only: true
-            grid_options:
-              columns: full
-            content: >-
-              {%- set c = state_attr('sensor.hba_power_limits', 'charge') or {} -%}
-              {%- set d = state_attr('sensor.hba_power_limits', 'discharge') or {} -%}
-              {%- set rc = states('number.marstek_m5_max_charge_power') | int(0) -%}
-              {%- set rd = states('number.marstek_m5_max_discharge_power') | int(0) -%}
-              <font color="#9b9b9b">Set by HBA: max charge **{{ rc }} W**
-              {%- if '5' in c and c['5'] != rc %} → {{ c['5'] }} W{% endif %},
-              max discharge **{{ rd }} W**
-              {%- if '5' in d and d['5'] != rd %} → {{ d['5'] }} W{% endif %}.</font>
-            visibility:
-              - condition: state
-                entity: input_select.hba_marstek_m5_power_group
-                state_not: Own
+              # In a power group: what the battery is limited to right now (HBA writes it)
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m5_power_group
+                    state_not: Own
+                card:
+                  type: markdown
+                  text_only: true
+                  content: >-
+                    {%- set w = state_attr('sensor.hba_power_limits', 'charge') or {} -%}
+                    {%- set r = states('number.marstek_m5_max_charge_power') | int(0) -%}
+                    <font color="#9b9b9b">Actual charge limit now: **{{ r }} W**
+                    {%- if '5' in w and w['5'] != r %} → {{ w['5'] }} W{% endif %},
+                    set by HBA from power group {{ states('input_select.hba_marstek_m5_power_group') }} (your max power above is
+                    the upper bound).</font>
           - type: heading
             icon: mdi:information-slab-circle
             heading: Cutoff capacities
@@ -4174,6 +4249,22 @@ views:
                     - type: numeric-input
                       style: buttons
                   features_position: inline
+              # In a power group: what the battery is limited to right now (HBA writes it)
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m6_power_group
+                    state_not: Own
+                card:
+                  type: markdown
+                  text_only: true
+                  content: >-
+                    {%- set w = state_attr('sensor.hba_power_limits', 'discharge') or {} -%}
+                    {%- set r = states('number.marstek_m6_max_discharge_power') | int(0) -%}
+                    <font color="#9b9b9b">Actual discharge limit now: **{{ r }} W**
+                    {%- if '6' in w and w['6'] != r %} → {{ w['6'] }} W{% endif %},
+                    set by HBA from power group {{ states('input_select.hba_marstek_m6_power_group') }} (your max power above is
+                    the upper bound).</font>
           - type: vertical-stack
             grid_options:
               columns: full
@@ -4222,23 +4313,22 @@ views:
                     - type: numeric-input
                       style: buttons
                   features_position: inline
-          - type: markdown
-            text_only: true
-            grid_options:
-              columns: full
-            content: >-
-              {%- set c = state_attr('sensor.hba_power_limits', 'charge') or {} -%}
-              {%- set d = state_attr('sensor.hba_power_limits', 'discharge') or {} -%}
-              {%- set rc = states('number.marstek_m6_max_charge_power') | int(0) -%}
-              {%- set rd = states('number.marstek_m6_max_discharge_power') | int(0) -%}
-              <font color="#9b9b9b">Set by HBA: max charge **{{ rc }} W**
-              {%- if '6' in c and c['6'] != rc %} → {{ c['6'] }} W{% endif %},
-              max discharge **{{ rd }} W**
-              {%- if '6' in d and d['6'] != rd %} → {{ d['6'] }} W{% endif %}.</font>
-            visibility:
-              - condition: state
-                entity: input_select.hba_marstek_m6_power_group
-                state_not: Own
+              # In a power group: what the battery is limited to right now (HBA writes it)
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m6_power_group
+                    state_not: Own
+                card:
+                  type: markdown
+                  text_only: true
+                  content: >-
+                    {%- set w = state_attr('sensor.hba_power_limits', 'charge') or {} -%}
+                    {%- set r = states('number.marstek_m6_max_charge_power') | int(0) -%}
+                    <font color="#9b9b9b">Actual charge limit now: **{{ r }} W**
+                    {%- if '6' in w and w['6'] != r %} → {{ w['6'] }} W{% endif %},
+                    set by HBA from power group {{ states('input_select.hba_marstek_m6_power_group') }} (your max power above is
+                    the upper bound).</font>
           - type: heading
             icon: mdi:information-slab-circle
             heading: Cutoff capacities
