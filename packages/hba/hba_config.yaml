@@ -81,3 +81,43 @@
 #         state_class: "measurement"
 #         state: "{{ states('sensor.voltage_phase_l1') | float(0) }}"
 #       # … same for L2 and L3 …
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OPTIONAL — EV charger power, for "Charge alongside EV" (car first)
+#
+#   With the charger's power HBA keeps room free for the car up to
+#   input_number.hba_ev_max_current per phase, so a car that the charger's load
+#   balancing throttled can go straight back to full speed (without it, the
+#   batteries fill the room the car wants and it stays slow for minutes).
+#   Define ONE of:
+#     sensor.ev_charger_power          W, total — enough for 3-phase charging; for
+#                                      1-phase charging HBA holds room on every phase
+#     sensor.ev_charger_power_l1/_l2/_l3  W per GRID phase — exact, also 1-phase.
+#                                      Map the charger's phases to the grid phases:
+#                                      installers often rotate them (charger phase 1
+#                                      may be on grid L3). Check with a 1-phase session:
+#                                      only that grid phase's sensor.p1_meter_power_lX
+#                                      should move with the charger.
+#   Without either, HBA works as before (room from the measured load only).
+#
+# EXAMPLE 4 — total charger power (here a Peblar)
+#
+# template:
+#   - sensor:
+#       - name: "EV Charger Power"
+#         unique_id: "ev_charger_power"
+#         unit_of_measurement: "W"
+#         device_class: "power"
+#         state_class: "measurement"
+#         state: "{{ states('sensor.peblar_ev_charger_power') | float(0) }}"
+#         availability: "{{ has_value('sensor.peblar_ev_charger_power') }}"
+#
+# EXAMPLE 5 — per grid phase (here a Peblar whose phase 1 sits on grid L3)
+#
+#       - name: "EV Charger Power L3"
+#         unique_id: "ev_charger_power_l3"
+#         unit_of_measurement: "W"
+#         device_class: "power"
+#         state: "{{ states('sensor.peblar_ev_charger_power_phase_1') | float(0) }}"
+#       # … L1 / L2 from the charger's other phases …

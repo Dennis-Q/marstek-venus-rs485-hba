@@ -2562,13 +2562,16 @@ views:
               {%- set res = states('input_number.hba_ev_battery_priority_energy') | float(0) -%}
               {%- set lim = states('input_number.hba_ev_phase_current_limit') | float(22) -%}
               {%- set room = state_attr('sensor.hba_ev_phase_room', 'room_w') or {} -%}
+              {%- set res = state_attr('sensor.hba_ev_phase_room', 'ev_reserve_w') or {} -%}
               {%- set miss = state_attr(B, 'missing_sensors') -%}
               **{{ 'Active' if is_state(B, 'on') else 'Not active (car not charging)' }}** — priority **{{ state_attr(B, 'mode') }}**
               (usable {{ avail | round(1) }} kWh vs batteries-first below {{ res | round(1) }} kWh)
               {%- if is_state(B, 'on') %} · never discharging{% endif %}
 
-              | Phase | grid | limit | room for batteries | batteries |
-              |---|---|---|---|---|
+              Car's power: **{{ state_attr('sensor.hba_ev_phase_room', 'ev_source') }}** · car max {{ states('input_number.hba_ev_max_current') | float(0) | int }} A per phase
+
+              | Phase | grid | limit | held for car | room for batteries | batteries |
+              |---|---|---|---|---|---|
               {% for n in ['L1', 'L2', 'L3'] -%}
               {%- set l = n | lower -%}
               {%- set v = states('sensor.p1_meter_voltage_' ~ l) | float(0) -%}
@@ -2577,7 +2580,7 @@ views:
               {%- for i in range(1, states('input_number.hba_battery_count') | int(1) + 1) if states('input_select.hba_marstek_m' ~ i ~ '_phase') == n -%}
                 {%- set ns.b = ns.b + ['M' ~ i] -%}
               {%- endfor -%}
-              | {{ n }} | {{ ((states('sensor.p1_meter_power_' ~ l) | float(0)) / v) | round(1) ~ ' A' if has_value('sensor.p1_meter_power_' ~ l) else 'no sensor' }} | {{ lim }} A | {{ room[n] ~ ' W' if n in room else '–' }} | {{ ns.b | join(', ') or '–' }} |
+              | {{ n }} | {{ ((states('sensor.p1_meter_power_' ~ l) | float(0)) / v) | round(1) ~ ' A' if has_value('sensor.p1_meter_power_' ~ l) else 'no sensor' }} | {{ lim }} A | {{ res[n] ~ ' W' if n in res else '–' }} | {{ room[n] ~ ' W' if n in room else '–' }} | {{ ns.b | join(', ') or '–' }} |
               {% endfor %}
               {%- if miss %}⚠ Missing: {{ miss }}{% endif %}
             visibility:
@@ -4816,6 +4819,8 @@ views:
                 name: Batteries first below
               - entity: input_number.hba_ev_phase_current_limit
                 name: Phase limit (car first)
+              - entity: input_number.hba_ev_max_current
+                name: Car max current per phase
               - entity: binary_sensor.hba_ev_charge_alongside
                 name: Charging alongside now
                 secondary_info: none
@@ -4838,8 +4843,12 @@ views:
               the phases, which may differ from the labels in the meter cupboard.
               **Check it:** let one battery charge or discharge at a steady power
               with the others idle; only that phase's `sensor.p1_meter_power_lX`
-              should move by about that amount. Requires an EV charger with its own
-              load balancing measuring the whole connection.</font>
+              should move by about that amount. **Car max current**: with the
+              charger's power defined (`sensor.ev_charger_power` or per phase, see
+              hba_config.yaml) HBA keeps that room free for the car, so after the
+              charger's load balancing throttled it, it goes straight back to full
+              speed. Requires an EV charger with its own load balancing measuring the
+              whole connection.</font>
             text_only: true
             visibility:
               - condition: state

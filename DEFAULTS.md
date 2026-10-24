@@ -189,6 +189,7 @@ Reduces max charge power near full SoC to protect battery cells. Set a limit to 
 |---|---|---|
 | `input_number.hba_ev_battery_priority_energy` | `0` kWh | Batteries first below this usable energy; 0 = the car always first |
 | `input_number.hba_ev_phase_current_limit` | `22` A | Car first: batteries keep each phase below this (Peblar throttles at ~22.5 A) |
+| `input_number.hba_ev_max_current` | `16` A | Car first: room kept free for the car per phase (needs `sensor.ev_charger_power` or `_l1/_l2/_l3`); 0 = off |
 | `input_select.hba_marstek_m{1-6}_phase` | `Not set` | L1 / L2 / L3; Not set counts against every phase |
 
 ## Power Groups

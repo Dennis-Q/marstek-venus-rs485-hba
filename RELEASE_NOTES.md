@@ -189,6 +189,13 @@ open), so the version prefix stays at 4.10.1 for now.
     `sensor.p1_meter_power` — see EXAMPLE 3 there. Only the phases with batteries are needed;
     missing ones are named in a banner (`binary_sensor.hba_ev_phase_sensors_missing`) and get
     no room. Existing installs keep their `hba_config.yaml`: copy the example from the repo.
+  - **Car max current** (`input_number.hba_ev_max_current`, default 16 A): with the charger's
+    power defined (`sensor.ev_charger_power`, or `sensor.ev_charger_power_l1/_l2/_l3` per grid
+    phase — EXAMPLE 4/5 in `hba_config.yaml`), *car first* keeps the room the car still needs
+    to reach that current free. Without it the batteries filled the room the car wanted after
+    the charger's load balancing throttled it, and the car stayed slow (prod: 5.3 instead of
+    10.5 kW for 2.5 minutes). The reservation only ever lowers the batteries' room; without a
+    charger sensor HBA works as before. Insights shows what is held for the car per phase.
   - Needs the phase of each battery (`input_select.hba_marstek_mX_phase`, Advanced settings;
     *Not set* counts against every phase) and an EV charger whose load balancing measures the
     whole connection (CT clamps at the grid connection). The per-phase cap goes into the

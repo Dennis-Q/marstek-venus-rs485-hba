@@ -1616,6 +1616,10 @@ script:
       - action: input_number.set_value
         target: { entity_id: input_number.hba_ev_battery_priority_energy }
         data: { value: 0 }
+      # 16 A = 11 kW on three phases; only used when the charger's power is defined.
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_ev_max_current }
+        data: { value: 16 }
       # ── Power groups ──────────────────────────────────────────────────────────
       # Every battery in its own group: HBA leaves the limit registers alone. The own
       # max charge / discharge power per battery back to 0 = not set, so joining a group

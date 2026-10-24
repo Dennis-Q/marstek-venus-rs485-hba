@@ -530,6 +530,18 @@ input_number:
   # Car first: the batteries keep each phase below this current, so the charger's own
   # load balancing never has to slow the car down. Set it just below the charger's
   # threshold (Peblar on prod: starts throttling at ~22.5 A per phase).
+  # Car first: the car's max current per phase (e.g. 16 A for 11 kW). HBA keeps that
+  # room free for the car on the phases it charges on, so a car that the charger's load
+  # balancing throttled can go straight back up. 0 = do not reserve (needs the charger's
+  # power: sensor.ev_charger_power_l1..l3 or sensor.ev_charger_power, hba_config.yaml).
+  hba_ev_max_current:
+    name: "EV max current per phase"
+    min: 0
+    max: 32
+    step: 1
+    mode: box
+    unit_of_measurement: A
+    icon: mdi:ev-station
   hba_ev_phase_current_limit:
     name: "Phase current limit (EV charging)"
     min: 6
@@ -1199,10 +1211,15 @@ template:
           {{ ns.total | round(2) }}
 
       # Charge alongside EV, car first: per phase, what the batteries on it may charge in
-      # total (W) to keep the phase under input_number.hba_ev_phase_current_limit
-      # (hba_set_batteries caps charging with it). Phase power from the user-defined
-      # sensor.p1_meter_power_lX (hba_config.yaml); DSMR phase current has no sign.
-      # State = the tightest phase. Recorder-excluded: changes on every P1 update.
+      # total (W) — the phase limit (input_number.hba_ev_phase_current_limit) minus
+      # everything else on the phase, minus the room the car still needs to reach its max
+      # current (input_number.hba_ev_max_current). Without that reservation the batteries
+      # filled the room the car wanted after the charger's load balancing throttled it, so
+      # the car stayed slow: prod 2026-10-24 22:06–22:09, 5.3 instead of 10.5 kW. Phase
+      # power from the user-defined sensor.p1_meter_power_lX, car power from
+      # sensor.ev_charger_power_lX / sensor.ev_charger_power (hba_config.yaml). The
+      # reservation only ever lowers the batteries' room. State = the tightest phase.
+      # Recorder-excluded: changes on every P1 update.
       - name: "HBA EV Phase Room"
         unique_id: hba_ev_phase_room
         icon: mdi:sine-wave
@@ -1219,23 +1236,51 @@ template:
             {%- elif ph == 'L2' -%}{%- set bat.L2 = bat.L2 + chg -%}
             {%- elif ph == 'L3' -%}{%- set bat.L3 = bat.L3 + chg -%}{%- endif -%}
           {%- endfor -%}
-          {%- set out = namespace(d={}) -%}
-          {%- for ph, b in [('L1', bat.L1), ('L2', bat.L2), ('L3', bat.L3)] -%}
+          {#- The car's room: what it may still take per phase on top of what it draws now,
+              so "car first" leaves it room to go back to its max after the charger's load
+              balancing throttled it. From the charger's power per GRID phase if defined
+              (sensor.ev_charger_power_l1..l3), else its total (sensor.ev_charger_power,
+              counted on every phase as total / 3 — conservative when it charges on one
+              phase), else nothing (room from measured load only). -#}
+          {%- set evmax = states('input_number.hba_ev_max_current') | float(0) -%}
+          {%- set charging = is_state('binary_sensor.hba_ev_charge_alongside', 'on') -%}
+          {%- set per = ['l1', 'l2', 'l3'] | map('regex_replace', '^', 'sensor.ev_charger_power_') | select('has_value') | list -%}
+          {%- set src = 'per phase' if per else ('total' if has_value('sensor.ev_charger_power') else 'none') -%}
+          {%- set evw = namespace(L1=0, L2=0, L3=0) -%}
+          {%- if src == 'per phase' -%}
+            {%- set evw.L1 = [states('sensor.ev_charger_power_l1') | float(0), 0] | max -%}
+            {%- set evw.L2 = [states('sensor.ev_charger_power_l2') | float(0), 0] | max -%}
+            {%- set evw.L3 = [states('sensor.ev_charger_power_l3') | float(0), 0] | max -%}
+          {%- elif src == 'total' -%}
+            {%- set t = [states('sensor.ev_charger_power') | float(0), 0] | max / 3 -%}
+            {%- set evw.L1 = t -%}{%- set evw.L2 = t -%}{%- set evw.L3 = t -%}
+          {%- endif -%}
+          {#- per phase: only the phases the car charges on (> ~1 A); all three while it is
+              still starting or when the charger only reports a total -#}
+          {%- set used = namespace(l=[]) -%}
+          {%- for ph, w in [('L1', evw.L1), ('L2', evw.L2), ('L3', evw.L3)] if w > 230 -%}
+            {%- set used.l = used.l + [ph] -%}
+          {%- endfor -%}
+          {%- set used = used.l if (src == 'per phase' and used.l) else ['L1', 'L2', 'L3'] -%}
+          {%- set out = namespace(room={}, res={}) -%}
+          {%- for ph, b, e in [('L1', bat.L1, evw.L1), ('L2', bat.L2, evw.L2), ('L3', bat.L3, evw.L3)] -%}
             {%- set n = ph | lower -%}
             {#- sensor.p1_meter_power_lX / _voltage_lX are defined by the user in
                 hba_config.yaml (like sensor.p1_meter_power). No reading = no room. -#}
             {%- set v = states('sensor.p1_meter_voltage_' ~ n) | float(0) -%}
             {%- set v = v if v > 100 else 230 -%}
+            {%- set r = ([evmax * v - e, 0] | max) if (charging and evmax > 0 and src != 'none' and ph in used) else 0 -%}
+            {%- set out.res = out.res | combine({ph: r | round(0) | int}) -%}
             {%- if has_value('sensor.p1_meter_power_' ~ n) -%}
               {%- set net = states('sensor.p1_meter_power_' ~ n) | float(0) -%}
-              {#- what the batteries on this phase may draw in total: the limit minus
-                  everything else on the phase (their own charging is part of the import) -#}
-              {%- set out.d = out.d | combine({ph: [lim * v - (net - b), 0] | max | round(0) | int}) -%}
+              {#- the limit minus everything else on the phase (the batteries' own charging is
+                  part of the import) minus the car's room -#}
+              {%- set out.room = out.room | combine({ph: [lim * v - (net - b) - r, 0] | max | round(0) | int}) -%}
             {%- else -%}
-              {%- set out.d = out.d | combine({ph: 0}) -%}
+              {%- set out.room = out.room | combine({ph: 0}) -%}
             {%- endif -%}
           {%- endfor -%}
-          {{ out.d.values() | min }}
+          {{ out.room.values() | min }}
         attributes:
           room_w: >-
             {%- set lim = states('input_number.hba_ev_phase_current_limit') | float(22) -%}
@@ -1249,23 +1294,113 @@ template:
               {%- elif ph == 'L2' -%}{%- set bat.L2 = bat.L2 + chg -%}
               {%- elif ph == 'L3' -%}{%- set bat.L3 = bat.L3 + chg -%}{%- endif -%}
             {%- endfor -%}
-            {%- set out = namespace(d={}) -%}
-            {%- for ph, b in [('L1', bat.L1), ('L2', bat.L2), ('L3', bat.L3)] -%}
+            {#- The car's room: what it may still take per phase on top of what it draws now,
+                so "car first" leaves it room to go back to its max after the charger's load
+                balancing throttled it. From the charger's power per GRID phase if defined
+                (sensor.ev_charger_power_l1..l3), else its total (sensor.ev_charger_power,
+                counted on every phase as total / 3 — conservative when it charges on one
+                phase), else nothing (room from measured load only). -#}
+            {%- set evmax = states('input_number.hba_ev_max_current') | float(0) -%}
+            {%- set charging = is_state('binary_sensor.hba_ev_charge_alongside', 'on') -%}
+            {%- set per = ['l1', 'l2', 'l3'] | map('regex_replace', '^', 'sensor.ev_charger_power_') | select('has_value') | list -%}
+            {%- set src = 'per phase' if per else ('total' if has_value('sensor.ev_charger_power') else 'none') -%}
+            {%- set evw = namespace(L1=0, L2=0, L3=0) -%}
+            {%- if src == 'per phase' -%}
+              {%- set evw.L1 = [states('sensor.ev_charger_power_l1') | float(0), 0] | max -%}
+              {%- set evw.L2 = [states('sensor.ev_charger_power_l2') | float(0), 0] | max -%}
+              {%- set evw.L3 = [states('sensor.ev_charger_power_l3') | float(0), 0] | max -%}
+            {%- elif src == 'total' -%}
+              {%- set t = [states('sensor.ev_charger_power') | float(0), 0] | max / 3 -%}
+              {%- set evw.L1 = t -%}{%- set evw.L2 = t -%}{%- set evw.L3 = t -%}
+            {%- endif -%}
+            {#- per phase: only the phases the car charges on (> ~1 A); all three while it is
+                still starting or when the charger only reports a total -#}
+            {%- set used = namespace(l=[]) -%}
+            {%- for ph, w in [('L1', evw.L1), ('L2', evw.L2), ('L3', evw.L3)] if w > 230 -%}
+              {%- set used.l = used.l + [ph] -%}
+            {%- endfor -%}
+            {%- set used = used.l if (src == 'per phase' and used.l) else ['L1', 'L2', 'L3'] -%}
+            {%- set out = namespace(room={}, res={}) -%}
+            {%- for ph, b, e in [('L1', bat.L1, evw.L1), ('L2', bat.L2, evw.L2), ('L3', bat.L3, evw.L3)] -%}
               {%- set n = ph | lower -%}
               {#- sensor.p1_meter_power_lX / _voltage_lX are defined by the user in
                   hba_config.yaml (like sensor.p1_meter_power). No reading = no room. -#}
               {%- set v = states('sensor.p1_meter_voltage_' ~ n) | float(0) -%}
               {%- set v = v if v > 100 else 230 -%}
+              {%- set r = ([evmax * v - e, 0] | max) if (charging and evmax > 0 and src != 'none' and ph in used) else 0 -%}
+              {%- set out.res = out.res | combine({ph: r | round(0) | int}) -%}
               {%- if has_value('sensor.p1_meter_power_' ~ n) -%}
                 {%- set net = states('sensor.p1_meter_power_' ~ n) | float(0) -%}
-                {#- what the batteries on this phase may draw in total: the limit minus
-                    everything else on the phase (their own charging is part of the import) -#}
-                {%- set out.d = out.d | combine({ph: [lim * v - (net - b), 0] | max | round(0) | int}) -%}
+                {#- the limit minus everything else on the phase (the batteries' own charging is
+                    part of the import) minus the car's room -#}
+                {%- set out.room = out.room | combine({ph: [lim * v - (net - b) - r, 0] | max | round(0) | int}) -%}
               {%- else -%}
-                {%- set out.d = out.d | combine({ph: 0}) -%}
+                {%- set out.room = out.room | combine({ph: 0}) -%}
               {%- endif -%}
             {%- endfor -%}
-            {{ out.d }}
+            {{ out.room }}
+          # what is held back per phase for the car (W)
+          ev_reserve_w: >-
+            {%- set lim = states('input_number.hba_ev_phase_current_limit') | float(22) -%}
+            {%- set count = states('input_number.hba_battery_count') | int(1) -%}
+            {%- set bat = namespace(L1=0, L2=0, L3=0) -%}
+            {%- for i in range(1, count + 1) -%}
+              {%- set ph = states('input_select.hba_marstek_m' ~ i ~ '_phase') -%}
+              {#- ac_power is negative while charging -#}
+              {%- set chg = [-(states('sensor.marstek_m' ~ i ~ '_ac_power') | float(0)), 0] | max -%}
+              {%- if ph == 'L1' -%}{%- set bat.L1 = bat.L1 + chg -%}
+              {%- elif ph == 'L2' -%}{%- set bat.L2 = bat.L2 + chg -%}
+              {%- elif ph == 'L3' -%}{%- set bat.L3 = bat.L3 + chg -%}{%- endif -%}
+            {%- endfor -%}
+            {#- The car's room: what it may still take per phase on top of what it draws now,
+                so "car first" leaves it room to go back to its max after the charger's load
+                balancing throttled it. From the charger's power per GRID phase if defined
+                (sensor.ev_charger_power_l1..l3), else its total (sensor.ev_charger_power,
+                counted on every phase as total / 3 — conservative when it charges on one
+                phase), else nothing (room from measured load only). -#}
+            {%- set evmax = states('input_number.hba_ev_max_current') | float(0) -%}
+            {%- set charging = is_state('binary_sensor.hba_ev_charge_alongside', 'on') -%}
+            {%- set per = ['l1', 'l2', 'l3'] | map('regex_replace', '^', 'sensor.ev_charger_power_') | select('has_value') | list -%}
+            {%- set src = 'per phase' if per else ('total' if has_value('sensor.ev_charger_power') else 'none') -%}
+            {%- set evw = namespace(L1=0, L2=0, L3=0) -%}
+            {%- if src == 'per phase' -%}
+              {%- set evw.L1 = [states('sensor.ev_charger_power_l1') | float(0), 0] | max -%}
+              {%- set evw.L2 = [states('sensor.ev_charger_power_l2') | float(0), 0] | max -%}
+              {%- set evw.L3 = [states('sensor.ev_charger_power_l3') | float(0), 0] | max -%}
+            {%- elif src == 'total' -%}
+              {%- set t = [states('sensor.ev_charger_power') | float(0), 0] | max / 3 -%}
+              {%- set evw.L1 = t -%}{%- set evw.L2 = t -%}{%- set evw.L3 = t -%}
+            {%- endif -%}
+            {#- per phase: only the phases the car charges on (> ~1 A); all three while it is
+                still starting or when the charger only reports a total -#}
+            {%- set used = namespace(l=[]) -%}
+            {%- for ph, w in [('L1', evw.L1), ('L2', evw.L2), ('L3', evw.L3)] if w > 230 -%}
+              {%- set used.l = used.l + [ph] -%}
+            {%- endfor -%}
+            {%- set used = used.l if (src == 'per phase' and used.l) else ['L1', 'L2', 'L3'] -%}
+            {%- set out = namespace(room={}, res={}) -%}
+            {%- for ph, b, e in [('L1', bat.L1, evw.L1), ('L2', bat.L2, evw.L2), ('L3', bat.L3, evw.L3)] -%}
+              {%- set n = ph | lower -%}
+              {#- sensor.p1_meter_power_lX / _voltage_lX are defined by the user in
+                  hba_config.yaml (like sensor.p1_meter_power). No reading = no room. -#}
+              {%- set v = states('sensor.p1_meter_voltage_' ~ n) | float(0) -%}
+              {%- set v = v if v > 100 else 230 -%}
+              {%- set r = ([evmax * v - e, 0] | max) if (charging and evmax > 0 and src != 'none' and ph in used) else 0 -%}
+              {%- set out.res = out.res | combine({ph: r | round(0) | int}) -%}
+              {%- if has_value('sensor.p1_meter_power_' ~ n) -%}
+                {%- set net = states('sensor.p1_meter_power_' ~ n) | float(0) -%}
+                {#- the limit minus everything else on the phase (the batteries' own charging is
+                    part of the import) minus the car's room -#}
+                {%- set out.room = out.room | combine({ph: [lim * v - (net - b) - r, 0] | max | round(0) | int}) -%}
+              {%- else -%}
+                {%- set out.room = out.room | combine({ph: 0}) -%}
+              {%- endif -%}
+            {%- endfor -%}
+            {{ out.res }}
+          # where the car's power comes from: per phase / total / none
+          ev_source: >-
+            {%- set per = ['l1', 'l2', 'l3'] | map('regex_replace', '^', 'sensor.ev_charger_power_') | select('has_value') | list -%}
+            {{ 'per phase' if per else ('total' if has_value('sensor.ev_charger_power') else 'none') }}
 
       - name: "HBA Total Max Charge Power"
         unique_id: hba_total_max_charge_power
@@ -2598,6 +2733,7 @@ recorder:
       # hba_config.yaml) — ~1 update/s each, derived from meter sensors that are recorded
       - sensor.p1_meter_power_l*
       - sensor.p1_meter_voltage_l*
+      - sensor.ev_charger_power_l*
     entities:
       # Room per phase for Charge alongside EV — recalculated on every P1 update
       - sensor.hba_ev_phase_room

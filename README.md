@@ -353,6 +353,10 @@ Set the phase as your **P1 meter** numbers it — that can differ from the label
 cupboard. To check: let one battery charge or discharge at a steady power with the others idle;
 only that phase's `sensor.p1_meter_power_lX` should move by about that amount.
 
+Optionally define the charger's power (`sensor.ev_charger_power`, or per grid phase — EXAMPLE 4/5
+in `hba_config.yaml`): HBA then keeps the room the car needs to reach its max current free, so a
+car that the charger's load balancing throttled goes straight back to full speed.
+
 ### Power groups
 
 Batteries whose combined power must stay within one limit — a shared breaker, a limit per phase,
