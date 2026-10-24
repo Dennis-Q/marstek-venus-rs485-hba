@@ -1596,14 +1596,41 @@ template:
             {%- set out = namespace(d={}) -%}
             {%- for ph, b in [('L1', bat.L1), ('L2', bat.L2), ('L3', bat.L3)] -%}
               {%- set n = ph | lower -%}
-              {%- set v = states('sensor.electricity_meter_voltage_phase_' ~ n) | float(230) -%}
-              {%- set net = states('sensor.electricity_meter_power_consumption_phase_' ~ n) | float(0)
-                          - states('sensor.electricity_meter_power_production_phase_' ~ n) | float(0) -%}
-              {#- what the batteries on this phase may draw in total: the limit minus everything
-                  else on the phase (their own charging is part of the measured import) -#}
-              {%- set out.d = out.d | combine({ph: [lim * v - (net - b), 0] | max | round(0) | int}) -%}
+              {#- sensor.p1_meter_power_lX / _voltage_lX are defined by the user in
+                  hba_config.yaml (like sensor.p1_meter_power). No reading = no room. -#}
+              {%- set v = states('sensor.p1_meter_voltage_' ~ n) | float(0) -%}
+              {%- set v = v if v > 100 else 230 -%}
+              {%- if has_value('sensor.p1_meter_power_' ~ n) -%}
+                {%- set net = states('sensor.p1_meter_power_' ~ n) | float(0) -%}
+                {#- what the batteries on this phase may draw in total: the limit minus
+                    everything else on the phase (their own charging is part of the import) -#}
+                {%- set out.d = out.d | combine({ph: [lim * v - (net - b), 0] | max | round(0) | int}) -%}
+              {%- else -%}
+                {%- set out.d = out.d | combine({ph: 0}) -%}
+              {%- endif -%}
             {%- endfor -%}
             {{ out.d }}
+          # Per-phase power sensors that "car first" needs but that do not exist / have no
+          # value: the phases the batteries are on ("Not set" needs all three).
+          missing_sensors: >-
+            {%- set count = states('input_number.hba_battery_count') | int(1) -%}
+            {%- set ns = namespace(need=[]) -%}
+            {%- for i in range(1, count + 1) -%}
+              {%- set ph = states('input_select.hba_marstek_m' ~ i ~ '_phase') -%}
+              {%- set ns.need = ns.need + ([ph] if ph in ['L1', 'L2', 'L3'] else ['L1', 'L2', 'L3']) -%}
+            {%- endfor -%}
+            {{ ns.need | unique | sort | map('lower') | map('regex_replace', '^', 'sensor.p1_meter_power_')
+               | reject('has_value') | list | join(', ') }}
+
+      # Setup hint (banner only): "Charge alongside EV" is selected but per-phase grid
+      # power sensors it needs for "car first" are missing (see hba_config.yaml).
+      - name: "HBA EV Phase Sensors Missing"
+        unique_id: hba_ev_phase_sensors_missing
+        device_class: problem
+        icon: mdi:sine-wave
+        state: >-
+          {{ is_state('input_select.hba_control_strategy_during_ev_charge', 'Charge alongside EV')
+             and state_attr('binary_sensor.hba_ev_charge_alongside', 'missing_sensors') not in [none, ''] }}
 
       - name: "HBA Battery Assist Active"
         unique_id: hba_battery_assist_active

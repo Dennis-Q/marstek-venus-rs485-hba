@@ -177,8 +177,12 @@ open), so the version prefix stays at 4.10.1 for now.
     and the charger's own load balancing slows the car;
   - above it the car keeps its speed: the batteries only use what keeps each phase under
     **Phase limit** (`input_number.hba_ev_phase_current_limit`, default 22 A — just below a
-    Peblar's ~22.5 A load-balancing threshold), computed every cycle from the P1 per-phase
-    power (DSMR phase current has no sign).
+    Peblar's ~22.5 A load-balancing threshold), computed every cycle from the per-phase grid
+    power. **Define `sensor.p1_meter_power_l1/_l2/_l3`** (W, positive = import; optional
+    `sensor.p1_meter_voltage_l1/_l2/_l3`, else 230 V) in `hba_config.yaml`, like
+    `sensor.p1_meter_power` — see EXAMPLE 3 there. Only the phases with batteries are needed;
+    missing ones are named in a banner (`binary_sensor.hba_ev_phase_sensors_missing`) and get
+    no room. Existing installs keep their `hba_config.yaml`: copy the example from the repo.
   - Needs the phase of each battery (`input_select.hba_marstek_mX_phase`, Advanced settings;
     *Not set* counts against every phase) and an EV charger whose load balancing measures the
     whole connection (CT clamps at the grid connection). The per-phase cap goes into the

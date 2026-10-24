@@ -45,3 +45,39 @@
 #         device_class: "power"
 #         state_class: "measurement"
 #         state: "{{ states('sensor.YOUR_COMBINED_P1_SENSOR') | float(0) | round(0) | int }}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OPTIONAL — per-phase grid power, for "Charge alongside EV" (car first)
+#
+#   Only needed when you use Strategy during EV charge → Charge alongside EV with
+#   the car first. HBA reads these fixed names; define the phases your batteries
+#   are on (a battery whose phase is "Not set" needs all three):
+#     sensor.p1_meter_power_l1 / _l2 / _l3   W, POSITIVE when importing on that phase
+#     sensor.p1_meter_voltage_l1 / _l2 / _l3 V, optional (230 V is used without)
+#   Missing ones are listed in a banner, and the batteries then get no room on that
+#   phase while the car charges (safe: they do not charge).
+#   Do not use a phase CURRENT sensor for the power: DSMR phase current has no sign.
+#
+# EXAMPLE 3 — separate consumption/production per phase (DSMR / HomeWizard style)
+#   Merge into the same template: block as your P1 Meter Power above (one
+#   `template:` key per file).
+#
+# template:
+#   - sensor:
+#       - name: "P1 Meter Power L1"
+#         unique_id: "p1_meter_power_l1"
+#         unit_of_measurement: "W"
+#         device_class: "power"
+#         state_class: "measurement"
+#         state: >
+#           {{ (states('sensor.power_consumption_phase_l1') | float(0)
+#               - states('sensor.power_production_phase_l1') | float(0)) | round(0) | int }}
+#       # … same for L2 and L3 …
+#       - name: "P1 Meter Voltage L1"
+#         unique_id: "p1_meter_voltage_l1"
+#         unit_of_measurement: "V"
+#         device_class: "voltage"
+#         state_class: "measurement"
+#         state: "{{ states('sensor.voltage_phase_l1') | float(0) }}"
+#       # … same for L2 and L3 …

@@ -517,6 +517,15 @@ views:
                 state: Check settings
             content: >
               <ha-alert alert-type="warning">Power groups inactive — {{ (state_attr('sensor.hba_power_limits', 'problems') or []) | join('; ') }}. Set them in Advanced settings → Power groups.</ha-alert>
+          - type: markdown
+            grid_options:
+              columns: full
+            visibility:
+              - condition: state
+                entity: binary_sensor.hba_ev_phase_sensors_missing
+                state: "on"
+            content: >
+              <ha-alert alert-type="warning">Charge alongside EV (car first) is missing per-phase grid power: {{ state_attr('binary_sensor.hba_ev_charge_alongside', 'missing_sensors') }}. Define them in packages/hba/hba_config.yaml (like sensor.p1_meter_power, positive = import). Until then the batteries do not charge on those phases while the car charges first.</ha-alert>
           - type: heading
             heading: Master Battery Control
             heading_style: title
@@ -4621,6 +4630,15 @@ views:
               - condition: state
                 entity: input_select.hba_control_strategy_during_ev_charge
                 state: "Charge alongside EV"
+          - type: markdown
+            content: >-
+              <ha-alert alert-type="warning">Charge alongside EV (car first) is missing per-phase grid power: {{ state_attr('binary_sensor.hba_ev_charge_alongside', 'missing_sensors') }}. Define them in packages/hba/hba_config.yaml (like sensor.p1_meter_power, positive = import). Until then the batteries do not charge on those phases while the car charges first.</ha-alert>
+            grid_options:
+              columns: full
+            visibility:
+              - condition: state
+                entity: binary_sensor.hba_ev_phase_sensors_missing
+                state: "on"
           - type: entities
             entities:
               - entity: input_text.hba_strategy_ev_saturated_entity_id
