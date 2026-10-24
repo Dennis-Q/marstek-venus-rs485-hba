@@ -251,7 +251,7 @@ did not carry over when they were renamed.
 | Helper | Default | Notes |
 |---|---|---|
 | `input_number.hba_marstek_m{1-6}_charging_cutoff_capacity` | `100` % | |
-| `input_number.hba_marstek_m{1-6}_discharging_cutoff_capacity` | `12` % | Works for Venus E v1/v2/v3. Venus E v3.0 users may want to raise this to **13%**: the v3.0 firmware has a ~2% hysteresis and in practice won't discharge below ~13% regardless of the software setting. |
+| `input_number.hba_marstek_m{1-6}_discharging_cutoff_capacity` | `13` % on a Venus E 3.0, `12` % otherwise | A Venus E 3.0 stops discharging itself just below **13.0 %** (it checks its reserve — 100 − app DoD, at least 12 % — against a whole-percent SoC). With 12 % HBA kept handing power to a battery that delivered 0 W. Apply defaults picks the value per battery from its device name. With a lower DoD in the Marstek app, set it to that reserve + 1. |
 
 ## Solar Forecast Entity IDs
 

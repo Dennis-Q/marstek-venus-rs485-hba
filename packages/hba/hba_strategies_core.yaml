@@ -1479,18 +1479,23 @@ script:
             - input_number.hba_marstek_m5_charging_cutoff_capacity
             - input_number.hba_marstek_m6_charging_cutoff_capacity
         data: { value: 100 }
-      - action: input_number.set_value
-        target:
-          entity_id:
-            - input_number.hba_marstek_m1_discharging_cutoff_capacity
-            - input_number.hba_marstek_m2_discharging_cutoff_capacity
-            - input_number.hba_marstek_m3_discharging_cutoff_capacity
-            - input_number.hba_marstek_m4_discharging_cutoff_capacity
-            - input_number.hba_marstek_m5_discharging_cutoff_capacity
-            - input_number.hba_marstek_m6_discharging_cutoff_capacity
-        # Default 12% works for Venus E v1/v2/v3. Venus E v3.0 users may prefer 13%:
-        # the v3.0 firmware has a ~2% hysteresis and won't discharge below ~13% in practice.
-        data: { value: 12 }
+      # Discharge cutoff per battery: 13 % on a Venus E 3.0, 12 % otherwise. The battery
+      # stops discharging itself at its reserve (100 − DoD in the Marstek app, at least
+      # 12 %), but an E 3.0 compares it against a whole-percent SoC: everything below
+      # 13.0 % counts as 12 % and stops. Prod 2026-10 (4 × E 3.0, Control 148, DoD 88 %):
+      # every final stop at 12.9–13.1 % while HBA still commanded discharge. A 12 % cutoff
+      # made HBA hand power to a battery that delivers 0 W until standby drain took it
+      # below 12.5 % — often hours. The reserve is not readable over Modbus, so this
+      # assumes the app default (DoD 88 %); with a lower DoD, raise the cutoff to match.
+      - repeat:
+          for_each: [1, 2, 3, 4, 5, 6]
+          sequence:
+            - action: input_number.set_value
+              target:
+                entity_id: "input_number.hba_marstek_m{{ repeat.item }}_discharging_cutoff_capacity"
+              data:
+                value: >-
+                  {{ 13 if states('sensor.marstek_m' ~ repeat.item ~ '_device_name') | trim is match('VNSE3') else 12 }}
       # ── Power groups ──────────────────────────────────────────────────────────
       # Every battery in its own group: HBA leaves the limit registers alone. Max power
       # per battery back to 0 = not set, so joining a group starts from the battery's

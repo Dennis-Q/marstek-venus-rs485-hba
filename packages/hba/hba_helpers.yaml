@@ -2097,10 +2097,10 @@ template:
   #     empty (discharging); then the fullest (charging) / emptiest (discharging) next
   # Full/empty latch with hysteresis so a battery at its cutoff does not flip the split:
   # full at charge cutoff − 1 %, not full again below cutoff − 4 %; empty at discharge
-  # cutoff + 2 %, not empty again above cutoff + 5 %. The margin is wider at the bottom
-  # because a Venus E v3 stops on its own firmware floor (~13 %) above a 12 % cutoff: on
-  # prod (2026-10) M3 never went below 12.9 %, M4 below 12.5 %, so "cutoff + 0.5" would
-  # never call them empty and their discharge share would never be handed on. Charge and
+  # cutoff + 1 %, not empty again above cutoff + 4 %. Not "+ 0.5": the distribution
+  # stops a battery at cutoff + 0.5, and a Venus E 3.0 stops itself just below 13.0 %
+  # (whole-percent reserve check, see hba_apply_defaults) — with the E 3.0 cutoff of 13 %
+  # empty is ≤ 14 %, with an old 12 % cutoff ≤ 13 %, both reached before it stalls. Charge and
   # discharge are split separately: a full battery still gets its share for discharging.
   #
   # Firmware facts this rests on (Venus E v3 = D code, static RE by sphings79):
@@ -2174,8 +2174,8 @@ template:
               {%- elif soc < hi - 4 -%}{%- set full = false -%}
               {%- else -%}{%- set full = i in p.full -%}{%- endif -%}
               {%- if soc < 0 -%}{%- set empty = i in p.empty -%}
-              {%- elif soc <= lo + 2 -%}{%- set empty = true -%}
-              {%- elif soc > lo + 5 -%}{%- set empty = false -%}
+              {%- elif soc <= lo + 1 -%}{%- set empty = true -%}
+              {%- elif soc > lo + 4 -%}{%- set empty = false -%}
               {%- else -%}{%- set empty = i in p.empty -%}{%- endif -%}
               {%- set ns.bats = ns.bats + [{
                     'i': i, 'g': states('input_select.hba_marstek_m' ~ i ~ '_power_group'),

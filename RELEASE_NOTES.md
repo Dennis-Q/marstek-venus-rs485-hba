@@ -144,8 +144,8 @@ open), so the version prefix stays at 4.10.1 for now.
   - A full battery hands its **charge** share to the others, an empty one its **discharge**
     share — charging and discharging are split separately, so a full battery still
     discharges at its full share in the evening. *Full* = within 1 % of the charge cutoff
-    (again below cutoff − 4 %); *empty* = within 2 % of the discharge cutoff (again above
-    cutoff + 5 %) — wider at the bottom because a Venus E v3 stops on its own ~13 % floor.
+    (again below cutoff − 4 %); *empty* = within 1 % of the discharge cutoff (again above
+    cutoff + 4 %).
   - **Safe swap:** HBA lowers a battery first and raises the other only into room that the
     batteries' *read-back* registers leave, i.e. after the lower has landed. A battery that
     cannot be reached keeps its share reserved — it may still be running on its old limit.
@@ -218,6 +218,14 @@ open), so the version prefix stays at 4.10.1 for now.
   section as "Grid cycle profit today".
 
 ### Changed
+
+- **Discharge cutoff default 13 % on a Venus E 3.0** — the battery stops discharging on its
+  own just below 13.0 % (its reserve, 100 − app DoD and at least 12 %, is checked against a
+  whole-percent SoC — firmware analysis + prod, where every final stop of four E 3.0s was at
+  12.9–13.1 % while HBA still commanded discharge). With the old 12 % HBA kept giving a share
+  to a battery that delivered 0 W, often for hours. *Apply defaults* now sets 13 % for
+  batteries reporting `VNSE3`, 12 % for others; existing installs keep their value — set it
+  by hand (Advanced settings → per battery).
 
 - **PID presets shifted up one Ki step; `Regular` is now Ki 0.30** — **Very safe / Safe /
   Regular / Responsive** are now Ki **0.15 / 0.22 / 0.30 / 0.40** (was 0.10 / 0.15 / 0.22 /
