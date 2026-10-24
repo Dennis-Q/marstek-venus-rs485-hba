@@ -1057,21 +1057,28 @@ input_select:
     options: ["Own", "A", "B", "C"]
     icon: mdi:fuse
   # How a group shares its max power over its batteries:
+  #   Follow battery order — (default) the group's battery that HBA uses first right now
+  #                  (Auto balance (SoC) order, else the priority rotation) gets as much
+  #                  as it can, the others the rest. HBA fills batteries one by one, so
+  #                  this lets one battery run up to its max before a second one starts:
+  #                  each running battery costs a fixed ~20-25 W (prod 2026-10-24:
+  #                  discharge efficiency ~58-74 % below 200 W, 87-90 % at 200-500 W,
+  #                  93-94 % from 500 W up to 2500 W)
   #   Equal        — the same share each (never above a battery's own max power); a
   #                  full (charging) or empty (discharging) battery hands its share on
   #   One at a time — one battery gets as much as it can, the others the rest; it keeps
   #                  that until it is full / empty
   hba_power_group_a_policy:
     name: "Power group A spread policy"
-    options: ["Equal", "One at a time"]
+    options: ["Follow battery order", "Equal", "One at a time"]
     icon: mdi:call-split
   hba_power_group_b_policy:
     name: "Power group B spread policy"
-    options: ["Equal", "One at a time"]
+    options: ["Follow battery order", "Equal", "One at a time"]
     icon: mdi:call-split
   hba_power_group_c_policy:
     name: "Power group C spread policy"
-    options: ["Equal", "One at a time"]
+    options: ["Follow battery order", "Equal", "One at a time"]
     icon: mdi:call-split
 
 template:
@@ -2326,6 +2333,9 @@ template:
   #     a battery's own max power; what they cannot take goes to the full/empty ones
   #   - One at a time: the leader gets as much as it can until it is full (charging) or
   #     empty (discharging); then the fullest (charging) / emptiest (discharging) next
+  #   - Follow battery order: the leader is the group's first eligible battery in the
+  #     order hba_set_batteries uses (sensor.hba_battery_order with Auto balance (SoC),
+  #     else cyclic from the priority battery) — it moves with that order (frozen 30 min)
   # Full/empty latch with hysteresis so a battery at its cutoff does not flip the split:
   # full at charge cutoff − 1 %, not full again below cutoff − 4 %; empty at discharge
   # cutoff + 1 %, not empty again above cutoff + 4 %: a Venus E 3.0 stops itself just
@@ -2374,6 +2384,10 @@ template:
           - input_select.hba_power_group_a_policy
           - input_select.hba_power_group_b_policy
           - input_select.hba_power_group_c_policy
+          # "Follow battery order" moves with the order
+          - sensor.hba_battery_order
+          - input_number.hba_control_prioritize_battery
+          - input_select.hba_control_priority_change_interval
     actions:
       - variables:
           plan: >-
@@ -2422,6 +2436,26 @@ template:
                     'soc': soc, 'live': live, 'full': full, 'empty': empty,
                     'lkc': lkc | int, 'lkd': lkd | int}] -%}
             {%- endfor -%}
+            {#- The order hba_set_batteries fills batteries in, per direction (for
+                "Follow battery order"): Auto balance (SoC) order first, then cyclic from
+                the priority battery. -#}
+            {%- set pr = states('input_number.hba_control_prioritize_battery') | int(1) -%}
+            {%- set pr = pr if 1 <= pr <= count else 1 -%}
+            {%- set ordr = namespace(d={}) -%}
+            {%- for dd in ['charge', 'discharge'] -%}
+              {%- set o = namespace(l=[]) -%}
+              {%- if is_state('input_select.hba_control_priority_change_interval', 'Auto balance (SoC)') -%}
+                {%- set so = state_attr('sensor.hba_battery_order', dd ~ '_order') -%}
+                {%- for b in (so if so is sequence and so is not string else []) | map('int') if 1 <= b <= count and b not in o.l -%}
+                  {%- set o.l = o.l + [b] -%}
+                {%- endfor -%}
+              {%- endif -%}
+              {%- for k in range(count) -%}
+                {%- set b = ((pr - 1 + k) % count) + 1 -%}
+                {%- if b not in o.l -%}{%- set o.l = o.l + [b] -%}{%- endif -%}
+              {%- endfor -%}
+              {%- set ordr.d = ordr.d | combine({dd: o.l}) -%}
+            {%- endfor -%}
             {#- 2. Per group and direction: the intended limits -#}
             {%- set gs = namespace(c={}, d={}, lead={}, groups={}, problems=[]) -%}
             {%- for G in ['A', 'B', 'C'] -%}
@@ -2461,12 +2495,18 @@ template:
                     {%- set w.R = [w.R - 100 * (active | length), 0] | max -%}
                     {%- set w.elig = active | rejectattr(latch) | list -%}
                     {%- set rest = active | selectattr(latch) | list -%}
-                    {%- if policy == 'One at a time' and w.elig -%}
+                    {%- if policy in ['One at a time', 'Follow battery order'] and w.elig -%}
                       {%- set key = G ~ '_' ~ d -%}
-                      {%- set cand = w.elig | selectattr('i', 'eq', p.lead[key] if key in p.lead else 0) | list -%}
-                      {%- if not cand -%}
-                        {#- charging: fullest first (fills soonest); discharging: emptiest first -#}
-                        {%- set cand = w.elig | sort(attribute='soc', reverse=(d == 'charge')) | list -%}
+                      {%- if policy == 'Follow battery order' -%}
+                        {%- set ids = w.elig | map(attribute='i') | list -%}
+                        {%- set first = ordr.d[d] | select('in', ids) | list -%}
+                        {%- set cand = w.elig | selectattr('i', 'eq', first[0] if first else 0) | list or w.elig -%}
+                      {%- else -%}
+                        {%- set cand = w.elig | selectattr('i', 'eq', p.lead[key] if key in p.lead else 0) | list -%}
+                        {%- if not cand -%}
+                          {#- charging: fullest first (fills soonest); discharging: emptiest first -#}
+                          {%- set cand = w.elig | sort(attribute='soc', reverse=(d == 'charge')) | list -%}
+                        {%- endif -%}
                       {%- endif -%}
                       {%- set L = cand[0] -%}
                       {%- set gs.lead = gs.lead | combine({key: L.i}) -%}

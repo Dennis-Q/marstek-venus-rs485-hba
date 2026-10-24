@@ -1660,7 +1660,9 @@ script:
             - input_select.hba_power_group_a_policy
             - input_select.hba_power_group_b_policy
             - input_select.hba_power_group_c_policy
-        data: { option: "Equal" }
+        # One battery up to its max before a second starts (each running battery costs
+        # a fixed ~20-25 W), moving with HBA's own battery order.
+        data: { option: "Follow battery order" }
       # ── Solar forecast entity IDs (Solcast integration) ───────────────────────
       # The two Charge-goal entities read a plain kWh state, so "today" defaults to
       # …_forecast_remaining_today: a whole-day figure keeps counting solar that has

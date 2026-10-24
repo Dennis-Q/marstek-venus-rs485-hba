@@ -4286,9 +4286,11 @@ views:
               Choose a group per battery above. HBA then writes their **max charge** and
               **max discharge** registers so that, per direction, the group never adds up to
               more than its max power. The limits sit in the batteries, so they also hold
-              when HA is down or a battery runs on its own. **Equal** splits the max power
-              evenly (never above a battery's own max); **One at a time** gives one battery as
-              much as it can until it is full or empty. A full battery hands its *charge*
+              when HA is down or a battery runs on its own. **Follow battery order**
+              (default) gives the battery HBA uses first as much as it can, so one battery runs
+              up to its max before a second starts (each running battery costs ~20–25 W);
+              **Equal** splits the max power evenly (never above a battery's own max); **One at
+              a time** keeps one battery first until it is full or empty. A full battery hands its *charge*
               share to the others, an empty one its *discharge* share. HBA lowers a battery
               first and raises the other only once the battery reports the lower value.
 

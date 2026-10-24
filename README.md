@@ -359,7 +359,8 @@ Batteries whose combined power must stay within one limit — a shared breaker, 
 or plug-in batteries that together keep to the 800 W guideline — go in group A, B or C
 (Advanced settings, per battery). HBA then writes their max charge / max discharge registers so
 a group never adds up to more than its max power; each battery keeps its own limits on top.
-*Equal* or *One at a time*; a full battery hands its charge share to the others, an empty one its
+*Follow battery order* (default: the battery HBA uses first gets as much as it can), *Equal* or
+*One at a time*; a full battery hands its charge share to the others, an empty one its
 discharge share. **Use at your own risk:** it is a software limit, not electrical protection —
 always have an electrician check your installation.
 

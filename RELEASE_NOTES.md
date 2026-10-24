@@ -142,9 +142,14 @@ open), so the version prefix stays at 4.10.1 for now.
   direction, a group never adds up to more than its max power. Because the limits sit *in*
   the batteries, the breaker stays protected when HA is down or a battery runs on its own
   (Marstek app, anti-feed) — HBA's own distribution keeps working inside those limits.
-  - *Equal* (default) splits the max power evenly, never above a battery's own max (what one
-    battery cannot take goes to the other). *One at a time* gives one battery as much as it
-    can and keeps that until it is full or empty.
+  - *Follow battery order* (default) gives the group's battery that HBA uses first right now
+    (Auto balance (SoC) order, else the priority rotation) as much as it can and the others
+    the rest, so one battery runs up to its max before a second one starts — each running
+    battery costs a fixed ~20–25 W (prod: discharge efficiency ~58–74 % below 200 W,
+    87–90 % at 200–500 W, 93–94 % from 500 W up to 2500 W). The ceilings move with that order
+    (frozen 30 min, a few register writes a day). *Equal* splits the max power evenly, never
+    above a battery's own max. *One at a time* keeps one battery first until it is full or
+    empty.
   - A full battery hands its **charge** share to the others, an empty one its **discharge**
     share — charging and discharging are split separately, so a full battery still
     discharges at its full share in the evening. *Full* = within 1 % of the charge cutoff
