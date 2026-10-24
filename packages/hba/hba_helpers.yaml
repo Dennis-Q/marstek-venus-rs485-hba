@@ -1687,7 +1687,7 @@ template:
           {% set car_ok    = car_e in ['', 'unknown', 'unavailable'] or is_state(car_e, 'on') %}
           {# At least one battery must be individually dischargeable — same
              eligibility as the hba_set_batteries discharge branch (per-battery
-             cutoff + 0.5 buffer, inverter not faulted). The average-SoC check
+             cutoff, inverter not faulted). The average-SoC check
              alone can stay true while every battery is at its own cutoff
              (unbalanced pack, or min_soc <= cutoffs): assist then keeps the EV
              in battery_assist mode charging from grid with 0 W coming from the
@@ -1699,7 +1699,7 @@ template:
             {% set b_soc = states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') | float(0) %}
             {% set b_cut = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) %}
             {% set inv   = states('sensor.marstek_m' ~ i ~ '_inverter_state') %}
-            {% if b_soc > b_cut + 0.5 and inv not in ['Fault', 'unknown', 'unavailable'] %}
+            {% if b_soc > b_cut and inv not in ['Fault', 'unknown', 'unavailable'] %}
               {% set ns.dischargeable = true %}
             {% endif %}
           {% endfor %}
@@ -2328,10 +2328,9 @@ template:
   #     empty (discharging); then the fullest (charging) / emptiest (discharging) next
   # Full/empty latch with hysteresis so a battery at its cutoff does not flip the split:
   # full at charge cutoff − 1 %, not full again below cutoff − 4 %; empty at discharge
-  # cutoff + 1 %, not empty again above cutoff + 4 %. Not "+ 0.5": the distribution
-  # stops a battery at cutoff + 0.5, and a Venus E 3.0 stops itself just below 13.0 %
-  # (whole-percent reserve check, see hba_apply_defaults) — with the E 3.0 cutoff of 13 %
-  # empty is ≤ 14 %, with an old 12 % cutoff ≤ 13 %, both reached before it stalls. Charge and
+  # cutoff + 1 %, not empty again above cutoff + 4 %: a Venus E 3.0 stops itself just
+  # below 13.0 % (whole-percent reserve check, see hba_apply_defaults), so with its 13 %
+  # cutoff empty is ≤ 14 %, with an old 12 % cutoff ≤ 13 %, both reached before it stalls. Charge and
   # discharge are split separately: a full battery still gets its share for discharging.
   #
   # Firmware facts this rests on (Venus E v3 = D code, static RE by sphings79):

@@ -253,6 +253,16 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Changed
 
+- **Batteries stop exactly at their SoC cutoff** — HBA allowed discharging only above
+  cutoff + 0.5 % and charging only below cutoff − 0.5 %. With a whole-percent SoC that meant
+  "stop at the cutoff", but batteries that report tenths (Venus E 3.0) stopped 0.5 % early:
+  with a 13 % cutoff at 13.5 % (prod), leaving ~25 Wh per battery unused per cycle, and a
+  100 % charge cutoff counted as full at 99.5 %. The offset was not a hysteresis (it did not
+  prevent restarting either) and its stated reason, a relay that chatters, does not exist on a
+  Venus E. All checks — distribution, PID anti-windup, Charge / Charge PV / Zero import end
+  conditions, Timed EV charge — now compare against the cutoff itself, as HBC does.
+  Whole-percent batteries behave as before.
+
 - **Charging follows the battery's own limit** — near full (and when cold) the BMS lowers its
   charge current, and the battery caps every charge setpoint at voltage × that limit, also
   HBA's forced charge. HBA asked for more, the difference was simply lost, and the next

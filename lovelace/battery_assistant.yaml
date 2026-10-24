@@ -2467,7 +2467,7 @@ views:
                 {% set b_soc = states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') | float(0) -%}
                 {% set b_cut = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) -%}
                 {% set inv   = states('sensor.marstek_m' ~ i ~ '_inverter_state') -%}
-                {% if b_soc > b_cut + 0.5 and inv not in ['Fault', 'unknown', 'unavailable'] -%}
+                {% if b_soc > b_cut and inv not in ['Fault', 'unknown', 'unavailable'] -%}
                   {% set ns.dischargeable = true -%}
                 {% endif -%}
               {% endfor -%}
