@@ -2495,12 +2495,16 @@ template:
                     {%- set w.R = [w.R - 100 * (active | length), 0] | max -%}
                     {%- set w.elig = active | rejectattr(latch) | list -%}
                     {%- set rest = active | selectattr(latch) | list -%}
-                    {%- if policy in ['One at a time', 'Follow battery order'] and w.elig -%}
+                    {#- Follow battery order also when no battery can go this way (all full /
+                        all empty): the first in the order keeps the high ceiling, so nothing
+                        flips back and forth when they become eligible again. -#}
+                    {%- set follow_pool = w.elig if w.elig else rest -%}
+                    {%- if (policy == 'One at a time' and w.elig) or (policy == 'Follow battery order' and follow_pool) -%}
                       {%- set key = G ~ '_' ~ d -%}
                       {%- if policy == 'Follow battery order' -%}
-                        {%- set ids = w.elig | map(attribute='i') | list -%}
+                        {%- set ids = follow_pool | map(attribute='i') | list -%}
                         {%- set first = ordr.d[d] | select('in', ids) | list -%}
-                        {%- set cand = w.elig | selectattr('i', 'eq', first[0] if first else 0) | list or w.elig -%}
+                        {%- set cand = follow_pool | selectattr('i', 'eq', first[0] if first else 0) | list or follow_pool -%}
                       {%- else -%}
                         {%- set cand = w.elig | selectattr('i', 'eq', p.lead[key] if key in p.lead else 0) | list -%}
                         {%- if not cand -%}
@@ -2514,6 +2518,7 @@ template:
                       {%- set w.add = w.add | combine({L.i | string: give}) -%}
                       {%- set w.R = w.R - give -%}
                       {%- set w.elig = w.elig | rejectattr('i', 'eq', L.i) | list -%}
+                      {%- set rest = rest | rejectattr('i', 'eq', L.i) | list -%}
                     {%- endif -%}
                     {#- Water-fill: equal shares, capped per battery, smallest cap first -#}
                     {%- for pool in [w.elig, rest] -%}
