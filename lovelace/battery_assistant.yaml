@@ -2195,48 +2195,59 @@ views:
                   00:00-11:00 as "Today" and 12:00-23:00 as "Tomorrow" -- so genuinely cheap
                   midday hours appeared as cheap night hours. Bucketing by timestamp is correct
                   for a repeated, partial, missing or shifted day alike. -#}
-              {%- set day0 = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0)) | int -%}
-              {%- set day1 = day0 + 86400 -%}
-              {%- set day2 = day1 + 86400 -%}
-              {%- set ns = namespace(t={}, m={}, nowidx=-1) -%}
-              {%- for e in marks -%}
+              {#- Day boundaries and row labels from LOCAL time, never "midnight + 86400" or
+                  "(ts - midnight) / 3600": a DST day lasts 25 (October) or 23 (March) hours,
+                  and counting hours from midnight put every slot after the repeated 02:00 one
+                  row too late (2026-10-25: the cheapest 02:00 CET showed as 03:00). The second
+                  02:00 gets its own row "02:00²"; a skipped 02:00 shows "-". -#}
+              {%- set m0 = now().replace(hour=0, minute=0, second=0, microsecond=0) -%}
+              {%- set day0 = as_timestamp(m0) | int -%}
+              {%- set day1 = as_timestamp(m0 + timedelta(days=1)) | int -%}
+              {%- set day2 = as_timestamp(m0 + timedelta(days=2)) | int -%}
+              {%- set ns = namespace(t={}, m={}, nowkey='', extra=[]) -%}
+              {%- for e in marks | sort(attribute='start') -%}
                 {%- set ts = as_timestamp(e.start, 0) | int -%}
+                {%- set key = ts | timestamp_custom('%H:%M') -%}
                 {%- if ts >= day0 and ts < day1 -%}
-                  {%- set idx = ((ts - day0) / step_sec) | int -%}
-                  {%- set ns.t = ns.t | combine({ idx | string: e }) -%}
-                  {%- if e.is_now -%}{%- set ns.nowidx = idx -%}{%- endif -%}
+                  {%- if key in ns.t -%}{%- set key = key ~ '²' -%}{%- set ns.extra = ns.extra + [key] -%}{%- endif -%}
+                  {%- set ns.t = ns.t | combine({ key: e }) -%}
+                  {%- if e.is_now -%}{%- set ns.nowkey = key -%}{%- endif -%}
                 {%- elif ts >= day1 and ts < day2 -%}
-                  {%- set idx = ((ts - day1) / step_sec) | int -%}
-                  {%- set ns.m = ns.m | combine({ idx | string: e }) -%}
+                  {%- if key in ns.m -%}{%- set key = key ~ '²' -%}{%- set ns.extra = ns.extra + [key] -%}{%- endif -%}
+                  {%- set ns.m = ns.m | combine({ key: e }) -%}
                 {%- endif -%}
+              {%- endfor -%}
+              {%- set rows = namespace(l=[]) -%}
+              {%- for r in range(ppd) -%}
+                {%- set base = "%02d"|format((r // pph) | int) ~ ':' ~ "%02d"|format(((r % pph) * step) | int) -%}
+                {%- set rows.l = rows.l + [base] -%}
+                {%- if (base ~ '²') in ns.extra -%}{%- set rows.l = rows.l + [base ~ '²'] -%}{%- endif -%}
               {%- endfor -%}
               {%- set t_vals = ns.t.values() | map(attribute='price') | list -%}
               {%- set m_vals = ns.m.values() | map(attribute='price') | list -%}
               {%- set t_pmin = (t_vals | min) if t_vals else 0 -%} {%- set t_pmax = (t_vals | max) if t_vals else 0 -%} {%- set t_rng = t_pmax - t_pmin -%}
               {%- set m_pmin = (m_vals | min) if m_vals else 0 -%} {%- set m_pmax = (m_vals | max) if m_vals else 0 -%} {%- set m_rng = m_pmax - m_pmin -%}
               {%- if t_vals -%}
-                {%- for i in range(ppd) -%}
-                  {%- set te = ns.t.get(i | string) -%}
-                  {%- set me = ns.m.get(i | string) -%}
+                {%- for key in rows.l -%}
+                  {%- set te = ns.t.get(key) -%}
+                  {%- set me = ns.m.get(key) -%}
                   {%- set t_price   = te.price if te else none -%}
                   {%- set tom_price = me.price if me else none -%}
-                  {%- set hour      = (i // pph) | int -%}
-                  {%- set minute    = (i % pph) * step -%}
                   {%- set t_mark    = te.mark if te else none -%}
                   {%- set tom_mark  = me.mark if me else none -%}
                   {%- set t_bar     = (bars[((t_price - t_pmin) / t_rng * 7) | round(0) | int] if (t_price is not none and t_rng > 0) else (bars[0] if t_price is not none else '-')) -%}
                   {%- set tom_bar   = (bars[((tom_price - m_pmin) / m_rng * 7) | round(0) | int] if (tom_price is not none and m_rng > 0) else (bars[0] if tom_price is not none else '-')) -%}
                   {%- set t_emoji   = '🟠' if t_mark == 'high' else ('🟢' if t_mark == 'low' else ('—' if t_price is not none else '-')) -%}
                   {%- set tom_emoji = '🟠' if tom_mark == 'high' else ('🟢' if tom_mark == 'low' else ('—' if tom_price is not none else '-')) -%}
-                  | {% if i == ns.nowidx %}<font color="#009ac7">{{ "%02d"|format(hour) }}:{{ "%02d"|format(minute) }}</font>{% else %}{{ "%02d"|format(hour) }}:{{ "%02d"|format(minute) }}{% endif %} | {% if t_price is none %}-{% elif i == ns.nowidx %}<font color="#009ac7">{{ "%0.1f"|format(t_price) }}</font>{% elif t_mark == 'high' %}<font color="orange">{{ "%0.1f"|format(t_price) }}</font>{% elif t_mark == 'low' %}<font color="#4caf50">{{ "%0.1f"|format(t_price) }}</font>{% else %}{{ "%0.1f"|format(t_price) }}{% endif %} | {{ t_emoji }} | {% if i == ns.nowidx %}<font color="#009ac7">{{ t_bar }}</font>{% elif t_mark == 'high' %}<font color="orange">{{ t_bar }}</font>{% elif t_mark == 'low' %}<font color="#4caf50">{{ t_bar }}</font>{% else %}{{ t_bar }}{% endif %} | | {% if tom_price is not none %}{% if tom_mark == 'high' %}<font color="orange">{{ "%0.1f"|format(tom_price) }}</font>{% elif tom_mark == 'low' %}<font color="#4caf50">{{ "%0.1f"|format(tom_price) }}</font>{% else %}{{ "%0.1f"|format(tom_price) }}{% endif %}{% else %}-{% endif %} | {{ tom_emoji }} | {% if tom_mark == 'high' %}<font color="orange">{{ tom_bar }}</font>{% elif tom_mark == 'low' %}<font color="#4caf50">{{ tom_bar }}</font>{% else %}{{ tom_bar }}{% endif %} |
+                  | {% if key == ns.nowkey %}<font color="#009ac7">{{ key }}</font>{% else %}{{ key }}{% endif %} | {% if t_price is none %}-{% elif key == ns.nowkey %}<font color="#009ac7">{{ "%0.1f"|format(t_price) }}</font>{% elif t_mark == 'high' %}<font color="orange">{{ "%0.1f"|format(t_price) }}</font>{% elif t_mark == 'low' %}<font color="#4caf50">{{ "%0.1f"|format(t_price) }}</font>{% else %}{{ "%0.1f"|format(t_price) }}{% endif %} | {{ t_emoji }} | {% if key == ns.nowkey %}<font color="#009ac7">{{ t_bar }}</font>{% elif t_mark == 'high' %}<font color="orange">{{ t_bar }}</font>{% elif t_mark == 'low' %}<font color="#4caf50">{{ t_bar }}</font>{% else %}{{ t_bar }}{% endif %} | | {% if tom_price is not none %}{% if tom_mark == 'high' %}<font color="orange">{{ "%0.1f"|format(tom_price) }}</font>{% elif tom_mark == 'low' %}<font color="#4caf50">{{ "%0.1f"|format(tom_price) }}</font>{% else %}{{ "%0.1f"|format(tom_price) }}{% endif %}{% else %}-{% endif %} | {{ tom_emoji }} | {% if tom_mark == 'high' %}<font color="orange">{{ tom_bar }}</font>{% elif tom_mark == 'low' %}<font color="#4caf50">{{ tom_bar }}</font>{% else %}{{ tom_bar }}{% endif %} |
                 {% endfor %}
               {%- else -%}
                 | - | *Insufficient data available...* | - | - | | - | - | - |
               {% endif %}
 
-              **Today** {{ t_vals | length }}/{{ ppd }} slots · Range: {{ "%0.1f"|format(t_pmin) }} – {{ "%0.1f"|format(t_pmax) }} ¢ Spread: {{ "%0.1f"|format(t_rng) }} ¢
+              **Today** {{ t_vals | length }}/{{ ((day1 - day0) / step_sec) | int }} slots · Range: {{ "%0.1f"|format(t_pmin) }} – {{ "%0.1f"|format(t_pmax) }} ¢ Spread: {{ "%0.1f"|format(t_rng) }} ¢
               {%- if m_vals %}
-              **Tomorrow** {{ m_vals | length }}/{{ ppd }} slots · Range: {{ "%0.1f"|format(m_pmin) }} – {{ "%0.1f"|format(m_pmax) }} ¢ Spread: {{ "%0.1f"|format(m_rng) }} ¢
+              **Tomorrow** {{ m_vals | length }}/{{ ((day2 - day1) / step_sec) | int }} slots · Range: {{ "%0.1f"|format(m_pmin) }} – {{ "%0.1f"|format(m_pmax) }} ¢ Spread: {{ "%0.1f"|format(m_rng) }} ¢
               {%- else %}
               **Tomorrow** _not published yet_
               {%- endif %}
@@ -2841,8 +2852,9 @@ views:
               {%- macro v2_ranges(kind) -%}
                 {%- set marks_raw = state_attr('sensor.hba_energy_prices_data', 'marks') -%}
                 {%- set marks = (marks_raw | from_json) if marks_raw is string and (marks_raw | trim)[:1] == '[' else (marks_raw if marks_raw is sequence else []) -%}
-                {%- set day_start = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0)) | int -%}
-                {%- set day_end = day_start + 86400 -%}
+                {%- set m0 = now().replace(hour=0, minute=0, second=0, microsecond=0) -%}
+                {%- set day_start = as_timestamp(m0) | int -%}
+                {%- set day_end = as_timestamp(m0 + timedelta(days=1)) | int -%}
                 {%- set ns = namespace(out=[], cs=-1, ce=-1) -%}
                 {%- for m in marks -%}
                   {%- if m.mark | default('') == kind -%}

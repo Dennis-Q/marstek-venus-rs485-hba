@@ -68,7 +68,7 @@ template:
           {%- elif marks | length == 0 -%}No price data
           {%- else -%}
             {%- set now_ts = as_timestamp(now()) | int -%}
-            {%- set today_end_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0)) | int + 86400 -%}
+            {%- set today_end_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)) | int -%}
             {%- set house_kw = states('input_number.hba_strategy_solar_aware_house_load') | float(300) / 1000 -%}
             {%- set ns_slots = namespace(slots=[]) -%}
             {%- for m in marks -%}
@@ -102,7 +102,7 @@ template:
             {%- if not (detailed is sequence) or marks | length == 0 -%}0
             {%- else -%}
               {%- set now_ts = as_timestamp(now()) | int -%}
-              {%- set today_end_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0)) | int + 86400 -%}
+              {%- set today_end_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)) | int -%}
               {%- set house_kw = states('input_number.hba_strategy_solar_aware_house_load') | float(300) / 1000 -%}
               {%- set ns_slots = namespace(slots=[]) -%}
               {%- for m in marks -%}
@@ -131,7 +131,7 @@ template:
             {%- if not (detailed is sequence) or marks | length == 0 -%}false
             {%- else -%}
               {%- set now_ts = as_timestamp(now()) | int -%}
-              {%- set today_end_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0)) | int + 86400 -%}
+              {%- set today_end_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)) | int -%}
               {%- set house_kw = states('input_number.hba_strategy_solar_aware_house_load') | float(300) / 1000 -%}
               {%- set ns_slots = namespace(slots=[]) -%}
               {%- for m in marks -%}
@@ -154,7 +154,7 @@ template:
             {%- set marks_raw = state_attr('sensor.hba_energy_prices_data', 'marks') -%}
             {%- set marks = (marks_raw | from_json) if marks_raw is string and (marks_raw | trim)[:1] == '[' else (marks_raw if marks_raw is sequence else []) -%}
             {%- set now_ts = as_timestamp(now()) | int -%}
-            {%- set today_end_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0)) | int + 86400 -%}
+            {%- set today_end_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)) | int -%}
             {%- set ns = namespace(count=0) -%}
             {%- for m in marks -%}
               {%- if m.mark | default('') == 'low' and as_timestamp(m.end) | int > now_ts and as_timestamp(m.start) | int < today_end_ts -%}
@@ -166,7 +166,7 @@ template:
             {%- set marks_raw = state_attr('sensor.hba_energy_prices_data', 'marks') -%}
             {%- set marks = (marks_raw | from_json) if marks_raw is string and (marks_raw | trim)[:1] == '[' else (marks_raw if marks_raw is sequence else []) -%}
             {%- set now_ts = as_timestamp(now()) | int -%}
-            {%- set today_end_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0)) | int + 86400 -%}
+            {%- set today_end_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)) | int -%}
             {%- set ns = namespace(last=0) -%}
             {%- for m in marks -%}
               {%- if m.mark | default('') == 'low' and as_timestamp(m.end) | int > now_ts and as_timestamp(m.start) | int < today_end_ts -%}
@@ -184,7 +184,7 @@ template:
             {%- if not (detailed is sequence) or marks | length == 0 -%}none
             {%- else -%}
               {%- set now_ts = as_timestamp(now()) | int -%}
-              {%- set today_end_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0)) | int + 86400 -%}
+              {%- set today_end_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)) | int -%}
               {%- set house_kw = states('input_number.hba_strategy_solar_aware_house_load') | float(300) / 1000 -%}
               {%- set ns_slots = namespace(slots=[], last_ts=0) -%}
               {%- for m in marks -%}

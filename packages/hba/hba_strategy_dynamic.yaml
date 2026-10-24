@@ -129,9 +129,11 @@ template:
               {%- set max_exp = ((max_exp_hrs * pph) | round | int) if max_exp_hrs > 0 else 9999 -%}
               {%- set delta_thr = states('input_number.hba_strategy_dynamic_threshold_delta') | float(0) -%}
               {%- set now_slot_ts = (as_timestamp(now()) | int // step_sec) * step_sec -%}
-              {%- set today_start_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0)) | int -%}
-              {%- set tomorrow_start_ts = today_start_ts + 86400 -%}
-              {%- set day_after_ts = tomorrow_start_ts + 86400 -%}
+              {#- Local midnights via timedelta, not + 86400: a DST day has 23 / 25 hours. -#}
+              {%- set m0 = now().replace(hour=0, minute=0, second=0, microsecond=0) -%}
+              {%- set today_start_ts = as_timestamp(m0) | int -%}
+              {%- set tomorrow_start_ts = as_timestamp(m0 + timedelta(days=1)) | int -%}
+              {%- set day_after_ts = as_timestamp(m0 + timedelta(days=2)) | int -%}
               {%- set ns_slots = namespace(today=[], tomorrow=[]) -%}
               {%- for s in slots -%}
                 {%- if today_start_ts <= s.ts < tomorrow_start_ts -%}
@@ -206,8 +208,9 @@ template:
             {%- set interval_sec = (slots[1].ts - slots[0].ts) if slots | length >= 2 else 3600 -%}
             {%- set pph = ((3600 // interval_sec) | int) if interval_sec > 0 else 1 -%}
             {%- set step_sec = 3600 // pph -%}
-            {%- set today_start_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0)) | int -%}
-            {%- set day_after_ts = today_start_ts + 86400 * 2 -%}
+            {%- set m0 = now().replace(hour=0, minute=0, second=0, microsecond=0) -%}
+            {%- set today_start_ts = as_timestamp(m0) | int -%}
+            {%- set day_after_ts = as_timestamp(m0 + timedelta(days=2)) | int -%}
             {{ (slots | selectattr('ts', 'ge', today_start_ts) | selectattr('ts', 'lt', day_after_ts)
                      | map(attribute='pc') | list) | tojson }}
           marks: >-
@@ -242,9 +245,11 @@ template:
               {%- set max_exp = ((max_exp_hrs * pph) | round | int) if max_exp_hrs > 0 else 9999 -%}
               {%- set delta_thr = states('input_number.hba_strategy_dynamic_threshold_delta') | float(0) -%}
               {%- set now_slot_ts = (as_timestamp(now()) | int // step_sec) * step_sec -%}
-              {%- set today_start_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0)) | int -%}
-              {%- set tomorrow_start_ts = today_start_ts + 86400 -%}
-              {%- set day_after_ts = tomorrow_start_ts + 86400 -%}
+              {#- Local midnights via timedelta, not + 86400: a DST day has 23 / 25 hours. -#}
+              {%- set m0 = now().replace(hour=0, minute=0, second=0, microsecond=0) -%}
+              {%- set today_start_ts = as_timestamp(m0) | int -%}
+              {%- set tomorrow_start_ts = as_timestamp(m0 + timedelta(days=1)) | int -%}
+              {%- set day_after_ts = as_timestamp(m0 + timedelta(days=2)) | int -%}
               {%- set ns_slots = namespace(today=[], tomorrow=[]) -%}
               {%- for s in slots -%}
                 {%- if today_start_ts <= s.ts < tomorrow_start_ts -%}

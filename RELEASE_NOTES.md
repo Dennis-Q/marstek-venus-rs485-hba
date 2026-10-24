@@ -19,6 +19,15 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Fixed
 
+- **Prices one hour off on the DST change** — day boundaries were "midnight + 86400 s" and the
+  price table counted rows as hours since midnight. A DST day lasts 25 (October) or 23 (March)
+  hours, so on 2026-10-25 every slot after the repeated 02:00 showed one row too late (the
+  cheapest 02:00 CET appeared at 03:00), Dynamic did not mark tomorrow's last hour (it fell
+  outside "tomorrow"), and Solar-aware's end of today was an hour off. Day boundaries now come
+  from local midnights (`timedelta(days=1)`), the price table labels rows by local time (the
+  second 02:00 gets a row "02:00²", a skipped one shows "-") and the slot counters use the real
+  day length (24/25 when the source delivers only 24 hourly prices for a 25-hour day).
+
 - **A restarted battery was skipped by HBA until its limits were set again** — after a
   restart a Marstek reports max charge / max discharge power (44002/44003) as 0 until they
   are written, while the battery itself keeps limiting at its stored value (firmware: the
