@@ -2962,8 +2962,14 @@ views:
               mode.</i></font>
             text_only: true
 
+      # Links to settings that live in other views — one section instead of three
+      # heading-only stubs that left loose boxes in the grid.
       - type: grid
         cards:
+          - type: heading
+            icon: mdi:link-variant
+            heading: More settings
+            heading_style: title
           - type: heading
             icon: mdi:bell-outline
             heading: Notifications
@@ -2971,9 +2977,6 @@ views:
             tap_action:
               action: navigate
               navigation_path: /home-battery-assistant/notifications
-
-      - type: grid
-        cards:
           - type: heading
             icon: mdi:power-plug-off
             heading: EV Stop Trigger
@@ -2981,9 +2984,6 @@ views:
             tap_action:
               action: navigate
               navigation_path: /home-battery-assistant/ev-charge
-
-      - type: grid
-        cards:
           - type: heading
             icon: mdi:car-electric
             heading: Timed EV Charge
@@ -3209,14 +3209,27 @@ views:
               columns: full
             text_only: true
 
-      # Per-battery settings M1
+      # Per-battery settings M1 (all six blocks are generated identically)
       - type: grid
         cards:
           - type: heading
             icon: mdi:power-plug-battery
             heading: Marstek M1
             heading_style: title
+          - type: tile
+            entity: input_select.hba_marstek_m1_power_group
+            name: Power group
+            icon: mdi:fuse
+            vertical: false
+            hide_state: true
+            features:
+              - type: select-options
+            features_position: inline
+            grid_options:
+              columns: full
           - type: vertical-stack
+            grid_options:
+              columns: full
             cards:
               - type: markdown
                 content: '**<font color="#9b9b9b">Discharging</font>**'
@@ -3230,50 +3243,46 @@ views:
                   - type: numeric-input
                     style: buttons
                 features_position: inline
-              # Own group only: in a power group HBA manages this register.
+              # Own: the battery's register. In a power group: the battery's own limit
+              # (HBA writes the register from it and the group's max power).
               - type: conditional
                 conditions:
                   - condition: state
                     entity: input_select.hba_marstek_m1_power_group
                     state: Own
                 card:
-                    type: tile
-                    entity: number.marstek_m1_max_discharge_power
-                    name: Max Power
-                    hide_state: true
-                    vertical: false
-                    features:
-                      - type: numeric-input
-                        style: buttons
-                    features_position: inline
-              # In a power group: the battery's own limit; HBA writes the register (group limit on top).
+                  type: tile
+                  entity: number.marstek_m1_max_discharge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
               - type: conditional
                 conditions:
                   - condition: state
                     entity: input_select.hba_marstek_m1_power_group
                     state_not: Own
                 card:
-                    type: tile
-                    entity: input_number.hba_marstek_m1_max_discharge_power
-                    name: Max Power
-                    hide_state: true
-                    vertical: false
-                    features:
-                      - type: numeric-input
-                        style: buttons
-                    features_position: inline
-            grid_options:
-              columns: 12
-              rows: auto
+                  type: tile
+                  entity: input_number.hba_marstek_m1_max_discharge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
           - type: vertical-stack
+            grid_options:
+              columns: full
             cards:
               - type: markdown
                 content: '**<font color="#9b9b9b">Charging</font>**'
                 text_only: true
               - type: tile
-                grid_options:
-                  columns: 12
-                  rows: 2
                 entity: input_number.hba_marstek_m1_charging_cutoff_capacity
                 name: Cutoff capacity
                 hide_state: true
@@ -3282,65 +3291,42 @@ views:
                   - type: numeric-input
                     style: buttons
                 features_position: inline
-              # Own group only: in a power group HBA manages this register.
+              # Own: the battery's register. In a power group: the battery's own limit
+              # (HBA writes the register from it and the group's max power).
               - type: conditional
                 conditions:
                   - condition: state
                     entity: input_select.hba_marstek_m1_power_group
                     state: Own
                 card:
-                    type: tile
-                    grid_options:
-                      columns: 12
-                      rows: 2
-                    entity: number.marstek_m1_max_charge_power
-                    name: 'Max. Power '
-                    hide_state: true
-                    vertical: false
-                    features:
-                      - type: numeric-input
-                        style: buttons
-                    features_position: inline
-              # In a power group: the battery's own limit; HBA writes the register (group limit on top).
+                  type: tile
+                  entity: number.marstek_m1_max_charge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
               - type: conditional
                 conditions:
                   - condition: state
                     entity: input_select.hba_marstek_m1_power_group
                     state_not: Own
                 card:
-                    type: tile
-                    grid_options:
-                      columns: 12
-                      rows: 2
-                    entity: input_number.hba_marstek_m1_max_charge_power
-                    name: 'Max. Power '
-                    hide_state: true
-                    vertical: false
-                    features:
-                      - type: numeric-input
-                        style: buttons
-                    features_position: inline
-          - type: heading
-            icon: mdi:information-slab-circle
-            heading: Cutoff capacities
-            heading_style: subtitle
-            tap_action:
-              action: url
-              url_path: >-
-                https://docs.homebatterycontrol.com/06-advanced-features.html#chargingdischarging-limits
-              confirmation:
-                text: >-
-                  Opens HBC documentation or video. HBA is closely based on HBC,
-                  so most content also applies.
-          # Power group (shared breaker). Own = the Max Power tiles above are the battery's
-          # registers; in a group they are this battery's own limits and HBA writes the
-          # registers from them and the group's max power.
-          - type: entities
-            entities:
-              - entity: input_select.hba_marstek_m1_power_group
-                name: Power group
+                  type: tile
+                  entity: input_number.hba_marstek_m1_max_charge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
           - type: markdown
             text_only: true
+            grid_options:
+              columns: full
             content: >-
               {%- set c = state_attr('sensor.hba_power_limits', 'charge') or {} -%}
               {%- set d = state_attr('sensor.hba_power_limits', 'discharge') or {} -%}
@@ -3354,15 +3340,40 @@ views:
               - condition: state
                 entity: input_select.hba_marstek_m1_power_group
                 state_not: Own
+          - type: heading
+            icon: mdi:information-slab-circle
+            heading: Cutoff capacities
+            heading_style: subtitle
+            tap_action:
+              action: url
+              url_path: >-
+                https://docs.homebatterycontrol.com/06-advanced-features.html#chargingdischarging-limits
+              confirmation:
+                text: >-
+                  Opens HBC documentation or video. HBA is closely based on HBC,
+                  so most content also applies.
 
-      # Per-battery settings M2
+      # Per-battery settings M2 (all six blocks are generated identically)
       - type: grid
         cards:
           - type: heading
             icon: mdi:power-plug-battery
             heading: Marstek M2
             heading_style: title
+          - type: tile
+            entity: input_select.hba_marstek_m2_power_group
+            name: Power group
+            icon: mdi:fuse
+            vertical: false
+            hide_state: true
+            features:
+              - type: select-options
+            features_position: inline
+            grid_options:
+              columns: full
           - type: vertical-stack
+            grid_options:
+              columns: full
             cards:
               - type: markdown
                 content: '**<font color="#9b9b9b">Discharging</font>**'
@@ -3376,50 +3387,46 @@ views:
                   - type: numeric-input
                     style: buttons
                 features_position: inline
-              # Own group only: in a power group HBA manages this register.
+              # Own: the battery's register. In a power group: the battery's own limit
+              # (HBA writes the register from it and the group's max power).
               - type: conditional
                 conditions:
                   - condition: state
                     entity: input_select.hba_marstek_m2_power_group
                     state: Own
                 card:
-                    type: tile
-                    entity: number.marstek_m2_max_discharge_power
-                    name: Max Power
-                    hide_state: true
-                    vertical: false
-                    features:
-                      - type: numeric-input
-                        style: buttons
-                    features_position: inline
-              # In a power group: the battery's own limit; HBA writes the register (group limit on top).
+                  type: tile
+                  entity: number.marstek_m2_max_discharge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
               - type: conditional
                 conditions:
                   - condition: state
                     entity: input_select.hba_marstek_m2_power_group
                     state_not: Own
                 card:
-                    type: tile
-                    entity: input_number.hba_marstek_m2_max_discharge_power
-                    name: Max Power
-                    hide_state: true
-                    vertical: false
-                    features:
-                      - type: numeric-input
-                        style: buttons
-                    features_position: inline
-            grid_options:
-              columns: 12
-              rows: auto
+                  type: tile
+                  entity: input_number.hba_marstek_m2_max_discharge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
           - type: vertical-stack
+            grid_options:
+              columns: full
             cards:
               - type: markdown
                 content: '**<font color="#9b9b9b">Charging</font>**'
                 text_only: true
               - type: tile
-                grid_options:
-                  columns: 12
-                  rows: 2
                 entity: input_number.hba_marstek_m2_charging_cutoff_capacity
                 name: Cutoff capacity
                 hide_state: true
@@ -3428,53 +3435,42 @@ views:
                   - type: numeric-input
                     style: buttons
                 features_position: inline
-              # Own group only: in a power group HBA manages this register.
+              # Own: the battery's register. In a power group: the battery's own limit
+              # (HBA writes the register from it and the group's max power).
               - type: conditional
                 conditions:
                   - condition: state
                     entity: input_select.hba_marstek_m2_power_group
                     state: Own
                 card:
-                    type: tile
-                    grid_options:
-                      columns: 12
-                      rows: 2
-                    entity: number.marstek_m2_max_charge_power
-                    name: 'Max. Power '
-                    hide_state: true
-                    vertical: false
-                    features:
-                      - type: numeric-input
-                        style: buttons
-                    features_position: inline
-              # In a power group: the battery's own limit; HBA writes the register (group limit on top).
+                  type: tile
+                  entity: number.marstek_m2_max_charge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
               - type: conditional
                 conditions:
                   - condition: state
                     entity: input_select.hba_marstek_m2_power_group
                     state_not: Own
                 card:
-                    type: tile
-                    grid_options:
-                      columns: 12
-                      rows: 2
-                    entity: input_number.hba_marstek_m2_max_charge_power
-                    name: 'Max. Power '
-                    hide_state: true
-                    vertical: false
-                    features:
-                      - type: numeric-input
-                        style: buttons
-                    features_position: inline
-          # Power group (shared breaker). Own = the Max Power tiles above are the battery's
-          # registers; in a group they are this battery's own limits and HBA writes the
-          # registers from them and the group's max power.
-          - type: entities
-            entities:
-              - entity: input_select.hba_marstek_m2_power_group
-                name: Power group
+                  type: tile
+                  entity: input_number.hba_marstek_m2_max_charge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
           - type: markdown
             text_only: true
+            grid_options:
+              columns: full
             content: >-
               {%- set c = state_attr('sensor.hba_power_limits', 'charge') or {} -%}
               {%- set d = state_attr('sensor.hba_power_limits', 'discharge') or {} -%}
@@ -3488,19 +3484,44 @@ views:
               - condition: state
                 entity: input_select.hba_marstek_m2_power_group
                 state_not: Own
+          - type: heading
+            icon: mdi:information-slab-circle
+            heading: Cutoff capacities
+            heading_style: subtitle
+            tap_action:
+              action: url
+              url_path: >-
+                https://docs.homebatterycontrol.com/06-advanced-features.html#chargingdischarging-limits
+              confirmation:
+                text: >-
+                  Opens HBC documentation or video. HBA is closely based on HBC,
+                  so most content also applies.
         visibility:
           - condition: numeric_state
             entity: input_number.hba_battery_count
             above: 1
 
-      # Per-battery settings M3
+      # Per-battery settings M3 (all six blocks are generated identically)
       - type: grid
         cards:
           - type: heading
             icon: mdi:power-plug-battery
             heading: Marstek M3
             heading_style: title
+          - type: tile
+            entity: input_select.hba_marstek_m3_power_group
+            name: Power group
+            icon: mdi:fuse
+            vertical: false
+            hide_state: true
+            features:
+              - type: select-options
+            features_position: inline
+            grid_options:
+              columns: full
           - type: vertical-stack
+            grid_options:
+              columns: full
             cards:
               - type: markdown
                 content: '**<font color="#9b9b9b">Discharging</font>**'
@@ -3514,50 +3535,46 @@ views:
                   - type: numeric-input
                     style: buttons
                 features_position: inline
-              # Own group only: in a power group HBA manages this register.
+              # Own: the battery's register. In a power group: the battery's own limit
+              # (HBA writes the register from it and the group's max power).
               - type: conditional
                 conditions:
                   - condition: state
                     entity: input_select.hba_marstek_m3_power_group
                     state: Own
                 card:
-                    type: tile
-                    entity: number.marstek_m3_max_discharge_power
-                    name: Max Power
-                    hide_state: true
-                    vertical: false
-                    features:
-                      - type: numeric-input
-                        style: buttons
-                    features_position: inline
-              # In a power group: the battery's own limit; HBA writes the register (group limit on top).
+                  type: tile
+                  entity: number.marstek_m3_max_discharge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
               - type: conditional
                 conditions:
                   - condition: state
                     entity: input_select.hba_marstek_m3_power_group
                     state_not: Own
                 card:
-                    type: tile
-                    entity: input_number.hba_marstek_m3_max_discharge_power
-                    name: Max Power
-                    hide_state: true
-                    vertical: false
-                    features:
-                      - type: numeric-input
-                        style: buttons
-                    features_position: inline
-            grid_options:
-              columns: 12
-              rows: auto
+                  type: tile
+                  entity: input_number.hba_marstek_m3_max_discharge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
           - type: vertical-stack
+            grid_options:
+              columns: full
             cards:
               - type: markdown
                 content: '**<font color="#9b9b9b">Charging</font>**'
                 text_only: true
               - type: tile
-                grid_options:
-                  columns: 12
-                  rows: 2
                 entity: input_number.hba_marstek_m3_charging_cutoff_capacity
                 name: Cutoff capacity
                 hide_state: true
@@ -3566,53 +3583,42 @@ views:
                   - type: numeric-input
                     style: buttons
                 features_position: inline
-              # Own group only: in a power group HBA manages this register.
+              # Own: the battery's register. In a power group: the battery's own limit
+              # (HBA writes the register from it and the group's max power).
               - type: conditional
                 conditions:
                   - condition: state
                     entity: input_select.hba_marstek_m3_power_group
                     state: Own
                 card:
-                    type: tile
-                    grid_options:
-                      columns: 12
-                      rows: 2
-                    entity: number.marstek_m3_max_charge_power
-                    name: 'Max. Power '
-                    hide_state: true
-                    vertical: false
-                    features:
-                      - type: numeric-input
-                        style: buttons
-                    features_position: inline
-              # In a power group: the battery's own limit; HBA writes the register (group limit on top).
+                  type: tile
+                  entity: number.marstek_m3_max_charge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
               - type: conditional
                 conditions:
                   - condition: state
                     entity: input_select.hba_marstek_m3_power_group
                     state_not: Own
                 card:
-                    type: tile
-                    grid_options:
-                      columns: 12
-                      rows: 2
-                    entity: input_number.hba_marstek_m3_max_charge_power
-                    name: 'Max. Power '
-                    hide_state: true
-                    vertical: false
-                    features:
-                      - type: numeric-input
-                        style: buttons
-                    features_position: inline
-          # Power group (shared breaker). Own = the Max Power tiles above are the battery's
-          # registers; in a group they are this battery's own limits and HBA writes the
-          # registers from them and the group's max power.
-          - type: entities
-            entities:
-              - entity: input_select.hba_marstek_m3_power_group
-                name: Power group
+                  type: tile
+                  entity: input_number.hba_marstek_m3_max_charge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
           - type: markdown
             text_only: true
+            grid_options:
+              columns: full
             content: >-
               {%- set c = state_attr('sensor.hba_power_limits', 'charge') or {} -%}
               {%- set d = state_attr('sensor.hba_power_limits', 'discharge') or {} -%}
@@ -3626,19 +3632,44 @@ views:
               - condition: state
                 entity: input_select.hba_marstek_m3_power_group
                 state_not: Own
+          - type: heading
+            icon: mdi:information-slab-circle
+            heading: Cutoff capacities
+            heading_style: subtitle
+            tap_action:
+              action: url
+              url_path: >-
+                https://docs.homebatterycontrol.com/06-advanced-features.html#chargingdischarging-limits
+              confirmation:
+                text: >-
+                  Opens HBC documentation or video. HBA is closely based on HBC,
+                  so most content also applies.
         visibility:
           - condition: numeric_state
             entity: input_number.hba_battery_count
             above: 2
 
-      # Per-battery settings M4
+      # Per-battery settings M4 (all six blocks are generated identically)
       - type: grid
         cards:
           - type: heading
             icon: mdi:power-plug-battery
             heading: Marstek M4
             heading_style: title
+          - type: tile
+            entity: input_select.hba_marstek_m4_power_group
+            name: Power group
+            icon: mdi:fuse
+            vertical: false
+            hide_state: true
+            features:
+              - type: select-options
+            features_position: inline
+            grid_options:
+              columns: full
           - type: vertical-stack
+            grid_options:
+              columns: full
             cards:
               - type: markdown
                 content: '**<font color="#9b9b9b">Discharging</font>**'
@@ -3652,50 +3683,46 @@ views:
                   - type: numeric-input
                     style: buttons
                 features_position: inline
-              # Own group only: in a power group HBA manages this register.
+              # Own: the battery's register. In a power group: the battery's own limit
+              # (HBA writes the register from it and the group's max power).
               - type: conditional
                 conditions:
                   - condition: state
                     entity: input_select.hba_marstek_m4_power_group
                     state: Own
                 card:
-                    type: tile
-                    entity: number.marstek_m4_max_discharge_power
-                    name: Max Power
-                    hide_state: true
-                    vertical: false
-                    features:
-                      - type: numeric-input
-                        style: buttons
-                    features_position: inline
-              # In a power group: the battery's own limit; HBA writes the register (group limit on top).
+                  type: tile
+                  entity: number.marstek_m4_max_discharge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
               - type: conditional
                 conditions:
                   - condition: state
                     entity: input_select.hba_marstek_m4_power_group
                     state_not: Own
                 card:
-                    type: tile
-                    entity: input_number.hba_marstek_m4_max_discharge_power
-                    name: Max Power
-                    hide_state: true
-                    vertical: false
-                    features:
-                      - type: numeric-input
-                        style: buttons
-                    features_position: inline
-            grid_options:
-              columns: 12
-              rows: auto
+                  type: tile
+                  entity: input_number.hba_marstek_m4_max_discharge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
           - type: vertical-stack
+            grid_options:
+              columns: full
             cards:
               - type: markdown
                 content: '**<font color="#9b9b9b">Charging</font>**'
                 text_only: true
               - type: tile
-                grid_options:
-                  columns: 12
-                  rows: 2
                 entity: input_number.hba_marstek_m4_charging_cutoff_capacity
                 name: Cutoff capacity
                 hide_state: true
@@ -3704,65 +3731,42 @@ views:
                   - type: numeric-input
                     style: buttons
                 features_position: inline
-              # Own group only: in a power group HBA manages this register.
+              # Own: the battery's register. In a power group: the battery's own limit
+              # (HBA writes the register from it and the group's max power).
               - type: conditional
                 conditions:
                   - condition: state
                     entity: input_select.hba_marstek_m4_power_group
                     state: Own
                 card:
-                    type: tile
-                    grid_options:
-                      columns: 12
-                      rows: 2
-                    entity: number.marstek_m4_max_charge_power
-                    name: 'Max. Power '
-                    hide_state: true
-                    vertical: false
-                    features:
-                      - type: numeric-input
-                        style: buttons
-                    features_position: inline
-              # In a power group: the battery's own limit; HBA writes the register (group limit on top).
+                  type: tile
+                  entity: number.marstek_m4_max_charge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
               - type: conditional
                 conditions:
                   - condition: state
                     entity: input_select.hba_marstek_m4_power_group
                     state_not: Own
                 card:
-                    type: tile
-                    grid_options:
-                      columns: 12
-                      rows: 2
-                    entity: input_number.hba_marstek_m4_max_charge_power
-                    name: 'Max. Power '
-                    hide_state: true
-                    vertical: false
-                    features:
-                      - type: numeric-input
-                        style: buttons
-                    features_position: inline
-          - type: heading
-            icon: mdi:information-slab-circle
-            heading: Cutoff capacities
-            heading_style: subtitle
-            tap_action:
-              action: url
-              url_path: >-
-                https://docs.homebatterycontrol.com/06-advanced-features.html#chargingdischarging-limits
-              confirmation:
-                text: >-
-                  Opens HBC documentation or video. HBA is closely based on HBC,
-                  so most content also applies.
-          # Power group (shared breaker). Own = the Max Power tiles above are the battery's
-          # registers; in a group they are this battery's own limits and HBA writes the
-          # registers from them and the group's max power.
-          - type: entities
-            entities:
-              - entity: input_select.hba_marstek_m4_power_group
-                name: Power group
+                  type: tile
+                  entity: input_number.hba_marstek_m4_max_charge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
           - type: markdown
             text_only: true
+            grid_options:
+              columns: full
             content: >-
               {%- set c = state_attr('sensor.hba_power_limits', 'charge') or {} -%}
               {%- set d = state_attr('sensor.hba_power_limits', 'discharge') or {} -%}
@@ -3776,19 +3780,44 @@ views:
               - condition: state
                 entity: input_select.hba_marstek_m4_power_group
                 state_not: Own
+          - type: heading
+            icon: mdi:information-slab-circle
+            heading: Cutoff capacities
+            heading_style: subtitle
+            tap_action:
+              action: url
+              url_path: >-
+                https://docs.homebatterycontrol.com/06-advanced-features.html#chargingdischarging-limits
+              confirmation:
+                text: >-
+                  Opens HBC documentation or video. HBA is closely based on HBC,
+                  so most content also applies.
         visibility:
           - condition: numeric_state
             entity: input_number.hba_battery_count
             above: 3
 
-      # Per-battery settings M5
+      # Per-battery settings M5 (all six blocks are generated identically)
       - type: grid
         cards:
           - type: heading
             icon: mdi:power-plug-battery
             heading: Marstek M5
             heading_style: title
+          - type: tile
+            entity: input_select.hba_marstek_m5_power_group
+            name: Power group
+            icon: mdi:fuse
+            vertical: false
+            hide_state: true
+            features:
+              - type: select-options
+            features_position: inline
+            grid_options:
+              columns: full
           - type: vertical-stack
+            grid_options:
+              columns: full
             cards:
               - type: markdown
                 content: '**<font color="#9b9b9b">Discharging</font>**'
@@ -3802,50 +3831,46 @@ views:
                   - type: numeric-input
                     style: buttons
                 features_position: inline
-              # Own group only: in a power group HBA manages this register.
+              # Own: the battery's register. In a power group: the battery's own limit
+              # (HBA writes the register from it and the group's max power).
               - type: conditional
                 conditions:
                   - condition: state
                     entity: input_select.hba_marstek_m5_power_group
                     state: Own
                 card:
-                    type: tile
-                    entity: number.marstek_m5_max_discharge_power
-                    name: Max Power
-                    hide_state: true
-                    vertical: false
-                    features:
-                      - type: numeric-input
-                        style: buttons
-                    features_position: inline
-              # In a power group: the battery's own limit; HBA writes the register (group limit on top).
+                  type: tile
+                  entity: number.marstek_m5_max_discharge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
               - type: conditional
                 conditions:
                   - condition: state
                     entity: input_select.hba_marstek_m5_power_group
                     state_not: Own
                 card:
-                    type: tile
-                    entity: input_number.hba_marstek_m5_max_discharge_power
-                    name: Max Power
-                    hide_state: true
-                    vertical: false
-                    features:
-                      - type: numeric-input
-                        style: buttons
-                    features_position: inline
-            grid_options:
-              columns: 12
-              rows: auto
+                  type: tile
+                  entity: input_number.hba_marstek_m5_max_discharge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
           - type: vertical-stack
+            grid_options:
+              columns: full
             cards:
               - type: markdown
                 content: '**<font color="#9b9b9b">Charging</font>**'
                 text_only: true
               - type: tile
-                grid_options:
-                  columns: 12
-                  rows: 2
                 entity: input_number.hba_marstek_m5_charging_cutoff_capacity
                 name: Cutoff capacity
                 hide_state: true
@@ -3854,65 +3879,42 @@ views:
                   - type: numeric-input
                     style: buttons
                 features_position: inline
-              # Own group only: in a power group HBA manages this register.
+              # Own: the battery's register. In a power group: the battery's own limit
+              # (HBA writes the register from it and the group's max power).
               - type: conditional
                 conditions:
                   - condition: state
                     entity: input_select.hba_marstek_m5_power_group
                     state: Own
                 card:
-                    type: tile
-                    grid_options:
-                      columns: 12
-                      rows: 2
-                    entity: number.marstek_m5_max_charge_power
-                    name: 'Max. Power '
-                    hide_state: true
-                    vertical: false
-                    features:
-                      - type: numeric-input
-                        style: buttons
-                    features_position: inline
-              # In a power group: the battery's own limit; HBA writes the register (group limit on top).
+                  type: tile
+                  entity: number.marstek_m5_max_charge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
               - type: conditional
                 conditions:
                   - condition: state
                     entity: input_select.hba_marstek_m5_power_group
                     state_not: Own
                 card:
-                    type: tile
-                    grid_options:
-                      columns: 12
-                      rows: 2
-                    entity: input_number.hba_marstek_m5_max_charge_power
-                    name: 'Max. Power '
-                    hide_state: true
-                    vertical: false
-                    features:
-                      - type: numeric-input
-                        style: buttons
-                    features_position: inline
-          - type: heading
-            icon: mdi:information-slab-circle
-            heading: Cutoff capacities
-            heading_style: subtitle
-            tap_action:
-              action: url
-              url_path: >-
-                https://docs.homebatterycontrol.com/06-advanced-features.html#chargingdischarging-limits
-              confirmation:
-                text: >-
-                  Opens HBC documentation or video. HBA is closely based on HBC,
-                  so most content also applies.
-          # Power group (shared breaker). Own = the Max Power tiles above are the battery's
-          # registers; in a group they are this battery's own limits and HBA writes the
-          # registers from them and the group's max power.
-          - type: entities
-            entities:
-              - entity: input_select.hba_marstek_m5_power_group
-                name: Power group
+                  type: tile
+                  entity: input_number.hba_marstek_m5_max_charge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
           - type: markdown
             text_only: true
+            grid_options:
+              columns: full
             content: >-
               {%- set c = state_attr('sensor.hba_power_limits', 'charge') or {} -%}
               {%- set d = state_attr('sensor.hba_power_limits', 'discharge') or {} -%}
@@ -3926,19 +3928,44 @@ views:
               - condition: state
                 entity: input_select.hba_marstek_m5_power_group
                 state_not: Own
+          - type: heading
+            icon: mdi:information-slab-circle
+            heading: Cutoff capacities
+            heading_style: subtitle
+            tap_action:
+              action: url
+              url_path: >-
+                https://docs.homebatterycontrol.com/06-advanced-features.html#chargingdischarging-limits
+              confirmation:
+                text: >-
+                  Opens HBC documentation or video. HBA is closely based on HBC,
+                  so most content also applies.
         visibility:
           - condition: numeric_state
             entity: input_number.hba_battery_count
             above: 4
 
-      # Per-battery settings M6
+      # Per-battery settings M6 (all six blocks are generated identically)
       - type: grid
         cards:
           - type: heading
             icon: mdi:power-plug-battery
             heading: Marstek M6
             heading_style: title
+          - type: tile
+            entity: input_select.hba_marstek_m6_power_group
+            name: Power group
+            icon: mdi:fuse
+            vertical: false
+            hide_state: true
+            features:
+              - type: select-options
+            features_position: inline
+            grid_options:
+              columns: full
           - type: vertical-stack
+            grid_options:
+              columns: full
             cards:
               - type: markdown
                 content: '**<font color="#9b9b9b">Discharging</font>**'
@@ -3952,50 +3979,46 @@ views:
                   - type: numeric-input
                     style: buttons
                 features_position: inline
-              # Own group only: in a power group HBA manages this register.
+              # Own: the battery's register. In a power group: the battery's own limit
+              # (HBA writes the register from it and the group's max power).
               - type: conditional
                 conditions:
                   - condition: state
                     entity: input_select.hba_marstek_m6_power_group
                     state: Own
                 card:
-                    type: tile
-                    entity: number.marstek_m6_max_discharge_power
-                    name: Max Power
-                    hide_state: true
-                    vertical: false
-                    features:
-                      - type: numeric-input
-                        style: buttons
-                    features_position: inline
-              # In a power group: the battery's own limit; HBA writes the register (group limit on top).
+                  type: tile
+                  entity: number.marstek_m6_max_discharge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
               - type: conditional
                 conditions:
                   - condition: state
                     entity: input_select.hba_marstek_m6_power_group
                     state_not: Own
                 card:
-                    type: tile
-                    entity: input_number.hba_marstek_m6_max_discharge_power
-                    name: Max Power
-                    hide_state: true
-                    vertical: false
-                    features:
-                      - type: numeric-input
-                        style: buttons
-                    features_position: inline
-            grid_options:
-              columns: 12
-              rows: auto
+                  type: tile
+                  entity: input_number.hba_marstek_m6_max_discharge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
           - type: vertical-stack
+            grid_options:
+              columns: full
             cards:
               - type: markdown
                 content: '**<font color="#9b9b9b">Charging</font>**'
                 text_only: true
               - type: tile
-                grid_options:
-                  columns: 12
-                  rows: 2
                 entity: input_number.hba_marstek_m6_charging_cutoff_capacity
                 name: Cutoff capacity
                 hide_state: true
@@ -4004,65 +4027,42 @@ views:
                   - type: numeric-input
                     style: buttons
                 features_position: inline
-              # Own group only: in a power group HBA manages this register.
+              # Own: the battery's register. In a power group: the battery's own limit
+              # (HBA writes the register from it and the group's max power).
               - type: conditional
                 conditions:
                   - condition: state
                     entity: input_select.hba_marstek_m6_power_group
                     state: Own
                 card:
-                    type: tile
-                    grid_options:
-                      columns: 12
-                      rows: 2
-                    entity: number.marstek_m6_max_charge_power
-                    name: 'Max. Power '
-                    hide_state: true
-                    vertical: false
-                    features:
-                      - type: numeric-input
-                        style: buttons
-                    features_position: inline
-              # In a power group: the battery's own limit; HBA writes the register (group limit on top).
+                  type: tile
+                  entity: number.marstek_m6_max_charge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
               - type: conditional
                 conditions:
                   - condition: state
                     entity: input_select.hba_marstek_m6_power_group
                     state_not: Own
                 card:
-                    type: tile
-                    grid_options:
-                      columns: 12
-                      rows: 2
-                    entity: input_number.hba_marstek_m6_max_charge_power
-                    name: 'Max. Power '
-                    hide_state: true
-                    vertical: false
-                    features:
-                      - type: numeric-input
-                        style: buttons
-                    features_position: inline
-          - type: heading
-            icon: mdi:information-slab-circle
-            heading: Cutoff capacities
-            heading_style: subtitle
-            tap_action:
-              action: url
-              url_path: >-
-                https://docs.homebatterycontrol.com/06-advanced-features.html#chargingdischarging-limits
-              confirmation:
-                text: >-
-                  Opens HBC documentation or video. HBA is closely based on HBC,
-                  so most content also applies.
-          # Power group (shared breaker). Own = the Max Power tiles above are the battery's
-          # registers; in a group they are this battery's own limits and HBA writes the
-          # registers from them and the group's max power.
-          - type: entities
-            entities:
-              - entity: input_select.hba_marstek_m6_power_group
-                name: Power group
+                  type: tile
+                  entity: input_number.hba_marstek_m6_max_charge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
           - type: markdown
             text_only: true
+            grid_options:
+              columns: full
             content: >-
               {%- set c = state_attr('sensor.hba_power_limits', 'charge') or {} -%}
               {%- set d = state_attr('sensor.hba_power_limits', 'discharge') or {} -%}
@@ -4076,6 +4076,18 @@ views:
               - condition: state
                 entity: input_select.hba_marstek_m6_power_group
                 state_not: Own
+          - type: heading
+            icon: mdi:information-slab-circle
+            heading: Cutoff capacities
+            heading_style: subtitle
+            tap_action:
+              action: url
+              url_path: >-
+                https://docs.homebatterycontrol.com/06-advanced-features.html#chargingdischarging-limits
+              confirmation:
+                text: >-
+                  Opens HBC documentation or video. HBA is closely based on HBC,
+                  so most content also applies.
         visibility:
           - condition: numeric_state
             entity: input_number.hba_battery_count
