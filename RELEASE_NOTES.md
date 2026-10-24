@@ -130,8 +130,9 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Added
 
-- **Power groups — batteries that share one breaker** (HBA-only) — put batteries on the same
-  circuit in group A, B or C (per battery in Advanced settings; default *Own* = unchanged).
+- **Power groups — a combined power limit for several batteries** (HBA-only) — e.g. batteries
+  on one breaker, a limit per phase, or plug-in batteries that together keep to the 800 W
+  guideline. Put them in group A, B or C (per battery in Advanced settings; default *Own* = unchanged).
   Per group you set a **max power** (the breaker, e.g. 3500 W for 16 A) and a **spread
   policy**. Each battery keeps its own **max charge / max discharge power** — in a group
   they move from the battery's registers to `input_number.hba_marstek_mX_max_charge_power` /
@@ -157,6 +158,9 @@ open), so the version prefix stays at 4.10.1 for now.
   - Joining a group starts the battery's own limits from its registers, so an 800 W
     plug-in battery is never raised without you saying so. A group with a missing max
     power stays inactive and says so (Overview + Advanced settings banner).
+  - **Use at your own risk:** this is a software limit, not electrical protection — a firmware
+    bug, a battery reset, an app setting or a configuration mistake can exceed it. Always have
+    an electrician check the installation; it must be safe without HBA.
   - New: `sensor.hba_power_limits` (state *Not used* / *Check settings* / *Active*;
     intended limits, groups, full/empty, last known limits as attributes),
     `automation.hba_power_groups_apply_limit_registers`, a *Power groups* section in

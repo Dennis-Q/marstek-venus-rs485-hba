@@ -4081,8 +4081,9 @@ views:
             entity: input_number.hba_battery_count
             above: 5
 
-      # Power groups — batteries that share one breaker. Each battery's group is set in
-      # its own block above; here the group's max power, spread policy and live limits.
+      # Power groups — batteries whose combined power must stay within one limit (shared
+      # breaker, one phase, plug-in 800 W guideline). Each battery's group is set in its own
+      # block above; here the group's max power, spread policy and live limits.
       - type: grid
         column_span: 3
         cards:
@@ -4104,15 +4105,27 @@ views:
 
               </ha-alert>
               {% endif -%}
-              Batteries on **one breaker** go in the same group (set per battery above).
-              HBA then writes their **max charge** and **max discharge** registers so that,
-              per direction, a group never adds up to more than its max power. The limits sit
-              in the batteries, so the breaker stays protected when HA is down or a battery
-              runs on its own. **Equal** splits the max power evenly (never above a battery's
-              own max); **One at a time** gives one battery as much as it can until it is full
-              or empty. A full battery hands its *charge* share to the others, an empty one
-              its *discharge* share. HBA lowers a battery first and raises the other only once
-              the battery reports the lower value.
+              A power group keeps the **combined** power of its batteries within one limit,
+              for example batteries that share a breaker, that should stay under a limit on
+              one phase, or plug-in batteries that together keep to the 800 W guideline.
+              Choose a group per battery above. HBA then writes their **max charge** and
+              **max discharge** registers so that, per direction, the group never adds up to
+              more than its max power. The limits sit in the batteries, so they also hold
+              when HA is down or a battery runs on its own. **Equal** splits the max power
+              evenly (never above a battery's own max); **One at a time** gives one battery as
+              much as it can until it is full or empty. A full battery hands its *charge*
+              share to the others, an empty one its *discharge* share. HBA lowers a battery
+              first and raises the other only once the battery reports the lower value.
+
+              <ha-alert alert-type="warning" title="Use at your own risk">
+
+              This is a software limit, not electrical protection. A firmware bug, a battery
+              reset, a setting changed in the Marstek app or a configuration mistake can let
+              the batteries draw more than the group's max power. **Always have an
+              electrician check your installation** before relying on it — breakers, cable
+              sizes and the phase load must be right without HBA.
+
+              </ha-alert>
           - type: entities
             entities:
               - type: conditional

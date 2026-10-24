@@ -185,8 +185,10 @@ Reduces max charge power near full SoC to protect battery cells. Set a limit to 
 
 ## Power Groups
 
-Batteries sharing one breaker. Every battery starts in its own group, so HBA leaves the limit
-registers alone until you choose a group.
+A combined power limit for several batteries (shared breaker, a limit per phase, plug-in
+batteries under the 800 W guideline). Every battery starts in its own group, so HBA leaves the
+limit registers alone until you choose a group. **Use at your own risk** — a software limit, not
+electrical protection; have an electrician check the installation.
 
 | Helper | Default | Notes |
 |---|---|---|
