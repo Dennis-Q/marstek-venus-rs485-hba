@@ -1191,6 +1191,75 @@ template:
           {% endfor %}
           {{ ns.total | round(2) }}
 
+      # Charge alongside EV, car first: per phase, what the batteries on it may charge in
+      # total (W) to keep the phase under input_number.hba_ev_phase_current_limit
+      # (hba_set_batteries caps charging with it). Phase power from the user-defined
+      # sensor.p1_meter_power_lX (hba_config.yaml); DSMR phase current has no sign.
+      # State = the tightest phase. Recorder-excluded: changes on every P1 update.
+      - name: "HBA EV Phase Room"
+        unique_id: hba_ev_phase_room
+        icon: mdi:sine-wave
+        unit_of_measurement: W
+        state: >-
+          {%- set lim = states('input_number.hba_ev_phase_current_limit') | float(22) -%}
+          {%- set count = states('input_number.hba_battery_count') | int(1) -%}
+          {%- set bat = namespace(L1=0, L2=0, L3=0) -%}
+          {%- for i in range(1, count + 1) -%}
+            {%- set ph = states('input_select.hba_marstek_m' ~ i ~ '_phase') -%}
+            {#- ac_power is negative while charging -#}
+            {%- set chg = [-(states('sensor.marstek_m' ~ i ~ '_ac_power') | float(0)), 0] | max -%}
+            {%- if ph == 'L1' -%}{%- set bat.L1 = bat.L1 + chg -%}
+            {%- elif ph == 'L2' -%}{%- set bat.L2 = bat.L2 + chg -%}
+            {%- elif ph == 'L3' -%}{%- set bat.L3 = bat.L3 + chg -%}{%- endif -%}
+          {%- endfor -%}
+          {%- set out = namespace(d={}) -%}
+          {%- for ph, b in [('L1', bat.L1), ('L2', bat.L2), ('L3', bat.L3)] -%}
+            {%- set n = ph | lower -%}
+            {#- sensor.p1_meter_power_lX / _voltage_lX are defined by the user in
+                hba_config.yaml (like sensor.p1_meter_power). No reading = no room. -#}
+            {%- set v = states('sensor.p1_meter_voltage_' ~ n) | float(0) -%}
+            {%- set v = v if v > 100 else 230 -%}
+            {%- if has_value('sensor.p1_meter_power_' ~ n) -%}
+              {%- set net = states('sensor.p1_meter_power_' ~ n) | float(0) -%}
+              {#- what the batteries on this phase may draw in total: the limit minus
+                  everything else on the phase (their own charging is part of the import) -#}
+              {%- set out.d = out.d | combine({ph: [lim * v - (net - b), 0] | max | round(0) | int}) -%}
+            {%- else -%}
+              {%- set out.d = out.d | combine({ph: 0}) -%}
+            {%- endif -%}
+          {%- endfor -%}
+          {{ out.d.values() | min }}
+        attributes:
+          room_w: >-
+            {%- set lim = states('input_number.hba_ev_phase_current_limit') | float(22) -%}
+            {%- set count = states('input_number.hba_battery_count') | int(1) -%}
+            {%- set bat = namespace(L1=0, L2=0, L3=0) -%}
+            {%- for i in range(1, count + 1) -%}
+              {%- set ph = states('input_select.hba_marstek_m' ~ i ~ '_phase') -%}
+              {#- ac_power is negative while charging -#}
+              {%- set chg = [-(states('sensor.marstek_m' ~ i ~ '_ac_power') | float(0)), 0] | max -%}
+              {%- if ph == 'L1' -%}{%- set bat.L1 = bat.L1 + chg -%}
+              {%- elif ph == 'L2' -%}{%- set bat.L2 = bat.L2 + chg -%}
+              {%- elif ph == 'L3' -%}{%- set bat.L3 = bat.L3 + chg -%}{%- endif -%}
+            {%- endfor -%}
+            {%- set out = namespace(d={}) -%}
+            {%- for ph, b in [('L1', bat.L1), ('L2', bat.L2), ('L3', bat.L3)] -%}
+              {%- set n = ph | lower -%}
+              {#- sensor.p1_meter_power_lX / _voltage_lX are defined by the user in
+                  hba_config.yaml (like sensor.p1_meter_power). No reading = no room. -#}
+              {%- set v = states('sensor.p1_meter_voltage_' ~ n) | float(0) -%}
+              {%- set v = v if v > 100 else 230 -%}
+              {%- if has_value('sensor.p1_meter_power_' ~ n) -%}
+                {%- set net = states('sensor.p1_meter_power_' ~ n) | float(0) -%}
+                {#- what the batteries on this phase may draw in total: the limit minus
+                    everything else on the phase (their own charging is part of the import) -#}
+                {%- set out.d = out.d | combine({ph: [lim * v - (net - b), 0] | max | round(0) | int}) -%}
+              {%- else -%}
+                {%- set out.d = out.d | combine({ph: 0}) -%}
+              {%- endif -%}
+            {%- endfor -%}
+            {{ out.d }}
+
       - name: "HBA Total Max Charge Power"
         unique_id: hba_total_max_charge_power
         unit_of_measurement: W
@@ -1559,11 +1628,9 @@ template:
       # discharges and self-consumption runs with discharge disabled. Attributes:
       #   mode       "Batteries first" below input_number.hba_ev_battery_priority_energy
       #              of usable energy, else "EV first"
-      #   room_w     per phase, what the batteries on it may charge in total (W) to stay
-      #              under input_number.hba_ev_phase_current_limit; only applied in
-      #              "EV first" (in "Batteries first" the charger's own load balancing
-      #              backs the car off). Phase power from the P1 per-phase sensors —
-      #              DSMR phase current has no sign, so it is derived from the power.
+      #   missing_sensors  per-phase grid power sensors "EV first" needs but lacks
+      # The room per phase lives in sensor.hba_ev_phase_room (recorder-excluded: it
+      # changes on every P1 update; this sensor's history stays useful).
       - name: "HBA EV Charge Alongside"
         unique_id: hba_ev_charge_alongside
         icon: mdi:car-battery
@@ -1581,35 +1648,6 @@ template:
                  if states('sensor.hba_charge_available_energy') | float(0)
                     < states('input_number.hba_ev_battery_priority_energy') | float(0)
                  else 'EV first' }}
-          room_w: >-
-            {%- set lim = states('input_number.hba_ev_phase_current_limit') | float(22) -%}
-            {%- set count = states('input_number.hba_battery_count') | int(1) -%}
-            {%- set bat = namespace(L1=0, L2=0, L3=0) -%}
-            {%- for i in range(1, count + 1) -%}
-              {%- set ph = states('input_select.hba_marstek_m' ~ i ~ '_phase') -%}
-              {#- ac_power is negative while charging -#}
-              {%- set chg = [-(states('sensor.marstek_m' ~ i ~ '_ac_power') | float(0)), 0] | max -%}
-              {%- if ph == 'L1' -%}{%- set bat.L1 = bat.L1 + chg -%}
-              {%- elif ph == 'L2' -%}{%- set bat.L2 = bat.L2 + chg -%}
-              {%- elif ph == 'L3' -%}{%- set bat.L3 = bat.L3 + chg -%}{%- endif -%}
-            {%- endfor -%}
-            {%- set out = namespace(d={}) -%}
-            {%- for ph, b in [('L1', bat.L1), ('L2', bat.L2), ('L3', bat.L3)] -%}
-              {%- set n = ph | lower -%}
-              {#- sensor.p1_meter_power_lX / _voltage_lX are defined by the user in
-                  hba_config.yaml (like sensor.p1_meter_power). No reading = no room. -#}
-              {%- set v = states('sensor.p1_meter_voltage_' ~ n) | float(0) -%}
-              {%- set v = v if v > 100 else 230 -%}
-              {%- if has_value('sensor.p1_meter_power_' ~ n) -%}
-                {%- set net = states('sensor.p1_meter_power_' ~ n) | float(0) -%}
-                {#- what the batteries on this phase may draw in total: the limit minus
-                    everything else on the phase (their own charging is part of the import) -#}
-                {%- set out.d = out.d | combine({ph: [lim * v - (net - b), 0] | max | round(0) | int}) -%}
-              {%- else -%}
-                {%- set out.d = out.d | combine({ph: 0}) -%}
-              {%- endif -%}
-            {%- endfor -%}
-            {{ out.d }}
           # Per-phase power sensors that "car first" needs but that do not exist / have no
           # value: the phases the batteries are on ("Not set" needs all three).
           missing_sensors: >-
@@ -2512,7 +2550,13 @@ recorder:
       - sensor.marstek_m*_battery_cell_*_voltage
       # Raw Modbus register backing sensor.marstek_m*_inverter_state — updates every poll
       - sensor.marstek_m*_inverter_state_number
+      # Per-phase grid power / voltage for Charge alongside EV (user-defined in
+      # hba_config.yaml) — ~1 update/s each, derived from meter sensors that are recorded
+      - sensor.p1_meter_power_l*
+      - sensor.p1_meter_voltage_l*
     entities:
+      # Room per phase for Charge alongside EV — recalculated on every P1 update
+      - sensor.hba_ev_phase_room
       # Control loop automation — triggers every ~1 s, history is not useful
       - automation.hba_control_loop_p1_meter_triggered
       # Flow trace helpers — updated every control cycle

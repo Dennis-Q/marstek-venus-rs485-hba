@@ -1103,11 +1103,11 @@ script:
                   shares_json: >-
                     {%- set ns = namespace(remaining=desired | abs, shares={}, order=[]) -%}
                     {#- Charge alongside EV, car first: the batteries on a phase may draw at most
-                        what keeps that phase under the limit (binary_sensor.hba_ev_charge_alongside
-                        room_w). A battery with no phase set counts against every phase. -#}
+                        what keeps that phase under the limit (sensor.hba_ev_phase_room room_w).
+                        A battery with no phase set counts against every phase. -#}
                     {%- set rm = namespace(d={}) -%}
                     {%- if along and is_state_attr('binary_sensor.hba_ev_charge_alongside', 'mode', 'EV first') -%}
-                      {%- set r = state_attr('binary_sensor.hba_ev_charge_alongside', 'room_w') -%}
+                      {%- set r = state_attr('sensor.hba_ev_phase_room', 'room_w') -%}
                       {%- set rm.d = r if r is mapping else {} -%}
                     {%- endif -%}
                     {#- Cyclic from the priority battery: p, p+1, ..., count, 1, ..., p-1.
