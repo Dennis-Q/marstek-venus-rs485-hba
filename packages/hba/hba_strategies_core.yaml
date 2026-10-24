@@ -530,11 +530,12 @@ automation:
               data:
                 value: "{{ repeat.item.value }}"
 
-  # ── Power groups: prefill a battery's max power ───────────────────────────────
-  # When a battery leaves "Own" for a group and its max power was never set, start from
-  # the lower of its current limit registers, i.e. what the user (or the Marstek app)
-  # had set. HBA must never raise a battery above what it ran at before without the
-  # user saying so (an 800 W plug-in battery). The user can raise it afterwards.
+  # ── Power groups: prefill a battery's own limits ─────────────────────────────
+  # When a battery leaves "Own" for a group, its own max charge / max discharge power
+  # start from its limit registers — what the user (or the Marstek app) had set — unless
+  # they were set before. HBA never raises a battery above what it ran at without the
+  # user saying so (an 800 W plug-in battery). A register reading 0 after a restart
+  # falls back to the last known value.
   - id: hba_power_group_prefill_max_power
     alias: "HBA: Power groups — prefill max power"
     mode: queued
@@ -551,24 +552,27 @@ automation:
     actions:
       - variables:
           bat: "{{ trigger.entity_id | regex_findall_index('_m(\\d)_') }}"
-          start: >-
-            {%- set k = bat | string -%}
-            {%- set lc = state_attr('sensor.hba_power_limits', 'last_known_charge') -%}
-            {%- set ld = state_attr('sensor.hba_power_limits', 'last_known_discharge') -%}
-            {%- set rc = states('sensor.marstek_m' ~ k ~ '_max_charge_power_number') | float(0) -%}
-            {%- set rd = states('sensor.marstek_m' ~ k ~ '_max_discharge_power_number') | float(0) -%}
-            {%- set rc = rc if rc > 50 else ((lc[k] if lc is mapping and k in lc else 0) | float(0)) -%}
-            {%- set rd = rd if rd > 50 else ((ld[k] if ld is mapping and k in ld else 0) | float(0)) -%}
-            {%- set known = [rc, rd] | select('gt', 50) | list -%}
-            {{ ((known | min) // 50 * 50) | int if known else 0 }}
-      - condition: template
-        value_template: >-
-          {{ states('input_number.hba_marstek_m' ~ bat ~ '_max_power') | float(0) <= 0 and start | int(0) > 0 }}
-      - action: input_number.set_value
-        target:
-          entity_id: "input_number.hba_marstek_m{{ bat }}_max_power"
-        data:
-          value: "{{ start }}"
+      - repeat:
+          for_each: ["charge", "discharge"]
+          sequence:
+            - variables:
+                start: >-
+                  {%- set k = bat | string -%}
+                  {%- set lk = state_attr('sensor.hba_power_limits', 'last_known_' ~ repeat.item) -%}
+                  {%- set r = states('sensor.marstek_m' ~ k ~ '_max_' ~ repeat.item ~ '_power_number') | float(0) -%}
+                  {%- set r = r if r > 50 else ((lk[k] if lk is mapping and k in lk else 0) | float(0)) -%}
+                  {{ (r // 50 * 50) | int if r > 50 else 0 }}
+            - if:
+                - condition: template
+                  value_template: >-
+                    {{ states('input_number.hba_marstek_m' ~ bat ~ '_max_' ~ repeat.item ~ '_power') | float(0) <= 0
+                       and start | int(0) > 0 }}
+              then:
+                - action: input_number.set_value
+                  target:
+                    entity_id: "input_number.hba_marstek_m{{ bat }}_max_{{ repeat.item }}_power"
+                  data:
+                    value: "{{ start }}"
 
 script:
   # ── Strategy dispatcher ───────────────────────────────────────────────────────
@@ -1520,9 +1524,9 @@ script:
                 value: >-
                   {{ 13 if states('sensor.marstek_m' ~ repeat.item ~ '_device_name') | trim is match('VNSE3') else 12 }}
       # ── Power groups ──────────────────────────────────────────────────────────
-      # Every battery in its own group: HBA leaves the limit registers alone. Max power
-      # per battery back to 0 = not set, so joining a group starts from the battery's
-      # current limit (hba_power_group_prefill_max_power) instead of an assumed 2500 W.
+      # Every battery in its own group: HBA leaves the limit registers alone. The own
+      # max charge / discharge power per battery back to 0 = not set, so joining a group
+      # starts from the battery's registers (hba_power_group_prefill_max_power).
       - action: input_select.select_option
         target:
           entity_id:
@@ -1536,12 +1540,18 @@ script:
       - action: input_number.set_value
         target:
           entity_id:
-            - input_number.hba_marstek_m1_max_power
-            - input_number.hba_marstek_m2_max_power
-            - input_number.hba_marstek_m3_max_power
-            - input_number.hba_marstek_m4_max_power
-            - input_number.hba_marstek_m5_max_power
-            - input_number.hba_marstek_m6_max_power
+            - input_number.hba_marstek_m1_max_charge_power
+            - input_number.hba_marstek_m1_max_discharge_power
+            - input_number.hba_marstek_m2_max_charge_power
+            - input_number.hba_marstek_m2_max_discharge_power
+            - input_number.hba_marstek_m3_max_charge_power
+            - input_number.hba_marstek_m3_max_discharge_power
+            - input_number.hba_marstek_m4_max_charge_power
+            - input_number.hba_marstek_m4_max_discharge_power
+            - input_number.hba_marstek_m5_max_charge_power
+            - input_number.hba_marstek_m5_max_discharge_power
+            - input_number.hba_marstek_m6_max_charge_power
+            - input_number.hba_marstek_m6_max_discharge_power
         data: { value: 0 }
       # 16 A breaker ≈ 3680 W; 3500 W leaves some margin.
       - action: input_number.set_value

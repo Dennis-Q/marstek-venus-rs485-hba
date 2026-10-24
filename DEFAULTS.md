@@ -191,7 +191,7 @@ registers alone until you choose a group.
 | Helper | Default | Notes |
 |---|---|---|
 | `input_select.hba_marstek_m{1-6}_power_group` | `Own` | Own / A / B / C |
-| `input_number.hba_marstek_m{1-6}_max_power` | `0` W | 0 = not set. Prefilled from the battery's current limit when it joins a group |
+| `input_number.hba_marstek_m{1-6}_max_charge_power` / `…_max_discharge_power` | `0` W | The battery's own limits while in a group (in Own they are its registers). 0 = not set. Prefilled from the registers when it joins a group |
 | `input_number.hba_power_group_{a,b,c}_max_power` | `3500` W | 16 A breaker ≈ 3680 W |
 | `input_select.hba_power_group_{a,b,c}_policy` | `Equal` | Equal / One at a time |
 

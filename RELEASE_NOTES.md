@@ -133,7 +133,10 @@ open), so the version prefix stays at 4.10.1 for now.
 - **Power groups — batteries that share one breaker** (HBA-only) — put batteries on the same
   circuit in group A, B or C (per battery in Advanced settings; default *Own* = unchanged).
   Per group you set a **max power** (the breaker, e.g. 3500 W for 16 A) and a **spread
-  policy**; per battery a **max power** of its own (one value for charging and discharging).
+  policy**. Each battery keeps its own **max charge / max discharge power** — in a group
+  they move from the battery's registers to `input_number.hba_marstek_mX_max_charge_power` /
+  `…_max_discharge_power` (same Max Power tiles on the dashboard), because HBA now writes
+  the registers; the group is an extra limit on top.
   HBA then writes the batteries' **max charge / max discharge power registers** so that, per
   direction, a group never adds up to more than its max power. Because the limits sit *in*
   the batteries, the breaker stays protected when HA is down or a battery runs on its own
@@ -151,8 +154,8 @@ open), so the version prefix stays at 4.10.1 for now.
     cannot be reached keeps its share reserved — it may still be running on its old limit.
   - Writing an unchanged limit costs no EEPROM cycle (Marstek firmware change guard), and
     limits only change on full/empty/settings changes — a few writes per day.
-  - Joining a group starts from the battery's current limits (the lower of the two), so an
-    800 W plug-in battery is never raised without you saying so. A group with a missing max
+  - Joining a group starts the battery's own limits from its registers, so an 800 W
+    plug-in battery is never raised without you saying so. A group with a missing max
     power stays inactive and says so (Overview + Advanced settings banner).
   - New: `sensor.hba_power_limits` (state *Not used* / *Check settings* / *Active*;
     intended limits, groups, full/empty, last known limits as attributes),

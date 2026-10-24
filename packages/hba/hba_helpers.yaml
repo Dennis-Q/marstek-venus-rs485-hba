@@ -517,53 +517,103 @@ input_number:
     icon: mdi:lightning-bolt-circle
 
   # --- Power groups (batteries sharing one breaker) ---
-  # Per battery the most it may ever charge or discharge once HBA manages its limit
-  # registers (44002/44003) as part of a power group. 0 = not set: a group with a
-  # member at 0 stays inactive (banner), so HBA never guesses a battery's limit — an
-  # 800 W plug-in battery must not be raised to 2500 W. Ignored while the battery is
-  # in its own group ("Own"), where the limit registers stay the user's.
-  hba_marstek_m1_max_power:
-    name: "M1 max power"
+  # Per battery its own max charge / max discharge power while it is in a power group.
+  # In "Own" these limits ARE the battery's registers (44002/44003, set on the dashboard);
+  # in a group HBA writes those registers to keep the group within its max power, so the
+  # user's own limits move here and the group is an extra limit on top. 0 = not set: a
+  # group with a member at 0 stays inactive (banner) — HBA never guesses a battery's limit
+  # (an 800 W plug-in battery must not be raised to 2500 W). Prefilled from the registers
+  # when a battery joins a group.
+  hba_marstek_m1_max_charge_power:
+    name: "M1 max charge power"
     min: 0
     max: 2500
     step: 50
     mode: box
     unit_of_measurement: "W"
     icon: mdi:flash-triangle-outline
-  hba_marstek_m2_max_power:
-    name: "M2 max power"
+  hba_marstek_m1_max_discharge_power:
+    name: "M1 max discharge power"
     min: 0
     max: 2500
     step: 50
     mode: box
     unit_of_measurement: "W"
     icon: mdi:flash-triangle-outline
-  hba_marstek_m3_max_power:
-    name: "M3 max power"
+  hba_marstek_m2_max_charge_power:
+    name: "M2 max charge power"
     min: 0
     max: 2500
     step: 50
     mode: box
     unit_of_measurement: "W"
     icon: mdi:flash-triangle-outline
-  hba_marstek_m4_max_power:
-    name: "M4 max power"
+  hba_marstek_m2_max_discharge_power:
+    name: "M2 max discharge power"
     min: 0
     max: 2500
     step: 50
     mode: box
     unit_of_measurement: "W"
     icon: mdi:flash-triangle-outline
-  hba_marstek_m5_max_power:
-    name: "M5 max power"
+  hba_marstek_m3_max_charge_power:
+    name: "M3 max charge power"
     min: 0
     max: 2500
     step: 50
     mode: box
     unit_of_measurement: "W"
     icon: mdi:flash-triangle-outline
-  hba_marstek_m6_max_power:
-    name: "M6 max power"
+  hba_marstek_m3_max_discharge_power:
+    name: "M3 max discharge power"
+    min: 0
+    max: 2500
+    step: 50
+    mode: box
+    unit_of_measurement: "W"
+    icon: mdi:flash-triangle-outline
+  hba_marstek_m4_max_charge_power:
+    name: "M4 max charge power"
+    min: 0
+    max: 2500
+    step: 50
+    mode: box
+    unit_of_measurement: "W"
+    icon: mdi:flash-triangle-outline
+  hba_marstek_m4_max_discharge_power:
+    name: "M4 max discharge power"
+    min: 0
+    max: 2500
+    step: 50
+    mode: box
+    unit_of_measurement: "W"
+    icon: mdi:flash-triangle-outline
+  hba_marstek_m5_max_charge_power:
+    name: "M5 max charge power"
+    min: 0
+    max: 2500
+    step: 50
+    mode: box
+    unit_of_measurement: "W"
+    icon: mdi:flash-triangle-outline
+  hba_marstek_m5_max_discharge_power:
+    name: "M5 max discharge power"
+    min: 0
+    max: 2500
+    step: 50
+    mode: box
+    unit_of_measurement: "W"
+    icon: mdi:flash-triangle-outline
+  hba_marstek_m6_max_charge_power:
+    name: "M6 max charge power"
+    min: 0
+    max: 2500
+    step: 50
+    mode: box
+    unit_of_measurement: "W"
+    icon: mdi:flash-triangle-outline
+  hba_marstek_m6_max_discharge_power:
+    name: "M6 max discharge power"
     min: 0
     max: 2500
     step: 50
@@ -2130,12 +2180,18 @@ template:
           - input_select.hba_marstek_m4_power_group
           - input_select.hba_marstek_m5_power_group
           - input_select.hba_marstek_m6_power_group
-          - input_number.hba_marstek_m1_max_power
-          - input_number.hba_marstek_m2_max_power
-          - input_number.hba_marstek_m3_max_power
-          - input_number.hba_marstek_m4_max_power
-          - input_number.hba_marstek_m5_max_power
-          - input_number.hba_marstek_m6_max_power
+          - input_number.hba_marstek_m1_max_charge_power
+          - input_number.hba_marstek_m1_max_discharge_power
+          - input_number.hba_marstek_m2_max_charge_power
+          - input_number.hba_marstek_m2_max_discharge_power
+          - input_number.hba_marstek_m3_max_charge_power
+          - input_number.hba_marstek_m3_max_discharge_power
+          - input_number.hba_marstek_m4_max_charge_power
+          - input_number.hba_marstek_m4_max_discharge_power
+          - input_number.hba_marstek_m5_max_charge_power
+          - input_number.hba_marstek_m5_max_discharge_power
+          - input_number.hba_marstek_m6_max_charge_power
+          - input_number.hba_marstek_m6_max_discharge_power
           - input_number.hba_power_group_a_max_power
           - input_number.hba_power_group_b_max_power
           - input_number.hba_power_group_c_max_power
@@ -2185,7 +2241,8 @@ template:
               {%- else -%}{%- set empty = i in p.empty -%}{%- endif -%}
               {%- set ns.bats = ns.bats + [{
                     'i': i, 'g': states('input_select.hba_marstek_m' ~ i ~ '_power_group'),
-                    'cap': states('input_number.hba_marstek_m' ~ i ~ '_max_power') | float(0) | int,
+                    'capc': states('input_number.hba_marstek_m' ~ i ~ '_max_charge_power') | float(0) | int,
+                    'capd': states('input_number.hba_marstek_m' ~ i ~ '_max_discharge_power') | float(0) | int,
                     'soc': soc, 'live': live, 'full': full, 'empty': empty,
                     'lkc': lkc | int, 'lkd': lkd | int}] -%}
             {%- endfor -%}
@@ -2197,8 +2254,10 @@ template:
                 {%- set budget = states('input_number.hba_power_group_' ~ (G | lower) ~ '_max_power') | float(0) | int -%}
                 {%- set policy = states('input_select.hba_power_group_' ~ (G | lower) ~ '_policy') -%}
                 {%- set bad = namespace(p=[]) -%}
-                {%- for m in members if m.cap <= 0 -%}
-                  {%- set bad.p = bad.p + ['M' ~ m.i ~ ' (group ' ~ G ~ '): set its max power'] -%}
+                {%- for m in members if m.capc <= 0 or m.capd <= 0 -%}
+                  {%- set bad.p = bad.p + ['M' ~ m.i ~ ' (group ' ~ G ~ '): set its max '
+                        ~ ('charge and discharge' if m.capc <= 0 and m.capd <= 0 else ('charge' if m.capc <= 0 else 'discharge'))
+                        ~ ' power'] -%}
                 {%- endfor -%}
                 {%- if budget <= 0 -%}
                   {%- set bad.p = bad.p + ['Group ' ~ G ~ ': set its max power'] -%}
@@ -2214,10 +2273,11 @@ template:
                     {%- set latch = 'full' if d == 'charge' else 'empty' -%}
                     {%- set lk = 'lkc' if d == 'charge' else 'lkd' -%}
                     {%- set prev = p.c if d == 'charge' else p.d -%}
+                    {%- set cap = 'capc' if d == 'charge' else 'capd' -%}
                     {%- set w = namespace(R=budget, out={}, add={}, elig=[]) -%}
                     {#- Unreachable: keep what it has, its share is not ours to hand out -#}
                     {%- for m in members | rejectattr('live') -%}
-                      {%- set keep = m[lk] if m[lk] > 0 else (prev[m.i | string] if (m.i | string) in prev else m.cap) -%}
+                      {%- set keep = m[lk] if m[lk] > 0 else (prev[m.i | string] if (m.i | string) in prev else m[cap]) -%}
                       {%- set w.out = w.out | combine({m.i | string: keep | int}) -%}
                       {%- set w.R = w.R - keep -%}
                     {%- endfor -%}
@@ -2234,16 +2294,16 @@ template:
                       {%- endif -%}
                       {%- set L = cand[0] -%}
                       {%- set gs.lead = gs.lead | combine({key: L.i}) -%}
-                      {%- set give = [[L.cap - 100, 0] | max, w.R] | min -%}
+                      {%- set give = [[L[cap] - 100, 0] | max, w.R] | min -%}
                       {%- set w.add = w.add | combine({L.i | string: give}) -%}
                       {%- set w.R = w.R - give -%}
                       {%- set w.elig = w.elig | rejectattr('i', 'eq', L.i) | list -%}
                     {%- endif -%}
                     {#- Water-fill: equal shares, capped per battery, smallest cap first -#}
                     {%- for pool in [w.elig, rest] -%}
-                      {%- set srt = pool | sort(attribute='cap') | list -%}
+                      {%- set srt = pool | sort(attribute=cap) | list -%}
                       {%- for m in srt -%}
-                        {%- set give = [[m.cap - 100, 0] | max, (w.R / ((srt | length) - loop.index0)) | int] | min -%}
+                        {%- set give = [[m[cap] - 100, 0] | max, (w.R / ((srt | length) - loop.index0)) | int] | min -%}
                         {%- set w.add = w.add | combine({m.i | string: give}) -%}
                         {%- set w.R = w.R - give -%}
                       {%- endfor -%}
