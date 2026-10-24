@@ -183,6 +183,18 @@ Reduces max charge power near full SoC to protect battery cells. Set a limit to 
 | `input_number.hba_control_slow_charge_soc_threshold_2` | `99` % |
 | `input_number.hba_control_slow_charge_power_limit_2` | `1000` W |
 
+## Power Groups
+
+Batteries sharing one breaker. Every battery starts in its own group, so HBA leaves the limit
+registers alone until you choose a group.
+
+| Helper | Default | Notes |
+|---|---|---|
+| `input_select.hba_marstek_m{1-6}_power_group` | `Own` | Own / A / B / C |
+| `input_number.hba_marstek_m{1-6}_max_power` | `0` W | 0 = not set. Prefilled from the battery's current limit when it joins a group |
+| `input_number.hba_power_group_{a,b,c}_max_power` | `3500` W | 16 A breaker ≈ 3680 W |
+| `input_select.hba_power_group_{a,b,c}_policy` | `Equal` | Equal / One at a time |
+
 ## Charge Strategy
 
 | Helper | Default | Notes |

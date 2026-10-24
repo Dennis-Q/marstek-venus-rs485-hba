@@ -516,6 +516,88 @@ input_number:
     unit_of_measurement: "W"
     icon: mdi:lightning-bolt-circle
 
+  # --- Power groups (batteries sharing one breaker) ---
+  # Per battery the most it may ever charge or discharge once HBA manages its limit
+  # registers (44002/44003) as part of a power group. 0 = not set: a group with a
+  # member at 0 stays inactive (banner), so HBA never guesses a battery's limit — an
+  # 800 W plug-in battery must not be raised to 2500 W. Ignored while the battery is
+  # in its own group ("Own"), where the limit registers stay the user's.
+  hba_marstek_m1_max_power:
+    name: "M1 max power"
+    min: 0
+    max: 2500
+    step: 50
+    mode: box
+    unit_of_measurement: "W"
+    icon: mdi:flash-triangle-outline
+  hba_marstek_m2_max_power:
+    name: "M2 max power"
+    min: 0
+    max: 2500
+    step: 50
+    mode: box
+    unit_of_measurement: "W"
+    icon: mdi:flash-triangle-outline
+  hba_marstek_m3_max_power:
+    name: "M3 max power"
+    min: 0
+    max: 2500
+    step: 50
+    mode: box
+    unit_of_measurement: "W"
+    icon: mdi:flash-triangle-outline
+  hba_marstek_m4_max_power:
+    name: "M4 max power"
+    min: 0
+    max: 2500
+    step: 50
+    mode: box
+    unit_of_measurement: "W"
+    icon: mdi:flash-triangle-outline
+  hba_marstek_m5_max_power:
+    name: "M5 max power"
+    min: 0
+    max: 2500
+    step: 50
+    mode: box
+    unit_of_measurement: "W"
+    icon: mdi:flash-triangle-outline
+  hba_marstek_m6_max_power:
+    name: "M6 max power"
+    min: 0
+    max: 2500
+    step: 50
+    mode: box
+    unit_of_measurement: "W"
+    icon: mdi:flash-triangle-outline
+  # Per group the most its batteries may charge or discharge together — the breaker
+  # they share (16 A ≈ 3680 W; leave some margin). One value for both directions: the
+  # breaker limits current, not direction. 0 = not set (group inactive, banner).
+  hba_power_group_a_max_power:
+    name: "Power group A max power"
+    min: 0
+    max: 11000
+    step: 50
+    mode: box
+    unit_of_measurement: "W"
+    icon: mdi:fuse
+  hba_power_group_b_max_power:
+    name: "Power group B max power"
+    min: 0
+    max: 11000
+    step: 50
+    mode: box
+    unit_of_measurement: "W"
+    icon: mdi:fuse
+  hba_power_group_c_max_power:
+    name: "Power group C max power"
+    min: 0
+    max: 11000
+    step: 50
+    mode: box
+    unit_of_measurement: "W"
+    icon: mdi:fuse
+
 input_text:
   hba_strategy_active_flow:
     name: "Active strategy flow"
@@ -838,6 +920,49 @@ input_select:
       - "Daily"
       - "Never"
     icon: mdi:rotate-right
+  # Power group per battery. "Own" (first option = what a new install gets) leaves the
+  # battery's limit registers alone — exactly the behaviour before power groups.
+  hba_marstek_m1_power_group:
+    name: "M1 power group"
+    options: ["Own", "A", "B", "C"]
+    icon: mdi:fuse
+  hba_marstek_m2_power_group:
+    name: "M2 power group"
+    options: ["Own", "A", "B", "C"]
+    icon: mdi:fuse
+  hba_marstek_m3_power_group:
+    name: "M3 power group"
+    options: ["Own", "A", "B", "C"]
+    icon: mdi:fuse
+  hba_marstek_m4_power_group:
+    name: "M4 power group"
+    options: ["Own", "A", "B", "C"]
+    icon: mdi:fuse
+  hba_marstek_m5_power_group:
+    name: "M5 power group"
+    options: ["Own", "A", "B", "C"]
+    icon: mdi:fuse
+  hba_marstek_m6_power_group:
+    name: "M6 power group"
+    options: ["Own", "A", "B", "C"]
+    icon: mdi:fuse
+  # How a group shares its max power over its batteries:
+  #   Equal        — the same share each (never above a battery's own max power); a
+  #                  full (charging) or empty (discharging) battery hands its share on
+  #   One at a time — one battery gets as much as it can, the others the rest; it keeps
+  #                  that until it is full / empty
+  hba_power_group_a_policy:
+    name: "Power group A spread policy"
+    options: ["Equal", "One at a time"]
+    icon: mdi:call-split
+  hba_power_group_b_policy:
+    name: "Power group B spread policy"
+    options: ["Equal", "One at a time"]
+    icon: mdi:call-split
+  hba_power_group_c_policy:
+    name: "Power group C spread policy"
+    options: ["Equal", "One at a time"]
+    icon: mdi:call-split
 
 template:
   - sensor:
@@ -965,9 +1090,12 @@ template:
         state: >
           {% set count = states('input_number.hba_battery_count') | int(1) %}
           {% set ns = namespace(total=0) %}
+          {#- A read-back of 0 after a battery restart: use its last known limit -#}
+          {% set lk = state_attr('sensor.hba_power_limits', 'last_known_charge') %}
+          {% set lk = lk if lk is mapping else {} %}
           {% for i in range(1, count + 1) %}
             {% set pw = states('number.marstek_m' ~ i ~ '_max_charge_power') | float(0) %}
-            {% set ns.total = ns.total + (pw if pw > 50 else 2500) %}
+            {% set ns.total = ns.total + (pw if pw > 50 else (lk[i | string] if (i | string) in lk else 2500)) %}
           {% endfor %}
           {{ ns.total | int }}
 
@@ -980,9 +1108,12 @@ template:
         state: >
           {% set count = states('input_number.hba_battery_count') | int(1) %}
           {% set ns = namespace(total=0) %}
+          {#- A read-back of 0 after a battery restart: use its last known limit -#}
+          {% set lk = state_attr('sensor.hba_power_limits', 'last_known_discharge') %}
+          {% set lk = lk if lk is mapping else {} %}
           {% for i in range(1, count + 1) %}
             {% set pw = states('number.marstek_m' ~ i ~ '_max_discharge_power') | float(0) %}
-            {% set ns.total = ns.total + (pw if pw > 50 else 2500) %}
+            {% set ns.total = ns.total + (pw if pw > 50 else (lk[i | string] if (i | string) in lk else 2500)) %}
           {% endfor %}
           {{ ns.total | int }}
 
@@ -1252,6 +1383,61 @@ template:
               {% endif %}
             {% endfor %}
             {{ ns.off | join(', ') }}
+
+      # A battery's limit registers still read 0 after a restart although HBA should have
+      # written them back: in a power group (HBA never writes below 100 W there) or in
+      # "Own" with both registers 0 and an earlier value known. Overview banner +
+      # notification (5 min, the restore needs one poll cycle). Not in "Disabled" mode,
+      # where HBA deliberately writes nothing. Same logic twice (state + attribute), as
+      # in HBA Any Battery Offline: a state reading its own attribute lags one update.
+      - name: "HBA Power Limits Not Restored"
+        unique_id: hba_power_limits_not_restored
+        device_class: problem
+        icon: mdi:fuse-alert
+        state: >-
+          {%- set ns = namespace(out=[]) -%}
+          {%- if not is_state('input_select.hba_marstek_master_battery_mode', 'Disabled') -%}
+            {%- set count = states('input_number.hba_battery_count') | int(1) -%}
+            {%- set want = state_attr('sensor.hba_power_limits', 'charge') -%}
+            {%- set want = want if want is mapping and is_state('sensor.hba_power_limits', 'Active') else {} -%}
+            {%- set lc = state_attr('sensor.hba_power_limits', 'last_known_charge') -%}
+            {%- set lc = lc if lc is mapping else {} -%}
+            {%- set ld = state_attr('sensor.hba_power_limits', 'last_known_discharge') -%}
+            {%- set ld = ld if ld is mapping else {} -%}
+            {%- for i in range(1, count + 1) -%}
+              {%- set k = i | string -%}
+              {%- set rc = states('sensor.marstek_m' ~ i ~ '_max_charge_power_number') | float(-1) -%}
+              {%- set rd = states('sensor.marstek_m' ~ i ~ '_max_discharge_power_number') | float(-1) -%}
+              {%- if (k in want and ((0 <= rc <= 50) or (0 <= rd <= 50)))
+                    or (k not in want and rc == 0 and rd == 0 and (k in lc or k in ld)) -%}
+                {%- set ns.out = ns.out + ['M' ~ i] -%}
+              {%- endif -%}
+            {%- endfor -%}
+          {%- endif -%}
+          {{ ns.out | length > 0 }}
+        attributes:
+          # e.g. "M3" -- read by the banner and the notification.
+          batteries: >-
+            {%- set ns = namespace(out=[]) -%}
+            {%- if not is_state('input_select.hba_marstek_master_battery_mode', 'Disabled') -%}
+              {%- set count = states('input_number.hba_battery_count') | int(1) -%}
+              {%- set want = state_attr('sensor.hba_power_limits', 'charge') -%}
+              {%- set want = want if want is mapping and is_state('sensor.hba_power_limits', 'Active') else {} -%}
+              {%- set lc = state_attr('sensor.hba_power_limits', 'last_known_charge') -%}
+              {%- set lc = lc if lc is mapping else {} -%}
+              {%- set ld = state_attr('sensor.hba_power_limits', 'last_known_discharge') -%}
+              {%- set ld = ld if ld is mapping else {} -%}
+              {%- for i in range(1, count + 1) -%}
+                {%- set k = i | string -%}
+                {%- set rc = states('sensor.marstek_m' ~ i ~ '_max_charge_power_number') | float(-1) -%}
+                {%- set rd = states('sensor.marstek_m' ~ i ~ '_max_discharge_power_number') | float(-1) -%}
+                {%- if (k in want and ((0 <= rc <= 50) or (0 <= rd <= 50)))
+                      or (k not in want and rc == 0 and rd == 0 and (k in lc or k in ld)) -%}
+                  {%- set ns.out = ns.out + ['M' ~ i] -%}
+                {%- endif -%}
+              {%- endfor -%}
+            {%- endif -%}
+            {{ ns.out | join(', ') }}
 
       - name: "HBA Battery Assist Active"
         unique_id: hba_battery_assist_active
@@ -1798,6 +1984,7 @@ template:
             'binary_sensor.hba_marstek_m4_not_responding',
             'binary_sensor.hba_marstek_m5_not_responding',
             'binary_sensor.hba_marstek_m6_not_responding',
+            'sensor.hba_power_limits',
           ] %}
           {{ expected | reject('has_value') | list | length > 0 }}
         attributes:
@@ -1812,6 +1999,7 @@ template:
               'binary_sensor.hba_marstek_m4_not_responding',
               'binary_sensor.hba_marstek_m5_not_responding',
               'binary_sensor.hba_marstek_m6_not_responding',
+              'sensor.hba_power_limits',
             ] %}
             {% set ns = namespace(missing=[]) %}
             {% for e in expected %}
@@ -1888,6 +2076,206 @@ template:
           discharge_order: "{{ (orders | from_json if orders is string else orders).discharge_order }}"
           charge_order: "{{ (orders | from_json if orders is string else orders).charge_order }}"
           decided_at: "{{ now().isoformat() }}"
+
+  # ── Power groups: intended limit registers ────────────────────────────────────
+  # Batteries that share one breaker go into the same power group (A/B/C). HBA then
+  # manages their max charge (44002) and max discharge (44003) registers so that, per
+  # direction, the registers of a group never add up to more than the group's max power.
+  # The limits live IN the battery, so the breaker stays protected even when HA is down
+  # or a battery runs on its own (Marstek app, anti-feed) — HBA's distribution alone
+  # could not promise that. Batteries in "Own" are left alone.
+  #
+  # This sensor only decides; automation hba_power_limits_apply writes (lowering first,
+  # raising only into room the read-back registers leave). Per group and direction:
+  #   - a battery that cannot be reached keeps what it has (it may still be running on
+  #     its last limit, so its share is never handed out)
+  #   - every reachable battery keeps at least 100 W (never 0: both registers reading 0
+  #     is how a battery restart is recognised, see hba_notify_battery_restarted)
+  #   - Equal: the rest is split evenly over the batteries that can use it, never above
+  #     a battery's own max power; what they cannot take goes to the full/empty ones
+  #   - One at a time: the leader gets as much as it can until it is full (charging) or
+  #     empty (discharging); then the fullest (charging) / emptiest (discharging) next
+  # Full/empty latch with hysteresis so a battery at its cutoff does not flip the split:
+  # full at charge cutoff − 1 %, not full again below cutoff − 4 %; empty at discharge
+  # cutoff + 2 %, not empty again above cutoff + 5 %. The margin is wider at the bottom
+  # because a Venus E v3 stops on its own firmware floor (~13 %) above a 12 % cutoff: on
+  # prod (2026-10) M3 never went below 12.9 %, M4 below 12.5 %, so "cutoff + 0.5" would
+  # never call them empty and their discharge share would never be handed on. Charge and
+  # discharge are split separately: a full battery still gets its share for discharging.
+  #
+  # Firmware facts this rests on (Venus E v3 = D code, static RE by sphings79):
+  # 44002/44003 go to the inverter, an external I²C EEPROM (0x202/0x204, change guard:
+  # an unchanged value costs no cycle) and a RAM shadow that Modbus reads back. After a
+  # battery restart that shadow reads 0 until written, while the battery still limits at
+  # its EEPROM value — hence last_known_*: the last non-zero read-back per battery.
+  # State and attributes are read back via state_attr (`this` is empty in a trigger
+  # template's actions, see HBA Battery Order).
+  - triggers:
+      - trigger: time_pattern
+        minutes: "/1"
+      - trigger: homeassistant
+        event: start
+      - trigger: event
+        event_type: event_template_reloaded
+      - trigger: state
+        entity_id:
+          - input_number.hba_battery_count
+          - input_select.hba_marstek_m1_power_group
+          - input_select.hba_marstek_m2_power_group
+          - input_select.hba_marstek_m3_power_group
+          - input_select.hba_marstek_m4_power_group
+          - input_select.hba_marstek_m5_power_group
+          - input_select.hba_marstek_m6_power_group
+          - input_number.hba_marstek_m1_max_power
+          - input_number.hba_marstek_m2_max_power
+          - input_number.hba_marstek_m3_max_power
+          - input_number.hba_marstek_m4_max_power
+          - input_number.hba_marstek_m5_max_power
+          - input_number.hba_marstek_m6_max_power
+          - input_number.hba_power_group_a_max_power
+          - input_number.hba_power_group_b_max_power
+          - input_number.hba_power_group_c_max_power
+          - input_select.hba_power_group_a_policy
+          - input_select.hba_power_group_b_policy
+          - input_select.hba_power_group_c_policy
+    actions:
+      - variables:
+          plan: >-
+            {%- set S = 'sensor.hba_power_limits' -%}
+            {%- set count = states('input_number.hba_battery_count') | int(1) -%}
+            {%- set p = namespace(full=[], empty=[], lkc={}, lkd={}, c={}, d={}, lead={}) -%}
+            {%- set v = state_attr(S, 'full') -%}{%- set p.full = v if v is sequence and v is not string else [] -%}
+            {%- set v = state_attr(S, 'empty') -%}{%- set p.empty = v if v is sequence and v is not string else [] -%}
+            {%- set v = state_attr(S, 'last_known_charge') -%}{%- set p.lkc = v if v is mapping else {} -%}
+            {%- set v = state_attr(S, 'last_known_discharge') -%}{%- set p.lkd = v if v is mapping else {} -%}
+            {%- set v = state_attr(S, 'charge') -%}{%- set p.c = v if v is mapping else {} -%}
+            {%- set v = state_attr(S, 'discharge') -%}{%- set p.d = v if v is mapping else {} -%}
+            {%- set v = state_attr(S, 'leaders') -%}{%- set p.lead = v if v is mapping else {} -%}
+            {#- 1. Per battery: reachability, read-back, last known limits, full/empty latch -#}
+            {%- set ns = namespace(bats=[], lkc={}, lkd={}) -%}
+            {%- for i in range(1, count + 1) -%}
+              {%- set k = i | string -%}
+              {%- set soc = states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') | float(-1) -%}
+              {%- set hi = states('input_number.hba_marstek_m' ~ i ~ '_charging_cutoff_capacity') | float(100) -%}
+              {%- set lo = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) -%}
+              {%- set inv = states('sensor.marstek_m' ~ i ~ '_inverter_state') -%}
+              {%- set hb = states.sensor['marstek_m' ~ i ~ '_battery_power'] -%}
+              {%- set live = hb is not none and hb.state not in ['unavailable', 'unknown']
+                             and (now() - hb.last_reported).total_seconds() <= 30
+                             and inv not in ['unavailable', 'unknown', ''] -%}
+              {%- set rbc = states('sensor.marstek_m' ~ i ~ '_max_charge_power_number') | float(-1) -%}
+              {%- set rbd = states('sensor.marstek_m' ~ i ~ '_max_discharge_power_number') | float(-1) -%}
+              {%- set lkc = rbc if rbc > 50 else (p.lkc[k] if k in p.lkc else 0) -%}
+              {%- set lkd = rbd if rbd > 50 else (p.lkd[k] if k in p.lkd else 0) -%}
+              {%- if lkc > 0 -%}{%- set ns.lkc = ns.lkc | combine({k: lkc | int}) -%}{%- endif -%}
+              {%- if lkd > 0 -%}{%- set ns.lkd = ns.lkd | combine({k: lkd | int}) -%}{%- endif -%}
+              {%- if soc < 0 -%}{%- set full = i in p.full -%}
+              {%- elif soc >= hi - 1 -%}{%- set full = true -%}
+              {%- elif soc < hi - 4 -%}{%- set full = false -%}
+              {%- else -%}{%- set full = i in p.full -%}{%- endif -%}
+              {%- if soc < 0 -%}{%- set empty = i in p.empty -%}
+              {%- elif soc <= lo + 2 -%}{%- set empty = true -%}
+              {%- elif soc > lo + 5 -%}{%- set empty = false -%}
+              {%- else -%}{%- set empty = i in p.empty -%}{%- endif -%}
+              {%- set ns.bats = ns.bats + [{
+                    'i': i, 'g': states('input_select.hba_marstek_m' ~ i ~ '_power_group'),
+                    'cap': states('input_number.hba_marstek_m' ~ i ~ '_max_power') | float(0) | int,
+                    'soc': soc, 'live': live, 'full': full, 'empty': empty,
+                    'lkc': lkc | int, 'lkd': lkd | int}] -%}
+            {%- endfor -%}
+            {#- 2. Per group and direction: the intended limits -#}
+            {%- set gs = namespace(c={}, d={}, lead={}, groups={}, problems=[]) -%}
+            {%- for G in ['A', 'B', 'C'] -%}
+              {%- set members = ns.bats | selectattr('g', 'eq', G) | list -%}
+              {%- if members | length > 0 -%}
+                {%- set budget = states('input_number.hba_power_group_' ~ (G | lower) ~ '_max_power') | float(0) | int -%}
+                {%- set policy = states('input_select.hba_power_group_' ~ (G | lower) ~ '_policy') -%}
+                {%- set bad = namespace(p=[]) -%}
+                {%- for m in members if m.cap <= 0 -%}
+                  {%- set bad.p = bad.p + ['M' ~ m.i ~ ' (group ' ~ G ~ '): set its max power'] -%}
+                {%- endfor -%}
+                {%- if budget <= 0 -%}
+                  {%- set bad.p = bad.p + ['Group ' ~ G ~ ': set its max power'] -%}
+                {%- elif budget < 100 * (members | length) -%}
+                  {%- set bad.p = bad.p + ['Group ' ~ G ~ ': max power below 100 W per battery'] -%}
+                {%- endif -%}
+                {%- if bad.p -%}
+                  {%- set gs.problems = gs.problems + bad.p -%}
+                {%- else -%}
+                  {%- set gs.groups = gs.groups | combine({G: {'max_power': budget, 'policy': policy,
+                        'members': members | map(attribute='i') | list}}) -%}
+                  {%- for d in ['charge', 'discharge'] -%}
+                    {%- set latch = 'full' if d == 'charge' else 'empty' -%}
+                    {%- set lk = 'lkc' if d == 'charge' else 'lkd' -%}
+                    {%- set prev = p.c if d == 'charge' else p.d -%}
+                    {%- set w = namespace(R=budget, out={}, add={}, elig=[]) -%}
+                    {#- Unreachable: keep what it has, its share is not ours to hand out -#}
+                    {%- for m in members | rejectattr('live') -%}
+                      {%- set keep = m[lk] if m[lk] > 0 else (prev[m.i | string] if (m.i | string) in prev else m.cap) -%}
+                      {%- set w.out = w.out | combine({m.i | string: keep | int}) -%}
+                      {%- set w.R = w.R - keep -%}
+                    {%- endfor -%}
+                    {%- set active = members | selectattr('live') | list -%}
+                    {%- set w.R = [w.R - 100 * (active | length), 0] | max -%}
+                    {%- set w.elig = active | rejectattr(latch) | list -%}
+                    {%- set rest = active | selectattr(latch) | list -%}
+                    {%- if policy == 'One at a time' and w.elig -%}
+                      {%- set key = G ~ '_' ~ d -%}
+                      {%- set cand = w.elig | selectattr('i', 'eq', p.lead[key] if key in p.lead else 0) | list -%}
+                      {%- if not cand -%}
+                        {#- charging: fullest first (fills soonest); discharging: emptiest first -#}
+                        {%- set cand = w.elig | sort(attribute='soc', reverse=(d == 'charge')) | list -%}
+                      {%- endif -%}
+                      {%- set L = cand[0] -%}
+                      {%- set gs.lead = gs.lead | combine({key: L.i}) -%}
+                      {%- set give = [[L.cap - 100, 0] | max, w.R] | min -%}
+                      {%- set w.add = w.add | combine({L.i | string: give}) -%}
+                      {%- set w.R = w.R - give -%}
+                      {%- set w.elig = w.elig | rejectattr('i', 'eq', L.i) | list -%}
+                    {%- endif -%}
+                    {#- Water-fill: equal shares, capped per battery, smallest cap first -#}
+                    {%- for pool in [w.elig, rest] -%}
+                      {%- set srt = pool | sort(attribute='cap') | list -%}
+                      {%- for m in srt -%}
+                        {%- set give = [[m.cap - 100, 0] | max, (w.R / ((srt | length) - loop.index0)) | int] | min -%}
+                        {%- set w.add = w.add | combine({m.i | string: give}) -%}
+                        {%- set w.R = w.R - give -%}
+                      {%- endfor -%}
+                    {%- endfor -%}
+                    {%- for m in active -%}
+                      {%- set k = m.i | string -%}
+                      {%- set w.out = w.out | combine({k: 100 + (w.add[k] if k in w.add else 0)}) -%}
+                    {%- endfor -%}
+                    {%- if d == 'charge' -%}{%- set gs.c = gs.c | combine(w.out) -%}
+                    {%- else -%}{%- set gs.d = gs.d | combine(w.out) -%}{%- endif -%}
+                  {%- endfor -%}
+                {%- endif -%}
+              {%- endif -%}
+            {%- endfor -%}
+            {{ {'charge': gs.c, 'discharge': gs.d, 'leaders': gs.lead, 'groups': gs.groups,
+                'problems': gs.problems,
+                'full': ns.bats | selectattr('full') | map(attribute='i') | list,
+                'empty': ns.bats | selectattr('empty') | map(attribute='i') | list,
+                'last_known_charge': ns.lkc, 'last_known_discharge': ns.lkd} | tojson }}
+    sensor:
+      - name: "HBA Power Limits"
+        unique_id: hba_power_limits
+        icon: mdi:fuse
+        # Not used / Check settings (a group lacks a max power) / Active
+        state: >-
+          {%- set x = plan | from_json if plan is string else plan -%}
+          {{ 'Check settings' if x.problems else ('Active' if x.groups else 'Not used') }}
+        attributes:
+          # Intended register values per battery number ("1": 1650), managed batteries only
+          charge: "{{ (plan | from_json if plan is string else plan).charge }}"
+          discharge: "{{ (plan | from_json if plan is string else plan).discharge }}"
+          groups: "{{ (plan | from_json if plan is string else plan).groups }}"
+          problems: "{{ (plan | from_json if plan is string else plan).problems }}"
+          leaders: "{{ (plan | from_json if plan is string else plan).leaders }}"
+          full: "{{ (plan | from_json if plan is string else plan).full }}"
+          empty: "{{ (plan | from_json if plan is string else plan).empty }}"
+          last_known_charge: "{{ (plan | from_json if plan is string else plan).last_known_charge }}"
+          last_known_discharge: "{{ (plan | from_json if plan is string else plan).last_known_discharge }}"
 
 ######################################################################################################
 # RECORDER

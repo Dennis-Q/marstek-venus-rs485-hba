@@ -12,6 +12,8 @@
 #   • hba_notify_battery_offline / _resolved         — battery unreachable or silent 3+ min
 #   • hba_notify_entity_health / _resolved           — critical HBA entity missing / wrong entity_id
 #   • hba_notify_dynamic_migration / _resolved       — r22 Dynamic v1/v2 leftovers to clean up
+#   • hba_notify_battery_restarted                   — a battery restarted; limit registers restored (event, no banner)
+#   • hba_notify_power_limits_not_restored / _resolved — limit registers still read 0 after a restart
 
 automation:
   # ── Unexpected sustained export notification ──────────────────────────────────
@@ -571,6 +573,123 @@ automation:
           tag: hba_battery_offline
           color: green
           resolve_id: hba_battery_offline
+
+  # ── Battery restarted ─────────────────────────────────────────────────────────
+  # A Marstek restart shows on Modbus as max charge power (44002) coming back as 0 after
+  # the battery was unreachable: the firmware reads that register from a RAM copy that a
+  # restart clears, while the battery keeps limiting at its stored value. A deliberate
+  # 0 W from the user comes from a number, never from "unavailable". An event, not a
+  # lasting fault: notification only, no banner. The registers are written back here for
+  # a battery in "Own" (power-group batteries: hba_power_limits_apply); if that fails,
+  # binary_sensor.hba_power_limits_not_restored raises banner + notification.
+  - id: hba_notify_battery_restarted
+    alias: "HBA: Notify battery restarted"
+    mode: queued
+    triggers:
+      - trigger: state
+        entity_id:
+          - sensor.marstek_m1_max_charge_power_number
+          - sensor.marstek_m2_max_charge_power_number
+          - sensor.marstek_m3_max_charge_power_number
+          - sensor.marstek_m4_max_charge_power_number
+          - sensor.marstek_m5_max_charge_power_number
+          - sensor.marstek_m6_max_charge_power_number
+        to: "0"
+    conditions:
+      - condition: template
+        value_template: >-
+          {{ trigger.from_state is not none
+             and trigger.from_state.state in ['unavailable', 'unknown']
+             and (trigger.entity_id | regex_findall_index('_m(\d)_') | int)
+                 <= states('input_number.hba_battery_count') | int(1) }}
+    actions:
+      - variables:
+          bat: "{{ trigger.entity_id | regex_findall_index('_m(\\d)_') | int }}"
+          managed: >-
+            {%- set w = state_attr('sensor.hba_power_limits', 'charge') -%}
+            {{ w is mapping and (bat | string) in w and is_state('sensor.hba_power_limits', 'Active') }}
+          lc: >-
+            {%- set w = state_attr('sensor.hba_power_limits', 'charge') if managed else state_attr('sensor.hba_power_limits', 'last_known_charge') -%}
+            {{ (w[bat | string] if w is mapping and (bat | string) in w else 0) | int(0) }}
+          ld: >-
+            {%- set w = state_attr('sensor.hba_power_limits', 'discharge') if managed else state_attr('sensor.hba_power_limits', 'last_known_discharge') -%}
+            {{ (w[bat | string] if w is mapping and (bat | string) in w else 0) | int(0) }}
+      - if: "{{ not managed }}"
+        then:
+          - action: script.hba_restore_power_limits
+            data:
+              bat: "{{ bat }}"
+      - action: script.hba_notify_dispatch
+        data:
+          title: "HBA: Battery M{{ bat }} restarted"
+          message: >-
+            {%- if lc > 0 or ld > 0 -%}
+            M{{ bat }} restarted (its limit registers read 0, a Marstek firmware quirk; the
+            battery kept its limits). HBA writes them back: max charge {{ lc }} W, max
+            discharge {{ ld }} W.
+            {%- else -%}
+            M{{ bat }} restarted and its limit registers read 0 (a Marstek firmware quirk; the
+            battery kept its limits). HBA has no earlier values to write back — check max
+            charge and discharge power of M{{ bat }} in Advanced settings.
+            {%- endif -%}
+          tag: "hba_battery_restarted_{{ bat }}"
+          color: orange
+
+  # ── Power limits not restored ─────────────────────────────────────────────────
+  # binary_sensor.hba_power_limits_not_restored: after a restart a battery's limit
+  # registers still read 0 although HBA should have written them back (battery refuses
+  # the write, or HBA had no earlier value). Mirrors the Overview banner.
+  - id: hba_notify_power_limits_not_restored
+    alias: "HBA: Notify power limits not restored"
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_power_limits_not_restored
+        to: "on"
+        for: "00:05:00"
+    actions:
+      - variables:
+          bats: "{{ state_attr('binary_sensor.hba_power_limits_not_restored', 'batteries') or 'unknown' }}"
+      - action: script.hba_notify_dispatch
+        data:
+          title: "HBA: Battery limits not restored"
+          message: >-
+            The max charge / discharge power registers of {{ bats }} still read 0 after a
+            restart, and HBA could not write them back. HBA treats the battery at its last
+            known limit; check them in Advanced settings.
+          tag: hba_power_limits_not_restored
+          color: red
+          priority: high
+          persistent_id: hba_power_limits_not_restored
+          persistent_message: >-
+            The max charge / discharge power registers of **{{ bats }}** still read 0
+            after a battery restart, and HBA could not write them back.
+
+            HBA keeps using the last known limit for its distribution. Check the battery's
+            max charge and discharge power in **Advanced settings**; if it is in a power
+            group, also check that group's settings.
+
+  - id: hba_notify_power_limits_not_restored_resolved
+    alias: "HBA: Power limits not restored — resolved"
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_power_limits_not_restored
+        to: "off"
+    conditions:
+      - condition: template
+        value_template: >-
+          {% set raised = state_attr('automation.hba_notify_power_limits_not_restored', 'last_triggered') %}
+          {% set mine = this.attributes.last_triggered if this is defined and this.attributes is defined else none %}
+          {{ raised is not none and (mine is none or raised > mine) }}
+    actions:
+      - action: script.hba_notify_dispatch
+        data:
+          title: "HBA: Battery limits restored"
+          message: "All battery limit registers read their values again."
+          tag: hba_power_limits_not_restored
+          color: green
+          resolve_id: hba_power_limits_not_restored
 
   # ── Entity health ─────────────────────────────────────────────────────────────
   # binary_sensor.hba_entity_health: a critical HBA entity is registered under the

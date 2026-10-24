@@ -499,6 +499,24 @@ views:
                 state: "on"
             content: >
               <ha-alert alert-type="error">Battery {{ state_attr('binary_sensor.hba_any_battery_offline', 'batteries') }} offline — not answering over Modbus, HBA skips it and the other batteries take over. Check its network cable and power, or reduce the battery count in settings.</ha-alert>
+          - type: markdown
+            grid_options:
+              columns: full
+            visibility:
+              - condition: state
+                entity: binary_sensor.hba_power_limits_not_restored
+                state: "on"
+            content: >
+              <ha-alert alert-type="error">Battery {{ state_attr('binary_sensor.hba_power_limits_not_restored', 'batteries') }}: max charge / discharge power still read 0 after a restart and HBA could not write them back. HBA uses the last known limits; check them in Advanced settings.</ha-alert>
+          - type: markdown
+            grid_options:
+              columns: full
+            visibility:
+              - condition: state
+                entity: sensor.hba_power_limits
+                state: Check settings
+            content: >
+              <ha-alert alert-type="warning">Power groups inactive — {{ (state_attr('sensor.hba_power_limits', 'problems') or []) | join('; ') }}. Set them in Advanced settings → Power groups.</ha-alert>
           - type: heading
             heading: Master Battery Control
             heading_style: title
@@ -3212,15 +3230,22 @@ views:
                   - type: numeric-input
                     style: buttons
                 features_position: inline
-              - type: tile
-                entity: number.marstek_m1_max_discharge_power
-                name: Max Power
-                hide_state: true
-                vertical: false
-                features:
-                  - type: numeric-input
-                    style: buttons
-                features_position: inline
+              # Own group only: in a power group HBA manages this register.
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m1_power_group
+                    state: Own
+                card:
+                    type: tile
+                    entity: number.marstek_m1_max_discharge_power
+                    name: Max Power
+                    hide_state: true
+                    vertical: false
+                    features:
+                      - type: numeric-input
+                        style: buttons
+                    features_position: inline
             grid_options:
               columns: 12
               rows: auto
@@ -3241,18 +3266,25 @@ views:
                   - type: numeric-input
                     style: buttons
                 features_position: inline
-              - type: tile
-                grid_options:
-                  columns: 12
-                  rows: 2
-                entity: number.marstek_m1_max_charge_power
-                name: 'Max. Power '
-                hide_state: true
-                vertical: false
-                features:
-                  - type: numeric-input
-                    style: buttons
-                features_position: inline
+              # Own group only: in a power group HBA manages this register.
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m1_power_group
+                    state: Own
+                card:
+                    type: tile
+                    grid_options:
+                      columns: 12
+                      rows: 2
+                    entity: number.marstek_m1_max_charge_power
+                    name: 'Max. Power '
+                    hide_state: true
+                    vertical: false
+                    features:
+                      - type: numeric-input
+                        style: buttons
+                    features_position: inline
           - type: heading
             icon: mdi:information-slab-circle
             heading: Cutoff capacities
@@ -3265,6 +3297,35 @@ views:
                 text: >-
                   Opens HBC documentation or video. HBA is closely based on HBC,
                   so most content also applies.
+          # Power group (shared breaker). Own = the registers above are yours; in a
+          # group HBA writes them from the group's max power and this battery's max.
+          - type: entities
+            entities:
+              - entity: input_select.hba_marstek_m1_power_group
+                name: Power group
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m1_power_group
+                    state_not: Own
+                row:
+                  entity: input_number.hba_marstek_m1_max_power
+                  name: Max power (charge and discharge)
+          - type: markdown
+            text_only: true
+            content: >-
+              {%- set c = state_attr('sensor.hba_power_limits', 'charge') or {} -%}
+              {%- set d = state_attr('sensor.hba_power_limits', 'discharge') or {} -%}
+              {%- set rc = states('number.marstek_m1_max_charge_power') | int(0) -%}
+              {%- set rd = states('number.marstek_m1_max_discharge_power') | int(0) -%}
+              <font color="#9b9b9b">Set by HBA: max charge **{{ rc }} W**
+              {%- if '1' in c and c['1'] != rc %} → {{ c['1'] }} W{% endif %},
+              max discharge **{{ rd }} W**
+              {%- if '1' in d and d['1'] != rd %} → {{ d['1'] }} W{% endif %}.</font>
+            visibility:
+              - condition: state
+                entity: input_select.hba_marstek_m1_power_group
+                state_not: Own
 
       # Per-battery settings M2
       - type: grid
@@ -3287,15 +3348,22 @@ views:
                   - type: numeric-input
                     style: buttons
                 features_position: inline
-              - type: tile
-                entity: number.marstek_m2_max_discharge_power
-                name: Max Power
-                hide_state: true
-                vertical: false
-                features:
-                  - type: numeric-input
-                    style: buttons
-                features_position: inline
+              # Own group only: in a power group HBA manages this register.
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m2_power_group
+                    state: Own
+                card:
+                    type: tile
+                    entity: number.marstek_m2_max_discharge_power
+                    name: Max Power
+                    hide_state: true
+                    vertical: false
+                    features:
+                      - type: numeric-input
+                        style: buttons
+                    features_position: inline
             grid_options:
               columns: 12
               rows: auto
@@ -3316,18 +3384,54 @@ views:
                   - type: numeric-input
                     style: buttons
                 features_position: inline
-              - type: tile
-                grid_options:
-                  columns: 12
-                  rows: 2
-                entity: number.marstek_m2_max_charge_power
-                name: 'Max. Power '
-                hide_state: true
-                vertical: false
-                features:
-                  - type: numeric-input
-                    style: buttons
-                features_position: inline
+              # Own group only: in a power group HBA manages this register.
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m2_power_group
+                    state: Own
+                card:
+                    type: tile
+                    grid_options:
+                      columns: 12
+                      rows: 2
+                    entity: number.marstek_m2_max_charge_power
+                    name: 'Max. Power '
+                    hide_state: true
+                    vertical: false
+                    features:
+                      - type: numeric-input
+                        style: buttons
+                    features_position: inline
+          # Power group (shared breaker). Own = the registers above are yours; in a
+          # group HBA writes them from the group's max power and this battery's max.
+          - type: entities
+            entities:
+              - entity: input_select.hba_marstek_m2_power_group
+                name: Power group
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m2_power_group
+                    state_not: Own
+                row:
+                  entity: input_number.hba_marstek_m2_max_power
+                  name: Max power (charge and discharge)
+          - type: markdown
+            text_only: true
+            content: >-
+              {%- set c = state_attr('sensor.hba_power_limits', 'charge') or {} -%}
+              {%- set d = state_attr('sensor.hba_power_limits', 'discharge') or {} -%}
+              {%- set rc = states('number.marstek_m2_max_charge_power') | int(0) -%}
+              {%- set rd = states('number.marstek_m2_max_discharge_power') | int(0) -%}
+              <font color="#9b9b9b">Set by HBA: max charge **{{ rc }} W**
+              {%- if '2' in c and c['2'] != rc %} → {{ c['2'] }} W{% endif %},
+              max discharge **{{ rd }} W**
+              {%- if '2' in d and d['2'] != rd %} → {{ d['2'] }} W{% endif %}.</font>
+            visibility:
+              - condition: state
+                entity: input_select.hba_marstek_m2_power_group
+                state_not: Own
         visibility:
           - condition: numeric_state
             entity: input_number.hba_battery_count
@@ -3354,15 +3458,22 @@ views:
                   - type: numeric-input
                     style: buttons
                 features_position: inline
-              - type: tile
-                entity: number.marstek_m3_max_discharge_power
-                name: Max Power
-                hide_state: true
-                vertical: false
-                features:
-                  - type: numeric-input
-                    style: buttons
-                features_position: inline
+              # Own group only: in a power group HBA manages this register.
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m3_power_group
+                    state: Own
+                card:
+                    type: tile
+                    entity: number.marstek_m3_max_discharge_power
+                    name: Max Power
+                    hide_state: true
+                    vertical: false
+                    features:
+                      - type: numeric-input
+                        style: buttons
+                    features_position: inline
             grid_options:
               columns: 12
               rows: auto
@@ -3383,18 +3494,54 @@ views:
                   - type: numeric-input
                     style: buttons
                 features_position: inline
-              - type: tile
-                grid_options:
-                  columns: 12
-                  rows: 2
-                entity: number.marstek_m3_max_charge_power
-                name: 'Max. Power '
-                hide_state: true
-                vertical: false
-                features:
-                  - type: numeric-input
-                    style: buttons
-                features_position: inline
+              # Own group only: in a power group HBA manages this register.
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m3_power_group
+                    state: Own
+                card:
+                    type: tile
+                    grid_options:
+                      columns: 12
+                      rows: 2
+                    entity: number.marstek_m3_max_charge_power
+                    name: 'Max. Power '
+                    hide_state: true
+                    vertical: false
+                    features:
+                      - type: numeric-input
+                        style: buttons
+                    features_position: inline
+          # Power group (shared breaker). Own = the registers above are yours; in a
+          # group HBA writes them from the group's max power and this battery's max.
+          - type: entities
+            entities:
+              - entity: input_select.hba_marstek_m3_power_group
+                name: Power group
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m3_power_group
+                    state_not: Own
+                row:
+                  entity: input_number.hba_marstek_m3_max_power
+                  name: Max power (charge and discharge)
+          - type: markdown
+            text_only: true
+            content: >-
+              {%- set c = state_attr('sensor.hba_power_limits', 'charge') or {} -%}
+              {%- set d = state_attr('sensor.hba_power_limits', 'discharge') or {} -%}
+              {%- set rc = states('number.marstek_m3_max_charge_power') | int(0) -%}
+              {%- set rd = states('number.marstek_m3_max_discharge_power') | int(0) -%}
+              <font color="#9b9b9b">Set by HBA: max charge **{{ rc }} W**
+              {%- if '3' in c and c['3'] != rc %} → {{ c['3'] }} W{% endif %},
+              max discharge **{{ rd }} W**
+              {%- if '3' in d and d['3'] != rd %} → {{ d['3'] }} W{% endif %}.</font>
+            visibility:
+              - condition: state
+                entity: input_select.hba_marstek_m3_power_group
+                state_not: Own
         visibility:
           - condition: numeric_state
             entity: input_number.hba_battery_count
@@ -3421,15 +3568,22 @@ views:
                   - type: numeric-input
                     style: buttons
                 features_position: inline
-              - type: tile
-                entity: number.marstek_m4_max_discharge_power
-                name: Max Power
-                hide_state: true
-                vertical: false
-                features:
-                  - type: numeric-input
-                    style: buttons
-                features_position: inline
+              # Own group only: in a power group HBA manages this register.
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m4_power_group
+                    state: Own
+                card:
+                    type: tile
+                    entity: number.marstek_m4_max_discharge_power
+                    name: Max Power
+                    hide_state: true
+                    vertical: false
+                    features:
+                      - type: numeric-input
+                        style: buttons
+                    features_position: inline
             grid_options:
               columns: 12
               rows: auto
@@ -3450,18 +3604,25 @@ views:
                   - type: numeric-input
                     style: buttons
                 features_position: inline
-              - type: tile
-                grid_options:
-                  columns: 12
-                  rows: 2
-                entity: number.marstek_m4_max_charge_power
-                name: 'Max. Power '
-                hide_state: true
-                vertical: false
-                features:
-                  - type: numeric-input
-                    style: buttons
-                features_position: inline
+              # Own group only: in a power group HBA manages this register.
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m4_power_group
+                    state: Own
+                card:
+                    type: tile
+                    grid_options:
+                      columns: 12
+                      rows: 2
+                    entity: number.marstek_m4_max_charge_power
+                    name: 'Max. Power '
+                    hide_state: true
+                    vertical: false
+                    features:
+                      - type: numeric-input
+                        style: buttons
+                    features_position: inline
           - type: heading
             icon: mdi:information-slab-circle
             heading: Cutoff capacities
@@ -3474,6 +3635,35 @@ views:
                 text: >-
                   Opens HBC documentation or video. HBA is closely based on HBC,
                   so most content also applies.
+          # Power group (shared breaker). Own = the registers above are yours; in a
+          # group HBA writes them from the group's max power and this battery's max.
+          - type: entities
+            entities:
+              - entity: input_select.hba_marstek_m4_power_group
+                name: Power group
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m4_power_group
+                    state_not: Own
+                row:
+                  entity: input_number.hba_marstek_m4_max_power
+                  name: Max power (charge and discharge)
+          - type: markdown
+            text_only: true
+            content: >-
+              {%- set c = state_attr('sensor.hba_power_limits', 'charge') or {} -%}
+              {%- set d = state_attr('sensor.hba_power_limits', 'discharge') or {} -%}
+              {%- set rc = states('number.marstek_m4_max_charge_power') | int(0) -%}
+              {%- set rd = states('number.marstek_m4_max_discharge_power') | int(0) -%}
+              <font color="#9b9b9b">Set by HBA: max charge **{{ rc }} W**
+              {%- if '4' in c and c['4'] != rc %} → {{ c['4'] }} W{% endif %},
+              max discharge **{{ rd }} W**
+              {%- if '4' in d and d['4'] != rd %} → {{ d['4'] }} W{% endif %}.</font>
+            visibility:
+              - condition: state
+                entity: input_select.hba_marstek_m4_power_group
+                state_not: Own
         visibility:
           - condition: numeric_state
             entity: input_number.hba_battery_count
@@ -3500,15 +3690,22 @@ views:
                   - type: numeric-input
                     style: buttons
                 features_position: inline
-              - type: tile
-                entity: number.marstek_m5_max_discharge_power
-                name: Max Power
-                hide_state: true
-                vertical: false
-                features:
-                  - type: numeric-input
-                    style: buttons
-                features_position: inline
+              # Own group only: in a power group HBA manages this register.
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m5_power_group
+                    state: Own
+                card:
+                    type: tile
+                    entity: number.marstek_m5_max_discharge_power
+                    name: Max Power
+                    hide_state: true
+                    vertical: false
+                    features:
+                      - type: numeric-input
+                        style: buttons
+                    features_position: inline
             grid_options:
               columns: 12
               rows: auto
@@ -3529,18 +3726,25 @@ views:
                   - type: numeric-input
                     style: buttons
                 features_position: inline
-              - type: tile
-                grid_options:
-                  columns: 12
-                  rows: 2
-                entity: number.marstek_m5_max_charge_power
-                name: 'Max. Power '
-                hide_state: true
-                vertical: false
-                features:
-                  - type: numeric-input
-                    style: buttons
-                features_position: inline
+              # Own group only: in a power group HBA manages this register.
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m5_power_group
+                    state: Own
+                card:
+                    type: tile
+                    grid_options:
+                      columns: 12
+                      rows: 2
+                    entity: number.marstek_m5_max_charge_power
+                    name: 'Max. Power '
+                    hide_state: true
+                    vertical: false
+                    features:
+                      - type: numeric-input
+                        style: buttons
+                    features_position: inline
           - type: heading
             icon: mdi:information-slab-circle
             heading: Cutoff capacities
@@ -3553,6 +3757,35 @@ views:
                 text: >-
                   Opens HBC documentation or video. HBA is closely based on HBC,
                   so most content also applies.
+          # Power group (shared breaker). Own = the registers above are yours; in a
+          # group HBA writes them from the group's max power and this battery's max.
+          - type: entities
+            entities:
+              - entity: input_select.hba_marstek_m5_power_group
+                name: Power group
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m5_power_group
+                    state_not: Own
+                row:
+                  entity: input_number.hba_marstek_m5_max_power
+                  name: Max power (charge and discharge)
+          - type: markdown
+            text_only: true
+            content: >-
+              {%- set c = state_attr('sensor.hba_power_limits', 'charge') or {} -%}
+              {%- set d = state_attr('sensor.hba_power_limits', 'discharge') or {} -%}
+              {%- set rc = states('number.marstek_m5_max_charge_power') | int(0) -%}
+              {%- set rd = states('number.marstek_m5_max_discharge_power') | int(0) -%}
+              <font color="#9b9b9b">Set by HBA: max charge **{{ rc }} W**
+              {%- if '5' in c and c['5'] != rc %} → {{ c['5'] }} W{% endif %},
+              max discharge **{{ rd }} W**
+              {%- if '5' in d and d['5'] != rd %} → {{ d['5'] }} W{% endif %}.</font>
+            visibility:
+              - condition: state
+                entity: input_select.hba_marstek_m5_power_group
+                state_not: Own
         visibility:
           - condition: numeric_state
             entity: input_number.hba_battery_count
@@ -3579,15 +3812,22 @@ views:
                   - type: numeric-input
                     style: buttons
                 features_position: inline
-              - type: tile
-                entity: number.marstek_m6_max_discharge_power
-                name: Max Power
-                hide_state: true
-                vertical: false
-                features:
-                  - type: numeric-input
-                    style: buttons
-                features_position: inline
+              # Own group only: in a power group HBA manages this register.
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m6_power_group
+                    state: Own
+                card:
+                    type: tile
+                    entity: number.marstek_m6_max_discharge_power
+                    name: Max Power
+                    hide_state: true
+                    vertical: false
+                    features:
+                      - type: numeric-input
+                        style: buttons
+                    features_position: inline
             grid_options:
               columns: 12
               rows: auto
@@ -3608,18 +3848,25 @@ views:
                   - type: numeric-input
                     style: buttons
                 features_position: inline
-              - type: tile
-                grid_options:
-                  columns: 12
-                  rows: 2
-                entity: number.marstek_m6_max_charge_power
-                name: 'Max. Power '
-                hide_state: true
-                vertical: false
-                features:
-                  - type: numeric-input
-                    style: buttons
-                features_position: inline
+              # Own group only: in a power group HBA manages this register.
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m6_power_group
+                    state: Own
+                card:
+                    type: tile
+                    grid_options:
+                      columns: 12
+                      rows: 2
+                    entity: number.marstek_m6_max_charge_power
+                    name: 'Max. Power '
+                    hide_state: true
+                    vertical: false
+                    features:
+                      - type: numeric-input
+                        style: buttons
+                    features_position: inline
           - type: heading
             icon: mdi:information-slab-circle
             heading: Cutoff capacities
@@ -3632,10 +3879,247 @@ views:
                 text: >-
                   Opens HBC documentation or video. HBA is closely based on HBC,
                   so most content also applies.
+          # Power group (shared breaker). Own = the registers above are yours; in a
+          # group HBA writes them from the group's max power and this battery's max.
+          - type: entities
+            entities:
+              - entity: input_select.hba_marstek_m6_power_group
+                name: Power group
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m6_power_group
+                    state_not: Own
+                row:
+                  entity: input_number.hba_marstek_m6_max_power
+                  name: Max power (charge and discharge)
+          - type: markdown
+            text_only: true
+            content: >-
+              {%- set c = state_attr('sensor.hba_power_limits', 'charge') or {} -%}
+              {%- set d = state_attr('sensor.hba_power_limits', 'discharge') or {} -%}
+              {%- set rc = states('number.marstek_m6_max_charge_power') | int(0) -%}
+              {%- set rd = states('number.marstek_m6_max_discharge_power') | int(0) -%}
+              <font color="#9b9b9b">Set by HBA: max charge **{{ rc }} W**
+              {%- if '6' in c and c['6'] != rc %} → {{ c['6'] }} W{% endif %},
+              max discharge **{{ rd }} W**
+              {%- if '6' in d and d['6'] != rd %} → {{ d['6'] }} W{% endif %}.</font>
+            visibility:
+              - condition: state
+                entity: input_select.hba_marstek_m6_power_group
+                state_not: Own
         visibility:
           - condition: numeric_state
             entity: input_number.hba_battery_count
             above: 5
+
+      # Power groups — batteries that share one breaker. Each battery's group is set in
+      # its own block above; here the group's max power, spread policy and live limits.
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: Power groups
+            heading_style: title
+            icon: mdi:fuse
+          - type: markdown
+            text_only: true
+            content: |-
+              {%- set pr = state_attr('sensor.hba_power_limits', 'problems') or [] -%}
+              {%- if pr %}
+              <ha-alert alert-type="warning" title="Power groups inactive">
+
+              Set these first — until then HBA leaves the limit registers of that group alone:
+              {% for x in pr %}
+              - {{ x }}
+              {%- endfor %}
+
+              </ha-alert>
+              {% endif -%}
+              Batteries on **one breaker** go in the same group (set per battery above).
+              HBA then writes their **max charge** and **max discharge** registers so that,
+              per direction, a group never adds up to more than its max power. The limits sit
+              in the batteries, so the breaker stays protected when HA is down or a battery
+              runs on its own. **Equal** splits the max power evenly (never above a battery's
+              own max); **One at a time** gives one battery as much as it can until it is full
+              or empty. A full battery hands its *charge* share to the others, an empty one
+              its *discharge* share. HBA lowers a battery first and raises the other only once
+              the battery reports the lower value.
+          - type: entities
+            entities:
+              - type: conditional
+                conditions:
+                  - condition: or
+                    conditions:
+                      - condition: state
+                        entity: input_select.hba_marstek_m1_power_group
+                        state: A
+                      - condition: state
+                        entity: input_select.hba_marstek_m2_power_group
+                        state: A
+                      - condition: state
+                        entity: input_select.hba_marstek_m3_power_group
+                        state: A
+                      - condition: state
+                        entity: input_select.hba_marstek_m4_power_group
+                        state: A
+                      - condition: state
+                        entity: input_select.hba_marstek_m5_power_group
+                        state: A
+                      - condition: state
+                        entity: input_select.hba_marstek_m6_power_group
+                        state: A
+                row:
+                  entity: input_number.hba_power_group_a_max_power
+                  name: Group A max power
+              - type: conditional
+                conditions:
+                  - condition: or
+                    conditions:
+                      - condition: state
+                        entity: input_select.hba_marstek_m1_power_group
+                        state: A
+                      - condition: state
+                        entity: input_select.hba_marstek_m2_power_group
+                        state: A
+                      - condition: state
+                        entity: input_select.hba_marstek_m3_power_group
+                        state: A
+                      - condition: state
+                        entity: input_select.hba_marstek_m4_power_group
+                        state: A
+                      - condition: state
+                        entity: input_select.hba_marstek_m5_power_group
+                        state: A
+                      - condition: state
+                        entity: input_select.hba_marstek_m6_power_group
+                        state: A
+                row:
+                  entity: input_select.hba_power_group_a_policy
+                  name: Group A spread
+              - type: conditional
+                conditions:
+                  - condition: or
+                    conditions:
+                      - condition: state
+                        entity: input_select.hba_marstek_m1_power_group
+                        state: B
+                      - condition: state
+                        entity: input_select.hba_marstek_m2_power_group
+                        state: B
+                      - condition: state
+                        entity: input_select.hba_marstek_m3_power_group
+                        state: B
+                      - condition: state
+                        entity: input_select.hba_marstek_m4_power_group
+                        state: B
+                      - condition: state
+                        entity: input_select.hba_marstek_m5_power_group
+                        state: B
+                      - condition: state
+                        entity: input_select.hba_marstek_m6_power_group
+                        state: B
+                row:
+                  entity: input_number.hba_power_group_b_max_power
+                  name: Group B max power
+              - type: conditional
+                conditions:
+                  - condition: or
+                    conditions:
+                      - condition: state
+                        entity: input_select.hba_marstek_m1_power_group
+                        state: B
+                      - condition: state
+                        entity: input_select.hba_marstek_m2_power_group
+                        state: B
+                      - condition: state
+                        entity: input_select.hba_marstek_m3_power_group
+                        state: B
+                      - condition: state
+                        entity: input_select.hba_marstek_m4_power_group
+                        state: B
+                      - condition: state
+                        entity: input_select.hba_marstek_m5_power_group
+                        state: B
+                      - condition: state
+                        entity: input_select.hba_marstek_m6_power_group
+                        state: B
+                row:
+                  entity: input_select.hba_power_group_b_policy
+                  name: Group B spread
+              - type: conditional
+                conditions:
+                  - condition: or
+                    conditions:
+                      - condition: state
+                        entity: input_select.hba_marstek_m1_power_group
+                        state: C
+                      - condition: state
+                        entity: input_select.hba_marstek_m2_power_group
+                        state: C
+                      - condition: state
+                        entity: input_select.hba_marstek_m3_power_group
+                        state: C
+                      - condition: state
+                        entity: input_select.hba_marstek_m4_power_group
+                        state: C
+                      - condition: state
+                        entity: input_select.hba_marstek_m5_power_group
+                        state: C
+                      - condition: state
+                        entity: input_select.hba_marstek_m6_power_group
+                        state: C
+                row:
+                  entity: input_number.hba_power_group_c_max_power
+                  name: Group C max power
+              - type: conditional
+                conditions:
+                  - condition: or
+                    conditions:
+                      - condition: state
+                        entity: input_select.hba_marstek_m1_power_group
+                        state: C
+                      - condition: state
+                        entity: input_select.hba_marstek_m2_power_group
+                        state: C
+                      - condition: state
+                        entity: input_select.hba_marstek_m3_power_group
+                        state: C
+                      - condition: state
+                        entity: input_select.hba_marstek_m4_power_group
+                        state: C
+                      - condition: state
+                        entity: input_select.hba_marstek_m5_power_group
+                        state: C
+                      - condition: state
+                        entity: input_select.hba_marstek_m6_power_group
+                        state: C
+                row:
+                  entity: input_select.hba_power_group_c_policy
+                  name: Group C spread
+            visibility:
+              - condition: state
+                entity: sensor.hba_power_limits
+                state_not: Not used
+          - type: markdown
+            text_only: true
+            content: |-
+              {%- set g = state_attr('sensor.hba_power_limits', 'groups') or {} -%}
+              {%- set full = state_attr('sensor.hba_power_limits', 'full') or [] -%}
+              {%- set empty = state_attr('sensor.hba_power_limits', 'empty') or [] -%}
+              {%- for G, x in g.items() %}
+              **Group {{ G }}** — {{ x.policy }}, max {{ x.max_power }} W
+
+              | | Max charge | Max discharge | SoC |
+              |---|---|---|---|
+              {% for b in x.members -%}
+              | M{{ b }} | {{ states('number.marstek_m' ~ b ~ '_max_charge_power') | int(0) }} W | {{ states('number.marstek_m' ~ b ~ '_max_discharge_power') | int(0) }} W | {{ states('sensor.marstek_m' ~ b ~ '_battery_state_of_charge') | float(0) | round(0) | int }} %{{ ' · full' if b in full else '' }}{{ ' · empty' if b in empty else '' }} |
+              {% endfor %}
+              {% endfor -%}
+            visibility:
+              - condition: state
+                entity: sensor.hba_power_limits
+                state: Active
 
       - type: grid
         cards:

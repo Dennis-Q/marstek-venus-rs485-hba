@@ -19,6 +19,13 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Fixed
 
+- **A restarted battery was skipped by HBA until its limits were set again** — after a
+  restart a Marstek reports max charge / max discharge power (44002/44003) as 0 until they
+  are written, while the battery itself keeps limiting at its stored value (firmware: the
+  Modbus read comes from a RAM copy that a restart clears). HBA's distribution used that 0 as
+  the battery's maximum and gave it no power. Both registers reading 0 now counts as a
+  restart: HBA uses the last known limit and writes it back. A deliberate 0 W on one
+  direction still counts as 0 W.
 - **Large grid connections or six batteries could stop battery control** — the PID helpers
   had HBC's ranges (error and output ±15 kW, P/I/D terms ±10 kW). In HBC those are display
   values; in HBA they *are* the controller state, so a value outside the range made the write
@@ -122,6 +129,40 @@ open), so the version prefix stays at 4.10.1 for now.
   Dynamic view (see Changed: Timed and Dynamic have their own views).
 
 ### Added
+
+- **Power groups — batteries that share one breaker** (HBA-only) — put batteries on the same
+  circuit in group A, B or C (per battery in Advanced settings; default *Own* = unchanged).
+  Per group you set a **max power** (the breaker, e.g. 3500 W for 16 A) and a **spread
+  policy**; per battery a **max power** of its own (one value for charging and discharging).
+  HBA then writes the batteries' **max charge / max discharge power registers** so that, per
+  direction, a group never adds up to more than its max power. Because the limits sit *in*
+  the batteries, the breaker stays protected when HA is down or a battery runs on its own
+  (Marstek app, anti-feed) — HBA's own distribution keeps working inside those limits.
+  - *Equal* (default) splits the max power evenly, never above a battery's own max (what one
+    battery cannot take goes to the other). *One at a time* gives one battery as much as it
+    can and keeps that until it is full or empty.
+  - A full battery hands its **charge** share to the others, an empty one its **discharge**
+    share — charging and discharging are split separately, so a full battery still
+    discharges at its full share in the evening. *Full* = within 1 % of the charge cutoff
+    (again below cutoff − 4 %); *empty* = within 2 % of the discharge cutoff (again above
+    cutoff + 5 %) — wider at the bottom because a Venus E v3 stops on its own ~13 % floor.
+  - **Safe swap:** HBA lowers a battery first and raises the other only into room that the
+    batteries' *read-back* registers leave, i.e. after the lower has landed. A battery that
+    cannot be reached keeps its share reserved — it may still be running on its old limit.
+  - Writing an unchanged limit costs no EEPROM cycle (Marstek firmware change guard), and
+    limits only change on full/empty/settings changes — a few writes per day.
+  - Joining a group starts from the battery's current limits (the lower of the two), so an
+    800 W plug-in battery is never raised without you saying so. A group with a missing max
+    power stays inactive and says so (Overview + Advanced settings banner).
+  - New: `sensor.hba_power_limits` (state *Not used* / *Check settings* / *Active*;
+    intended limits, groups, full/empty, last known limits as attributes),
+    `automation.hba_power_groups_apply_limit_registers`, a *Power groups* section in
+    Advanced settings; the register tiles per battery only show while it is in *Own*.
+- **Battery restart: notification + limits written back** — a restarted battery is
+  recognised by its limit registers coming back as 0 after it was unreachable (see Fixed).
+  HBA writes the last known values back and sends *Battery Mx restarted*. If the limits still
+  read 0 five minutes later, `binary_sensor.hba_power_limits_not_restored` raises an
+  Overview banner, a notification and a persistent notification (resolved when fixed).
 
 - **Timed: periods D and E** (HBC v4.12) — up to five periods (A–E), each with its own start,
   stop and strategy; add/remove them with the + / − tiles as before. New
