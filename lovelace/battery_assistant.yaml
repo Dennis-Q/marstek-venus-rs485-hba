@@ -530,10 +530,35 @@ views:
             heading: Master Battery Control
             heading_style: title
             icon: mdi:gamepad-variant-outline
+          # What the batteries do while the EV charges — follows "Strategy during EV charge"
+          # (it used to say Full Stop for every policy).
           - type: markdown
             content: >-
+              {%- set pol = states('input_select.hba_control_strategy_during_ev_charge') -%}
+              {%- set along = is_state('binary_sensor.hba_ev_charge_alongside', 'on') -%}
+              {%- if pol == 'Charge alongside EV' and along -%}
+              {%- if is_state_attr('binary_sensor.hba_ev_charge_alongside', 'mode', 'Batteries first') -%}
+              <ha-alert alert-type="warning">EV is charging — batteries get priority until
+              {{ states('input_number.hba_ev_battery_priority_energy') | float(0) | round(1) }} kWh usable
+              (now {{ states('sensor.hba_charge_available_energy') | float(0) | round(1) }} kWh); the
+              charger slows the car. Batteries follow {{ states('sensor.hba_active_strategy') }} and never
+              discharge into the car.</ha-alert>
+              {%- else -%}
+              <ha-alert alert-type="warning">EV is charging and gets priority — batteries only use the
+              room left under {{ states('input_number.hba_ev_phase_current_limit') | float(22) | round(1) }} A
+              per phase ({{ states('sensor.hba_active_strategy') }}), never discharging into the
+              car.</ha-alert>
+              {%- endif -%}
+              {%- elif pol == 'Charge PV' -%}
+              <ha-alert alert-type="warning">EV is charging — batteries only charge the solar surplus
+              the car cannot take (Charge PV).</ha-alert>
+              {%- elif pol == 'Standby / peak shave' -%}
+              <ha-alert alert-type="warning">EV is charging — batteries on standby, only reacting to the
+              import / export limits.</ha-alert>
+              {%- else -%}
               <ha-alert alert-type="error">EV is charging — Full Stop strategy
               is active.</ha-alert>
+              {%- endif -%}
             text_only: true
             grid_options:
               columns: full
