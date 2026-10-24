@@ -574,6 +574,54 @@ automation:
                   data:
                     value: "{{ start }}"
 
+  # ── Power groups: give a battery its own limits back when it leaves ────────────
+  # In a group HBA writes the battery's limit registers (44002/44003) from the group's
+  # share; in "Own" those registers ARE the user's limits and HBA leaves them alone. So
+  # when a battery returns to Own, write its own max charge / max discharge power (the
+  # values it had in the group's place) back into the registers — otherwise the last
+  # group share (e.g. 800 W charge because it was full) silently stays its limit.
+  # Only limits that are set (> 0), only when the battery answers on Modbus, never in
+  # "Disabled" mode. Note: leaving a group also ends its combined limit — by design.
+  - id: hba_power_group_restore_own_limits
+    alias: "HBA: Power groups — restore own limits on leaving a group"
+    mode: queued
+    triggers:
+      - trigger: state
+        entity_id:
+          - input_select.hba_marstek_m1_power_group
+          - input_select.hba_marstek_m2_power_group
+          - input_select.hba_marstek_m3_power_group
+          - input_select.hba_marstek_m4_power_group
+          - input_select.hba_marstek_m5_power_group
+          - input_select.hba_marstek_m6_power_group
+        from: ["A", "B", "C"]
+        to: "Own"
+    conditions:
+      - condition: not
+        conditions:
+          - condition: state
+            entity_id: input_select.hba_marstek_master_battery_mode
+            state: "Disabled"
+    actions:
+      - variables:
+          bat: "{{ trigger.entity_id | regex_findall_index('_m(\\d)_') }}"
+      - repeat:
+          for_each: ["charge", "discharge"]
+          sequence:
+            - variables:
+                own: "{{ states('input_number.hba_marstek_m' ~ bat ~ '_max_' ~ repeat.item ~ '_power') | float(0) | int }}"
+                now: "{{ states('sensor.marstek_m' ~ bat ~ '_max_' ~ repeat.item ~ '_power_number') | float(-1) | int }}"
+            - if:
+                - condition: template
+                  value_template: "{{ own > 0 and now >= 0 and own != now }}"
+              then:
+                - action: number.set_value
+                  continue_on_error: true
+                  target:
+                    entity_id: "number.marstek_m{{ bat }}_max_{{ repeat.item }}_power"
+                  data:
+                    value: "{{ own }}"
+
 script:
   # ── Strategy dispatcher ───────────────────────────────────────────────────────
   # Called by hba_control_loop every ~1 s. Checks for the EV stop trigger first,

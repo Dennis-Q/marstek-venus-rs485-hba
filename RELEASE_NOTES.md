@@ -156,7 +156,9 @@ open), so the version prefix stays at 4.10.1 for now.
   - Writing an unchanged limit costs no EEPROM cycle (Marstek firmware change guard), and
     limits only change on full/empty/settings changes — a few writes per day.
   - Joining a group starts the battery's own limits from its registers, so an 800 W
-    plug-in battery is never raised without you saying so. A group with a missing max
+    plug-in battery is never raised without you saying so.
+    Leaving a group (back to *Own*) writes the battery's own limits back into its registers,
+    so no group share (e.g. 800 W charge because it was full) stays behind as its limit. A group with a missing max
     power stays inactive and says so (Overview + Advanced settings banner).
   - **Use at your own risk:** this is a software limit, not electrical protection — a firmware
     bug, a battery reset, an app setting or a configuration mistake can exceed it. Always have
