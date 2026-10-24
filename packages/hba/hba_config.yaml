@@ -133,12 +133,18 @@
 #   With the charger's power HBA keeps the room the car still needs to reach
 #   input_number.hba_ev_max_current free, so a car that the charger's own load
 #   balancing throttled goes straight back to full speed. Without it, the
-#   batteries fill that room and the car can stay slow for minutes. Define ONE of:
-#     sensor.ev_charger_power                 W, total — enough for 3-phase charging;
-#                                             for 1-phase charging HBA holds room on
-#                                             every phase (conservative)
-#     sensor.ev_charger_power_l1 / _l2 / _l3  W per GRID phase — exact, also for
-#                                             1-phase charging (used when present)
+#   batteries fill that room and the car can stay slow for minutes.
+#
+#   Define EITHER the total OR all three per-phase sensors — not both needed:
+#     sensor.ev_charger_power                 W, total (EXAMPLE 4) — enough for 3-phase
+#                                             charging; for 1-phase charging HBA holds
+#                                             room on every phase (conservative)
+#     sensor.ev_charger_power_l1 / _l2 / _l3  W per GRID phase (EXAMPLE 5) — exact, also
+#                                             for 1-phase charging. Define all three:
+#                                             once one exists HBA uses per phase and
+#                                             counts a missing phase as 0 W. When these
+#                                             exist, a total sensor is ignored.
+#   Neither defined = no room is held back for the car (works, just slower to recover).
 #   Map the charger's phases to the GRID phases: installers often wire chargers
 #   rotated (charger phase 1 on grid L3). Check with a 1-phase charging session:
 #   only that grid phase's sensor.p1_meter_power_lX moves with the charger.
