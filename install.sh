@@ -257,6 +257,15 @@ else
     echo ""
 fi
 
+# ── hba_config.yaml.example — always refreshed ───────────────────────────────
+# The user's hba_config.yaml is never overwritten, so it never gets new examples
+# (e.g. the ADVANCED per-phase sensors). Keep the latest template next to it as
+# .example: HA only loads *.yaml from packages/, so this file is never loaded.
+
+download "$CONFIG_PKG" "${CONFIG_DIR}/${CONFIG_PKG}.example"
+ok "${CONFIG_PKG}.example (latest examples to copy from — not loaded by HA)"
+echo ""
+
 # ── Marstek battery files — ask if none found ─────────────────────────────────
 # If the user already has marstek files (with their IPs set), skip entirely.
 # On a fresh install, offer to download them and prompt for battery count.
@@ -350,6 +359,7 @@ echo "  4. Restart Home Assistant"
 echo "  5. Open the Home Battery Assistant dashboard and run onboarding"
 else
 echo "  1. Edit packages/hba/hba_config.yaml if you changed your P1 sensor setup"
+echo "     (new examples, e.g. for advanced features: packages/hba/hba_config.yaml.example)"
 echo "  2. Restart Home Assistant (or reload YAML)"
 echo "  3. Check Advanced Settings on the dashboard — new features added in this"
 echo "     release have individual 'Apply section defaults' buttons to initialize"

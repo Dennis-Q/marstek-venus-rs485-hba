@@ -207,6 +207,8 @@ homeassistant:
 ### Step 3 — Configure your grid power sensor
 
 Edit `packages/hba/hba_config.yaml` to define `sensor.p1_meter_power` for your setup.
+Your copy is never overwritten on updates; the installer keeps the latest examples next to it
+in `hba_config.yaml.example` to copy from.
 The file ships with commented examples. The sensor must be **positive when importing**
 from the grid and negative when exporting. Entity names depend on your DSMR reader —
 check **Developer Tools → States** to find the correct ones.
@@ -269,6 +271,7 @@ no manual helper editing required.
 | File(s) | Purpose | Edit? |
 |---|---|---|
 | `hba_config.yaml` | Grid power sensor (`sensor.p1_meter_power`) | **Yes** — required |
+| `hba_config.yaml.example` | Latest version of the template with all examples (incl. the ADVANCED ones) — refreshed on every install / update, never loaded by HA | No — copy from it |
 | `marstek_m1–6_modbus_tcp.yaml` | Modbus hub + all sensors per battery | IPs only |
 | `hba_helpers.yaml` | All input helpers and aggregate sensors | No |
 | `hba_strategies_core.yaml` | Control loop, PID controller, strategy dispatch | No |

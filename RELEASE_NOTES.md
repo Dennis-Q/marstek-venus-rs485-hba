@@ -130,6 +130,12 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Added
 
+- **`hba_config.yaml.example`** — your own `hba_config.yaml` is never overwritten on updates, so
+  new examples (like the ADVANCED per-phase sensors) never reached it. The installer now writes
+  the latest template next to it as `packages/hba/hba_config.yaml.example` on every install /
+  update. HA only loads `*.yaml`, so it is never loaded — copy what you need into your
+  `hba_config.yaml`.
+
 - **Power groups — a combined power limit for several batteries** (HBA-only) — e.g. batteries
   on one breaker, a limit per phase, or plug-in batteries that together keep to the 800 W
   guideline. Put them in group A, B or C (per battery in Advanced settings; default *Own* = unchanged).
