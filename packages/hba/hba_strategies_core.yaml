@@ -1172,6 +1172,14 @@ script:
                           {%- set eff_max = [eff_max, rm.d[ph] if ph in rm.d else (rm.d.values() | min)] | min -%}
                         {%- endif -%}
                         {%- set share = [ns.remaining, eff_max] | min | round(0) | int -%}
+                        {#- Do not wake an extra battery for a few watts (min start power): only when
+                            another battery already takes power and this one is not running yet. -#}
+                        {%- set lc = states('input_text.hba_last_cmd_m' ~ bat).split('|') -%}
+                        {%- set running = lc | length >= 3 and lc[0] == 'charge' and (lc[1] | int(0)) > 1 -%}
+                        {%- set ms = states('input_number.hba_control_min_start_power') | float(0) -%}
+                        {%- if share > 0 and share < ms and not running and ns.remaining < (desired | abs) -%}
+                          {%- set share = 0 -%}
+                        {%- endif -%}
                         {%- set ns.remaining = ns.remaining - share -%}
                         {%- set ns.shares = ns.shares | combine({bat | string: share}) -%}
                         {%- if rm.d and ph in rm.d -%}
@@ -1294,6 +1302,14 @@ script:
                       {%- set eligible = live and soc > soc_min and inv not in ['Fault','unknown','unavailable'] -%}
                       {%- if eligible -%}
                         {%- set share = [ns.remaining, hw_max] | min | round(0) | int -%}
+                        {#- Do not wake an extra battery for a few watts (min start power): only when
+                            another battery already takes power and this one is not running yet. -#}
+                        {%- set lc = states('input_text.hba_last_cmd_m' ~ bat).split('|') -%}
+                        {%- set running = lc | length >= 3 and lc[0] == 'discharge' and (lc[2] | int(0)) > 1 -%}
+                        {%- set ms = states('input_number.hba_control_min_start_power') | float(0) -%}
+                        {%- if share > 0 and share < ms and not running and ns.remaining < (desired | abs) -%}
+                          {%- set share = 0 -%}
+                        {%- endif -%}
                         {%- set ns.remaining = ns.remaining - share -%}
                         {%- set ns.shares = ns.shares | combine({bat | string: share}) -%}
                       {%- else -%}
@@ -1448,6 +1464,10 @@ script:
       - action: input_number.set_value
         target: { entity_id: input_number.hba_control_idle_time }
         data: { value: 5 }
+      # Below ~200 W a battery mostly covers its own ~20-25 W overhead (measured 2026-10-24).
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_control_min_start_power }
+        data: { value: 200 }
       # 30 s: bounded exposure if a battery drops its setpoint, while still
       # eliminating ~78 % of the Modbus writes. 0 = write every cycle.
       - action: input_number.set_value

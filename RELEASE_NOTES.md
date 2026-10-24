@@ -130,6 +130,15 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Added
 
+- **Minimum power to start an extra battery** (`input_number.hba_control_min_start_power`,
+  default 200 W, 0 = off) — an extra battery (one not running yet while another already takes
+  power) only starts when its share is at least this much; the first battery always may, so a
+  low night base load is still covered. Below ~200 W a Marstek mostly covers its own fixed
+  ~20–25 W (prod: discharge efficiency ~74 % at 100–200 W, ~87 % at 200–300 W), and a
+  few-watt share — e.g. the last bit of a phase's room while the car charges — only toggled its
+  inverter Standby ↔ Charge. A battery already running still ramps down to 0 smoothly.
+  Advanced settings → next to *Stop after idle for*.
+
 - **`hba_config.yaml.example`** — your own `hba_config.yaml` is never overwritten on updates, so
   new examples (like the ADVANCED per-phase sensors) never reached it. The installer now writes
   the latest template next to it as `packages/hba/hba_config.yaml.example` on every install /

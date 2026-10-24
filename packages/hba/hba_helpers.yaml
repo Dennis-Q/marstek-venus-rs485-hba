@@ -138,6 +138,20 @@ input_number:
     mode: box
     unit_of_measurement: W
     icon: mdi:arrow-expand-horizontal
+  # An EXTRA battery (one that is not running yet, while another already takes power)
+  # only starts when its share is at least this much; the first battery always may.
+  # Below ~200 W a Marstek mostly covers its own fixed ~20-25 W (prod 2026-10-24,
+  # discharge efficiency ~74 % at 100-200 W, ~87 % at 200-300 W), and a few-watt share
+  # only toggled its inverter Standby <-> Charge. A battery already running may ramp
+  # down to 0 smoothly. 0 = off.
+  hba_control_min_start_power:
+    name: "Minimum power to start an extra battery"
+    min: 0
+    max: 1000
+    step: 10
+    mode: box
+    unit_of_measurement: W
+    icon: mdi:power-plug-battery-outline
   hba_control_idle_time:
     name: "Idle timeout"
     min: 0

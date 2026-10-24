@@ -3061,6 +3061,8 @@ views:
             entities:
               - entity: input_number.hba_control_idle_time
                 name: Stop after Idle for
+              - entity: input_number.hba_control_min_start_power
+                name: Min. power to start an extra battery
               - entity: input_number.hba_control_hysteresis
                 name: 'Hysteresis '
                 secondary_info: none
