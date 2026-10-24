@@ -13,6 +13,9 @@
 #
 # ONLY THIS FILE needs editing. All other hba_*.yaml files work as-is.
 #
+# REQUIRED: sensor.p1_meter_power (EXAMPLE 1 or 2). Everything under "ADVANCED" further
+# down is only needed for advanced features and can be left out.
+#
 # ─────────────────────────────────────────────────────────────────────────────
 
 # EXAMPLE 1 — Separate consumption and production sensors (most common)
@@ -47,21 +50,31 @@
 #         state: "{{ states('sensor.YOUR_COMBINED_P1_SENSOR') | float(0) | round(0) | int }}"
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# OPTIONAL — per-phase grid power, for "Charge alongside EV" (car first)
+# ═════════════════════════════════════════════════════════════════════════════
+# ADVANCED — only needed for advanced features
 #
-#   Only needed when you use Strategy during EV charge → Charge alongside EV with
-#   the car first. HBA reads these fixed names; define the phases your batteries
-#   are on (a battery whose phase is "Not set" needs all three):
+#   Everything below is OPTIONAL. Only define these sensors when you use
+#   Strategy during EV charge → "Charge alongside EV" with the car first. HBA works
+#   fine without them; that feature then tells you on the dashboard which ones it
+#   misses. Add them to the SAME `template:` → `- sensor:` list as P1 Meter Power
+#   above (one `template:` key per file — a second one silently drops the first).
+# ═════════════════════════════════════════════════════════════════════════════
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ADVANCED A — per-phase grid power (P1 meter)
+#
+#   HBA keeps each phase below the phase limit while the car charges. Fixed names:
 #     sensor.p1_meter_power_l1 / _l2 / _l3   W, POSITIVE when importing on that phase
 #     sensor.p1_meter_voltage_l1 / _l2 / _l3 V, optional (230 V is used without)
-#   Missing ones are listed in a banner, and the batteries then get no room on that
-#   phase while the car charges (safe: they do not charge).
-#   Do not use a phase CURRENT sensor for the power: DSMR phase current has no sign.
+#   Only the phases your batteries are on are needed (a battery whose phase is
+#   "Not set" needs all three). Missing ones are listed in a banner, and the
+#   batteries then get no room on that phase while the car charges first (safe).
+#   Do NOT use the meter's phase CURRENT sensor: DSMR phase current has no sign.
+#   Set each battery's phase as your P1 meter numbers it (Advanced settings) — that
+#   can differ from the labels in the meter cupboard.
 #
-# EXAMPLE 3 — separate consumption/production per phase (DSMR / HomeWizard style)
-#   Merge into the same template: block as your P1 Meter Power above (one
-#   `template:` key per file).
+# EXAMPLE 3 — separate consumption / production per phase (DSMR / HomeWizard style)
+#   Entity names vary by integration — check Developer Tools → States.
 #
 # template:
 #   - sensor:
@@ -73,33 +86,62 @@
 #         state: >
 #           {{ (states('sensor.power_consumption_phase_l1') | float(0)
 #               - states('sensor.power_production_phase_l1') | float(0)) | round(0) | int }}
-#       # … same for L2 and L3 …
+#         availability: "{{ has_value('sensor.power_consumption_phase_l1') }}"
+#       - name: "P1 Meter Power L2"
+#         unique_id: "p1_meter_power_l2"
+#         unit_of_measurement: "W"
+#         device_class: "power"
+#         state_class: "measurement"
+#         state: >
+#           {{ (states('sensor.power_consumption_phase_l2') | float(0)
+#               - states('sensor.power_production_phase_l2') | float(0)) | round(0) | int }}
+#         availability: "{{ has_value('sensor.power_consumption_phase_l2') }}"
+#       - name: "P1 Meter Power L3"
+#         unique_id: "p1_meter_power_l3"
+#         unit_of_measurement: "W"
+#         device_class: "power"
+#         state_class: "measurement"
+#         state: >
+#           {{ (states('sensor.power_consumption_phase_l3') | float(0)
+#               - states('sensor.power_production_phase_l3') | float(0)) | round(0) | int }}
+#         availability: "{{ has_value('sensor.power_consumption_phase_l3') }}"
 #       - name: "P1 Meter Voltage L1"
 #         unique_id: "p1_meter_voltage_l1"
 #         unit_of_measurement: "V"
 #         device_class: "voltage"
 #         state_class: "measurement"
 #         state: "{{ states('sensor.voltage_phase_l1') | float(0) }}"
-#       # … same for L2 and L3 …
-
+#         availability: "{{ has_value('sensor.voltage_phase_l1') }}"
+#       - name: "P1 Meter Voltage L2"
+#         unique_id: "p1_meter_voltage_l2"
+#         unit_of_measurement: "V"
+#         device_class: "voltage"
+#         state_class: "measurement"
+#         state: "{{ states('sensor.voltage_phase_l2') | float(0) }}"
+#         availability: "{{ has_value('sensor.voltage_phase_l2') }}"
+#       - name: "P1 Meter Voltage L3"
+#         unique_id: "p1_meter_voltage_l3"
+#         unit_of_measurement: "V"
+#         device_class: "voltage"
+#         state_class: "measurement"
+#         state: "{{ states('sensor.voltage_phase_l3') | float(0) }}"
+#         availability: "{{ has_value('sensor.voltage_phase_l3') }}"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# OPTIONAL — EV charger power, for "Charge alongside EV" (car first)
+# ADVANCED B — EV charger power
 #
-#   With the charger's power HBA keeps room free for the car up to
-#   input_number.hba_ev_max_current per phase, so a car that the charger's load
-#   balancing throttled can go straight back to full speed (without it, the
-#   batteries fill the room the car wants and it stays slow for minutes).
-#   Define ONE of:
-#     sensor.ev_charger_power          W, total — enough for 3-phase charging; for
-#                                      1-phase charging HBA holds room on every phase
-#     sensor.ev_charger_power_l1/_l2/_l3  W per GRID phase — exact, also 1-phase.
-#                                      Map the charger's phases to the grid phases:
-#                                      installers often rotate them (charger phase 1
-#                                      may be on grid L3). Check with a 1-phase session:
-#                                      only that grid phase's sensor.p1_meter_power_lX
-#                                      should move with the charger.
-#   Without either, HBA works as before (room from the measured load only).
+#   With the charger's power HBA keeps the room the car still needs to reach
+#   input_number.hba_ev_max_current free, so a car that the charger's own load
+#   balancing throttled goes straight back to full speed. Without it, the
+#   batteries fill that room and the car can stay slow for minutes. Define ONE of:
+#     sensor.ev_charger_power                 W, total — enough for 3-phase charging;
+#                                             for 1-phase charging HBA holds room on
+#                                             every phase (conservative)
+#     sensor.ev_charger_power_l1 / _l2 / _l3  W per GRID phase — exact, also for
+#                                             1-phase charging (used when present)
+#   Map the charger's phases to the GRID phases: installers often wire chargers
+#   rotated (charger phase 1 on grid L3). Check with a 1-phase charging session:
+#   only that grid phase's sensor.p1_meter_power_lX moves with the charger.
 #
 # EXAMPLE 4 — total charger power (here a Peblar)
 #
@@ -113,11 +155,29 @@
 #         state: "{{ states('sensor.peblar_ev_charger_power') | float(0) }}"
 #         availability: "{{ has_value('sensor.peblar_ev_charger_power') }}"
 #
-# EXAMPLE 5 — per grid phase (here a Peblar whose phase 1 sits on grid L3)
+# EXAMPLE 5 — per grid phase (here a Peblar via its Modbus sensors, charger phase 1
+#   on grid L1, 2 on L2, 3 on L3 — swap the phase numbers if yours is rotated)
 #
+# template:
+#   - sensor:
+#       - name: "EV Charger Power L1"
+#         unique_id: "ev_charger_power_l1"
+#         unit_of_measurement: "W"
+#         device_class: "power"
+#         state_class: "measurement"
+#         state: "{{ states('sensor.peblar_ev_charger_power_phase_1') | float(0) }}"
+#         availability: "{{ has_value('sensor.peblar_ev_charger_power_phase_1') }}"
+#       - name: "EV Charger Power L2"
+#         unique_id: "ev_charger_power_l2"
+#         unit_of_measurement: "W"
+#         device_class: "power"
+#         state_class: "measurement"
+#         state: "{{ states('sensor.peblar_ev_charger_power_phase_2') | float(0) }}"
+#         availability: "{{ has_value('sensor.peblar_ev_charger_power_phase_2') }}"
 #       - name: "EV Charger Power L3"
 #         unique_id: "ev_charger_power_l3"
 #         unit_of_measurement: "W"
 #         device_class: "power"
-#         state: "{{ states('sensor.peblar_ev_charger_power_phase_1') | float(0) }}"
-#       # … L1 / L2 from the charger's other phases …
+#         state_class: "measurement"
+#         state: "{{ states('sensor.peblar_ev_charger_power_phase_3') | float(0) }}"
+#         availability: "{{ has_value('sensor.peblar_ev_charger_power_phase_3') }}"
