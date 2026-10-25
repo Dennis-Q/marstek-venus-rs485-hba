@@ -195,7 +195,10 @@ open), so the version prefix stays at 4.10.1 for now.
     the rest, so one battery runs up to its max before a second one starts — each running
     battery costs a fixed ~20–25 W (prod: discharge efficiency ~58–74 % below 200 W,
     87–90 % at 200–500 W, 93–94 % from 500 W up to 2500 W). The ceilings move with that order
-    (frozen 30 min, a few register writes a day) — also while every battery in the group is
+    (frozen 30 min) but hand over only when the new first battery is 5 SoC points further
+    along than the current leader, or the leader is full / empty — each handover rewrites
+    the limit registers (EEPROM), and without this a sunny day would swap at almost every
+    30-min order update (prod: ~6 order changes a day in October) — also while every battery in the group is
     full or empty, so nothing flips back when they become usable again. *Equal* splits the max power evenly, never
     above a battery's own max. *One at a time* keeps one battery first until it is full or
     empty.

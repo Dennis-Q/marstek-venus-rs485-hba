@@ -372,7 +372,8 @@ Batteries whose combined power must stay within one limit — a shared breaker, 
 or plug-in batteries that together keep to the 800 W guideline — go in group A, B or C
 (Advanced settings, per battery). HBA then writes their max charge / max discharge registers so
 a group never adds up to more than its max power; each battery keeps its own limits on top.
-*Follow battery order* (default: the battery HBA uses first gets as much as it can), *Equal* or
+*Follow battery order* (default: the battery HBA uses first gets as much as it can; it hands
+over once another is 5 % further along), *Equal* or
 *One at a time*; a full battery hands its charge share to the others, an empty one its
 discharge share. A **main fuse limit per phase** (same section) keeps each phase below a
 current in every strategy, for charging and discharging (needs the per-phase P1 sensors).

@@ -4463,7 +4463,8 @@ views:
               more than its max power. The limits sit in the batteries, so they also hold
               when HA is down or a battery runs on its own. **Follow battery order**
               (default) gives the battery HBA uses first as much as it can, so one battery runs
-              up to its max before a second starts (each running battery costs ~20–25 W);
+              up to its max before a second starts (each running battery costs ~20–25 W) and
+              hands over once another battery is 5 % further along;
               **Equal** splits the max power evenly (never above a battery's own max); **One at
               a time** keeps one battery first until it is full or empty. A full battery hands its *charge*
               share to the others, an empty one its *discharge* share. HBA lowers a battery

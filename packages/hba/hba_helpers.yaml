@@ -1102,7 +1102,9 @@ input_select:
   #                  this lets one battery run up to its max before a second one starts:
   #                  each running battery costs a fixed ~20-25 W (prod 2026-10-24:
   #                  discharge efficiency ~58-74 % below 200 W, 87-90 % at 200-500 W,
-  #                  93-94 % from 500 W up to 2500 W)
+  #                  93-94 % from 500 W up to 2500 W). It hands over to the next first
+  #                  battery only when that one is 5 SoC points further along (or the
+  #                  leader is full / empty) — fewer EEPROM rewrites of the limits
   #   Equal        — the same share each (never above a battery's own max power); a
   #                  full (charging) or empty (discharging) battery hands its share on
   #   One at a time — one battery gets as much as it can, the others the rest; it keeps
@@ -2309,7 +2311,9 @@ template:
   #     empty (discharging); then the fullest (charging) / emptiest (discharging) next
   #   - Follow battery order: the leader is the group's first eligible battery in the
   #     order hba_set_batteries uses (sensor.hba_battery_order with Auto balance (SoC),
-  #     else cyclic from the priority battery) — it moves with that order (frozen 30 min)
+  #     else cyclic from the priority battery) — it moves with that order (frozen 30 min),
+  #     but only once the new first battery is 5 SoC points further along than the
+  #     current leader (or the leader is full / empty): fewer EEPROM rewrites
   # Full/empty latch with hysteresis so a battery at its cutoff does not flip the split:
   # full at charge cutoff − 1 %, not full again below cutoff − 4 %; empty at discharge
   # cutoff + 1 %, not empty again above cutoff + 4 %: a Venus E 3.0 stops itself just
@@ -2407,7 +2411,7 @@ template:
                     'i': i, 'g': states('input_select.hba_marstek_m' ~ i ~ '_power_group'),
                     'capc': states('input_number.hba_marstek_m' ~ i ~ '_max_charge_power') | float(0) | int,
                     'capd': states('input_number.hba_marstek_m' ~ i ~ '_max_discharge_power') | float(0) | int,
-                    'soc': soc, 'live': live, 'full': full, 'empty': empty,
+                    'soc': soc, 'hi': hi, 'lo': lo, 'live': live, 'full': full, 'empty': empty,
                     'lkc': lkc | int, 'lkd': lkd | int}] -%}
             {%- endfor -%}
             {#- The order hba_set_batteries fills batteries in, per direction (for
@@ -2479,6 +2483,20 @@ template:
                         {%- set ids = follow_pool | map(attribute='i') | list -%}
                         {%- set first = ordr.d[d] | select('in', ids) | list -%}
                         {%- set cand = follow_pool | selectattr('i', 'eq', first[0] if first else 0) | list or follow_pool -%}
+                        {#- Hand over only when the new first battery is 5 SoC points further
+                            along than the current leader (charging: more room below its charge
+                            cutoff; discharging: more above its discharge cutoff). Each handover
+                            rewrites 44002/44003 (EEPROM) on the group's batteries; without this a
+                            sunny day swaps at almost every 30-min order update. A leader that
+                            is full / empty is not in the pool and hands over at once. -#}
+                        {%- set cur = follow_pool | selectattr('i', 'eq', p.lead[key] if key in p.lead else 0) | list -%}
+                        {%- if cur and cur[0].i != cand[0].i and cur[0].soc >= 0 and cand[0].soc >= 0 -%}
+                          {%- set sc_new = (cand[0].hi - cand[0].soc) if d == 'charge' else (cand[0].soc - cand[0].lo) -%}
+                          {%- set sc_cur = (cur[0].hi - cur[0].soc) if d == 'charge' else (cur[0].soc - cur[0].lo) -%}
+                          {%- if sc_new < sc_cur + 5 -%}
+                            {%- set cand = cur -%}
+                          {%- endif -%}
+                        {%- endif -%}
                       {%- else -%}
                         {%- set cand = w.elig | selectattr('i', 'eq', p.lead[key] if key in p.lead else 0) | list -%}
                         {%- if not cand -%}
