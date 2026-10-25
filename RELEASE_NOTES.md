@@ -19,6 +19,10 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Fixed
 
+- **Installer: commit lookup failed on large commits** — with `pipefail`, `grep -m1` stopping
+  early on a 100+ KB GitHub API response (a merge commit with a big diff) broke the pipe and
+  the installer fell back to "latest commit unknown". grep now reads a here-string.
+
 - **Prices one hour off on the DST change** — day boundaries were "midnight + 86400 s" and the
   price table counted rows as hours since midnight. A DST day lasts 25 (October) or 23 (March)
   hours, so on 2026-10-25 every slot after the repeated 02:00 showed one row too late (the

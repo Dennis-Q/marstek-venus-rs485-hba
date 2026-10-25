@@ -48,15 +48,17 @@ fi
 
 # Resolve a branch to its latest commit: sets COMMIT_SHA, COMMIT_DATE, COMMIT_MSG.
 # Plain curl/grep/sed (no jq or python on a stock HA SSH add-on). Returns non-zero
-# when the GitHub API is unreachable or rate-limited.
+# when the GitHub API is unreachable or rate-limited. grep reads a here-string, not a
+# pipe: with pipefail, grep -m1 stopping early on a large response (a merge commit
+# with a big diff, 100+ KB) gave printf SIGPIPE and failed the whole lookup.
 resolve_commit() {
     local json
     json=$(curl -fsSL -H "Accept: application/vnd.github+json" \
            "https://api.github.com/repos/${REPO}/commits/$1" 2>/dev/null) || return 1
-    COMMIT_SHA=$(printf '%s\n' "$json" | grep -m1 -o '"sha": *"[0-9a-f]\{40\}"' \
+    COMMIT_SHA=$(grep -m1 -o '"sha": *"[0-9a-f]\{40\}"' <<<"$json" \
                  | grep -o '[0-9a-f]\{40\}') || return 1
-    COMMIT_DATE=$(printf '%s\n' "$json" | grep -m1 -o '"date": *"[^"]*"' | cut -d'"' -f4 | cut -c1-10)
-    COMMIT_MSG=$(printf '%s\n' "$json" | grep -m1 -o '"message": *"\([^"\\]\|\\.\)*"' \
+    COMMIT_DATE=$(grep -m1 -o '"date": *"[^"]*"' <<<"$json" | cut -d'"' -f4 | cut -c1-10)
+    COMMIT_MSG=$(grep -m1 -o '"message": *"\([^"\\]\|\\.\)*"' <<<"$json" \
                  | sed -e 's/^"message": *"//' -e 's/"$//' -e 's/\\n.*//' -e 's/\\"/"/g')
     [ -n "$COMMIT_SHA" ]
 }
