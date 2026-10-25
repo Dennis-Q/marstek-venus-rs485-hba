@@ -23,8 +23,10 @@ input_boolean:
   hba_control_onboarding_finished:
     name: "Finish onboarding"
     icon: mdi:check-circle-outline
+  # Shown as "Timed EV charge": the feature uses the battery-assist mechanism, but "battery
+  # assist" is not a term in HBA's UI (it may later also start automatically).
   hba_battery_assist_enabled:
-    name: "Battery assist enabled"
+    name: "Timed EV charge enabled"
     icon: mdi:battery-arrow-up
   hba_notifications_enabled:
     name: "Notifications enabled"

@@ -155,6 +155,13 @@ open), so the version prefix stays at 4.10.1 for now.
 - **Preview dashboard** — `lovelace/battery_assistant_preview.yaml`, downloaded by the installer,
   shown once registered (README "Preview dashboard"). HBA's own dashboard improvements land there
   first; the existing dashboard stays close to HBC's for users switching over.
+  So far there: per-phase table and power-group text tidied, Advanced settings reordered (short
+  sections first, long explanations collapsible, short labels), one name per concept — *Control
+  mode*, *Controller sensitivity*, *Timed EV charge* (no "battery assist" wording),
+  *Car-first limit per phase* vs *Main fuse per phase* with a cross-reference both ways, the
+  RS485 banner in plain language ("A battery is ignoring HBA"); its links stay in the preview.
+- `input_boolean.hba_battery_assist_enabled` is now named *Timed EV charge enabled* (entity ID
+  unchanged).
 
 - **Watchdog: control stalled** — `binary_sensor.hba_control_loop_stalled` turns on when HBA has
   not run a control cycle for 90 s in Full control (normally one per P1 update, ~1 s). Overview

@@ -120,7 +120,7 @@ views:
               The batteries were commanded to discharge but delivered no power
               (BMS refusal near its SoC floor, thermal protection, or rejected
               Modbus writes). The EV has been released so it stops charging
-              from grid; assist retries automatically in 30 minutes.
+              from grid; Timed EV charge tries again in 30 minutes.
               </ha-alert>
 
       # Battery not responding alert — mirrors hba_notify_battery_not_responding
@@ -224,11 +224,11 @@ views:
             grid_options:
               columns: full
             content: |-
-              <ha-alert alert-type="error" title="RS485 control disabled on a battery">
+              <ha-alert alert-type="error" title="A battery is ignoring HBA">
 
-              HBA is in **Full control**, but RS485 control is **disabled** on **{{ state_attr('binary_sensor.hba_rs485_mode_mismatch', 'mismatched_batteries') }}** — that battery silently ignores every HBA command.
+              **{{ state_attr('binary_sensor.hba_rs485_mode_mismatch', 'mismatched_batteries') }}** has its remote control (RS485) switched off, so it ignores every HBA command — usually after a battery restart.
 
-              HBA re-applies RS485 automatically within 5 minutes. If this keeps coming back, check the Marstek app or a recent firmware update.
+              HBA switches it back on automatically (within seconds, otherwise every 5 minutes). If this keeps coming back, check the Marstek app or a recent firmware update.
 
               </ha-alert>
 
@@ -417,7 +417,7 @@ views:
             heading_style: subtitle
             tap_action:
               action: navigate
-              navigation_path: /home-battery-assistant/advanced-settings
+              navigation_path: /hba-preview/advanced-settings
             visibility:
               - condition: and
                 conditions:
@@ -445,7 +445,7 @@ views:
             text_only: true
           - type: markdown
             content: >-
-              Set the Master Battery Control to `Full Control` after reviewing
+              Set **Control mode** to `Full control` after reviewing
               all installation instructions. Pick a battery charging strategy
               e.g. `self-consumption`, choose controller sensitivity `very safe`
               and you are done!
@@ -579,7 +579,7 @@ views:
                             else 'by the battery management system (cold, or almost full)') -%}
               <ha-alert alert-type="info">{{ 'Charging' if dir == 'charge' else 'Discharging' }} limited to {{ state_attr(B, 'max_w') }} W in total{{ ' ' if not why.startswith(':') }}{{ why }}. Details in Insights → Limits now.</ha-alert>
           - type: heading
-            heading: Master Battery Control
+            heading: Battery control
             heading_style: title
             icon: mdi:gamepad-variant-outline
           # What the batteries do while the EV charges — follows "Strategy during EV charge"
@@ -662,7 +662,7 @@ views:
           - type: markdown
             content: >-
               <ha-alert alert-type="warning">HBC (Home Battery Control) is in
-              Full Control — it may be managing your batteries. Use the buttons
+              full control — it may be managing your batteries. Use the buttons
               below to hand off.</ha-alert>
             text_only: true
             grid_options:
@@ -750,7 +750,7 @@ views:
             vertical: false
             show_entity_picture: false
             hide_state: true
-            name: Control Mode
+            name: Control mode
             icon: mdi:camera-control
           - type: tile
             entity: input_select.hba_strategy
@@ -771,7 +771,7 @@ views:
             heading_style: subtitle
             tap_action:
               action: navigate
-              navigation_path: /home-battery-assistant/dynamic
+              navigation_path: /hba-preview/dynamic
             visibility:
               - condition: state
                 entity: input_select.hba_strategy
@@ -956,11 +956,13 @@ views:
             heading_style: subtitle
             tap_action:
               action: navigate
-              navigation_path: /home-battery-assistant/self-consumption
+              navigation_path: /hba-preview/self-consumption
           - type: markdown
             content: >-
-              <ha-alert alert-type="warning">High controller sensitivity,
-              monitor your system.</ha-alert>
+              <ha-alert alert-type="warning">Controller set more aggressive than the
+              presets (Kp, Ki or Kd above 0.5, or strong smoothing). Watch for battery
+              power swinging up and down; pick a *Controller sensitivity* preset to go back
+              to tested values.</ha-alert>
             visibility:
               - condition: or
                 conditions:
@@ -990,7 +992,7 @@ views:
             heading_style: subtitle
             tap_action:
               action: navigate
-              navigation_path: /home-battery-assistant/self-consumption
+              navigation_path: /hba-preview/self-consumption
 
       # Battery status
       - type: grid
@@ -1232,7 +1234,7 @@ views:
             heading_style: subtitle
             tap_action:
               action: navigate
-              navigation_path: /home-battery-assistant/insights
+              navigation_path: /hba-preview/insights
           - type: markdown
             content: '---'
             text_only: true
@@ -1335,8 +1337,10 @@ views:
                   so most content also applies.
           - type: markdown
             content: >-
-              <ha-alert alert-type="warning">High controller sensitivity,
-              monitor your system.</ha-alert>
+              <ha-alert alert-type="warning">Controller set more aggressive than the
+              presets (Kp, Ki or Kd above 0.5, or strong smoothing). Watch for battery
+              power swinging up and down; pick a *Controller sensitivity* preset to go back
+              to tested values.</ha-alert>
             visibility:
               - condition: or
                 conditions:
@@ -1359,7 +1363,7 @@ views:
           - type: entities
             entities:
               - entity: input_select.hba_control_pid_presets
-                name: PID presets
+                name: Controller sensitivity
               - entity: input_number.hba_control_kp
                 name: Proportional gain (Kp)
               - entity: input_number.hba_control_ki
@@ -2195,7 +2199,7 @@ views:
               icon: mdi:weather-sunny
               tap_action:
                 action: navigate
-                navigation_path: /home-battery-assistant/advanced-settings
+                navigation_path: /hba-preview/advanced-settings
               hide_state: true
               color: amber
           - type: heading
@@ -2445,11 +2449,11 @@ views:
               {%- endif %}
               {%- if is_state('binary_sensor.hba_battery_assist_waiting', 'on') %}
 
-              ⏳ **Timed EV charge — waiting for EV** (assist push suspended; the flow above is the fallback strategy)
+              ⏳ **Timed EV charge — waiting for EV** (discharge to the car paused; the flow above is the fallback strategy)
               {%- endif %}
               {%- if is_state('binary_sensor.hba_battery_assist_stalled', 'on') %}
 
-              🛑 **Timed EV charge — stalled** (batteries not delivering; EV released, assist auto-retries after the 30-min hold-off)
+              🛑 **Timed EV charge — stalled** (batteries not delivering; EV released, tries again after 30 minutes)
               {%- endif %}
           - type: heading
             heading: Controller state
@@ -2531,7 +2535,7 @@ views:
                 name: Discharge limited by
             show_header_toggle: false
           - type: heading
-            heading: Timed EV Charge
+            heading: Timed EV charge
             heading_style: title
             icon: mdi:battery-arrow-up
             visibility:
@@ -3126,21 +3130,21 @@ views:
             heading_style: subtitle
             tap_action:
               action: navigate
-              navigation_path: /home-battery-assistant/notifications
+              navigation_path: /hba-preview/notifications
           - type: heading
             icon: mdi:power-plug-off
             heading: EV Stop Trigger
             heading_style: subtitle
             tap_action:
               action: navigate
-              navigation_path: /home-battery-assistant/ev-charge
+              navigation_path: /hba-preview/ev-charge
           - type: heading
             icon: mdi:car-electric
-            heading: Timed EV Charge
+            heading: Timed EV charge
             heading_style: subtitle
             tap_action:
               action: navigate
-              navigation_path: /home-battery-assistant/ev-charge
+              navigation_path: /hba-preview/ev-charge
 
       - type: grid
         cards:
@@ -4851,7 +4855,7 @@ views:
         show_state: true
         show_icon: true
         entity: input_boolean.hba_battery_assist_enabled
-        name: Enabled
+        name: Timed EV charge on
         tap_action:
           action: more-info
       - type: entity
@@ -4859,7 +4863,7 @@ views:
         show_state: true
         show_icon: true
         entity: binary_sensor.hba_battery_assist_active
-        name: Active now
+        name: Timed EV charge active
         tap_action:
           action: more-info
     header:
@@ -4944,7 +4948,7 @@ views:
               - entity: input_number.hba_ev_battery_priority_energy
                 name: Batteries first below
               - entity: input_number.hba_ev_phase_current_limit
-                name: Phase limit (car first)
+                name: Car-first limit per phase
               - entity: input_number.hba_ev_max_current
                 name: Car max current per phase
               - entity: binary_sensor.hba_ev_charge_alongside
@@ -4966,8 +4970,11 @@ views:
               <font color=grey>**Batteries first below**: usable energy (kWh above
               the discharge cutoffs) the batteries may claim before the car, e.g.
               what the house needs at night; 0 = the car always first.
-              **Phase limit**: per phase, set just below where your charger's load
-              balancing starts slowing the car (a Peblar at ~22.5 A). Set each
+              **Car-first limit per phase**: set just below where your charger's load
+              balancing starts slowing the car (a Peblar at ~22.5 A). Only applies while
+              the car charges; not the same as the **main fuse limit** (Advanced settings,
+              now {{ states('input_number.hba_phase_current_limit') | float(0) | round(0) | int }} A),
+              which applies always and should be higher. Set each
               battery's **phase** in Advanced settings — as your P1 meter numbers
               the phases, which may differ from the labels in the meter cupboard.
               **Check it:** let one battery charge or discharge at a steady power
@@ -5020,7 +5027,7 @@ views:
         cards:
           - type: heading
             icon: mdi:car-electric
-            heading: Timed EV Charge
+            heading: Timed EV charge
             heading_style: title
           - type: markdown
             content: '---'
@@ -5042,7 +5049,7 @@ views:
             text_only: true
           - type: tile
             entity: input_boolean.hba_battery_assist_enabled
-            name: Timed EV Charge enabled
+            name: Timed EV charge on
             color: blue
             vertical: false
             hide_state: true
@@ -5051,7 +5058,7 @@ views:
               columns: full
           - type: tile
             entity: binary_sensor.hba_battery_assist_active
-            name: Timed EV Charge active (now)
+            name: Timed EV charge active
             vertical: false
             features_position: bottom
             grid_options:
@@ -5088,7 +5095,7 @@ views:
                     entity_id: script.hba_apply_battery_assist_defaults
                   confirmation:
                     text: >-
-                      Reset Timed EV Charge settings to defaults? Your other HBA
+                      Reset Timed EV charge settings to defaults? Your other HBA
                       settings will not be affected.
           - type: tile
             entity: binary_sensor.hba_grid_exporting_sustained
