@@ -67,8 +67,10 @@ automation:
   # Port of HBC v4.11.0 "resend the control mode every 5 mins": some batteries
   # drift out of the mode HBA put them in (firmware update, Marstek app, BMS
   # reset). With RS485 off a battery silently ignores every forcible command.
-  # binary_sensor.hba_rs485_mode_mismatch still notifies after 30 s; this puts
-  # it right within 5 minutes, after which the "resolved" notification follows.
+  # Also right away when a battery's mode select changes (10 s settle): a restarted
+  # Venus E 3.0 comes back with RS485 control disabled (prod 2026-10-25, M4 power
+  # cycle: idle for 2 min until the next 5-min tick). binary_sensor.hba_rs485_mode_mismatch
+  # waits 30 s, so a quick fix usually never raises the mismatch notification.
   #
   # Unlike HBC this only writes a select whose state differs from the mode's
   # target, so a healthy install costs no Modbus traffic. 'Disabled' is left
@@ -90,6 +92,22 @@ automation:
     triggers:
       - trigger: time_pattern
         minutes: "/5"
+      - trigger: state
+        entity_id:
+          - select.marstek_m1_rs485_control_mode
+          - select.marstek_m2_rs485_control_mode
+          - select.marstek_m3_rs485_control_mode
+          - select.marstek_m4_rs485_control_mode
+          - select.marstek_m5_rs485_control_mode
+          - select.marstek_m6_rs485_control_mode
+          - select.marstek_m1_user_work_mode
+          - select.marstek_m2_user_work_mode
+          - select.marstek_m3_user_work_mode
+          - select.marstek_m4_user_work_mode
+          - select.marstek_m5_user_work_mode
+          - select.marstek_m6_user_work_mode
+        not_to: ["unavailable", "unknown"]
+        for: "00:00:10"
     conditions:
       - condition: state
         entity_id: input_select.hba_marstek_master_battery_mode

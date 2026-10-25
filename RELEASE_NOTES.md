@@ -86,7 +86,9 @@ open), so the version prefix stays at 4.10.1 for now.
   and writing *manual* takes it out of RS485 control, so every 5 minutes the automation fixed
   one setting and the battery undid the other: alternating pairs of batteries ignored HBA
   (seen on production after deploying this dev build). In Full control it now re-applies RS485
-  only, exactly like HBC.
+  only, exactly like HBC. It also re-applies right away (10 s settle) when a battery's mode
+  changes, not only every 5 minutes: a restarted Venus E 3.0 comes back with RS485 control off
+  (prod 2026-10-25: M4 ignored HBA for 2 minutes until the next tick).
 - **Overtemperature: Overview banner + working "resolved"** — a banner now lists every battery
   above 60 °C with its temperature (the notification already existed). The "resolved"
   notification could never fire: its condition checked that the reading *before* cooling below
@@ -271,6 +273,10 @@ open), so the version prefix stays at 4.10.1 for now.
   HBA writes the last known values back and sends *Battery Mx restarted*. If the limits still
   read 0 five minutes later, `binary_sensor.hba_power_limits_not_restored` raises an
   Overview banner, a notification and a persistent notification (resolved when fixed).
+  A restart is also recognised in Full control by RS485 control coming back as *disabled*
+  after the battery was unreachable — a power cycle can keep the limit registers (prod
+  2026-10-25: M4 came back reading 2500 / 800, no 0). The message asks to check settings HBA
+  cannot read over Modbus, such as an output limit set in the Marstek app.
 
 - **Timed: periods D and E** (HBC v4.12) — up to five periods (A–E), each with its own start,
   stop and strategy; add/remove them with the + / − tiles as before. New

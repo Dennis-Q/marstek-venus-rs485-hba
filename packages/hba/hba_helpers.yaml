@@ -2074,7 +2074,8 @@ template:
 
       # ── RS485 mode mismatch ───────────────────────────────────────────────────
       # Turns on (delay_on 30 s) when HBA master mode is Full control but any
-      # configured battery has RS485 control != enable. The battery silently ignores
+      # configured battery has RS485 control != enable (hba_master_mode_periodic_reapply
+      # fixes it within ~10 s of the change, so usually it never turns on). The battery silently ignores
       # all Modbus writes in this state — HBA appears to operate but has no effect.
       # Notification: see hba_notify_rs485_mode_mismatch in hba_strategies_core.yaml.
       - name: "HBA RS485 Mode Mismatch"
