@@ -144,7 +144,8 @@ open), so the version prefix stays at 4.10.1 for now.
 - **What limits charging / discharging now** — `sensor.hba_charge_limit_source` and
   `sensor.hba_discharge_limit_source` (like the Peblar's limit source): *Not limited*, *Power
   group A/B/C*, *Own limit*, *Battery setting*, *BMS*, *Slow charge*, *Main fuse Lx*, *Car
-  first Lx*, *Full*, *Empty*, *Offline*, *Fault* or *Charge alongside EV* — the limit costing
+  first Lx*, *Full*, *Empty*, *Offline* (also: not read yet), *Fault* (the inverter reports a
+  fault) or *Charge alongside EV* — the limit costing
   the most watts below 2500 W per battery. `sensor.hba_limits_now` has the most each battery
   could charge / discharge right now and why (the battery distribution replayed at full
   request, a phase limit shared in battery order); Insights shows it as a table. Only reports;
@@ -264,7 +265,8 @@ open), so the version prefix stays at 4.10.1 for now.
     *EV first*), `binary_sensor.hba_batteries_before_ev` (on while the batteries come first,
     whether or not the car charges — for a solar-surplus EV controller such as
     ha-smart-ev-charging's *Home battery priority entity*; both switch back to *EV first* only
-    0.2 kWh above the reserve, so a car taking the surplus at the reserve does not flip them) and `sensor.hba_phase_room` (room per phase, recorder-excluded like
+    0.2 kWh above the reserve, so a car taking the surplus at the reserve does not flip them, and
+    keep their state while a battery's SoC is not read yet, e.g. right after an HA restart) and `sensor.hba_phase_room` (room per phase, recorder-excluded like
     `sensor.p1_meter_power_l*` / `sensor.p1_meter_voltage_l*` / `sensor.ev_charger_power` / `sensor.ev_charger_power_l*`:
     they change on every update and copy sensors that are recorded anyway;
     recorder exclusions take effect after a full HA restart).

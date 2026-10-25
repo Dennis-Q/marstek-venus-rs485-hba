@@ -1623,11 +1623,21 @@ template:
         attributes:
           # Batteries first below the reserve, EV first again only 0.2 kWh above it: with the
           # car taking the surplus the energy hovers at the reserve and flipped the priority.
+          # While a battery's SoC is not read yet (HA start, battery offline) the usable energy
+          # reads too low: keep the previous priority instead of jumping to Batteries first.
           mode: >-
             {%- set e = states('sensor.hba_charge_available_energy') | float(0) -%}
             {%- set r = states('input_number.hba_ev_battery_priority_energy') | float(0) -%}
             {%- set was = is_state_attr('binary_sensor.hba_ev_charge_alongside', 'mode', 'Batteries first') -%}
+            {%- set n = states('input_number.hba_battery_count') | int(1) -%}
+            {%- set q = namespace(ok=true) -%}
+            {%- for i in range(1, n + 1) if not is_number(states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge')) -%}{%- set q.ok = false -%}{%- endfor -%}
+            {%- set ok = q.ok -%}
+            {%- if not ok and state_attr('binary_sensor.hba_ev_charge_alongside', 'mode') in ['Batteries first', 'EV first'] -%}
+            {{ state_attr('binary_sensor.hba_ev_charge_alongside', 'mode') }}
+            {%- else -%}
             {{ 'Batteries first' if e < r or (was and r > 0 and e < r + 0.2) else 'EV first' }}
+            {%- endif -%}
 
       # For an EV charging controller (ha-smart-ev-charging: ev_home_battery_priority_entity):
       # on while Charge alongside EV would put the batteries first — usable energy below the
@@ -1639,12 +1649,22 @@ template:
         icon: mdi:home-battery
         # On below the reserve, off again only 0.2 kWh above it (see mode above): each flip
         # would switch an EV controller's surplus on / off.
+        # (and keeps its state while a battery's SoC is not read yet — HA start, offline).
         state: >-
           {%- set e = states('sensor.hba_charge_available_energy') | float(0) -%}
           {%- set r = states('input_number.hba_ev_battery_priority_energy') | float(0) -%}
+          {%- set was = is_state('binary_sensor.hba_batteries_before_ev', 'on') -%}
+          {%- set n = states('input_number.hba_battery_count') | int(1) -%}
+          {%- set q = namespace(ok=true) -%}
+          {%- for i in range(1, n + 1) if not is_number(states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge')) -%}{%- set q.ok = false -%}{%- endfor -%}
+          {%- set ok = q.ok -%}
+          {%- if not ok and states('binary_sensor.hba_batteries_before_ev') in ['on', 'off'] -%}
+          {{ was }}
+          {%- else -%}
           {{ is_state('input_select.hba_control_strategy_during_ev_charge', 'Charge alongside EV')
              and not is_state('input_select.hba_strategy', 'Full stop')
-             and (e < r or (is_state('binary_sensor.hba_batteries_before_ev', 'on') and r > 0 and e < r + 0.2)) }}
+             and (e < r or (was and r > 0 and e < r + 0.2)) }}
+          {%- endif -%}
 
       # Setup hint (banner only): a per-phase limit is in use — Charge alongside EV, or the
       # main fuse limit per phase — but per-phase grid power sensors it needs are missing
@@ -2797,7 +2817,9 @@ template:
                 {%- set best = namespace(w=nominal, r='None') -%}
                 {%- if not live -%}
                   {%- set best.w = 0 -%}{%- set best.r = 'Offline' -%}
-                {%- elif inv in ['Fault', 'unknown', 'unavailable'] -%}
+                {%- elif inv in ['unknown', 'unavailable'] -%}
+                  {%- set best.w = 0 -%}{%- set best.r = 'Offline' -%}
+                {%- elif inv == 'Fault' -%}
                   {%- set best.w = 0 -%}{%- set best.r = 'Fault' -%}
                 {%- elif dir == 'charge' and soc >= states('input_number.hba_marstek_m' ~ bat ~ '_charging_cutoff_capacity') | float(100) -%}
                   {%- set best.w = 0 -%}{%- set best.r = 'Full' -%}
