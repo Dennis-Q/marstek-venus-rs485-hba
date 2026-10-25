@@ -3115,11 +3115,6 @@ views:
             features_position: bottom
             grid_options:
               columns: full
-
-      # Links to settings that live in other views — one section instead of three
-      # heading-only stubs that left loose boxes in the grid.
-      - type: grid
-        cards:
           - type: heading
             icon: mdi:link-variant
             heading: More settings
@@ -3145,125 +3140,6 @@ views:
             tap_action:
               action: navigate
               navigation_path: /hba-preview/ev-charge
-
-      - type: grid
-        cards:
-          - type: heading
-            heading: HBA-specific settings
-            heading_style: title
-            icon: mdi:home-battery
-          - type: heading
-            heading: HBA ↔ HBC handoff
-            heading_style: subtitle
-            icon: mdi:transit-connection-variant
-            visibility:
-              - condition: state
-                entity: script.hba_take_control
-                state_not: [unknown, unavailable]
-          - type: horizontal-stack
-            cards:
-              - type: button
-                name: Take control (HBA)
-                icon: mdi:home-battery
-                show_name: true
-                show_icon: true
-                tap_action:
-                  action: perform-action
-                  perform_action: script.turn_on
-                  target:
-                    entity_id: script.hba_take_control
-                  confirmation:
-                    text: >-
-                      HBA will take control: switches to Full control mode and
-                      stops Node-RED so HBC can no longer drive the batteries.
-                      Node-RED auto-start will also be set to manual so it stays
-                      stopped after reboots. To skip this, clear the Node-RED
-                      addon slug field first.
-              - type: button
-                name: Yield to HBC
-                icon: mdi:transit-connection-variant
-                show_name: true
-                show_icon: true
-                tap_action:
-                  action: perform-action
-                  perform_action: script.turn_on
-                  target:
-                    entity_id: script.hba_yield_to_hbc
-                  confirmation:
-                    text: >-
-                      HBA will yield: starts Node-RED so HBC can take over,
-                      and HBA stops driving the batteries.
-            visibility:
-              - condition: state
-                entity: script.hba_take_control
-                state_not: [unknown, unavailable]
-          - type: entities
-            entities:
-              - entity: input_text.hba_hbc_nodered_addon_slug
-                name: Node-RED addon slug
-            visibility:
-              - condition: state
-                entity: script.hba_take_control
-                state_not: [unknown, unavailable]
-          - type: markdown
-            content: >-
-              <details><summary>About the HBA ↔ HBC handoff</summary>
-
-              <font color=grey><i>Only needed when running HBA alongside HBC. The
-              slug is used by the Take control / Yield to HBC buttons to start and
-              stop Node-RED. The default (`a0d7b954_nodered`) is correct for most
-              installations — only change it if your Node-RED addon has a different
-              slug.</i></font>
-
-              </details>
-            text_only: true
-            visibility:
-              - condition: state
-                entity: script.hba_take_control
-                state_not: [unknown, unavailable]
-          # Shown instead of the handoff controls when hba_hbc_coexistence.yaml is not
-          # installed (missing entity = 'unknown'; removed-but-registered = 'unavailable').
-          - type: markdown
-            content: >-
-              <font color=grey><i>**HBA ↔ HBC handoff** — not installed. Only needed if
-              you run (or ran) Home Battery Control / Node-RED next to HBA: re-run
-              `install.sh` and answer **yes** to the coexistence file, then restart.</i></font>
-            text_only: true
-            visibility:
-              - condition: state
-                entity: script.hba_take_control
-                state: [unknown, unavailable]
-          - type: heading
-            heading: Frank Energie
-            heading_style: subtitle
-            icon: mdi:lightning-bolt
-          - type: entities
-            entities:
-              - entity: input_text.hba_strategy_dynamic_frank_sensor_entity_id
-                name: Frank Energie prices sensor
-                icon: mdi:lightning-bolt
-          - type: markdown
-            content: >-
-              <font color=grey><i>Only used when the dynamic pricing data source
-              is set to Frank Energie. The default matches HBC — change it if
-              your integration uses English entity names or you prefer market
-              price over all-in.</i></font>
-            text_only: true
-          - type: entities
-            entities:
-              - entity: script.hba_apply_defaults
-                name: Reset to defaults
-                icon: mdi:cog-refresh
-                secondary_info: last-triggered
-                tap_action:
-                  action: perform-action
-                  perform_action: script.turn_on
-                  target:
-                    entity_id: script.hba_apply_defaults
-                  confirmation:
-                    text: >-
-                      This will reset all HBA parameters to safe starting values.
-                      Any values you have configured will be overwritten. Continue?
 
       - type: grid
         cards:
@@ -4859,6 +4735,125 @@ views:
             text_only: true
             content: >-
               <font color="#9b9b9b">Keeps every phase below this current in every strategy — e.g. 24 A for a 25 A main fuse (0 = off). Needs the per-phase P1 sensors and each battery's phase. Not the same as the **car-first limit** (EV Charge, now {{ states('input_number.hba_ev_phase_current_limit') | float(0) | round(0) | int }} A), which only applies while the car charges and should be lower. A software limit: the installation must be safe without it.</font>
+
+      - type: grid
+        cards:
+          - type: heading
+            heading: HBA-specific settings
+            heading_style: title
+            icon: mdi:home-battery
+          - type: heading
+            heading: HBA ↔ HBC handoff
+            heading_style: subtitle
+            icon: mdi:transit-connection-variant
+            visibility:
+              - condition: state
+                entity: script.hba_take_control
+                state_not: [unknown, unavailable]
+          - type: horizontal-stack
+            cards:
+              - type: button
+                name: Take control (HBA)
+                icon: mdi:home-battery
+                show_name: true
+                show_icon: true
+                tap_action:
+                  action: perform-action
+                  perform_action: script.turn_on
+                  target:
+                    entity_id: script.hba_take_control
+                  confirmation:
+                    text: >-
+                      HBA will take control: switches to Full control mode and
+                      stops Node-RED so HBC can no longer drive the batteries.
+                      Node-RED auto-start will also be set to manual so it stays
+                      stopped after reboots. To skip this, clear the Node-RED
+                      addon slug field first.
+              - type: button
+                name: Yield to HBC
+                icon: mdi:transit-connection-variant
+                show_name: true
+                show_icon: true
+                tap_action:
+                  action: perform-action
+                  perform_action: script.turn_on
+                  target:
+                    entity_id: script.hba_yield_to_hbc
+                  confirmation:
+                    text: >-
+                      HBA will yield: starts Node-RED so HBC can take over,
+                      and HBA stops driving the batteries.
+            visibility:
+              - condition: state
+                entity: script.hba_take_control
+                state_not: [unknown, unavailable]
+          - type: entities
+            entities:
+              - entity: input_text.hba_hbc_nodered_addon_slug
+                name: Node-RED addon slug
+            visibility:
+              - condition: state
+                entity: script.hba_take_control
+                state_not: [unknown, unavailable]
+          - type: markdown
+            content: >-
+              <details><summary>About the HBA ↔ HBC handoff</summary>
+
+              <font color=grey><i>Only needed when running HBA alongside HBC. The
+              slug is used by the Take control / Yield to HBC buttons to start and
+              stop Node-RED. The default (`a0d7b954_nodered`) is correct for most
+              installations — only change it if your Node-RED addon has a different
+              slug.</i></font>
+
+              </details>
+            text_only: true
+            visibility:
+              - condition: state
+                entity: script.hba_take_control
+                state_not: [unknown, unavailable]
+          # Shown instead of the handoff controls when hba_hbc_coexistence.yaml is not
+          # installed (missing entity = 'unknown'; removed-but-registered = 'unavailable').
+          - type: markdown
+            content: >-
+              <font color=grey><i>**HBA ↔ HBC handoff** — not installed. Only needed if
+              you run (or ran) Home Battery Control / Node-RED next to HBA: re-run
+              `install.sh` and answer **yes** to the coexistence file, then restart.</i></font>
+            text_only: true
+            visibility:
+              - condition: state
+                entity: script.hba_take_control
+                state: [unknown, unavailable]
+          - type: heading
+            heading: Frank Energie
+            heading_style: subtitle
+            icon: mdi:lightning-bolt
+          - type: entities
+            entities:
+              - entity: input_text.hba_strategy_dynamic_frank_sensor_entity_id
+                name: Frank Energie prices sensor
+                icon: mdi:lightning-bolt
+          - type: markdown
+            content: >-
+              <font color=grey><i>Only used when the dynamic pricing data source
+              is set to Frank Energie. The default matches HBC — change it if
+              your integration uses English entity names or you prefer market
+              price over all-in.</i></font>
+            text_only: true
+          - type: entities
+            entities:
+              - entity: script.hba_apply_defaults
+                name: Reset to defaults
+                icon: mdi:cog-refresh
+                secondary_info: last-triggered
+                tap_action:
+                  action: perform-action
+                  perform_action: script.turn_on
+                  target:
+                    entity_id: script.hba_apply_defaults
+                  confirmation:
+                    text: >-
+                      This will reset all HBA parameters to safe starting values.
+                      Any values you have configured will be overwritten. Continue?
 
   # ── VIEW 7: EV CHARGE ────────────────────────────────────────────────────────
   - type: sections
