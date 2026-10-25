@@ -526,6 +526,21 @@ views:
                 state: "on"
             content: >
               <ha-alert alert-type="warning">Per-phase limits (main fuse limit, Charge alongside EV) are missing per-phase grid power: {{ state_attr('sensor.hba_phase_room', 'missing_sensors') }}. Define them in packages/hba/hba_config.yaml (like sensor.p1_meter_power, positive = import — see hba_config.yaml.example). Until then the batteries do not charge or discharge on those phases while such a limit applies.</ha-alert>
+          # Info: the batteries run at what the main fuse limit, the car or the BMS allows
+          - type: markdown
+            grid_options:
+              columns: full
+            visibility:
+              - condition: state
+                entity: binary_sensor.hba_battery_power_limited
+                state: "on"
+            content: >
+              {%- set B = 'binary_sensor.hba_battery_power_limited' -%}
+              {%- set r = state_attr(B, 'reason') or '' -%}
+              {%- set why = ('the main fuse limit on ' ~ r[-2:] ~ ' (' ~ (states('input_number.hba_phase_current_limit') | float(0) | round(0) | int) ~ ' A per phase)') if r.startswith('Main fuse')
+                            else (('the car, which comes first on ' ~ r[-2:]) if r.startswith('Car first')
+                            else 'the battery management system (cold, or almost full)') -%}
+              <ha-alert alert-type="info">{{ 'Charging' if state_attr(B, 'direction') == 'charge' else 'Discharging' }} limited to {{ state_attr(B, 'max_w') }} W by {{ why }}. Details in Insights → Limits now.</ha-alert>
           - type: heading
             heading: Master Battery Control
             heading_style: title

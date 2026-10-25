@@ -386,7 +386,8 @@ always have an electrician check your installation.
 batteries right now — a power group, an own limit, the BMS, slow charge, the main fuse or the
 car on a phase, or batteries that are full, empty or offline (*Not limited* when nothing does).
 The Insights view shows the most each battery could charge and discharge now and why
-(`sensor.hba_limits_now`).
+(`sensor.hba_limits_now`). When the batteries actually run at the main fuse limit, the car's
+room or the BMS limit, the Overview says so in an info line.
 
 ### Dynamic pricing
 

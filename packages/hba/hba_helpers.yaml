@@ -2880,6 +2880,31 @@ template:
           # The order the batteries are used in (power group leaders first in their group)
           charge_order: "{{ (lim | from_json if lim is string else lim).co }}"
           discharge_order: "{{ (lim | from_json if lim is string else lim).do }}"
+    binary_sensor:
+      # Overview hint: the batteries run at what a limit worth knowing about allows — main
+      # fuse, car first or the BMS (charging), main fuse (discharging). Power groups, full /
+      # empty and offline are left out (always there with groups, normal, or own banners).
+      # On within 150 W of the max, off again below 400 W under it (no flicker).
+      - name: "HBA Battery Power Limited"
+        unique_id: hba_battery_power_limited
+        icon: mdi:speedometer-slow
+        state: >-
+          {%- set x = lim | from_json if lim is string else lim -%}
+          {%- set p = states('sensor.hba_total_battery_power') | float(0) -%}
+          {%- set m = 400 if is_state('binary_sensor.hba_battery_power_limited', 'on') else 150 -%}
+          {%- set c = (x.cs.startswith('Main fuse') or x.cs.startswith('Car first') or x.cs == 'BMS')
+                      and p < -50 and -p >= x.ct - m -%}
+          {%- set d = x.ds.startswith('Main fuse') and p > 50 and p >= x.dt - m -%}
+          {{ c or d }}
+        attributes:
+          direction: >-
+            {{ 'charge' if states('sensor.hba_total_battery_power') | float(0) < 0 else 'discharge' }}
+          reason: >-
+            {%- set x = lim | from_json if lim is string else lim -%}
+            {{ x.cs if states('sensor.hba_total_battery_power') | float(0) < 0 else x.ds }}
+          max_w: >-
+            {%- set x = lim | from_json if lim is string else lim -%}
+            {{ x.ct if states('sensor.hba_total_battery_power') | float(0) < 0 else x.dt }}
 
 ######################################################################################################
 # RECORDER
