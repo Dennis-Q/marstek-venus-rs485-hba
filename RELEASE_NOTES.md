@@ -149,6 +149,10 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Added
 
+- **Preview dashboard** — `lovelace/battery_assistant_preview.yaml`, downloaded by the installer,
+  shown once registered (README "Preview dashboard"). HBA's own dashboard improvements land there
+  first; the existing dashboard stays close to HBC's for users switching over.
+
 - **Watchdog: control stalled** — `binary_sensor.hba_control_loop_stalled` turns on when HBA has
   not run a control cycle for 90 s in Full control (normally one per P1 update, ~1 s). Overview
   banner, notification and *resolved*. The message tells the two causes apart: the P1 meter

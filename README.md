@@ -380,6 +380,25 @@ current in every strategy, for charging and discharging (needs the per-phase P1 
 **Use at your own risk:** it is a software limit, not electrical protection —
 always have an electrician check your installation.
 
+### Preview dashboard
+
+Next to the Home Battery Assistant dashboard (kept close to HBC's, for users switching over) the
+installer also downloads `lovelace/battery_assistant_preview.yaml`: the new HBA dashboard with
+HBA's own improvements, tried out there first. It only appears once registered:
+
+```yaml
+lovelace:
+  dashboards:
+    hba-preview:
+      mode: yaml
+      title: HBA (preview)
+      icon: mdi:home-battery
+      show_in_sidebar: true
+      filename: lovelace/battery_assistant_preview.yaml
+```
+
+(Add the `hba-preview:` entry under your existing `lovelace: dashboards:`; restart Home Assistant.)
+
 ### Why is charging limited?
 
 `sensor.hba_charge_limit_source` and `sensor.hba_discharge_limit_source` name what limits the

@@ -210,6 +210,11 @@ for f in "${CORE_FILES[@]}"; do
     ok "$f"
 done
 
+# Preview of the new HBA dashboard (optional — only shown once registered in configuration.yaml,
+# see README "Preview dashboard"). Downloaded on every install so it stays in step.
+download "lovelace/battery_assistant_preview.yaml" "${CONFIG_DIR}/lovelace/battery_assistant_preview.yaml"
+ok "lovelace/battery_assistant_preview.yaml  (preview dashboard, optional)"
+
 # ── Obsolete files — removed on update ───────────────────────────────────────
 # Files a previous HBA version shipped that no longer exist. Left on disk they
 # would keep loading. hba_strategy_dynamic_v2.yaml (renamed to
