@@ -2471,6 +2471,8 @@ views:
                 entity: binary_sensor.hba_ev_charge_alongside
                 attribute: mode
                 name: Alongside EV priority
+              - entity: binary_sensor.hba_batteries_before_ev
+                name: Batteries before EV
             show_header_toggle: false
           - type: heading
             heading: Timed EV Charge
@@ -2579,7 +2581,7 @@ views:
               {%- set res = states('input_number.hba_ev_battery_priority_energy') | float(0) -%}
               {%- set lim = states('input_number.hba_ev_phase_current_limit') | float(22) -%}
               {%- set room = state_attr('sensor.hba_phase_room', 'ev_room_w') or {} -%}
-              {%- set res = state_attr('sensor.hba_phase_room', 'ev_reserve_w') or {} -%}
+              {%- set hold = state_attr('sensor.hba_phase_room', 'ev_reserve_w') or {} -%}
               {%- set fc = state_attr('sensor.hba_phase_room', 'fuse_charge_w') or {} -%}
               {%- set fd = state_attr('sensor.hba_phase_room', 'fuse_discharge_w') or {} -%}
               {%- set fuse = states('input_number.hba_phase_current_limit') | float(0) -%}
@@ -2587,6 +2589,8 @@ views:
               **{{ 'Active' if is_state(B, 'on') else 'Not active (car not charging)' }}** — priority **{{ state_attr(B, 'mode') }}**
               (usable {{ avail | round(1) }} kWh vs batteries-first below {{ res | round(1) }} kWh)
               {%- if is_state(B, 'on') %} · never discharging{% endif %}
+
+              Batteries before EV (for EV solar charging): **{{ 'on — the batteries get the surplus first' if is_state('binary_sensor.hba_batteries_before_ev', 'on') else 'off' }}**
 
               Car's power: **{{ state_attr('sensor.hba_phase_room', 'ev_source') }}** · car max {{ states('input_number.hba_ev_max_current') | float(0) | int }} A per phase
 
@@ -2602,7 +2606,7 @@ views:
               {%- for i in range(1, states('input_number.hba_battery_count') | int(1) + 1) if states('input_select.hba_marstek_m' ~ i ~ '_phase') == n -%}
                 {%- set ns.b = ns.b + ['M' ~ i] -%}
               {%- endfor -%}
-              | {{ n }} | {{ ((states('sensor.p1_meter_power_' ~ l) | float(0)) / v) | round(1) ~ ' A' if has_value('sensor.p1_meter_power_' ~ l) else 'no sensor' }} | {{ lim }} A | {{ res[n] ~ ' W' if n in res else '–' }} | {{ room[n] ~ ' W' if n in room else '–' }} | {{ (fc[n] ~ ' / ' ~ fd[n] ~ ' W') if n in fc else '–' }} | {{ ns.b | join(', ') or '–' }} |
+              | {{ n }} | {{ ((states('sensor.p1_meter_power_' ~ l) | float(0)) / v) | round(1) ~ ' A' if has_value('sensor.p1_meter_power_' ~ l) else 'no sensor' }} | {{ lim }} A | {{ hold[n] ~ ' W' if n in hold else '–' }} | {{ room[n] ~ ' W' if n in room else '–' }} | {{ (fc[n] ~ ' / ' ~ fd[n] ~ ' W') if n in fc else '–' }} | {{ ns.b | join(', ') or '–' }} |
               {% endfor %}
               {%- if miss %}⚠ Missing: {{ miss }}{% endif %}
             visibility:
