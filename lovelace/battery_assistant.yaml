@@ -544,7 +544,7 @@ views:
               {%- for k, v in per.items() if v.reason is string and v.reason.startswith(kind) and v.reason[-2:] not in ns.ph and kind != 'BMS' -%}
                 {%- set ns.ph = ns.ph + [v.reason[-2:]] -%}
               {%- endfor -%}
-              {%- set phases = (ns.ph | sort | join(' and ')) or r[-2:] -%}
+              {%- set phases = (ns.ph | sort | join(' and ')) or 'a phase' -%}
               {%- set why = ('by the main fuse limit on ' ~ phases ~ ' (' ~ (states('input_number.hba_phase_current_limit') | float(0) | round(0) | int) ~ ' A per phase)') if kind == 'Main fuse'
                             else (': the car comes first on ' ~ phases if kind == 'Car first'
                             else 'by the battery management system (cold, or almost full)') -%}

@@ -2884,10 +2884,23 @@ template:
                 60 s (remembered in sensor.hba_limits_now *_pending). A 300 W margin was not enough:
                 with the car first, L1 and L3 swing by more than that and the state flipped ~50
                 times an hour (prod 2026-10-25), a recorder row each time. -#}
+            {#- The Limit Source states name the KIND of limit (Car first, Main fuse, ...), not the
+                phase: with the car first the phase that costs most changed constantly (36 changes
+                an hour even with the 60 s rule, prod 2026-10-25). Per battery (and so the phases)
+                stays in sensor.hba_limits_now and the Overview line. -#}
+            {%- set kinds = namespace(c={}, d={}) -%}
+            {%- for r, w in out.cl.items() -%}
+              {%- set k = r[:-3] if (r.startswith('Car first ') or r.startswith('Main fuse ')) else r -%}
+              {%- set kinds.c = kinds.c | combine({k: kinds.c.get(k, 0) + w}) -%}
+            {%- endfor -%}
+            {%- for r, w in out.dl.items() -%}
+              {%- set k = r[:-3] if (r.startswith('Car first ') or r.startswith('Main fuse ')) else r -%}
+              {%- set kinds.d = kinds.d | combine({k: kinds.d.get(k, 0) + w}) -%}
+            {%- endfor -%}
             {%- set nowts = as_timestamp(now()) | int -%}
             {%- set sel = namespace(cs='Not limited', ds='Not limited', cp={}, dp={}) -%}
-            {%- for dir, lost, cur, pend in [('c', out.cl, states('sensor.hba_charge_limit_source'), state_attr('sensor.hba_limits_now', 'charge_pending')),
-                                            ('d', out.dl, states('sensor.hba_discharge_limit_source'), state_attr('sensor.hba_limits_now', 'discharge_pending'))] -%}
+            {%- for dir, lost, cur, pend in [('c', kinds.c, states('sensor.hba_charge_limit_source'), state_attr('sensor.hba_limits_now', 'charge_pending')),
+                                            ('d', kinds.d, states('sensor.hba_discharge_limit_source'), state_attr('sensor.hba_limits_now', 'discharge_pending'))] -%}
               {%- set pend = pend if pend is mapping else {} -%}
               {%- set top = (lost.items() | sort(attribute='1', reverse=true) | first) if lost else none -%}
               {%- set res = namespace(r='Not limited', p={}) -%}

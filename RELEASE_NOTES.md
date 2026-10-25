@@ -147,9 +147,9 @@ open), so the version prefix stays at 4.10.1 for now.
 
 - **What limits charging / discharging now** — `sensor.hba_charge_limit_source` and
   `sensor.hba_discharge_limit_source` (like the Peblar's limit source): *Not limited*, *Power
-  group A/B/C*, *Own limit*, *Battery setting*, *BMS*, *Slow charge*, *Main fuse Lx*, *Car
-  first Lx*, *Full*, *Empty*, *Offline* (also: not read yet), *Fault* (the inverter reports a
-  fault) or *Charge alongside EV* — the limit costing
+  group A/B/C*, *Own limit*, *Battery setting*, *BMS*, *Slow charge*, *Main fuse*, *Car
+  first*, *Full*, *Empty*, *Offline* (also: not read yet), *Fault* (the inverter reports a
+  fault) or *Charge alongside EV* — the kind of limit costing
   the most watts below 2500 W per battery. `sensor.hba_limits_now` has the most each battery
   could charge / discharge right now and why (the battery distribution replayed at full
   request, a phase limit shared in battery order); Insights shows it as a table. Only reports;
@@ -161,8 +161,9 @@ open), so the version prefix stays at 4.10.1 for now.
   — via `binary_sensor.hba_battery_power_limited` (on within 150 W of the max, off 400 W below
   it, 30 s on / 60 s off delay); power groups, full / empty and offline are left out. A Limit
   Source changes only when the old reason is gone, the new one costs 1000 W more, or the new
-  one has been on top for a minute — with the car first, L1 and L3 otherwise took turns about
-  50 times an hour.
+  one has been on top for a minute, and it names the kind of limit without the phase (the
+  phases are per battery in `sensor.hba_limits_now` and in the Overview line) — with the car
+  first, L1 and L3 otherwise took turns 50–70 times an hour.
 
 - **Main fuse limit per phase** (`input_number.hba_phase_current_limit`, Advanced settings →
   Power groups, 0 = off) — in every strategy, the batteries on a phase charge (import) or
