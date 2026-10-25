@@ -2473,6 +2473,10 @@ views:
                 name: Alongside EV priority
               - entity: binary_sensor.hba_batteries_before_ev
                 name: Batteries before EV
+              - entity: sensor.hba_charge_limit_source
+                name: Charge limited by
+              - entity: sensor.hba_discharge_limit_source
+                name: Discharge limited by
             show_header_toggle: false
           - type: heading
             heading: Timed EV Charge
@@ -2561,6 +2565,25 @@ views:
               - condition: state
                 entity: sensor.hba_power_limits
                 state_not: Not used
+          - type: heading
+            heading: Limits now
+            heading_style: title
+            icon: mdi:speedometer-medium
+          - type: markdown
+            content: |-
+              {%- set S = 'sensor.hba_limits_now' -%}
+              {%- set c = state_attr(S, 'charge') or {} -%}
+              {%- set d = state_attr(S, 'discharge') or {} -%}
+              Charge: up to **{{ states(S) }} W** — limited by **{{ states('sensor.hba_charge_limit_source') }}**
+              Discharge: up to **{{ state_attr(S, 'discharge_max_w') }} W** — limited by **{{ states('sensor.hba_discharge_limit_source') }}**
+
+              | | charge max | why | discharge max | why |
+              |---|---|---|---|---|
+              {% for i in range(1, states('input_number.hba_battery_count') | int(1) + 1) -%}
+              {%- set k = i | string -%}
+              | M{{ i }} | {{ (c[k].w ~ ' W') if k in c else '–' }} | {{ c[k].reason if k in c and c[k].reason != 'None' else '' }} | {{ (d[k].w ~ ' W') if k in d else '–' }} | {{ d[k].reason if k in d and d[k].reason != 'None' else '' }} |
+              {% endfor %}
+              <font color=grey>The most each battery could do now (what the strategy asks for is not counted), in battery order: a phase limit is shared by the batteries on that phase.</font>
           - type: heading
             heading: Per-phase limits (fuse / Charge alongside EV)
             heading_style: title

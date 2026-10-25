@@ -2666,6 +2666,185 @@ template:
           fuse_discharge_w: "{{ (room | from_json if room is string else room).fd }}"
           missing_sensors: "{{ (room | from_json if room is string else room).miss }}"
 
+  # ── What limits charging / discharging right now (like the Peblar's limit source) ──
+  # The hba_set_batteries waterfall replayed at full request: per battery the most it could
+  # take now and the tightest limit — register limit (power group / own limit / set in the
+  # battery), BMS charge current, slow charge, the per-phase room (main fuse, car first) shared
+  # in battery order, or not available at all (full / empty / offline / fault / never
+  # discharging while charging alongside the EV). The Limit Source sensors name the limit
+  # costing the most watts below 2500 W per battery ("Not limited" when none). Only reports;
+  # what the strategy asks for is not a limit here. Every 5 s: the phase room moves with every
+  # P1 update. sensor.hba_limits_now (per battery) is recorder-excluded; the two Limit Source
+  # sensors are recorded and only write a row when the reason changes.
+  - triggers:
+      - trigger: time_pattern
+        seconds: "/5"
+      - trigger: state
+        entity_id:
+          - sensor.hba_power_limits
+          - binary_sensor.hba_ev_charge_alongside
+          - input_number.hba_battery_count
+      - trigger: homeassistant
+        event: start
+      - trigger: event
+        event_type: event_template_reloaded
+    actions:
+      - variables:
+          lim: >-
+            {%- set count = states('input_number.hba_battery_count') | int(1) -%}
+            {%- set nominal = 2500 -%}
+            {%- set along = is_state('binary_sensor.hba_ev_charge_alongside', 'on') -%}
+            {%- set evfirst = along and is_state_attr('binary_sensor.hba_ev_charge_alongside', 'mode', 'EV first') -%}
+            {%- set fc = state_attr('sensor.hba_phase_room', 'fuse_charge_w') -%}
+            {%- set fc = fc if fc is mapping else {} -%}
+            {%- set fd = state_attr('sensor.hba_phase_room', 'fuse_discharge_w') -%}
+            {%- set fd = fd if fd is mapping else {} -%}
+            {%- set er = state_attr('sensor.hba_phase_room', 'ev_room_w') if evfirst else {} -%}
+            {%- set er = er if er is mapping else {} -%}
+            {#- Room per phase as [W, reason]: the tighter of main fuse and car first -#}
+            {%- set rc = namespace(d={}) -%}
+            {%- set rd = namespace(d={}) -%}
+            {%- for ph in ['L1', 'L2', 'L3'] -%}
+              {%- if ph in fc and ph in er -%}
+                {%- set rc.d = rc.d | combine({ph: ([fc[ph], 'Main fuse ' ~ ph] if fc[ph] <= er[ph] else [er[ph], 'Car first ' ~ ph])}) -%}
+              {%- elif ph in fc -%}
+                {%- set rc.d = rc.d | combine({ph: [fc[ph], 'Main fuse ' ~ ph]}) -%}
+              {%- elif ph in er -%}
+                {%- set rc.d = rc.d | combine({ph: [er[ph], 'Car first ' ~ ph]}) -%}
+              {%- endif -%}
+              {%- if ph in fd -%}
+                {%- set rd.d = rd.d | combine({ph: [fd[ph], 'Main fuse ' ~ ph]}) -%}
+              {%- endif -%}
+            {%- endfor -%}
+            {%- set sc_thr1 = states('input_number.hba_control_slow_charge_soc_threshold_1') | float(95) -%}
+            {%- set sc_lim1 = states('input_number.hba_control_slow_charge_power_limit_1') | float(1500) | int -%}
+            {%- set sc_thr2 = states('input_number.hba_control_slow_charge_soc_threshold_2') | float(99) -%}
+            {%- set sc_lim2 = states('input_number.hba_control_slow_charge_power_limit_2') | float(1000) | int -%}
+            {%- set p = states('input_number.hba_control_prioritize_battery') | int(1) -%}
+            {%- set p = p if (1 <= p and p <= count) else 1 -%}
+            {%- set auto = states('input_select.hba_control_priority_change_interval') == 'Auto balance (SoC)' -%}
+            {%- set out = namespace(c={}, d={}, cl={}, dl={}, ct=0, dt=0) -%}
+            {%- for dir in ['charge', 'discharge'] -%}
+              {#- Same order as hba_set_batteries -#}
+              {%- set o = namespace(l=[]) -%}
+              {%- set so = state_attr('sensor.hba_battery_order', dir ~ '_order') -%}
+              {%- if auto and so is sequence and so is not string -%}
+                {%- for b in so | map('int') if 1 <= b <= count and b not in o.l -%}
+                  {%- set o.l = o.l + [b] -%}
+                {%- endfor -%}
+              {%- endif -%}
+              {%- for k in range(count) -%}
+                {%- set b = ((p - 1 + k) % count) + 1 -%}
+                {%- if b not in o.l -%}{%- set o.l = o.l + [b] -%}{%- endif -%}
+              {%- endfor -%}
+              {%- set room = namespace(d=(rc.d if dir == 'charge' else rd.d)) -%}
+              {%- set lk = state_attr('sensor.hba_power_limits', 'last_known_' ~ dir) -%}
+              {%- set lk = lk if lk is mapping else {} -%}
+              {%- for bat in o.l -%}
+                {%- set k = bat | string -%}
+                {%- set soc = states('sensor.marstek_m' ~ bat ~ '_battery_state_of_charge') | float(0) -%}
+                {%- set inv = states('sensor.marstek_m' ~ bat ~ '_inverter_state') -%}
+                {%- set hb = states.sensor['marstek_m' ~ bat ~ '_battery_power'] -%}
+                {%- set live = hb is not none and hb.state not in ['unavailable', 'unknown']
+                               and (now() - hb.last_reported).total_seconds() <= 30 -%}
+                {%- set rbc = states('number.marstek_m' ~ bat ~ '_max_charge_power') | float(2500) -%}
+                {%- set rbd = states('number.marstek_m' ~ bat ~ '_max_discharge_power') | float(2500) -%}
+                {%- set rb = rbc if dir == 'charge' else rbd -%}
+                {%- set reg = ((lk[k] if k in lk else 2500) if rbc == 0 and rbd == 0 else rb) | int -%}
+                {%- set own = states('input_number.hba_marstek_m' ~ bat ~ '_max_' ~ dir ~ '_power') | float(0) -%}
+                {%- set grp = states('input_select.hba_marstek_m' ~ bat ~ '_power_group') -%}
+                {%- set reg_r = ('Power group ' ~ grp) if grp in ['A', 'B', 'C'] and (own <= 0 or reg < own - 1)
+                                else ('Own limit' if own > 0 else 'Battery setting') -%}
+                {%- set best = namespace(w=nominal, r='None') -%}
+                {%- if not live -%}
+                  {%- set best.w = 0 -%}{%- set best.r = 'Offline' -%}
+                {%- elif inv in ['Fault', 'unknown', 'unavailable'] -%}
+                  {%- set best.w = 0 -%}{%- set best.r = 'Fault' -%}
+                {%- elif dir == 'charge' and soc >= states('input_number.hba_marstek_m' ~ bat ~ '_charging_cutoff_capacity') | float(100) -%}
+                  {%- set best.w = 0 -%}{%- set best.r = 'Full' -%}
+                {%- elif dir == 'discharge' and along -%}
+                  {%- set best.w = 0 -%}{%- set best.r = 'Charge alongside EV' -%}
+                {%- elif dir == 'discharge' and soc <= states('input_number.hba_marstek_m' ~ bat ~ '_discharging_cutoff_capacity') | float(13) -%}
+                  {%- set best.w = 0 -%}{%- set best.r = 'Empty' -%}
+                {%- else -%}
+                  {%- set cands = [[reg, reg_r]] -%}
+                  {%- if dir == 'charge' -%}
+                    {%- set bms_a = states('sensor.marstek_m' ~ bat ~ '_battery_charge_current_limit') | float(-1) -%}
+                    {%- set volt = states('sensor.marstek_m' ~ bat ~ '_battery_voltage') | float(0) -%}
+                    {%- if bms_a >= 0 and volt > 40 -%}
+                      {%- set cands = cands + [[(bms_a * volt) | int, 'BMS']] -%}
+                    {%- endif -%}
+                    {%- if sc_lim2 > 0 and soc >= sc_thr2 -%}
+                      {%- set cands = cands + [[sc_lim2, 'Slow charge']] -%}
+                    {%- elif sc_lim1 > 0 and soc >= sc_thr1 -%}
+                      {%- set cands = cands + [[sc_lim1, 'Slow charge']] -%}
+                    {%- endif -%}
+                  {%- endif -%}
+                  {%- set ph = states('input_select.hba_marstek_m' ~ bat ~ '_phase') -%}
+                  {%- if room.d -%}
+                    {%- if ph in room.d -%}
+                      {%- set cands = cands + [room.d[ph]] -%}
+                    {%- else -%}
+                      {#- No phase set: counts against every phase, so the tightest one -#}
+                      {%- set t = namespace(x=none) -%}
+                      {%- for x in room.d.values() if t.x is none or x[0] < t.x[0] -%}{%- set t.x = x -%}{%- endfor -%}
+                      {%- set cands = cands + [t.x] -%}
+                    {%- endif -%}
+                  {%- endif -%}
+                  {%- for w, r in cands if w < best.w -%}
+                    {%- set best.w = [w, 0] | max | int -%}{%- set best.r = r -%}
+                  {%- endfor -%}
+                  {%- if room.d and ph in room.d -%}
+                    {%- set room.d = room.d | combine({ph: [room.d[ph][0] - best.w, room.d[ph][1]]}) -%}
+                  {%- elif room.d -%}
+                    {%- set nd = namespace(d={}) -%}
+                    {%- for q, x in room.d.items() -%}{%- set nd.d = nd.d | combine({q: [x[0] - best.w, x[1]]}) -%}{%- endfor -%}
+                    {%- set room.d = nd.d -%}
+                  {%- endif -%}
+                {%- endif -%}
+                {%- set item = {k: {'w': best.w, 'reason': best.r}} -%}
+                {%- if dir == 'charge' -%}
+                  {%- set out.c = out.c | combine(item) -%}
+                  {%- set out.ct = out.ct + best.w -%}
+                  {%- if best.r != 'None' -%}
+                    {%- set out.cl = out.cl | combine({best.r: out.cl.get(best.r, 0) + nominal - best.w}) -%}
+                  {%- endif -%}
+                {%- else -%}
+                  {%- set out.d = out.d | combine(item) -%}
+                  {%- set out.dt = out.dt + best.w -%}
+                  {%- if best.r != 'None' -%}
+                    {%- set out.dl = out.dl | combine({best.r: out.dl.get(best.r, 0) + nominal - best.w}) -%}
+                  {%- endif -%}
+                {%- endif -%}
+              {%- endfor -%}
+            {%- endfor -%}
+            {%- set cs = (out.cl.items() | sort(attribute='1', reverse=true) | first)[0] if out.cl else 'Not limited' -%}
+            {%- set ds = (out.dl.items() | sort(attribute='1', reverse=true) | first)[0] if out.dl else 'Not limited' -%}
+            {{ {'c': out.c, 'd': out.d, 'cl': out.cl, 'dl': out.dl, 'ct': out.ct, 'dt': out.dt,
+                'cs': cs, 'ds': ds} | tojson }}
+    sensor:
+      - name: "HBA Charge Limit Source"
+        unique_id: hba_charge_limit_source
+        icon: mdi:battery-arrow-up-outline
+        state: "{{ (lim | from_json if lim is string else lim).cs }}"
+      - name: "HBA Discharge Limit Source"
+        unique_id: hba_discharge_limit_source
+        icon: mdi:battery-arrow-down-outline
+        state: "{{ (lim | from_json if lim is string else lim).ds }}"
+      # Per battery {w, reason} in battery order; *_lost_w = watts below 2500 W per battery,
+      # by reason. State = what all batteries could charge together right now.
+      - name: "HBA Limits Now"
+        unique_id: hba_limits_now
+        icon: mdi:speedometer-medium
+        unit_of_measurement: W
+        state: "{{ (lim | from_json if lim is string else lim).ct }}"
+        attributes:
+          charge: "{{ (lim | from_json if lim is string else lim).c }}"
+          discharge: "{{ (lim | from_json if lim is string else lim).d }}"
+          charge_lost_w: "{{ (lim | from_json if lim is string else lim).cl }}"
+          discharge_lost_w: "{{ (lim | from_json if lim is string else lim).dl }}"
+          discharge_max_w: "{{ (lim | from_json if lim is string else lim).dt }}"
+
 ######################################################################################################
 # RECORDER
 ######################################################################################################
@@ -2704,6 +2883,8 @@ recorder:
     entities:
       # Room per phase (main fuse limit, Charge alongside EV) — recalculated on every P1 update
       - sensor.hba_phase_room
+      # Per-battery limits now — recalculated every 5 s (the Limit Source sensors stay recorded)
+      - sensor.hba_limits_now
       # EV charger total power for Charge alongside EV (user-defined in hba_config.yaml) —
       # a copy of the charger's own power sensor, which its integration already records
       - sensor.ev_charger_power

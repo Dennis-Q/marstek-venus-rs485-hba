@@ -379,6 +379,14 @@ current in every strategy, for charging and discharging (needs the per-phase P1 
 **Use at your own risk:** it is a software limit, not electrical protection —
 always have an electrician check your installation.
 
+### Why is charging limited?
+
+`sensor.hba_charge_limit_source` and `sensor.hba_discharge_limit_source` name what limits the
+batteries right now — a power group, an own limit, the BMS, slow charge, the main fuse or the
+car on a phase, or batteries that are full, empty or offline (*Not limited* when nothing does).
+The Insights view shows the most each battery could charge and discharge now and why
+(`sensor.hba_limits_now`).
+
 ### Dynamic pricing
 
 One algorithm — Extreme-Pair Matching, a faithful port of HBC's Dynamic strategy (HBC

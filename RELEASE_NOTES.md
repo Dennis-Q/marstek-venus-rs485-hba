@@ -139,6 +139,16 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Added
 
+- **What limits charging / discharging now** — `sensor.hba_charge_limit_source` and
+  `sensor.hba_discharge_limit_source` (like the Peblar's limit source): *Not limited*, *Power
+  group A/B/C*, *Own limit*, *Battery setting*, *BMS*, *Slow charge*, *Main fuse Lx*, *Car
+  first Lx*, *Full*, *Empty*, *Offline*, *Fault* or *Charge alongside EV* — the limit costing
+  the most watts below 2500 W per battery. `sensor.hba_limits_now` has the most each battery
+  could charge / discharge right now and why (the battery distribution replayed at full
+  request, a phase limit shared in battery order); Insights shows it as a table. Only reports;
+  what the strategy asks for is not a limit. The two Limit Source sensors are recorded (a row
+  only when the reason changes); `sensor.hba_limits_now` is recorder-excluded (every 5 s).
+
 - **Main fuse limit per phase** (`input_number.hba_phase_current_limit`, Advanced settings →
   Power groups, 0 = off) — in every strategy, the batteries on a phase charge (import) or
   discharge (export, e.g. Sell plus solar on the same phase) only as far as that phase stays
