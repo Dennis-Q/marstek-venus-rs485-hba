@@ -1552,6 +1552,32 @@ template:
           {{ states('input_select.hba_strategy') in ['Charge', 'Sell'] and s is not none
              and (now() - s).total_seconds() >= 3600 }}
 
+      # Watchdog: in Full control the control loop starts a cycle on every P1 update (~1 s).
+      # No new cycle for 90 s = stalled: either one cycle hangs (a battery whose Modbus link
+      # dropped mid-write — the loop waits until that hub reconnects, up to ~10 min, prod
+      # 2026-10-02 and 2026-10-25) or the P1 meter stopped updating. The batteries keep their
+      # last command meanwhile. Watch only — changes nothing in the control loop. now()
+      # re-renders this once a minute, so it turns on 90–150 s into a stall.
+      - name: "HBA Control Loop Stalled"
+        unique_id: hba_control_loop_stalled
+        device_class: problem
+        icon: mdi:timer-sand-paused
+        state: >-
+          {#- Full control for 90 s too: right after switching to it, or after an HA start, the
+              loop's last cycle can be old although nothing is wrong. -#}
+          {%- set lt = state_attr('automation.hba_control_loop_p1_meter_triggered', 'last_triggered') -%}
+          {%- set mm = states.input_select.hba_marstek_master_battery_mode -%}
+          {{ mm is not none and mm.state == 'Full control'
+             and (now() - mm.last_changed).total_seconds() > 90
+             and lt is not none and (now() - lt).total_seconds() > 90 }}
+        attributes:
+          seconds_since_cycle: >-
+            {%- set lt = state_attr('automation.hba_control_loop_p1_meter_triggered', 'last_triggered') -%}
+            {{ ((now() - lt).total_seconds()) | int if lt is not none else none }}
+          p1_updating: >-
+            {%- set p = states.sensor.p1_meter_power -%}
+            {{ p is not none and (now() - p.last_reported).total_seconds() < 60 }}
+
       # A battery is offline when Modbus lost it (inverter_state unavailable) OR its link
       # hangs: battery_power (polled every 10 s) has not reported for 30+ s. A hung link
       # (prod 2026-10-02, M3 cable) stays "available" for ~10 min while HA waits on it;

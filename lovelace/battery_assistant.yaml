@@ -504,6 +504,17 @@ views:
               columns: full
             visibility:
               - condition: state
+                entity: binary_sensor.hba_control_loop_stalled
+                state: "on"
+            content: >
+              {%- set B = 'binary_sensor.hba_control_loop_stalled' -%}
+              <ha-alert alert-type="error">Control stalled — no control cycle for {{ state_attr(B, 'seconds_since_cycle') }} s; the batteries keep their last command.
+              {%- if state_attr(B, 'p1_updating') %} Usually a battery whose network link dropped while HBA wrote to it; HBA continues once it is reachable again (up to ~10 min).{% else %} The P1 meter has stopped updating.{% endif %}</ha-alert>
+          - type: markdown
+            grid_options:
+              columns: full
+            visibility:
+              - condition: state
                 entity: binary_sensor.hba_power_limits_not_restored
                 state: "on"
             content: >

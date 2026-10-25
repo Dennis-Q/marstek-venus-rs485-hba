@@ -12,6 +12,7 @@
 #   • hba_notify_battery_offline / _resolved         — battery unreachable or silent 3+ min
 #   • hba_notify_entity_health / _resolved           — critical HBA entity missing / wrong entity_id
 #   • hba_notify_dynamic_migration / _resolved       — r22 Dynamic v1/v2 leftovers to clean up
+#   • hba_notify_control_loop_stalled / _resolved   — no control cycle for 90+ s (battery link hang or P1 meter)
 #   • hba_notify_manual_strategy_done / _reminder / _resolved — Charge or Sell chosen by hand: done, still on after 1/2/4 h
 #   • hba_notify_battery_restarted                   — a battery restarted (limit registers 0, or RS485 back as disabled); limits restored (event, no banner)
 #   • hba_notify_power_limits_not_restored / _resolved — limit registers still read 0 after a restart
@@ -590,6 +591,51 @@ automation:
   # back on. Both signs can come for one restart: same tag per battery, so the second
   # message replaces the first on the phone. Settings HBA cannot read over Modbus (an
   # output limit set in the Marstek app) may be reset too — the message says to check.
+  # ── Control loop stalled ──────────────────────────────────────────────────────
+  # binary_sensor.hba_control_loop_stalled: no control cycle for 90+ s in Full control.
+  - id: hba_notify_control_loop_stalled
+    alias: "HBA: Notify control loop stalled"
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_control_loop_stalled
+        to: "on"
+    actions:
+      - variables:
+          p1ok: "{{ state_attr('binary_sensor.hba_control_loop_stalled', 'p1_updating') }}"
+      - action: script.hba_notify_dispatch
+        data:
+          title: "HBA: control stalled"
+          message: >-
+            HBA has not run a control cycle for over 90 s; the batteries keep their last
+            command.
+            {%- if p1ok %} The P1 meter does update, so a cycle is hanging — usually a battery
+            whose network link dropped while HBA wrote to it. HBA continues once that battery
+            is reachable again (up to ~10 min); check cables and power.
+            {%- else %} The P1 meter (sensor.p1_meter_power) has stopped updating — check the
+            meter / DSMR connection.{% endif %}
+          tag: hba_control_loop_stalled
+          color: red
+          priority: high
+          persistent_id: hba_control_loop_stalled
+
+  - id: hba_notify_control_loop_stalled_resolved
+    alias: "HBA: Control loop stalled — resolved"
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_control_loop_stalled
+        from: "on"
+        to: "off"
+    actions:
+      - action: script.hba_notify_dispatch
+        data:
+          title: "HBA: control running again"
+          message: "HBA is running control cycles again."
+          tag: hba_control_loop_stalled
+          color: green
+          resolve_id: hba_control_loop_stalled
+
   # ── Charge / Sell chosen by hand ──────────────────────────────────────────────
   # A reminder so a one-off Charge or Sell is not forgotten (e.g. the evening Sell of Dynamic
   # does not run while Charge is selected). "Done" = binary_sensor.hba_manual_strategy_done

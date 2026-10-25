@@ -149,6 +149,15 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Added
 
+- **Watchdog: control stalled** — `binary_sensor.hba_control_loop_stalled` turns on when HBA has
+  not run a control cycle for 90 s in Full control (normally one per P1 update, ~1 s). Overview
+  banner, notification and *resolved*. The message tells the two causes apart: the P1 meter
+  stopped updating, or a cycle hangs — a battery whose network link dropped while HBA wrote to
+  it holds the loop until that battery is reachable again (prod 2026-10-02 and 2026-10-25, ~10
+  minutes; the batteries keep their last command meanwhile). Watch only: the control loop itself
+  is unchanged (a fix for the hang is designed but parked — it would touch the loop timing the PID
+  is tuned on).
+
 - **Reminder when Charge or Sell is chosen by hand** — so a one-off Charge or Sell is not
   forgotten (Dynamic's evening Sell does not run while Charge is selected). A notification when
   it is done (*Charging done* / *Selling done*: every battery full / empty, or a fixed goal held
