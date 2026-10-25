@@ -239,7 +239,9 @@ open), so the version prefix stays at 4.10.1 for now.
     whole connection (CT clamps at the grid connection). The per-phase cap goes into the
     1-second commands, not the EEPROM limit registers.
   - New: `binary_sensor.hba_ev_charge_alongside` (attribute `mode` — *Batteries first* /
-    *EV first*) and `sensor.hba_phase_room` (room per phase, recorder-excluded like
+    *EV first*), `binary_sensor.hba_batteries_before_ev` (on while the batteries come first,
+    whether or not the car charges — for a solar-surplus EV controller such as
+    ha-smart-ev-charging's *Home battery priority entity*) and `sensor.hba_phase_room` (room per phase, recorder-excluded like
     `sensor.p1_meter_power_l*` / `sensor.p1_meter_voltage_l*` / `sensor.ev_charger_power` / `sensor.ev_charger_power_l*`:
     they change on every update and copy sensors that are recorded anyway;
     recorder exclusions take effect after a full HA restart).

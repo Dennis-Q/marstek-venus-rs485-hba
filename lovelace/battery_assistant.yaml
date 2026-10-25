@@ -4870,6 +4870,9 @@ views:
                 entity: binary_sensor.hba_ev_charge_alongside
                 attribute: mode
                 name: Priority now
+              - entity: binary_sensor.hba_batteries_before_ev
+                name: Batteries before EV now (for EV solar charging)
+                secondary_info: none
             visibility:
               - condition: state
                 entity: input_select.hba_control_strategy_during_ev_charge

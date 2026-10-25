@@ -1625,6 +1625,20 @@ template:
                     < states('input_number.hba_ev_battery_priority_energy') | float(0)
                  else 'EV first' }}
 
+      # For an EV charging controller (ha-smart-ev-charging: ev_home_battery_priority_entity):
+      # on while Charge alongside EV would put the batteries first — usable energy below the
+      # kWh reserve. Unlike hba_ev_charge_alongside it does not wait for the car to charge, so
+      # a solar-surplus EV controller can leave the surplus to the batteries before it starts
+      # the car (otherwise: car starts → flag on → car stops → flag off → car starts …).
+      - name: "HBA Batteries Before EV"
+        unique_id: hba_batteries_before_ev
+        icon: mdi:home-battery
+        state: >-
+          {{ is_state('input_select.hba_control_strategy_during_ev_charge', 'Charge alongside EV')
+             and not is_state('input_select.hba_strategy', 'Full stop')
+             and states('sensor.hba_charge_available_energy') | float(0)
+                 < states('input_number.hba_ev_battery_priority_energy') | float(0) }}
+
       # Setup hint (banner only): a per-phase limit is in use — Charge alongside EV, or the
       # main fuse limit per phase — but per-phase grid power sensors it needs are missing
       # (sensor.p1_meter_power_lX, hba_config.yaml). Names them via sensor.hba_phase_room.

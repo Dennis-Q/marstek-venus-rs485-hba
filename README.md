@@ -360,6 +360,12 @@ Optionally define the charger's power (`sensor.ev_charger_power`, or per grid ph
 in `hba_config.yaml`): HBA then keeps the room the car needs to reach its max current free, so a
 car that the charger's load balancing throttled goes straight back to full speed.
 
+With an EV controller that charges the car from solar surplus, point it at
+`binary_sensor.hba_batteries_before_ev` (on while the batteries come first, also before the car
+starts). [ha-smart-ev-charging](https://github.com/Dennis-Q/ha-smart-ev-charging) uses it as
+*Home battery priority entity*: the surplus the batteries take then stays with the batteries
+instead of being counted as available for the car.
+
 ### Power groups
 
 Batteries whose combined power must stay within one limit — a shared breaker, a limit per phase,
