@@ -537,10 +537,18 @@ views:
             content: >
               {%- set B = 'binary_sensor.hba_battery_power_limited' -%}
               {%- set r = state_attr(B, 'reason') or '' -%}
-              {%- set why = ('the main fuse limit on ' ~ r[-2:] ~ ' (' ~ (states('input_number.hba_phase_current_limit') | float(0) | round(0) | int) ~ ' A per phase)') if r.startswith('Main fuse')
-                            else (('the car, which comes first on ' ~ r[-2:]) if r.startswith('Car first')
-                            else 'the battery management system (cold, or almost full)') -%}
-              <ha-alert alert-type="info">{{ 'Charging' if state_attr(B, 'direction') == 'charge' else 'Discharging' }} limited to {{ state_attr(B, 'max_w') }} W by {{ why }}. Details in Insights → Limits now.</ha-alert>
+              {%- set dir = state_attr(B, 'direction') -%}
+              {%- set per = state_attr('sensor.hba_limits_now', 'charge' if dir == 'charge' else 'discharge') or {} -%}
+              {%- set kind = 'Main fuse' if r.startswith('Main fuse') else ('Car first' if r.startswith('Car first') else 'BMS') -%}
+              {%- set ns = namespace(ph=[]) -%}
+              {%- for k, v in per.items() if v.reason is string and v.reason.startswith(kind) and v.reason[-2:] not in ns.ph and kind != 'BMS' -%}
+                {%- set ns.ph = ns.ph + [v.reason[-2:]] -%}
+              {%- endfor -%}
+              {%- set phases = (ns.ph | sort | join(' and ')) or r[-2:] -%}
+              {%- set why = ('by the main fuse limit on ' ~ phases ~ ' (' ~ (states('input_number.hba_phase_current_limit') | float(0) | round(0) | int) ~ ' A per phase)') if kind == 'Main fuse'
+                            else (': the car comes first on ' ~ phases if kind == 'Car first'
+                            else 'by the battery management system (cold, or almost full)') -%}
+              <ha-alert alert-type="info">{{ 'Charging' if dir == 'charge' else 'Discharging' }} limited to {{ state_attr(B, 'max_w') }} W in total{{ ' ' if not why.startswith(':') }}{{ why }}. Details in Insights → Limits now.</ha-alert>
           - type: heading
             heading: Master Battery Control
             heading_style: title

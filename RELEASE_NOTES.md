@@ -155,7 +155,8 @@ open), so the version prefix stays at 4.10.1 for now.
   request, a phase limit shared in battery order); Insights shows it as a table. Only reports;
   what the strategy asks for is not a limit. The two Limit Source sensors are recorded (a row
   only when the reason changes); `sensor.hba_limits_now` is recorder-excluded (every 5 s).
-  The Overview shows an info line ("Charging limited to 3099 W by the main fuse limit on L3")
+  The Overview shows an info line ("Charging limited to 2821 W in total: the car comes first on
+  L1 and L3" — the total of all batteries, with every phase where that limit applies)
   while the batteries actually run at a limit worth knowing about — main fuse, car first or BMS
   — via `binary_sensor.hba_battery_power_limited` (on within 150 W of the max, off 400 W below
   it, 30 s on / 60 s off delay); power groups, full / empty and offline are left out. A Limit
