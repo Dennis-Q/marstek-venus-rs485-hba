@@ -4624,7 +4624,6 @@ views:
       # breaker, one phase, plug-in 800 W guideline). Each battery's group is set in its own
       # block above; here the group's max power, spread policy and live limits.
       - type: grid
-        column_span: 3
         cards:
           - type: heading
             heading: Power groups
@@ -4657,15 +4656,6 @@ views:
               This is a software limit, not electrical protection: a firmware bug, a battery reset, a setting changed in the Marstek app or a configuration mistake can let the batteries draw more. **Always have an electrician check your installation** — breakers, cables and phase load must be right without HBA.
 
               </ha-alert>
-          # Main fuse limit per phase — every strategy, needs per-phase P1 sensors
-          - type: entities
-            entities:
-              - entity: input_number.hba_phase_current_limit
-                name: Main fuse per phase
-          - type: markdown
-            text_only: true
-            content: >-
-              <font color="#9b9b9b">Keeps every phase below this current in every strategy — e.g. 24 A for a 25 A main fuse (0 = off). Needs the per-phase P1 sensors and each battery's phase. Not the same as the **car-first limit** (EV Charge, now {{ states('input_number.hba_ev_phase_current_limit') | float(0) | round(0) | int }} A), which only applies while the car charges and should be lower. A software limit: the installation must be safe without it.</font>
           - type: entities
             entities:
               - type: conditional
@@ -4822,6 +4812,17 @@ views:
               - condition: state
                 entity: sensor.hba_power_limits
                 state_not: Not used
+
+      - type: grid
+        visibility:
+          - condition: state
+            entity: sensor.hba_power_limits
+            state_not: Not used
+        cards:
+          - type: heading
+            heading: Group limits now
+            heading_style: subtitle
+            icon: mdi:table
           - type: markdown
             text_only: true
             content: |-
@@ -4841,6 +4842,23 @@ views:
               - condition: state
                 entity: sensor.hba_power_limits
                 state: Active
+
+      # Main fuse limit per phase — every strategy, needs per-phase P1 sensors
+      - type: grid
+        cards:
+          - type: heading
+            heading: Main fuse limit
+            heading_style: title
+            icon: mdi:fuse-alert
+          # Main fuse limit per phase — every strategy, needs per-phase P1 sensors
+          - type: entities
+            entities:
+              - entity: input_number.hba_phase_current_limit
+                name: Main fuse per phase
+          - type: markdown
+            text_only: true
+            content: >-
+              <font color="#9b9b9b">Keeps every phase below this current in every strategy — e.g. 24 A for a 25 A main fuse (0 = off). Needs the per-phase P1 sensors and each battery's phase. Not the same as the **car-first limit** (EV Charge, now {{ states('input_number.hba_ev_phase_current_limit') | float(0) | round(0) | int }} A), which only applies while the car charges and should be lower. A software limit: the installation must be safe without it.</font>
 
   # ── VIEW 7: EV CHARGE ────────────────────────────────────────────────────────
   - type: sections
