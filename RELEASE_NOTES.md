@@ -19,6 +19,9 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Fixed
 
+- **Number of batteries is a number box, not a slider** — easy to drag by accident on a phone,
+  and a wrong count drops batteries from control at once.
+
 - **No false *RS485 control mismatch* for an offline battery** — a battery that cannot be read
   shows its RS485 mode as *unknown*, which counted as a mismatch (prod 2026-10-25, M2 power
   cycle: mismatch notification on top of the offline one). The offline banner covers that.

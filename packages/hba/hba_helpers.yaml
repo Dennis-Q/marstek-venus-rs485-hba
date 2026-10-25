@@ -111,7 +111,9 @@ input_number:
     min: 1
     max: 6
     step: 1
-    mode: slider
+    # box, not slider: a slider on a phone was easy to drag by accident (prod 2026-10-25), and a
+    # wrong count drops or adds batteries from control at once
+    mode: box
     icon: mdi:counter
   hba_control_prioritize_battery:
     name: "Priority battery"
