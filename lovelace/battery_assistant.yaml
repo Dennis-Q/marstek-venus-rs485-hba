@@ -536,7 +536,7 @@ views:
                 state: "on"
             content: >
               {%- set st = states('input_select.hba_strategy') -%}
-              {%- set lc = states.input_select.hba_strategy.last_changed -%}
+              {%- set lc = as_datetime(states('sensor.hba_manual_strategy_since')) or now() -%}
               <ha-alert alert-type="info">{{ st }} selected since {{ as_local(lc).strftime('%H:%M') }}
               ({{ ((now() - lc).total_seconds() / 3600) | round(1) }} h){{ ' — done' if is_state('binary_sensor.hba_manual_strategy_done', 'on') else '' }}.
               Remember to switch back to your usual strategy (e.g. Dynamic).</ha-alert>

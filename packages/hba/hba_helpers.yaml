@@ -1542,12 +1542,15 @@ template:
             false
           {%- endif -%}
 
-      # Charge or Sell has been selected for an hour or more (Overview reminder banner).
+      # Charge or Sell has been selected for an hour or more (Overview reminder banner),
+      # counted from sensor.hba_manual_strategy_since so an HA restart does not reset it.
       - name: "HBA Manual Strategy Long"
         unique_id: hba_manual_strategy_long
         icon: mdi:timer-alert-outline
-        delay_on: "01:00:00"
-        state: "{{ states('input_select.hba_strategy') in ['Charge', 'Sell'] }}"
+        state: >-
+          {%- set s = as_datetime(states('sensor.hba_manual_strategy_since')) -%}
+          {{ states('input_select.hba_strategy') in ['Charge', 'Sell'] and s is not none
+             and (now() - s).total_seconds() >= 3600 }}
 
       # A battery is offline when Modbus lost it (inverter_state unavailable) OR its link
       # hangs: battery_power (polled every 10 s) has not reported for 30+ s. A hung link
@@ -3015,6 +3018,37 @@ template:
           max_w: >-
             {%- set x = lim | from_json if lim is string else lim -%}
             {{ x.ct if states('sensor.hba_total_battery_power') | float(0) < 0 else x.dt }}
+
+  # When Charge or Sell was chosen (for the reminders). Trigger-based so HA restores it after a
+  # restart — input_select last_changed restarts with HA, which reset the 1/2/4 h reminders.
+  # Empty while another strategy is selected. At start only filled in when still empty (first
+  # install while Charge / Sell is already selected: best guess = the select's last change).
+  - triggers:
+      - trigger: state
+        entity_id: input_select.hba_strategy
+        to: ~
+      - trigger: homeassistant
+        event: start
+    sensor:
+      - name: "HBA Manual Strategy Since"
+        unique_id: hba_manual_strategy_since
+        icon: mdi:clock-start
+        device_class: timestamp
+        state: >-
+          {%- set st = states('input_select.hba_strategy') -%}
+          {%- set cur = states('sensor.hba_manual_strategy_since') -%}
+          {%- set has = cur not in ['unknown', 'unavailable', 'none', ''] -%}
+          {%- if st not in ['Charge', 'Sell'] -%}
+            {{ none }}
+          {%- elif trigger.platform == 'state' and trigger.from_state is not none
+                and trigger.from_state.state not in ['unknown', 'unavailable']
+                and trigger.from_state.state != st -%}
+            {{ now().isoformat() }}
+          {%- elif has -%}
+            {{ cur }}
+          {%- else -%}
+            {{ states.input_select.hba_strategy.last_changed.isoformat() }}
+          {%- endif -%}
 
 ######################################################################################################
 # RECORDER

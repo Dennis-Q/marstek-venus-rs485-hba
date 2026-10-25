@@ -602,10 +602,19 @@ automation:
       - trigger: state
         entity_id: binary_sensor.hba_manual_strategy_done
         to: "on"
+    # Once per run: after an HA restart the sensor turns on again (10 min delay).
+    conditions:
+      - condition: template
+        value_template: >-
+          {%- set s = as_datetime(states('sensor.hba_manual_strategy_since')) -%}
+          {%- set last = this.attributes.last_triggered if this is defined and this.attributes is defined else none -%}
+          {{ last is none or s is none or last < s }}
     actions:
       - variables:
           st: "{{ states('input_select.hba_strategy') }}"
-          since: "{{ as_local(states.input_select.hba_strategy.last_changed).strftime('%H:%M') }}"
+          since: >-
+            {%- set s = as_datetime(states('sensor.hba_manual_strategy_since')) -%}
+            {{ as_local(s).strftime('%H:%M') if s else '?' }}
       - action: script.hba_notify_dispatch
         data:
           title: "HBA: {{ 'Charging' if st == 'Charge' else 'Selling' }} done"
@@ -621,24 +630,31 @@ automation:
   - id: hba_notify_manual_strategy_reminder
     alias: "HBA: Notify Charge / Sell still selected"
     mode: single
+    # Counted from sensor.hba_manual_strategy_since (restored after a restart). A template
+    # trigger fires when it turns true, so each step fires once and a restart past it does not
+    # repeat it (the template is already true at start).
     triggers:
-      - trigger: state
-        entity_id: input_select.hba_strategy
-        to: ["Charge", "Sell"]
-        for: "01:00:00"
-      - trigger: state
-        entity_id: input_select.hba_strategy
-        to: ["Charge", "Sell"]
-        for: "02:00:00"
-      - trigger: state
-        entity_id: input_select.hba_strategy
-        to: ["Charge", "Sell"]
-        for: "04:00:00"
+      - trigger: template
+        value_template: >-
+          {%- set s = as_datetime(states('sensor.hba_manual_strategy_since')) -%}
+          {{ s is not none and states('input_select.hba_strategy') in ['Charge', 'Sell']
+             and (now() - s).total_seconds() >= 3600 }}
+      - trigger: template
+        value_template: >-
+          {%- set s = as_datetime(states('sensor.hba_manual_strategy_since')) -%}
+          {{ s is not none and states('input_select.hba_strategy') in ['Charge', 'Sell']
+             and (now() - s).total_seconds() >= 7200 }}
+      - trigger: template
+        value_template: >-
+          {%- set s = as_datetime(states('sensor.hba_manual_strategy_since')) -%}
+          {{ s is not none and states('input_select.hba_strategy') in ['Charge', 'Sell']
+             and (now() - s).total_seconds() >= 14400 }}
     actions:
       - variables:
           st: "{{ states('input_select.hba_strategy') }}"
-          since: "{{ as_local(states.input_select.hba_strategy.last_changed).strftime('%H:%M') }}"
-          hours: "{{ ((now() - states.input_select.hba_strategy.last_changed).total_seconds() / 3600) | round(0) | int }}"
+          s: "{{ states('sensor.hba_manual_strategy_since') }}"
+          since: "{{ as_local(as_datetime(s)).strftime('%H:%M') }}"
+          hours: "{{ ((now() - as_datetime(s)).total_seconds() / 3600) | round(0) | int }}"
       - action: script.hba_notify_dispatch
         data:
           title: "HBA: still on {{ st }}"
@@ -658,14 +674,16 @@ automation:
       - trigger: state
         entity_id: input_select.hba_strategy
         from: ["Charge", "Sell"]
-    # Only after a reminder or "done" message was actually sent for this run.
+    # Only when a reminder or "done" message was sent since the last resolve (automation
+    # last_triggered survives a restart; the strategy's last_changed does not).
     conditions:
       - condition: template
         value_template: >-
           {%- set a = state_attr('automation.hba_notify_charge_sell_done', 'last_triggered') -%}
           {%- set b = state_attr('automation.hba_notify_charge_sell_still_selected', 'last_triggered') -%}
-          {%- set since = trigger.from_state.last_changed -%}
-          {{ (a is not none and a > since) or (b is not none and b > since) }}
+          {%- set me = this.attributes.last_triggered if this is defined and this.attributes is defined else none -%}
+          {%- set sent = [a, b] | reject('none') | list -%}
+          {{ sent | length > 0 and (me is none or (sent | max) > me) }}
     actions:
       - action: script.hba_notify_dispatch
         data:

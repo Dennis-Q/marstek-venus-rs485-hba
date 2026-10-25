@@ -151,8 +151,9 @@ open), so the version prefix stays at 4.10.1 for now.
   for 10 minutes — with the solar-forecast goal only "every battery full" counts, because that
   goal moves every 5 minutes and reaching it hands over to the "When done charging" plan), a
   reminder after 1, 2 and 4 hours, an Overview banner from 1 hour, and a *resolved* message when
-  the strategy changes. New: `binary_sensor.hba_manual_strategy_done`,
-  `binary_sensor.hba_manual_strategy_long`.
+  the strategy changes. Counted from when Charge / Sell was chosen, also across an HA restart.
+  New: `binary_sensor.hba_manual_strategy_done`, `binary_sensor.hba_manual_strategy_long`,
+  `sensor.hba_manual_strategy_since`.
 
 - **What limits charging / discharging now** — `sensor.hba_charge_limit_source` and
   `sensor.hba_discharge_limit_source` (like the Peblar's limit source): *Not limited*, *Power
