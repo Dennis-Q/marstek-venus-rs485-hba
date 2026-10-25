@@ -2158,7 +2158,9 @@ template:
             {% set count = states('input_number.hba_battery_count') | int(1) %}
             {% set ns = namespace(mismatch=false) %}
             {% for i in range(1, count + 1) %}
-              {% if states('select.marstek_m' ~ i ~ '_rs485_control_mode') != 'enable' %}
+              {# unknown / unavailable = not read (battery offline): the offline banner covers
+                 that, it is not a mismatch (prod 2026-10-25: M2 power cycle raised both) #}
+              {% if states('select.marstek_m' ~ i ~ '_rs485_control_mode') not in ['enable', 'unknown', 'unavailable'] %}
                 {% set ns.mismatch = true %}
               {% endif %}
             {% endfor %}
@@ -2169,7 +2171,7 @@ template:
             {% set count = states('input_number.hba_battery_count') | int(1) %}
             {% set ns = namespace(result=[]) %}
             {% for i in range(1, count + 1) %}
-              {% if states('select.marstek_m' ~ i ~ '_rs485_control_mode') != 'enable' %}
+              {% if states('select.marstek_m' ~ i ~ '_rs485_control_mode') not in ['enable', 'unknown', 'unavailable'] %}
                 {% set mode = states('select.marstek_m' ~ i ~ '_rs485_control_mode') %}
                 {% set ns.result = ns.result + ['M' ~ i ~ ' (' ~ mode ~ ')'] %}
               {% endif %}

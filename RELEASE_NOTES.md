@@ -19,6 +19,10 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Fixed
 
+- **No false *RS485 control mismatch* for an offline battery** — a battery that cannot be read
+  shows its RS485 mode as *unknown*, which counted as a mismatch (prod 2026-10-25, M2 power
+  cycle: mismatch notification on top of the offline one). The offline banner covers that.
+
 - **Installer: commit lookup failed on large commits** — with `pipefail`, `grep -m1` stopping
   early on a 100+ KB GitHub API response (a merge commit with a big diff) broke the pipe and
   the installer fell back to "latest commit unknown". grep now reads a here-string.
