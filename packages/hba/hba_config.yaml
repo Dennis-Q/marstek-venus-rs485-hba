@@ -53,8 +53,9 @@
 # ═════════════════════════════════════════════════════════════════════════════
 # ADVANCED — only needed for advanced features
 #
-#   Everything below is OPTIONAL. Only define these sensors when you use
-#   Strategy during EV charge → "Charge alongside EV" with the car first. HBA works
+#   Everything below is OPTIONAL. Only define these sensors when you use the main
+#   fuse limit per phase (Advanced settings → Power groups) or Strategy during EV
+#   charge → "Charge alongside EV" with the car first. HBA works
 #   fine without them; that feature then tells you on the dashboard which ones it
 #   misses. Add them to the SAME `template:` → `- sensor:` list as P1 Meter Power
 #   above (one `template:` key per file — a second one silently drops the first).

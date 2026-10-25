@@ -139,6 +139,20 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Added
 
+- **Main fuse limit per phase** (`input_number.hba_phase_current_limit`, Advanced settings →
+  Power groups, 0 = off) — in every strategy, the batteries on a phase charge (import) or
+  discharge (export, e.g. Sell plus solar on the same phase) only as far as that phase stays
+  below this current, e.g. 24 A for a 25 A main fuse. Prod 2026-10-25 02:01: L1 at 24 A from
+  ~10 A house load plus two batteries charging 3.3 kW on L1, with the limit only active while
+  the car charged. Needs `sensor.p1_meter_power_l1/l2/l3` and each battery's phase; combines with
+  *car first* (the tighter limit applies per phase). A software limit — the installation must be
+  safe without it.
+  The room per phase is now one trigger-based `sensor.hba_phase_room` (attributes
+  `fuse_charge_w`, `fuse_discharge_w`, `ev_room_w`, `ev_reserve_w`, `ev_source`,
+  `missing_sensors`), replacing `sensor.hba_ev_phase_room`; the setup banner sensor is now
+  `binary_sensor.hba_phase_sensors_missing` (was `binary_sensor.hba_ev_phase_sensors_missing`).
+  Remove the two old entities in Settings → Entities if they show as unavailable.
+
 - **Minimum power to start an extra battery** (`input_number.hba_control_min_start_power`,
   default 200 W, 0 = off) — an extra battery (one not running yet while another already takes
   power) only starts when its share is at least this much; the first battery always may, so a
@@ -211,7 +225,7 @@ open), so the version prefix stays at 4.10.1 for now.
     power. **Define `sensor.p1_meter_power_l1/_l2/_l3`** (W, positive = import; optional
     `sensor.p1_meter_voltage_l1/_l2/_l3`, else 230 V) in `hba_config.yaml`, like
     `sensor.p1_meter_power` — see EXAMPLE 3 there. Only the phases with batteries are needed;
-    missing ones are named in a banner (`binary_sensor.hba_ev_phase_sensors_missing`) and get
+    missing ones are named in a banner (`binary_sensor.hba_phase_sensors_missing`) and get
     no room. Existing installs keep their `hba_config.yaml`: copy the example from the repo.
   - **Car max current** (`input_number.hba_ev_max_current`, default 16 A): with the charger's
     power defined (`sensor.ev_charger_power`, or `sensor.ev_charger_power_l1/_l2/_l3` per grid
@@ -225,7 +239,7 @@ open), so the version prefix stays at 4.10.1 for now.
     whole connection (CT clamps at the grid connection). The per-phase cap goes into the
     1-second commands, not the EEPROM limit registers.
   - New: `binary_sensor.hba_ev_charge_alongside` (attribute `mode` — *Batteries first* /
-    *EV first*) and `sensor.hba_ev_phase_room` (room per phase, recorder-excluded like
+    *EV first*) and `sensor.hba_phase_room` (room per phase, recorder-excluded like
     `sensor.p1_meter_power_l*` / `sensor.p1_meter_voltage_l*` / `sensor.ev_charger_power` / `sensor.ev_charger_power_l*`:
     they change on every update and copy sensors that are recorded anyway;
     recorder exclusions take effect after a full HA restart).

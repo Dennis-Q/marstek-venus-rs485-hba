@@ -522,10 +522,10 @@ views:
               columns: full
             visibility:
               - condition: state
-                entity: binary_sensor.hba_ev_phase_sensors_missing
+                entity: binary_sensor.hba_phase_sensors_missing
                 state: "on"
             content: >
-              <ha-alert alert-type="warning">Charge alongside EV (car first) is missing per-phase grid power: {{ state_attr('binary_sensor.hba_ev_charge_alongside', 'missing_sensors') }}. Define them in packages/hba/hba_config.yaml (like sensor.p1_meter_power, positive = import). Until then the batteries do not charge on those phases while the car charges first.</ha-alert>
+              <ha-alert alert-type="warning">Per-phase limits (main fuse limit, Charge alongside EV) are missing per-phase grid power: {{ state_attr('sensor.hba_phase_room', 'missing_sensors') }}. Define them in packages/hba/hba_config.yaml (like sensor.p1_meter_power, positive = import — see hba_config.yaml.example). Until then the batteries do not charge or discharge on those phases while such a limit applies.</ha-alert>
           - type: heading
             heading: Master Battery Control
             heading_style: title
@@ -2560,30 +2560,40 @@ views:
                 entity: sensor.hba_power_limits
                 state_not: Not used
           - type: heading
-            heading: Charge alongside EV
+            heading: Per-phase limits (fuse / Charge alongside EV)
             heading_style: title
             icon: mdi:car-battery
             visibility:
-              - condition: state
-                entity: input_select.hba_control_strategy_during_ev_charge
-                state: "Charge alongside EV"
+              - condition: or
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_control_strategy_during_ev_charge
+                    state: "Charge alongside EV"
+                  - condition: numeric_state
+                    entity: input_number.hba_phase_current_limit
+                    above: 0
           - type: markdown
             content: |-
               {%- set B = 'binary_sensor.hba_ev_charge_alongside' -%}
               {%- set avail = states('sensor.hba_charge_available_energy') | float(0) -%}
               {%- set res = states('input_number.hba_ev_battery_priority_energy') | float(0) -%}
               {%- set lim = states('input_number.hba_ev_phase_current_limit') | float(22) -%}
-              {%- set room = state_attr('sensor.hba_ev_phase_room', 'room_w') or {} -%}
-              {%- set res = state_attr('sensor.hba_ev_phase_room', 'ev_reserve_w') or {} -%}
-              {%- set miss = state_attr(B, 'missing_sensors') -%}
+              {%- set room = state_attr('sensor.hba_phase_room', 'ev_room_w') or {} -%}
+              {%- set res = state_attr('sensor.hba_phase_room', 'ev_reserve_w') or {} -%}
+              {%- set fc = state_attr('sensor.hba_phase_room', 'fuse_charge_w') or {} -%}
+              {%- set fd = state_attr('sensor.hba_phase_room', 'fuse_discharge_w') or {} -%}
+              {%- set fuse = states('input_number.hba_phase_current_limit') | float(0) -%}
+              {%- set miss = state_attr('sensor.hba_phase_room', 'missing_sensors') -%}
               **{{ 'Active' if is_state(B, 'on') else 'Not active (car not charging)' }}** — priority **{{ state_attr(B, 'mode') }}**
               (usable {{ avail | round(1) }} kWh vs batteries-first below {{ res | round(1) }} kWh)
               {%- if is_state(B, 'on') %} · never discharging{% endif %}
 
-              Car's power: **{{ state_attr('sensor.hba_ev_phase_room', 'ev_source') }}** · car max {{ states('input_number.hba_ev_max_current') | float(0) | int }} A per phase
+              Car's power: **{{ state_attr('sensor.hba_phase_room', 'ev_source') }}** · car max {{ states('input_number.hba_ev_max_current') | float(0) | int }} A per phase
 
-              | Phase | grid | limit | held for car | room for batteries | batteries |
-              |---|---|---|---|---|---|
+              Main fuse limit: **{{ (fuse | round(1) ~ ' A') if fuse > 0 else 'off' }}**
+
+              | Phase | grid | car-first limit | held for car | room (car first) | fuse room charge / discharge | batteries |
+              |---|---|---|---|---|---|---|
               {% for n in ['L1', 'L2', 'L3'] -%}
               {%- set l = n | lower -%}
               {%- set v = states('sensor.p1_meter_voltage_' ~ l) | float(0) -%}
@@ -2592,13 +2602,18 @@ views:
               {%- for i in range(1, states('input_number.hba_battery_count') | int(1) + 1) if states('input_select.hba_marstek_m' ~ i ~ '_phase') == n -%}
                 {%- set ns.b = ns.b + ['M' ~ i] -%}
               {%- endfor -%}
-              | {{ n }} | {{ ((states('sensor.p1_meter_power_' ~ l) | float(0)) / v) | round(1) ~ ' A' if has_value('sensor.p1_meter_power_' ~ l) else 'no sensor' }} | {{ lim }} A | {{ res[n] ~ ' W' if n in res else '–' }} | {{ room[n] ~ ' W' if n in room else '–' }} | {{ ns.b | join(', ') or '–' }} |
+              | {{ n }} | {{ ((states('sensor.p1_meter_power_' ~ l) | float(0)) / v) | round(1) ~ ' A' if has_value('sensor.p1_meter_power_' ~ l) else 'no sensor' }} | {{ lim }} A | {{ res[n] ~ ' W' if n in res else '–' }} | {{ room[n] ~ ' W' if n in room else '–' }} | {{ (fc[n] ~ ' / ' ~ fd[n] ~ ' W') if n in fc else '–' }} | {{ ns.b | join(', ') or '–' }} |
               {% endfor %}
               {%- if miss %}⚠ Missing: {{ miss }}{% endif %}
             visibility:
-              - condition: state
-                entity: input_select.hba_control_strategy_during_ev_charge
-                state: "Charge alongside EV"
+              - condition: or
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_control_strategy_during_ev_charge
+                    state: "Charge alongside EV"
+                  - condition: numeric_state
+                    entity: input_number.hba_phase_current_limit
+                    above: 0
 
       - type: grid
         cards:
@@ -4436,6 +4451,18 @@ views:
               sizes and the phase load must be right without HBA.
 
               </ha-alert>
+          # Main fuse limit per phase — every strategy, needs per-phase P1 sensors
+          - type: entities
+            entities:
+              - entity: input_number.hba_phase_current_limit
+                name: Main fuse limit per phase (0 = off)
+          - type: markdown
+            text_only: true
+            content: >-
+              <font color="#9b9b9b">Per phase, the batteries on it charge (import) or discharge
+              (export) only as far as that phase stays below this current — e.g. 24 A for a
+              25 A main fuse. Needs `sensor.p1_meter_power_l1/l2/l3` (hba_config.yaml) and each
+              battery's phase. A software limit: the installation must be safe without it.</font>
           - type: entities
             entities:
               - type: conditional
@@ -4871,12 +4898,12 @@ views:
                 state: "Charge alongside EV"
           - type: markdown
             content: >-
-              <ha-alert alert-type="warning">Charge alongside EV (car first) is missing per-phase grid power: {{ state_attr('binary_sensor.hba_ev_charge_alongside', 'missing_sensors') }}. Define them in packages/hba/hba_config.yaml (like sensor.p1_meter_power, positive = import). Until then the batteries do not charge on those phases while the car charges first.</ha-alert>
+              <ha-alert alert-type="warning">Per-phase limits (main fuse limit, Charge alongside EV) are missing per-phase grid power: {{ state_attr('sensor.hba_phase_room', 'missing_sensors') }}. Define them in packages/hba/hba_config.yaml (like sensor.p1_meter_power, positive = import — see hba_config.yaml.example). Until then the batteries do not charge or discharge on those phases while such a limit applies.</ha-alert>
             grid_options:
               columns: full
             visibility:
               - condition: state
-                entity: binary_sensor.hba_ev_phase_sensors_missing
+                entity: binary_sensor.hba_phase_sensors_missing
                 state: "on"
           - type: entities
             entities:

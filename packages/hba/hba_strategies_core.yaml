@@ -1102,13 +1102,17 @@ script:
               - variables:
                   shares_json: >-
                     {%- set ns = namespace(remaining=desired | abs, shares={}, order=[]) -%}
-                    {#- Charge alongside EV, car first: the batteries on a phase may draw at most
-                        what keeps that phase under the limit (sensor.hba_ev_phase_room room_w).
-                        A battery with no phase set counts against every phase. -#}
+                    {#- Per-phase caps (sensor.hba_phase_room): the main fuse limit in every
+                        strategy, and Charge alongside EV with the car first — the tighter of the
+                        two per phase. A battery with no phase set counts against every phase. -#}
                     {%- set rm = namespace(d={}) -%}
+                    {%- set fc = state_attr('sensor.hba_phase_room', 'fuse_charge_w') -%}
+                    {%- set rm.d = fc if fc is mapping else {} -%}
                     {%- if along and is_state_attr('binary_sensor.hba_ev_charge_alongside', 'mode', 'EV first') -%}
-                      {%- set r = state_attr('sensor.hba_ev_phase_room', 'room_w') -%}
-                      {%- set rm.d = r if r is mapping else {} -%}
+                      {%- set r = state_attr('sensor.hba_phase_room', 'ev_room_w') -%}
+                      {%- for ph, w in (r.items() if r is mapping else []) -%}
+                        {%- set rm.d = rm.d | combine({ph: [w, rm.d[ph]] | min if ph in rm.d else w}) -%}
+                      {%- endfor -%}
                     {%- endif -%}
                     {#- Cyclic from the priority battery: p, p+1, ..., count, 1, ..., p-1.
                         HBC (and HBA until 2026-10-02) used p then 1, 2, 3 ... -- the overflow
@@ -1261,6 +1265,11 @@ script:
               - variables:
                   shares_json: >-
                     {%- set ns = namespace(remaining=desired | abs, shares={}, order=[]) -%}
+                    {#- Main fuse limit per phase (export): the batteries on a phase discharge at
+                        most what keeps that phase's export under the limit (sensor.hba_phase_room
+                        fuse_discharge_w). A battery with no phase set counts against every phase. -#}
+                    {%- set fd = state_attr('sensor.hba_phase_room', 'fuse_discharge_w') -%}
+                    {%- set rmd = namespace(d=fd if fd is mapping else {}) -%}
                     {#- Cyclic from the priority battery: p, p+1, ..., count, 1, ..., p-1.
                         HBC (and HBA until 2026-10-02) used p then 1, 2, 3 ... -- the overflow
                         then always went to the LOWEST-numbered battery, so M1 drained and
@@ -1301,7 +1310,9 @@ script:
                                      and (now() - hb.last_reported).total_seconds() <= 30 -%}
                       {%- set eligible = live and soc > soc_min and inv not in ['Fault','unknown','unavailable'] -%}
                       {%- if eligible -%}
-                        {%- set share = [ns.remaining, hw_max] | min | round(0) | int -%}
+                        {%- set dph = states('input_select.hba_marstek_m' ~ bat ~ '_phase') -%}
+                        {%- set dcap = (rmd.d[dph] if dph in rmd.d else (rmd.d.values() | min)) if rmd.d else hw_max -%}
+                        {%- set share = [ns.remaining, hw_max, dcap] | min | round(0) | int -%}
                         {#- Do not wake an extra battery for a few watts (min start power): only when
                             another battery already takes power and this one is not running yet. -#}
                         {%- set lc = states('input_text.hba_last_cmd_m' ~ bat).split('|') -%}
@@ -1312,6 +1323,11 @@ script:
                         {%- endif -%}
                         {%- set ns.remaining = ns.remaining - share -%}
                         {%- set ns.shares = ns.shares | combine({bat | string: share}) -%}
+                        {%- if rmd.d and dph in rmd.d -%}
+                          {%- set rmd.d = rmd.d | combine({dph: rmd.d[dph] - share}) -%}
+                        {%- elif rmd.d -%}
+                          {%- set rmd.d = rmd.d | combine({'L1': rmd.d.L1 - share, 'L2': rmd.d.L2 - share, 'L3': rmd.d.L3 - share}) -%}
+                        {%- endif -%}
                       {%- else -%}
                         {%- set ns.shares = ns.shares | combine({bat | string: 0}) -%}
                       {%- endif -%}
@@ -1640,6 +1656,10 @@ script:
       - action: input_number.set_value
         target: { entity_id: input_number.hba_ev_max_current }
         data: { value: 16 }
+      # Main fuse limit per phase: off until the user sets it (needs per-phase P1 sensors).
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_phase_current_limit }
+        data: { value: 0 }
       # ── Power groups ──────────────────────────────────────────────────────────
       # Every battery in its own group: HBA leaves the limit registers alone. The own
       # max charge / discharge power per battery back to 0 = not set, so joining a group

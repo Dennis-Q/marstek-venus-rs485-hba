@@ -368,7 +368,9 @@ or plug-in batteries that together keep to the 800 W guideline — go in group A
 a group never adds up to more than its max power; each battery keeps its own limits on top.
 *Follow battery order* (default: the battery HBA uses first gets as much as it can), *Equal* or
 *One at a time*; a full battery hands its charge share to the others, an empty one its
-discharge share. **Use at your own risk:** it is a software limit, not electrical protection —
+discharge share. A **main fuse limit per phase** (same section) keeps each phase below a
+current in every strategy, for charging and discharging (needs the per-phase P1 sensors).
+**Use at your own risk:** it is a software limit, not electrical protection —
 always have an electrician check your installation.
 
 ### Dynamic pricing
