@@ -1509,6 +1509,46 @@ template:
               false
             {% endif %}
           {% endif %}
+      # Charge or Sell chosen by hand is done — for the reminder notifications
+      # (hba_notify_manual_strategy_*). Charge with the solar-forecast goal is only done when
+      # every battery is full: its goal moves every 5 min and reaching it hands over to the
+      # "When done charging" plan (e.g. Charge PV), which is still part of the job. Other goals
+      # are fixed; 10 min delay so a goal touched for a moment does not notify.
+      - name: "HBA Manual Strategy Done"
+        unique_id: hba_manual_strategy_done
+        icon: mdi:flag-checkered
+        delay_on: "00:10:00"
+        state: >-
+          {%- set st = states('input_select.hba_strategy') -%}
+          {%- set n = states('input_number.hba_battery_count') | int(1) -%}
+          {%- set full = state_attr('sensor.hba_power_limits', 'full') or [] -%}
+          {%- set empty = state_attr('sensor.hba_power_limits', 'empty') or [] -%}
+          {%- set all_full = range(1, n + 1) | select('in', full | map('int') | list) | list | length == n -%}
+          {%- set all_empty = range(1, n + 1) | select('in', empty | map('int') | list) | list | length == n -%}
+          {%- if st == 'Charge' -%}
+            {%- if is_state('input_select.hba_strategy_charge_goal', 'solar forecast') -%}
+              {{ all_full }}
+            {%- else -%}
+              {{ all_full or is_state('binary_sensor.hba_charge_goal_reached', 'on') }}
+            {%- endif -%}
+          {%- elif st == 'Sell' -%}
+            {%- set goal = states('input_select.hba_strategy_sell_goal') -%}
+            {%- set reached = (goal == 'state of charge' and states('sensor.hba_average_battery_soc') | float(100)
+                                 <= states('input_number.hba_strategy_sell_target_soc') | float(20))
+                              or (goal == 'energy reserve' and states('sensor.hba_charge_available_energy') | float(100)
+                                 <= states('input_number.hba_strategy_sell_target_energy') | float(2)) -%}
+            {{ all_empty or reached }}
+          {%- else -%}
+            false
+          {%- endif -%}
+
+      # Charge or Sell has been selected for an hour or more (Overview reminder banner).
+      - name: "HBA Manual Strategy Long"
+        unique_id: hba_manual_strategy_long
+        icon: mdi:timer-alert-outline
+        delay_on: "01:00:00"
+        state: "{{ states('input_select.hba_strategy') in ['Charge', 'Sell'] }}"
+
       # A battery is offline when Modbus lost it (inverter_state unavailable) OR its link
       # hangs: battery_power (polled every 10 s) has not reported for 30+ s. A hung link
       # (prod 2026-10-02, M3 cable) stays "available" for ~10 min while HA waits on it;

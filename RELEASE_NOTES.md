@@ -145,6 +145,15 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Added
 
+- **Reminder when Charge or Sell is chosen by hand** — so a one-off Charge or Sell is not
+  forgotten (Dynamic's evening Sell does not run while Charge is selected). A notification when
+  it is done (*Charging done* / *Selling done*: every battery full / empty, or a fixed goal held
+  for 10 minutes — with the solar-forecast goal only "every battery full" counts, because that
+  goal moves every 5 minutes and reaching it hands over to the "When done charging" plan), a
+  reminder after 1, 2 and 4 hours, an Overview banner from 1 hour, and a *resolved* message when
+  the strategy changes. New: `binary_sensor.hba_manual_strategy_done`,
+  `binary_sensor.hba_manual_strategy_long`.
+
 - **What limits charging / discharging now** — `sensor.hba_charge_limit_source` and
   `sensor.hba_discharge_limit_source` (like the Peblar's limit source): *Not limited*, *Power
   group A/B/C*, *Own limit*, *Battery setting*, *BMS*, *Slow charge*, *Main fuse*, *Car

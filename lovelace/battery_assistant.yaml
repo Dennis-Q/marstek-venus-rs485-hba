@@ -526,6 +526,20 @@ views:
                 state: "on"
             content: >
               <ha-alert alert-type="warning">Per-phase limits (main fuse limit, Charge alongside EV) are missing per-phase grid power: {{ state_attr('sensor.hba_phase_room', 'missing_sensors') }}. Define them in packages/hba/hba_config.yaml (like sensor.p1_meter_power, positive = import — see hba_config.yaml.example). Until then the batteries do not charge or discharge on those phases while such a limit applies.</ha-alert>
+          # Reminder: Charge or Sell chosen by hand for an hour or more
+          - type: markdown
+            grid_options:
+              columns: full
+            visibility:
+              - condition: state
+                entity: binary_sensor.hba_manual_strategy_long
+                state: "on"
+            content: >
+              {%- set st = states('input_select.hba_strategy') -%}
+              {%- set lc = states.input_select.hba_strategy.last_changed -%}
+              <ha-alert alert-type="info">{{ st }} selected since {{ as_local(lc).strftime('%H:%M') }}
+              ({{ ((now() - lc).total_seconds() / 3600) | round(1) }} h){{ ' — done' if is_state('binary_sensor.hba_manual_strategy_done', 'on') else '' }}.
+              Remember to switch back to your usual strategy (e.g. Dynamic).</ha-alert>
           # Info: the batteries run at what the main fuse limit, the car or the BMS allows
           - type: markdown
             grid_options:

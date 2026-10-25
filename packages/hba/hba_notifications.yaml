@@ -12,6 +12,7 @@
 #   • hba_notify_battery_offline / _resolved         — battery unreachable or silent 3+ min
 #   • hba_notify_entity_health / _resolved           — critical HBA entity missing / wrong entity_id
 #   • hba_notify_dynamic_migration / _resolved       — r22 Dynamic v1/v2 leftovers to clean up
+#   • hba_notify_manual_strategy_done / _reminder / _resolved — Charge or Sell chosen by hand: done, still on after 1/2/4 h
 #   • hba_notify_battery_restarted                   — a battery restarted (limit registers 0, or RS485 back as disabled); limits restored (event, no banner)
 #   • hba_notify_power_limits_not_restored / _resolved — limit registers still read 0 after a restart
 
@@ -589,6 +590,91 @@ automation:
   # back on. Both signs can come for one restart: same tag per battery, so the second
   # message replaces the first on the phone. Settings HBA cannot read over Modbus (an
   # output limit set in the Marstek app) may be reset too — the message says to check.
+  # ── Charge / Sell chosen by hand ──────────────────────────────────────────────
+  # A reminder so a one-off Charge or Sell is not forgotten (e.g. the evening Sell of Dynamic
+  # does not run while Charge is selected). "Done" = binary_sensor.hba_manual_strategy_done
+  # (all batteries full / empty, or a fixed goal held 10 min); "still on" after 1, 2 and 4 h.
+  # One tag + persistent notification, replaced each time; resolved when the strategy changes.
+  - id: hba_notify_manual_strategy_done
+    alias: "HBA: Notify Charge / Sell done"
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_manual_strategy_done
+        to: "on"
+    actions:
+      - variables:
+          st: "{{ states('input_select.hba_strategy') }}"
+          since: "{{ as_local(states.input_select.hba_strategy.last_changed).strftime('%H:%M') }}"
+      - action: script.hba_notify_dispatch
+        data:
+          title: "HBA: {{ 'Charging' if st == 'Charge' else 'Selling' }} done"
+          message: >-
+            {{ 'The batteries are full' if st == 'Charge' else 'The batteries reached the sell goal' }}
+            ({{ states('sensor.hba_average_battery_soc') | float(0) | round(0) | int }} %), but the strategy
+            is still {{ st }} (since {{ since }}). Switch back to your usual strategy, e.g. Dynamic —
+            its Sell / Charge hours only run while Dynamic is selected.
+          tag: hba_manual_strategy
+          color: orange
+          persistent_id: hba_manual_strategy
+
+  - id: hba_notify_manual_strategy_reminder
+    alias: "HBA: Notify Charge / Sell still selected"
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: input_select.hba_strategy
+        to: ["Charge", "Sell"]
+        for: "01:00:00"
+      - trigger: state
+        entity_id: input_select.hba_strategy
+        to: ["Charge", "Sell"]
+        for: "02:00:00"
+      - trigger: state
+        entity_id: input_select.hba_strategy
+        to: ["Charge", "Sell"]
+        for: "04:00:00"
+    actions:
+      - variables:
+          st: "{{ states('input_select.hba_strategy') }}"
+          since: "{{ as_local(states.input_select.hba_strategy.last_changed).strftime('%H:%M') }}"
+          hours: "{{ ((now() - states.input_select.hba_strategy.last_changed).total_seconds() / 3600) | round(0) | int }}"
+      - action: script.hba_notify_dispatch
+        data:
+          title: "HBA: still on {{ st }}"
+          message: >-
+            The strategy has been {{ st }} for {{ hours }} h (since {{ since }}), battery
+            {{ states('sensor.hba_average_battery_soc') | float(0) | round(0) | int }} %.
+            {{ 'Done: ' ~ ('full' if st == 'Charge' else 'goal reached') ~ '.' if is_state('binary_sensor.hba_manual_strategy_done', 'on') else 'Not done yet.' }}
+            Switch back to your usual strategy (e.g. Dynamic) when it has done its job.
+          tag: hba_manual_strategy
+          color: orange
+          persistent_id: hba_manual_strategy
+
+  - id: hba_notify_manual_strategy_resolved
+    alias: "HBA: Charge / Sell reminder — resolved"
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: input_select.hba_strategy
+        from: ["Charge", "Sell"]
+    # Only after a reminder or "done" message was actually sent for this run.
+    conditions:
+      - condition: template
+        value_template: >-
+          {%- set a = state_attr('automation.hba_notify_charge_sell_done', 'last_triggered') -%}
+          {%- set b = state_attr('automation.hba_notify_charge_sell_still_selected', 'last_triggered') -%}
+          {%- set since = trigger.from_state.last_changed -%}
+          {{ (a is not none and a > since) or (b is not none and b > since) }}
+    actions:
+      - action: script.hba_notify_dispatch
+        data:
+          title: "HBA: strategy is {{ trigger.to_state.state }}"
+          message: "The strategy is no longer {{ trigger.from_state.state }}."
+          tag: hba_manual_strategy
+          color: green
+          resolve_id: hba_manual_strategy
+
   - id: hba_notify_battery_restarted
     alias: "HBA: Notify battery restarted"
     mode: queued
