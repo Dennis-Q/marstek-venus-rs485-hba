@@ -2569,7 +2569,7 @@ views:
               {% for G, x in g.items() %}
               **Group {{ G }}** — {{ x.policy }}, max {{ x.max_power }} W{{ ' · leader charge M' ~ lead[G ~ '_charge'] if (G ~ '_charge') in lead else '' }}{{ ' · leader discharge M' ~ lead[G ~ '_discharge'] if (G ~ '_discharge') in lead else '' }}
 
-              | | charge set / read | discharge set / read | |
+              | | Charge set / read | Discharge set / read | |
               |---|---|---|---|
               {% for b in x.members -%}
               {%- set k = b | string -%}
@@ -2593,11 +2593,11 @@ views:
               Discharge: up to **{{ state_attr(S, 'discharge_max_w') }} W** — limited by **{{ states('sensor.hba_discharge_limit_source') }}**
               Order used — charge: {% for k in state_attr(S, 'charge_order') or [] %}M{{ k }}{{ ' → ' if not loop.last }}{% endfor %} · discharge: {% for k in state_attr(S, 'discharge_order') or [] %}M{{ k }}{{ ' → ' if not loop.last }}{% endfor %}
 
-              | | charge max | why | discharge max | why |
+              | | Charge max | Why | Discharge max | Why |
               |---|---|---|---|---|
               {% for i in range(1, states('input_number.hba_battery_count') | int(1) + 1) -%}
               {%- set k = i | string -%}
-              | M{{ i }} | {{ (c[k].w ~ ' W') if k in c else '–' }} | {{ c[k].reason if k in c and c[k].reason != 'None' else '' }} | {{ (d[k].w ~ ' W') if k in d else '–' }} | {{ d[k].reason if k in d and d[k].reason != 'None' else '' }} |
+              | M{{ i }} | {{ (c[k].w ~ '&nbsp;W') if k in c else '–' }} | {{ c[k].reason if k in c and c[k].reason != 'None' else '' }} | {{ (d[k].w ~ '&nbsp;W') if k in d else '–' }} | {{ d[k].reason if k in d and d[k].reason != 'None' else '' }} |
               {% endfor %}
               <font color=grey>The most each battery could do now (what the strategy asks for is not counted), in battery order: a phase limit is shared by the batteries on that phase.</font>
           - type: heading
@@ -2635,7 +2635,7 @@ views:
 
               Main fuse limit: **{{ (fuse | round(1) ~ ' A') if fuse > 0 else 'off' }}**
 
-              | Phase | grid | car-first limit | held for car | room (car first) | fuse room charge / discharge | batteries |
+              | Phase | Grid | Car-first limit | Held for car | Room (car first) | Fuse room charge / discharge | Batteries |
               |---|---|---|---|---|---|---|
               {% for n in ['L1', 'L2', 'L3'] -%}
               {%- set l = n | lower -%}
@@ -2645,7 +2645,7 @@ views:
               {%- for i in range(1, states('input_number.hba_battery_count') | int(1) + 1) if states('input_select.hba_marstek_m' ~ i ~ '_phase') == n -%}
                 {%- set ns.b = ns.b + ['M' ~ i] -%}
               {%- endfor -%}
-              | {{ n }} | {{ ((states('sensor.p1_meter_power_' ~ l) | float(0)) / v) | round(1) ~ ' A' if has_value('sensor.p1_meter_power_' ~ l) else 'no sensor' }} | {{ lim }} A | {{ hold[n] ~ ' W' if n in hold else '–' }} | {{ room[n] ~ ' W' if n in room else '–' }} | {{ (fc[n] ~ ' / ' ~ fd[n] ~ ' W') if n in fc else '–' }} | {{ ns.b | join(', ') or '–' }} |
+              | {{ n }} | {{ ((states('sensor.p1_meter_power_' ~ l) | float(0)) / v) | round(1) ~ '&nbsp;A' if has_value('sensor.p1_meter_power_' ~ l) else 'no sensor' }} | {{ lim }}&nbsp;A | {{ hold[n] ~ '&nbsp;W' if n in hold else '–' }} | {{ room[n] ~ '&nbsp;W' if n in room else '–' }} | {{ (fc[n] ~ ' / ' ~ fd[n] ~ '&nbsp;W') if n in fc else '–' }} | {{ ns.b | join(', ') or '–' }} |
               {% endfor %}
               {%- if miss %}⚠ Missing: {{ miss }}{% endif %}
             visibility:
@@ -4675,7 +4675,7 @@ views:
               | | Max charge | Max discharge | SoC |
               |---|---|---|---|
               {% for b in x.members -%}
-              | M{{ b }} | {{ states('number.marstek_m' ~ b ~ '_max_charge_power') | int(0) }} W | {{ states('number.marstek_m' ~ b ~ '_max_discharge_power') | int(0) }} W | {{ states('sensor.marstek_m' ~ b ~ '_battery_state_of_charge') | float(0) | round(0) | int }} %{{ ' · full' if b in full else '' }}{{ ' · empty' if b in empty else '' }} |
+              | M{{ b }} | {{ states('number.marstek_m' ~ b ~ '_max_charge_power') | int(0) }}&nbsp;W | {{ states('number.marstek_m' ~ b ~ '_max_discharge_power') | int(0) }}&nbsp;W | {{ states('sensor.marstek_m' ~ b ~ '_battery_state_of_charge') | float(0) | round(0) | int }}&nbsp;%{{ ' · full' if b in full else '' }}{{ ' · empty' if b in empty else '' }} |
               {% endfor %}
               {% endfor -%}
             visibility:
