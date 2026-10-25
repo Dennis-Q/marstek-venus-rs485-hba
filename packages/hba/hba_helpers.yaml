@@ -1177,16 +1177,21 @@ template:
       - name: "HBA Time Remaining"
         unique_id: hba_time_remaining
         icon: mdi:timer
+        # Discharging: time until the batteries reach their cutoffs; charging: time until full;
+        # otherwise Idle. It said "Charging" whenever the batteries were not discharging, also
+        # while idle (dashboard review 2026-10-25). sensor.hba_total_battery_power: + = discharge.
         state: >
-          {% set power = [states('sensor.hba_total_battery_power') | float(0), 0] | max %}
-          {% set capacity_kwh = states('sensor.hba_charge_available_energy') | float(0) %}
-          {% if power > 0 and capacity_kwh > 0 %}
-            {% set time_hrs = (capacity_kwh * 1000) / power %}
-            {% set hrs = time_hrs | int %}
-            {% set minutes = ((time_hrs - hrs) * 60) | int %}
-            {{ '{:02}:{:02}'.format(hrs, minutes) }} hours ({{ capacity_kwh | round(2) }} kWh)
+          {% set power = states('sensor.hba_total_battery_power') | float(0) %}
+          {% set avail = states('sensor.hba_charge_available_energy') | float(0) %}
+          {% set usable = states('sensor.hba_usable_battery_energy') | float(0) %}
+          {% if power > 50 and avail > 0 %}
+            {% set t = (avail * 1000) / power %}
+            {{ '{:d}:{:02d}'.format(t | int, ((t - (t | int)) * 60) | int) }} h to empty ({{ avail | round(1) }} kWh)
+          {% elif power < -50 and usable > avail %}
+            {% set t = ((usable - avail) * 1000) / (-power) %}
+            {{ '{:d}:{:02d}'.format(t | int, ((t - (t | int)) * 60) | int) }} h to full ({{ avail | round(1) }} kWh)
           {% else %}
-            Charging ({{ capacity_kwh | round(2) }} kWh)
+            Idle ({{ avail | round(1) }} kWh)
           {% endif %}
 
       - name: "HBA Charge Remaining Energy"

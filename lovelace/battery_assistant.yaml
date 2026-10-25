@@ -657,7 +657,7 @@ views:
                 state: 'on'
           - type: markdown
             content: >-
-              <ha-alert alert-type="warning">HBC (House Battery Control) is in
+              <ha-alert alert-type="warning">HBC (Home Battery Control) is in
               Full Control — it may be managing your batteries. Use the buttons
               below to hand off.</ha-alert>
             text_only: true
@@ -1653,7 +1653,7 @@ views:
           - type: markdown
             content: >-
               <font color=grey>_'Reserve' is usable energy in your batteries
-              (e.g. above 11% SoC)_
+              (above the discharge cutoff, now {{ states('input_number.hba_marstek_m1_discharging_cutoff_capacity') | float(13) | round(0) | int }} % SoC)_
 
               </font>
             text_only: true
@@ -1753,7 +1753,7 @@ views:
           - type: markdown
             content: >-
               <font color=grey>_'Reserve' is usable energy in your batteries
-              (e.g. above 11% SoC)_
+              (above the discharge cutoff, now {{ states('input_number.hba_marstek_m1_discharging_cutoff_capacity') | float(13) | round(0) | int }} % SoC)_
 
               </font>
             text_only: true
