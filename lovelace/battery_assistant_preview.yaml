@@ -2638,7 +2638,7 @@ views:
               {% endfor %}
               <font color=grey>The most each battery could do now (what the strategy asks for is not counted), in battery order: a phase limit is shared by the batteries on that phase.</font>
           - type: heading
-            heading: Per-phase limits (fuse / Charge alongside EV)
+            heading: Per-phase limits
             heading_style: title
             icon: mdi:car-battery
             visibility:
@@ -2670,10 +2670,13 @@ views:
 
               Car's power: **{{ state_attr('sensor.hba_phase_room', 'ev_source') }}** · car max {{ states('input_number.hba_ev_max_current') | float(0) | int }} A per phase
 
-              Main fuse limit: **{{ (fuse | round(1) ~ ' A') if fuse > 0 else 'off' }}**
+              Main fuse limit: **{{ (fuse | round(1) ~ ' A') if fuse > 0 else 'off' }}**{{ (' · car-first limit **' ~ (lim | round(0) | int) ~ '&nbsp;A**') if is_state('input_select.hba_control_strategy_during_ev_charge', 'Charge alongside EV') }}
 
-              | Phase | Grid | Car-first limit | Held for car | Room (car first) | Fuse room charge / discharge | Batteries |
-              |---|---|---|---|---|---|---|
+              {%- set car = is_state('input_select.hba_control_strategy_during_ev_charge', 'Charge alongside EV') -%}
+              {%- set fz = fuse > 0 %}
+
+              | Phase | Grid A | Batteries |{{ ' Car room W | Held for car W |' if car }}{{ ' Fuse room ↑ W | Fuse room ↓ W |' if fz }}
+              |---|---|---|{{ '---|---|' if car }}{{ '---|---|' if fz }}
               {% for n in ['L1', 'L2', 'L3'] -%}
               {%- set l = n | lower -%}
               {%- set v = states('sensor.p1_meter_voltage_' ~ l) | float(0) -%}
@@ -2682,7 +2685,7 @@ views:
               {%- for i in range(1, states('input_number.hba_battery_count') | int(1) + 1) if states('input_select.hba_marstek_m' ~ i ~ '_phase') == n -%}
                 {%- set ns.b = ns.b + ['M' ~ i] -%}
               {%- endfor -%}
-              | {{ n }} | {{ ((states('sensor.p1_meter_power_' ~ l) | float(0)) / v) | round(1) ~ '&nbsp;A' if has_value('sensor.p1_meter_power_' ~ l) else 'no sensor' }} | {{ lim }}&nbsp;A | {{ hold[n] ~ '&nbsp;W' if n in hold else '–' }} | {{ room[n] ~ '&nbsp;W' if n in room else '–' }} | {{ (fc[n] ~ ' / ' ~ fd[n] ~ '&nbsp;W') if n in fc else '–' }} | {{ ns.b | join(', ') or '–' }} |
+              | {{ n }} | {{ ((states('sensor.p1_meter_power_' ~ l) | float(0)) / v) | round(1) if has_value('sensor.p1_meter_power_' ~ l) else 'no sensor' }} | {{ ns.b | join(', ') or '–' }} |{% if car %} {{ room[n] if n in room else '–' }} | {{ hold[n] if n in hold else '–' }} |{% endif %}{% if fz %} {{ fc[n] if n in fc else '–' }} | {{ fd[n] if n in fd else '–' }} |{% endif %}
               {% endfor %}
               {%- if miss %}⚠ Missing: {{ miss }}{% endif %}
             visibility:
@@ -2730,7 +2733,7 @@ views:
               - entity: sensor.hba_total_max_discharge_power
                 name: Max discharge power
               - entity: sensor.hba_time_remaining
-                name: Time remaining (discharge)
+                name: Battery time remaining
             show_header_toggle: false
 
       - type: grid
@@ -4508,28 +4511,13 @@ views:
 
               </ha-alert>
               {% endif -%}
-              A power group keeps the **combined** power of its batteries within one limit,
-              for example batteries that share a breaker, that should stay under a limit on
-              one phase, or plug-in batteries that together keep to the 800 W guideline.
-              Choose a group per battery above. HBA then writes their **max charge** and
-              **max discharge** registers so that, per direction, the group never adds up to
-              more than its max power. The limits sit in the batteries, so they also hold
-              when HA is down or a battery runs on its own. **Follow battery order**
-              (default) gives the battery HBA uses first as much as it can, so one battery runs
-              up to its max before a second starts (each running battery costs ~20–25 W) and
-              hands over once another battery is 5 % further along;
-              **Equal** splits the max power evenly (never above a battery's own max); **One at
-              a time** keeps one battery first until it is full or empty. A full battery hands its *charge*
-              share to the others, an empty one its *discharge* share. HBA lowers a battery
-              first and raises the other only once the battery reports the lower value.
+              A power group keeps the **combined** power of its batteries below one limit — e.g. batteries on one breaker or one phase, or plug-in batteries that together keep to the 800 W guideline. HBA writes the batteries' **max charge / max discharge** registers so a group never exceeds its max power, also when HA is down.
+
+              **Spread:** *Follow battery order* (default) gives the battery HBA uses first as much as it can, so fewer batteries run (each running battery costs ~20–25 W); *Equal* gives each the same share; *One at a time* keeps one battery until it is full or empty. A full battery hands its charge share to the others, an empty one its discharge share.
 
               <ha-alert alert-type="warning" title="Use at your own risk">
 
-              This is a software limit, not electrical protection. A firmware bug, a battery
-              reset, a setting changed in the Marstek app or a configuration mistake can let
-              the batteries draw more than the group's max power. **Always have an
-              electrician check your installation** before relying on it — breakers, cable
-              sizes and the phase load must be right without HBA.
+              This is a software limit, not electrical protection: a firmware bug, a battery reset, a setting changed in the Marstek app or a configuration mistake can let the batteries draw more. **Always have an electrician check your installation** — breakers, cables and phase load must be right without HBA.
 
               </ha-alert>
           # Main fuse limit per phase — every strategy, needs per-phase P1 sensors
