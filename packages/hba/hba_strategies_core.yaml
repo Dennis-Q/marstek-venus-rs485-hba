@@ -1135,6 +1135,23 @@ script:
                       {%- set b = ((priority_bat - 1 + k) % count) + 1 -%}
                       {%- if b not in ns.order -%}{%- set ns.order = ns.order + [b] -%}{%- endif -%}
                     {%- endfor -%}
+                    {#- Power group leader first: in a group with a leader (Follow battery order,
+                        One at a time) the leader swaps places with the group's first battery in
+                        the order, so the battery with the high ceiling runs before a capped one
+                        (else 800-3300 W ran two batteries: extra fixed loss + relay cycles). -#}
+                    {%- set plg = state_attr('sensor.hba_power_limits', 'groups') -%}
+                    {%- set pll = state_attr('sensor.hba_power_limits', 'leaders') -%}
+                    {%- if plg is mapping and pll is mapping -%}
+                      {%- for G, x in plg.items() if (G ~ '_charge') in pll -%}
+                        {%- set L = pll[G ~ '_charge'] | int -%}
+                        {%- set fm = ns.order | select('in', x.members | map('int') | list) | list -%}
+                        {%- if fm and fm[0] != L and L in ns.order -%}
+                          {%- set sw = namespace(l=[]) -%}
+                          {%- for b in ns.order -%}{%- set sw.l = sw.l + [L if b == fm[0] else (fm[0] if b == L else b)] -%}{%- endfor -%}
+                          {%- set ns.order = sw.l -%}
+                        {%- endif -%}
+                      {%- endfor -%}
+                    {%- endif -%}
                     {%- for bat in ns.order -%}
                       {%- set soc = states('sensor.marstek_m' ~ bat ~ '_battery_state_of_charge') | float(0) -%}
                       {%- set soc_max = states('input_number.hba_marstek_m' ~ bat ~ '_charging_cutoff_capacity') | float(100) -%}
@@ -1291,6 +1308,20 @@ script:
                       {%- set b = ((priority_bat - 1 + k) % count) + 1 -%}
                       {%- if b not in ns.order -%}{%- set ns.order = ns.order + [b] -%}{%- endif -%}
                     {%- endfor -%}
+                    {#- Power group leader first (see the charge branch) -#}
+                    {%- set plg = state_attr('sensor.hba_power_limits', 'groups') -%}
+                    {%- set pll = state_attr('sensor.hba_power_limits', 'leaders') -%}
+                    {%- if plg is mapping and pll is mapping -%}
+                      {%- for G, x in plg.items() if (G ~ '_discharge') in pll -%}
+                        {%- set L = pll[G ~ '_discharge'] | int -%}
+                        {%- set fm = ns.order | select('in', x.members | map('int') | list) | list -%}
+                        {%- if fm and fm[0] != L and L in ns.order -%}
+                          {%- set sw = namespace(l=[]) -%}
+                          {%- for b in ns.order -%}{%- set sw.l = sw.l + [L if b == fm[0] else (fm[0] if b == L else b)] -%}{%- endfor -%}
+                          {%- set ns.order = sw.l -%}
+                        {%- endif -%}
+                      {%- endfor -%}
+                    {%- endif -%}
                     {%- for bat in ns.order -%}
                       {%- set soc = states('sensor.marstek_m' ~ bat ~ '_battery_state_of_charge') | float(0) -%}
                       {%- set soc_min = states('input_number.hba_marstek_m' ~ bat ~ '_discharging_cutoff_capacity') | float(13) -%}

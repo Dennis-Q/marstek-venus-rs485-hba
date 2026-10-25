@@ -198,7 +198,10 @@ open), so the version prefix stays at 4.10.1 for now.
     (frozen 30 min) but hand over only when the new first battery is 5 SoC points further
     along than the current leader, or the leader is full / empty — each handover rewrites
     the limit registers (EEPROM), and without this a sunny day would swap at almost every
-    30-min order update (prod: ~6 order changes a day in October) — also while every battery in the group is
+    30-min order update (prod: ~6 order changes a day in October). The battery distribution
+    puts a group's leader first in its group's place in the order (also for *One at a time*),
+    so the battery with the high ceiling always runs before a capped one — otherwise
+    800–3300 W would run two batteries (extra fixed loss and relay cycles) — also while every battery in the group is
     full or empty, so nothing flips back when they become usable again. *Equal* splits the max power evenly, never
     above a battery's own max. *One at a time* keeps one battery first until it is full or
     empty.

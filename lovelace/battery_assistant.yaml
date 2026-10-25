@@ -2576,6 +2576,7 @@ views:
               {%- set d = state_attr(S, 'discharge') or {} -%}
               Charge: up to **{{ states(S) }} W** — limited by **{{ states('sensor.hba_charge_limit_source') }}**
               Discharge: up to **{{ state_attr(S, 'discharge_max_w') }} W** — limited by **{{ states('sensor.hba_discharge_limit_source') }}**
+              Order used — charge: {% for k in state_attr(S, 'charge_order') or [] %}M{{ k }}{{ ' → ' if not loop.last }}{% endfor %} · discharge: {% for k in state_attr(S, 'discharge_order') or [] %}M{{ k }}{{ ' → ' if not loop.last }}{% endfor %}
 
               | | charge max | why | discharge max | why |
               |---|---|---|---|---|
@@ -3098,7 +3099,7 @@ views:
               <font color=grey><i>
               **Discharge order:** {% for b in d %}M{{ b }}{{ ' → ' if not loop.last }}{% endfor %}<br>
               **Charge order:** {% for b in c %}M{{ b }}{{ ' → ' if not loop.last }}{% endfor %}<br>
-              Fullest battery discharges first, emptiest charges first; a load or solar surplus above one battery's max flows to the next in line. Decided every 30 minutes{{ (' — next at ' ~ nxt.strftime('%H:%M')) if nxt }}, and kept until then so a running charge or discharge is never reshuffled. A battery only moves up when its SoC differs by more than 3 points.
+              Fullest battery discharges first, emptiest charges first; a load or solar surplus above one battery's max flows to the next in line. Decided every 30 minutes{{ (' — next at ' ~ nxt.strftime('%H:%M')) if nxt }}, and kept until then so a running charge or discharge is never reshuffled. A battery only moves up when its SoC differs by more than 3 points.{% if state_attr('sensor.hba_power_limits', 'leaders') %} In a power group the group's leader goes first in its group's place (Insights → Limits now shows the order used).{% endif %}
               </i></font>
           - type: heading
             icon: mdi:information

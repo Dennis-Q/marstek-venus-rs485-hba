@@ -2741,7 +2741,7 @@ template:
             {%- set p = states('input_number.hba_control_prioritize_battery') | int(1) -%}
             {%- set p = p if (1 <= p and p <= count) else 1 -%}
             {%- set auto = states('input_select.hba_control_priority_change_interval') == 'Auto balance (SoC)' -%}
-            {%- set out = namespace(c={}, d={}, cl={}, dl={}, ct=0, dt=0) -%}
+            {%- set out = namespace(c={}, d={}, cl={}, dl={}, ct=0, dt=0, co=[], do=[]) -%}
             {%- for dir in ['charge', 'discharge'] -%}
               {#- Same order as hba_set_batteries -#}
               {%- set o = namespace(l=[]) -%}
@@ -2755,6 +2755,21 @@ template:
                 {%- set b = ((p - 1 + k) % count) + 1 -%}
                 {%- if b not in o.l -%}{%- set o.l = o.l + [b] -%}{%- endif -%}
               {%- endfor -%}
+              {#- Power group leader first, as in hba_set_batteries -#}
+              {%- set plg = state_attr('sensor.hba_power_limits', 'groups') -%}
+              {%- set pll = state_attr('sensor.hba_power_limits', 'leaders') -%}
+              {%- if plg is mapping and pll is mapping -%}
+                {%- for G, x in plg.items() if (G ~ '_' ~ dir) in pll -%}
+                  {%- set L = pll[G ~ '_' ~ dir] | int -%}
+                  {%- set fm = o.l | select('in', x.members | map('int') | list) | list -%}
+                  {%- if fm and fm[0] != L and L in o.l -%}
+                    {%- set sw = namespace(l=[]) -%}
+                    {%- for b in o.l -%}{%- set sw.l = sw.l + [L if b == fm[0] else (fm[0] if b == L else b)] -%}{%- endfor -%}
+                    {%- set o.l = sw.l -%}
+                  {%- endif -%}
+                {%- endfor -%}
+              {%- endif -%}
+              {%- if dir == 'charge' -%}{%- set out.co = o.l -%}{%- else -%}{%- set out.do = o.l -%}{%- endif -%}
               {%- set room = namespace(d=(rc.d if dir == 'charge' else rd.d)) -%}
               {%- set lk = state_attr('sensor.hba_power_limits', 'last_known_' ~ dir) -%}
               {%- set lk = lk if lk is mapping else {} -%}
@@ -2839,7 +2854,7 @@ template:
             {%- set cs = (out.cl.items() | sort(attribute='1', reverse=true) | first)[0] if out.cl else 'Not limited' -%}
             {%- set ds = (out.dl.items() | sort(attribute='1', reverse=true) | first)[0] if out.dl else 'Not limited' -%}
             {{ {'c': out.c, 'd': out.d, 'cl': out.cl, 'dl': out.dl, 'ct': out.ct, 'dt': out.dt,
-                'cs': cs, 'ds': ds} | tojson }}
+                'cs': cs, 'ds': ds, 'co': out.co, 'do': out.do} | tojson }}
     sensor:
       - name: "HBA Charge Limit Source"
         unique_id: hba_charge_limit_source
@@ -2849,7 +2864,7 @@ template:
         unique_id: hba_discharge_limit_source
         icon: mdi:battery-arrow-down-outline
         state: "{{ (lim | from_json if lim is string else lim).ds }}"
-      # Per battery {w, reason} in battery order; *_lost_w = watts below 2500 W per battery,
+      # Per battery {w, reason}; *_lost_w = watts below 2500 W per battery,
       # by reason. State = what all batteries could charge together right now.
       - name: "HBA Limits Now"
         unique_id: hba_limits_now
@@ -2862,6 +2877,9 @@ template:
           charge_lost_w: "{{ (lim | from_json if lim is string else lim).cl }}"
           discharge_lost_w: "{{ (lim | from_json if lim is string else lim).dl }}"
           discharge_max_w: "{{ (lim | from_json if lim is string else lim).dt }}"
+          # The order the batteries are used in (power group leaders first in their group)
+          charge_order: "{{ (lim | from_json if lim is string else lim).co }}"
+          discharge_order: "{{ (lim | from_json if lim is string else lim).do }}"
 
 ######################################################################################################
 # RECORDER
