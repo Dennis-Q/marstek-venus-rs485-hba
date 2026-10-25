@@ -158,7 +158,10 @@ open), so the version prefix stays at 4.10.1 for now.
   The Overview shows an info line ("Charging limited to 3099 W by the main fuse limit on L3")
   while the batteries actually run at a limit worth knowing about — main fuse, car first or BMS
   — via `binary_sensor.hba_battery_power_limited` (on within 150 W of the max, off 400 W below
-  it); power groups, full / empty and offline are left out.
+  it, 30 s on / 60 s off delay); power groups, full / empty and offline are left out. A Limit
+  Source changes only when the old reason is gone, the new one costs 1000 W more, or the new
+  one has been on top for a minute — with the car first, L1 and L3 otherwise took turns about
+  50 times an hour.
 
 - **Main fuse limit per phase** (`input_number.hba_phase_current_limit`, Advanced settings →
   Power groups, 0 = off) — in every strategy, the batteries on a phase charge (import) or

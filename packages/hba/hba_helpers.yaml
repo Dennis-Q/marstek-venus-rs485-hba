@@ -2879,17 +2879,32 @@ template:
                 {%- endif -%}
               {%- endfor -%}
             {%- endfor -%}
-            {#- Largest loss wins, but the current reason stays while it costs within 300 W of
-                that: two phases losing about the same flipped the state every 5 s (prod 10-25,
-                car first L1 / L3), a recorder row each time. -#}
-            {%- set tc = (out.cl.items() | sort(attribute='1', reverse=true) | first) if out.cl else none -%}
-            {%- set pc = states('sensor.hba_charge_limit_source') -%}
-            {%- set cs = 'Not limited' if tc is none else (pc if pc in out.cl and out.cl[pc] >= tc[1] - 300 else tc[0]) -%}
-            {%- set td = (out.dl.items() | sort(attribute='1', reverse=true) | first) if out.dl else none -%}
-            {%- set pd = states('sensor.hba_discharge_limit_source') -%}
-            {%- set ds = 'Not limited' if td is none else (pd if pd in out.dl and out.dl[pd] >= td[1] - 300 else td[0]) -%}
+            {#- The limit costing the most wins, but the current reason only gives way when it is
+                gone, when the new one costs 1000 W more, or when the new one has been on top for
+                60 s (remembered in sensor.hba_limits_now *_pending). A 300 W margin was not enough:
+                with the car first, L1 and L3 swing by more than that and the state flipped ~50
+                times an hour (prod 2026-10-25), a recorder row each time. -#}
+            {%- set nowts = as_timestamp(now()) | int -%}
+            {%- set sel = namespace(cs='Not limited', ds='Not limited', cp={}, dp={}) -%}
+            {%- for dir, lost, cur, pend in [('c', out.cl, states('sensor.hba_charge_limit_source'), state_attr('sensor.hba_limits_now', 'charge_pending')),
+                                            ('d', out.dl, states('sensor.hba_discharge_limit_source'), state_attr('sensor.hba_limits_now', 'discharge_pending'))] -%}
+              {%- set pend = pend if pend is mapping else {} -%}
+              {%- set top = (lost.items() | sort(attribute='1', reverse=true) | first) if lost else none -%}
+              {%- set res = namespace(r='Not limited', p={}) -%}
+              {%- if top is none -%}
+              {%- elif cur == top[0] or cur not in lost or top[1] >= lost[cur] + 1000 -%}
+                {%- set res.r = top[0] -%}
+              {%- elif pend.get('r') == top[0] and nowts - (pend.get('s') | int(nowts)) >= 60 -%}
+                {%- set res.r = top[0] -%}
+              {%- else -%}
+                {%- set res.r = cur -%}
+                {%- set res.p = pend if pend.get('r') == top[0] else {'r': top[0], 's': nowts} -%}
+              {%- endif -%}
+              {%- if dir == 'c' -%}{%- set sel.cs = res.r -%}{%- set sel.cp = res.p -%}
+              {%- else -%}{%- set sel.ds = res.r -%}{%- set sel.dp = res.p -%}{%- endif -%}
+            {%- endfor -%}
             {{ {'c': out.c, 'd': out.d, 'cl': out.cl, 'dl': out.dl, 'ct': out.ct, 'dt': out.dt,
-                'cs': cs, 'ds': ds, 'co': out.co, 'do': out.do} | tojson }}
+                'cs': sel.cs, 'ds': sel.ds, 'co': out.co, 'do': out.do, 'cp': sel.cp, 'dp': sel.dp} | tojson }}
     sensor:
       - name: "HBA Charge Limit Source"
         unique_id: hba_charge_limit_source
@@ -2915,14 +2930,21 @@ template:
           # The order the batteries are used in (power group leaders first in their group)
           charge_order: "{{ (lim | from_json if lim is string else lim).co }}"
           discharge_order: "{{ (lim | from_json if lim is string else lim).do }}"
+          # A new limit source waiting to take over (reason + since), see the selection above
+          charge_pending: "{{ (lim | from_json if lim is string else lim).cp }}"
+          discharge_pending: "{{ (lim | from_json if lim is string else lim).dp }}"
     binary_sensor:
       # Overview hint: the batteries run at what a limit worth knowing about allows — main
       # fuse, car first or the BMS (charging), main fuse (discharging). Power groups, full /
       # empty and offline are left out (always there with groups, normal, or own banners).
-      # On within 150 W of the max, off again below 400 W under it (no flicker).
+      # On within 150 W of the max, off again below 400 W under it, 30 s / 60 s delay.
       - name: "HBA Battery Power Limited"
         unique_id: hba_battery_power_limited
         icon: mdi:speedometer-slow
+        # The room per phase moves with every P1 update: without a delay the Overview line
+        # switched ~50 times an hour while the car charged (prod 2026-10-25).
+        delay_on: "00:00:30"
+        delay_off: "00:01:00"
         state: >-
           {%- set x = lim | from_json if lim is string else lim -%}
           {%- set p = states('sensor.hba_total_battery_power') | float(0) -%}
