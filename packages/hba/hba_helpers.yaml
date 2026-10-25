@@ -1621,11 +1621,13 @@ template:
              and is_state('input_select.hba_control_strategy_during_ev_charge', 'Charge alongside EV')
              and not is_state('input_select.hba_strategy', 'Full stop') }}
         attributes:
+          # Batteries first below the reserve, EV first again only 0.2 kWh above it: with the
+          # car taking the surplus the energy hovers at the reserve and flipped the priority.
           mode: >-
-            {{ 'Batteries first'
-                 if states('sensor.hba_charge_available_energy') | float(0)
-                    < states('input_number.hba_ev_battery_priority_energy') | float(0)
-                 else 'EV first' }}
+            {%- set e = states('sensor.hba_charge_available_energy') | float(0) -%}
+            {%- set r = states('input_number.hba_ev_battery_priority_energy') | float(0) -%}
+            {%- set was = is_state_attr('binary_sensor.hba_ev_charge_alongside', 'mode', 'Batteries first') -%}
+            {{ 'Batteries first' if e < r or (was and r > 0 and e < r + 0.2) else 'EV first' }}
 
       # For an EV charging controller (ha-smart-ev-charging: ev_home_battery_priority_entity):
       # on while Charge alongside EV would put the batteries first — usable energy below the
@@ -1635,11 +1637,14 @@ template:
       - name: "HBA Batteries Before EV"
         unique_id: hba_batteries_before_ev
         icon: mdi:home-battery
+        # On below the reserve, off again only 0.2 kWh above it (see mode above): each flip
+        # would switch an EV controller's surplus on / off.
         state: >-
+          {%- set e = states('sensor.hba_charge_available_energy') | float(0) -%}
+          {%- set r = states('input_number.hba_ev_battery_priority_energy') | float(0) -%}
           {{ is_state('input_select.hba_control_strategy_during_ev_charge', 'Charge alongside EV')
              and not is_state('input_select.hba_strategy', 'Full stop')
-             and states('sensor.hba_charge_available_energy') | float(0)
-                 < states('input_number.hba_ev_battery_priority_energy') | float(0) }}
+             and (e < r or (is_state('binary_sensor.hba_batteries_before_ev', 'on') and r > 0 and e < r + 0.2)) }}
 
       # Setup hint (banner only): a per-phase limit is in use — Charge alongside EV, or the
       # main fuse limit per phase — but per-phase grid power sensors it needs are missing

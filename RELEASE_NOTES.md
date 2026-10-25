@@ -263,7 +263,8 @@ open), so the version prefix stays at 4.10.1 for now.
   - New: `binary_sensor.hba_ev_charge_alongside` (attribute `mode` — *Batteries first* /
     *EV first*), `binary_sensor.hba_batteries_before_ev` (on while the batteries come first,
     whether or not the car charges — for a solar-surplus EV controller such as
-    ha-smart-ev-charging's *Home battery priority entity*) and `sensor.hba_phase_room` (room per phase, recorder-excluded like
+    ha-smart-ev-charging's *Home battery priority entity*; both switch back to *EV first* only
+    0.2 kWh above the reserve, so a car taking the surplus at the reserve does not flip them) and `sensor.hba_phase_room` (room per phase, recorder-excluded like
     `sensor.p1_meter_power_l*` / `sensor.p1_meter_voltage_l*` / `sensor.ev_charger_power` / `sensor.ev_charger_power_l*`:
     they change on every update and copy sensors that are recorded anyway;
     recorder exclusions take effect after a full HA restart).
