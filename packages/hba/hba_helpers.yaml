@@ -2851,8 +2851,15 @@ template:
                 {%- endif -%}
               {%- endfor -%}
             {%- endfor -%}
-            {%- set cs = (out.cl.items() | sort(attribute='1', reverse=true) | first)[0] if out.cl else 'Not limited' -%}
-            {%- set ds = (out.dl.items() | sort(attribute='1', reverse=true) | first)[0] if out.dl else 'Not limited' -%}
+            {#- Largest loss wins, but the current reason stays while it costs within 300 W of
+                that: two phases losing about the same flipped the state every 5 s (prod 10-25,
+                car first L1 / L3), a recorder row each time. -#}
+            {%- set tc = (out.cl.items() | sort(attribute='1', reverse=true) | first) if out.cl else none -%}
+            {%- set pc = states('sensor.hba_charge_limit_source') -%}
+            {%- set cs = 'Not limited' if tc is none else (pc if pc in out.cl and out.cl[pc] >= tc[1] - 300 else tc[0]) -%}
+            {%- set td = (out.dl.items() | sort(attribute='1', reverse=true) | first) if out.dl else none -%}
+            {%- set pd = states('sensor.hba_discharge_limit_source') -%}
+            {%- set ds = 'Not limited' if td is none else (pd if pd in out.dl and out.dl[pd] >= td[1] - 300 else td[0]) -%}
             {{ {'c': out.c, 'd': out.d, 'cl': out.cl, 'dl': out.dl, 'ct': out.ct, 'dt': out.dt,
                 'cs': cs, 'ds': ds, 'co': out.co, 'do': out.do} | tojson }}
     sensor:
