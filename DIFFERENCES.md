@@ -116,6 +116,9 @@ These are features HBA has that are not in HBC:
 
 ---
 
+| **Planned strategy** | New strategy (`hba_strategy_planned.yaml`, preview): dynamic programming over all known price slots × stored energy, in time order — charges before it sells, handles several cycles per day, holds energy for a later peak. Simulates batteries (measured efficiency, power limits), house use per hour of the day (`sensor.hba_house_load_profile`, from recorder statistics) and Solcast. Charge/Sell run to the planned end-of-slot energy; Sell spreads over the hour. Separate buy/sell price sources for after net metering. HBC has no equivalent (its Dynamic pairs hours by price rank). |
+| **Charge goal conflict warning** | `binary_sensor.hba_charge_goal_conflict`: Charge goal *solar forecast* followed by Full stop / Sell / Zero import / Standby exports the PV and buys it back; banner + notification. |
+
 ## Dynamic pricing
 
 Dynamic (Extreme-Pair Matching) is a direct port of HBC's algorithm — logic, marks format,

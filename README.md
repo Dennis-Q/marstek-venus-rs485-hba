@@ -275,7 +275,7 @@ no manual helper editing required.
 | `marstek_m1–6_modbus_tcp.yaml` | Modbus hub + all sensors per battery | IPs only |
 | `hba_helpers.yaml` | All input helpers and aggregate sensors | No |
 | `hba_strategies_core.yaml` | Control loop, PID controller, strategy dispatch | No |
-| `hba_strategy_*.yaml` (7 files) | Individual strategy scripts | No |
+| `hba_strategy_*.yaml` (8 files) | Individual strategy scripts (incl. `hba_strategy_planned.yaml`: the Planned strategy and the house-load profile) | No |
 | `hba_hbc_coexistence.yaml` | HBC coexistence controls | No — skip on clean install without HBC |
 
 All default values for helpers are documented in [DEFAULTS.md](DEFAULTS.md).
@@ -423,6 +423,33 @@ If your integration uses English entity names or you prefer a different price ba
 update the entity ID there — for example:
 - `sensor.frank_energie_prices_average_electricity_price_all_hours_all_in` (English, all-in)
 - `sensor.frank_energie_prices_current_electricity_market_price` (English, market price ex taxes)
+
+### Planned strategy
+
+**HBA-only, on dev (preview).** *Planned* plans per price slot over all known prices (today, and
+tomorrow once published) in time order: charge in cheap hours for a later, dearer hour, sell at the
+peaks, and in between Self-consumption, Charge PV, Zero import or Full stop — whichever costs least.
+Unlike Dynamic it knows a battery must be charged before it can sell, so it can plan "sell tonight →
+charge at night → sell tomorrow morning".
+
+- It simulates the batteries (stored energy, max power incl. power groups, the measured round-trip
+  efficiency), the house (use per hour of the day, see below) and the sun (Solcast per half hour).
+- Charge and Sell run to the energy the plan expects at the end of the hour; Sell is spread over the
+  hour when full power is not needed, so the house stays covered instead of importing after selling out.
+- Re-plans every hour, on new prices or a new forecast, on a setting change, and when the stored
+  energy drifts from the plan.
+- Settings: wear cost per kWh (default 0), a reserve for unexpected loads, a separate sell-price
+  sensor + deduction (for 2027, when exporting earns the market price), and switches to leave out grid
+  charging, Sell or Zero import.
+- **House use per hour** (`sensor.hba_house_load_profile`): calculated every night from the recorder's
+  hourly statistics — grid (P1) + batteries + solar − EV charger — over the last 1–4 weeks, skipping
+  absent days. Set your solar power sensor(s) and the EV charger's own power sensor (it must have
+  long-term statistics) in the Planned view.
+- The plan is always calculated; it controls the batteries only when *Choose strategy* is **Planned**.
+  The preview dashboard shows it in the **Planned** view (per hour: prices, cost of a kWh from the
+  battery, strategy with a short "for 07:00 / keep for 17:00" hint, stored energy, house use) and in
+  **Insights** (runner-up and margin per hour, assumptions, expected gain vs Self-consumption only, the
+  house profile).
 
 ---
 
