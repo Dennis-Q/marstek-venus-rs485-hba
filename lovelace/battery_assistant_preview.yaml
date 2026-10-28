@@ -2520,7 +2520,7 @@ views:
               | Hour | W | |
               |:--|--:|:--|
               {%- for w in p %}
-              | {{ '%02d' | format(loop.index0) }}:00 | {{ w if w is not none else '—' }} | {{ '▇' * ((w / top * 20) | round(0) | int) if w is not none else '' }} |
+              | {{ '%02d' | format(loop.index0) }}:00 | {{ w if w is not none else '—' }} | {{ '█' * ((w / top * 16) | round(0) | int) if w is not none else '' }} |
               {%- endfor %}
 
               </small></small>
