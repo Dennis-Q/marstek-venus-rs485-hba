@@ -19,6 +19,15 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Fixed
 
+- **Warning when the Charge goal "solar forecast" is followed by a strategy that does not store
+  PV** — the goal only buys what the sun will not fill, so after it the batteries must take the
+  PV. With *When done charging* = Full stop, Sell, Zero import or Standby the PV was exported;
+  as the remaining forecast dropped the target rose, and Charge bought the energy back from the
+  grid in ~3-minute bursts at full power every 5 minutes (prod 2026-10-28 12:00–13:35, Timed
+  period B). New `binary_sensor.hba_charge_goal_conflict` warns as soon as the settings
+  combine this way, whatever strategy is active: Overview banner on both dashboards and a
+  notification + resolved.
+
 - **Number of batteries is a number box, not a slider** — easy to drag by accident on a phone,
   and a wrong count drops batteries from control at once.
 

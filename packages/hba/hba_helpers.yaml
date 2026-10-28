@@ -1679,6 +1679,25 @@ template:
             {%- endif -%}
             {{ ns.out | join(', ') }}
 
+      # Charge goal "solar forecast" followed by a strategy that does not store PV. The goal
+      # only buys what the sun will not fill (usable capacity minus the remaining forecast
+      # surplus), so after it the batteries must take the PV: Self-consumption, Charge PV
+      # (either variant) or Solar-aware. With Full stop, Sell, Zero import (charging
+      # disabled) or Standby (idle) the PV is exported instead; the remaining forecast then
+      # drops, the target rises, and Charge buys it back from the grid in short bursts
+      # (prod 2026-10-28 12:00-13:35, Timed period B: Charge <-> Full stop every 5 min,
+      # ~5 kW import, ~2 kW export in between). A settings mismatch, so it warns whatever
+      # strategy is active -- before a Charge period runs into it. Banner + notification.
+      - name: "HBA Charge Goal Conflict"
+        unique_id: hba_charge_goal_conflict
+        device_class: problem
+        icon: mdi:solar-power-variant-outline
+        state: >-
+          {{ is_state('input_select.hba_strategy_charge_goal', 'solar forecast')
+             and states('input_select.hba_strategy_charge_goal_reached') in ['Full stop', 'Sell', 'Zero import', 'Standby / peak shave'] }}
+        attributes:
+          next_strategy: "{{ states('input_select.hba_strategy_charge_goal_reached') }}"
+
       # "Charge alongside EV" is in effect: the car charges (EV stop trigger entity on),
       # the policy is Charge alongside EV, no manual Full stop and no Timed EV charge
       # (that one discharges into the car on purpose). While on, hba_set_batteries never

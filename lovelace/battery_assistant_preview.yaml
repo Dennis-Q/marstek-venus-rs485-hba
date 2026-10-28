@@ -541,6 +541,15 @@ views:
                 state: "on"
             content: >
               <ha-alert alert-type="warning">Per-phase limits (main fuse limit, Charge alongside EV) are missing per-phase grid power: {{ state_attr('sensor.hba_phase_room', 'missing_sensors') }}. Define them in packages/hba/hba_config.yaml (like sensor.p1_meter_power, positive = import — see hba_config.yaml.example). Until then the batteries do not charge or discharge on those phases while such a limit applies.</ha-alert>
+          - type: markdown
+            grid_options:
+              columns: full
+            visibility:
+              - condition: state
+                entity: binary_sensor.hba_charge_goal_conflict
+                state: "on"
+            content: >
+              <ha-alert alert-type="warning">The Charge goal is "solar forecast", but when done it switches to {{ state_attr('binary_sensor.hba_charge_goal_conflict', 'next_strategy') }}, which does not store solar power — the PV is exported and Charge buys it back from the grid. Set <i>When done charging</i> to Charge PV, Self-consumption or Solar-aware.</ha-alert>
           # Reminder: Charge or Sell chosen by hand for an hour or more
           - type: markdown
             grid_options:
@@ -2521,6 +2530,8 @@ views:
                 name: Power groups
               - entity: binary_sensor.hba_power_limits_not_restored
                 name: Limits not restored after restart
+              - entity: binary_sensor.hba_charge_goal_conflict
+                name: Charge goal conflict
               - entity: binary_sensor.hba_ev_charge_alongside
                 name: Charging alongside EV
               - type: attribute

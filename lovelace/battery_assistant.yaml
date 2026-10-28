@@ -100,6 +100,22 @@ views:
               Batteries follow the normal strategy until charging starts.
               </ha-alert>
 
+      # Charge goal "solar forecast" followed by a strategy that does not store PV
+      # (see binary_sensor.hba_charge_goal_conflict)
+      - type: grid
+        visibility:
+          - condition: state
+            entity: binary_sensor.hba_charge_goal_conflict
+            state: 'on'
+        cards:
+          - type: markdown
+            grid_options:
+              columns: full
+            content: >-
+              <ha-alert alert-type="warning" title="Charge goal does not match what follows">
+              The Charge goal is "solar forecast", but when done it switches to {{ state_attr('binary_sensor.hba_charge_goal_conflict', 'next_strategy') }}, which does not store solar power — the PV is exported and Charge buys it back from the grid. Set <i>When done charging</i> to Charge PV, Self-consumption or Solar-aware.
+              </ha-alert>
+
       # Timed EV charge stalled alert (batteries commanded to discharge but not
       # delivering — see binary_sensor.hba_battery_assist_stalled)
       - type: grid
