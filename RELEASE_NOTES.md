@@ -162,6 +162,28 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Added
 
+- **Planned strategy** (new `packages/hba/hba_strategy_planned.yaml`) — plans per price slot over
+  all known prices (today, and tomorrow once published) in time order: charge in cheap hours for a
+  later, dearer hour, sell at the peaks, and in between Self-consumption, Charge PV, Zero import or
+  Full stop, whichever costs least. Unlike Dynamic (HBC-identical, pairs hours by price rank) it
+  can plan "sell tonight → charge at night → sell tomorrow morning", and knows a battery must be
+  charged before it can sell.
+  - Simulates the battery (stored energy, max charge/discharge power incl. power groups, round-trip
+    efficiency — measured by default), the house (average load, shared with Solar-aware) and the
+    sun (Solcast per half hour). Optional wear cost per kWh cycled (default 0), reserve for
+    unexpected loads, a separate sell-price sensor + deduction (for 2027, when exporting earns the
+    market price), and switches to leave out grid charging, Sell or Zero import.
+  - `sensor.hba_planned_strategy`: the strategy for the running slot; attributes `plan` (per slot:
+    buy/sell price, strategy, stored energy, cost of a kWh out of the battery, reason code) and
+    `history` (the last 24 h as executed, with the measured stored energy). Re-plans at every new
+    slot, on new prices or a new solar forecast, on a setting change, and when the stored energy is
+    more than a set amount off the plan (checked every 5 min). ~0.1 s per plan for 48 hourly slots;
+    15-minute prices work the same way.
+  - Always calculated; controls the batteries only when *Choose strategy* is **Planned**. Charge
+    and Sell run to the stored energy the plan expects at the end of the slot, then hold.
+  - New **Planned** view in the preview dashboard: settings, plan table (executed hours greyed,
+    now in bold) and a legend of the reason codes.
+
 - **Preview dashboard** — `lovelace/battery_assistant_preview.yaml`, downloaded by the installer,
   shown once registered (README "Preview dashboard"). HBA's own dashboard improvements land there
   first; the existing dashboard stays close to HBC's for users switching over.

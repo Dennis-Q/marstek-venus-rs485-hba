@@ -1,0 +1,367 @@
+# hba_strategy_planned.yaml
+#
+# Planned — plans charge / sell / hold per price slot over all known prices, in time order.
+#
+# Why: Dynamic (HBC Extreme-Pair Matching) pairs cheap and expensive hours by price rank, not by
+# time: it can pair an expensive hour with a LATER cheap one, does not know a battery must be
+# charged before it can sell, and cannot plan "sell tonight -> charge at night -> sell tomorrow
+# morning". Dynamic stays HBC-identical; Planned is a separate strategy.
+#
+# How: dynamic programming over (price slot x stored energy). Per slot it may choose
+#   Charge (grid, max power) | Sell (max power) | Self-consumption | Charge PV | Zero import | Full stop
+# and simulates the house: average load (input_number.hba_strategy_solar_aware_house_load,
+# shared with Solar-aware) minus the Solcast forecast per slot. Cost per slot =
+#   import x buy price - export x sell price + wear x kWh discharged
+# Battery: usable energy, max charge / discharge power (power groups and own limits included),
+# round-trip efficiency (setting, 0 = the batteries' measured lifetime RTE), split evenly over
+# charging and discharging. Stored energy never goes below the reserve. Energy left at the end
+# of the horizon is valued at the average buy price x discharge efficiency, so the plan does
+# not empty the battery just because the price data ends.
+# Backward pass: value per energy level (21 levels, linear interpolation between them, so small
+# hourly flows are not rounded away). Forward pass: from the real stored energy, the best
+# strategy per slot -> sensor.hba_planned_strategy attribute 'plan'. Measured 0.13 s for 48
+# hourly slots on the dev box; 15-minute slots work the same (slot length from the price data).
+#
+# Re-plans (otherwise the previous plan is kept):
+#   HA start / template reload, a Planned setting or a source entity changes, new prices or a
+#   new solar forecast (signature), a new slot, or the stored energy is more than
+#   input_number.hba_strategy_planned_replan_drift kWh off the plan (checked every 5 min).
+# Executed slots move to the 'history' attribute (last 24 h, with their prices and the stored
+# energy measured at their end) -- templates cannot query the recorder, so the sensor keeps it.
+#
+# Reason codes (legend on the dashboard):
+#   A charge from the grid for a later, dearer slot   B sell at a high price
+#   C keep the energy for a later, dearer slot         D the battery covers the house
+#   E the sun charges the battery                      F nothing to gain now
+#   G battery empty (at reserve) or full
+#
+# Execution (script.hba_strategy_planned): the current slot's strategy. Charge and Sell run to
+# the stored energy the plan expects at the end of the slot (attribute e1), then hold with
+# Charge PV. Labels "Planned → <strategy>", so the PID-reset automations see Charge / Sell.
+
+template:
+  - triggers:
+      - trigger: time_pattern
+        minutes: "/5"
+      - trigger: homeassistant
+        event: start
+      - trigger: event
+        event_type: event_template_reloaded
+      - trigger: state
+        entity_id: sensor.hba_energy_prices_data
+      - trigger: state
+        entity_id:
+          - input_number.hba_strategy_planned_efficiency
+          - input_number.hba_strategy_planned_wear_cost
+          - input_number.hba_strategy_planned_reserve
+          - input_number.hba_strategy_planned_sell_deduction
+          - input_number.hba_strategy_planned_replan_drift
+          - input_number.hba_strategy_solar_aware_house_load
+          - input_boolean.hba_strategy_planned_skip_charge
+          - input_boolean.hba_strategy_planned_skip_sell
+          - input_boolean.hba_strategy_planned_skip_zero_import
+          - input_text.hba_strategy_planned_sell_price_entity_id
+          - input_text.hba_strategy_solar_aware_forecast_entity_id
+          - input_text.hba_strategy_solar_forecast_entity_id
+          - input_text.hba_strategy_solar_forecast_tomorrow_entity_id
+        id: settings
+    actions:
+      # `this` is not available in trigger actions -- read the previous plan by entity id.
+      - variables:
+          prev_plan: "{{ state_attr('sensor.hba_planned_strategy', 'plan') or [] }}"
+          prev_hist: "{{ state_attr('sensor.hba_planned_strategy', 'history') or [] }}"
+          prev_slot: "{{ state_attr('sensor.hba_planned_strategy', 'plan_slot') | int(0) }}"
+          prev_sig: "{{ state_attr('sensor.hba_planned_strategy', 'signature') or '' }}"
+          step: >-
+            {%- set pph = state_attr('sensor.hba_energy_prices_data', 'datapoints_per_hour') | int(1) -%}
+            {{ 3600 // ([pph, 1] | max) }}
+          e_now: "{{ states('sensor.hba_charge_available_energy') | float(-1) }}"
+          today_solar_e: >-
+            {%- set sa = states('input_text.hba_strategy_solar_aware_forecast_entity_id') | trim -%}
+            {{ sa if sa not in ['', 'unknown', 'unavailable'] else states('input_text.hba_strategy_solar_forecast_entity_id') | trim }}
+          tomorrow_solar_e: "{{ states('input_text.hba_strategy_solar_forecast_tomorrow_entity_id') | trim }}"
+      - variables:
+          now_ts: "{{ as_timestamp(now()) | int }}"
+          now_slot: "{{ ((as_timestamp(now()) | int) // step) * step }}"
+          # New prices or a new solar forecast: number + last start of the price marks, and
+          # the two forecast totals.
+          signature: >-
+            {%- set raw = state_attr('sensor.hba_energy_prices_data', 'marks') -%}
+            {%- set marks = (raw | from_json) if raw is string and (raw | trim)[:1] == '[' else (raw if raw is sequence else []) -%}
+            {{ marks | length }}|{{ (marks | last).start if marks | length > 0 else '' }}|{{ states(today_solar_e) | float(0) | round(1) if today_solar_e != '' else '' }}|{{ states(tomorrow_solar_e) | float(0) | round(1) if tomorrow_solar_e != '' else '' }}
+      - variables:
+          # The slot that was running according to the previous plan, to measure the drift
+          drift: >-
+            {%- set row = prev_plan | selectattr('ts', 'eq', now_slot) | first | default(none) -%}
+            {%- if row is none or e_now < 0 -%}-1
+            {%- else -%}
+              {%- set f = ((now_ts - row.ts) / step) if row.ts <= now_ts else 0 -%}
+              {%- set start = row.get('e0', row.e1) | float(0) -%}
+              {%- set expected = start + (row.e1 | float(0) - start) * ([f, 1] | min) -%}
+              {{ (e_now - expected) | abs | round(2) }}
+            {%- endif -%}
+          replan: >-
+            {%- if trigger.platform in ['homeassistant', 'event'] -%}HA start / reload
+            {%- elif trigger.id == 'settings' -%}settings changed
+            {%- elif prev_plan | length == 0 -%}no plan yet
+            {%- elif signature != prev_sig -%}new prices or forecast
+            {%- elif now_slot != prev_slot -%}new slot
+            {%- elif drift | float(-1) > states('input_number.hba_strategy_planned_replan_drift') | float(1) -%}off by {{ drift }} kWh
+            {%- endif -%}
+      - variables:
+          result: >-
+            {%- if replan == '' -%}
+              {{ {'plan': prev_plan, 'status': state_attr('sensor.hba_planned_strategy', 'status') or 'OK',
+                  'made': state_attr('sensor.hba_planned_strategy', 'plan_made'),
+                  'reason': state_attr('sensor.hba_planned_strategy', 'plan_reason'),
+                  'eta': state_attr('sensor.hba_planned_strategy', 'efficiency')} | tojson }}
+            {%- else -%}
+              {#- ── Inputs ── -#}
+              {%- set raw = state_attr('sensor.hba_energy_prices_data', 'marks') -%}
+              {%- set marks = (raw | from_json) if raw is string and (raw | trim)[:1] == '[' else (raw if raw is sequence else []) -%}
+              {%- set emax = states('sensor.hba_usable_battery_energy') | float(0) -%}
+              {%- set count = states('input_number.hba_battery_count') | int(1) -%}
+              {%- set eff_set = states('input_number.hba_strategy_planned_efficiency') | float(0) -%}
+              {%- set ns_eff = namespace(v=[]) -%}
+              {%- for i in range(1, count + 1) -%}
+                {%- set r = states('sensor.marstek_m' ~ i ~ '_lifetime_round_trip_efficiency') | float(0) -%}
+                {%- if 50 <= r <= 100 -%}{%- set ns_eff.v = ns_eff.v + [r] -%}{%- endif -%}
+              {%- endfor -%}
+              {%- set eta = (eff_set if eff_set > 0 else ((ns_eff.v | sum / ns_eff.v | length) if ns_eff.v | length > 0 else 85)) / 100 -%}
+              {%- set ec = eta ** 0.5 -%}{%- set ed = eta ** 0.5 -%}
+              {%- set pc = states('sensor.hba_total_max_charge_power') | float(0) / 1000 -%}
+              {%- set pd = states('sensor.hba_total_max_discharge_power') | float(0) / 1000 -%}
+              {%- set wear = states('input_number.hba_strategy_planned_wear_cost') | float(0) -%}
+              {%- set rmin = [states('input_number.hba_strategy_planned_reserve') | float(0), emax] | min -%}
+              {%- set deduct = states('input_number.hba_strategy_planned_sell_deduction') | float(0) -%}
+              {%- set load_kw = states('input_number.hba_strategy_solar_aware_house_load') | float(300) / 1000 -%}
+              {%- set acts = ['Self-consumption', 'Charge PV', 'Full stop']
+                             + ([] if is_state('input_boolean.hba_strategy_planned_skip_zero_import', 'on') else ['Zero import'])
+                             + ([] if is_state('input_boolean.hba_strategy_planned_skip_charge', 'on') else ['Charge'])
+                             + ([] if is_state('input_boolean.hba_strategy_planned_skip_sell', 'on') else ['Sell']) -%}
+              {#- Tiny tie-breakers: with equal cost prefer the simpler strategy -#}
+              {%- set eps = {'Self-consumption': 0, 'Charge PV': 0.0001, 'Zero import': 0.0002, 'Full stop': 0.0003, 'Charge': 0.0005, 'Sell': 0.0005} -%}
+              {%- if marks | length == 0 -%}
+                {{ {'plan': [], 'status': 'No price data', 'made': now().isoformat(), 'reason': replan, 'eta': (eta * 100) | round(1)} | tojson }}
+              {%- elif emax <= 0 or e_now < 0 -%}
+                {{ {'plan': [], 'status': 'No battery data', 'made': now().isoformat(), 'reason': replan, 'eta': (eta * 100) | round(1)} | tojson }}
+              {%- else -%}
+                {#- Sell prices (optional separate sensor, e.g. market price from 2027) -#}
+                {%- set se = states('input_text.hba_strategy_planned_sell_price_entity_id') | trim -%}
+                {%- set ns_in = namespace(sell=[], sun=[], slots=[]) -%}
+                {%- if se not in ['', 'unknown', 'unavailable'] -%}
+                  {%- for e in (state_attr(se, 'prices') or []) if e is mapping and 'from' in e and 'price' in e -%}
+                    {%- set ns_in.sell = ns_in.sell + [{'ts': as_timestamp(e['from'], 0) | int, 'p': e['price'] | float(0)}] -%}
+                  {%- endfor -%}
+                {%- endif -%}
+                {#- Solcast detailedForecast: 30-minute periods, pv_estimate in kW -#}
+                {%- for ent in [today_solar_e, tomorrow_solar_e] if ent != '' -%}
+                  {%- for p in (state_attr(ent, 'detailedForecast') or []) if p is mapping and 'period_start' in p -%}
+                    {%- set ns_in.sun = ns_in.sun + [{'ts': as_timestamp(p.period_start, 0) | int, 'kw': p.pv_estimate | float(0)}] -%}
+                  {%- endfor -%}
+                {%- endfor -%}
+                {%- for m in marks if m is mapping -%}
+                  {%- set ts = as_timestamp(m.start, 0) | int -%}
+                  {%- if ts >= now_slot -%}
+                    {%- set b = (m.price | float(0)) / 100 -%}
+                    {%- set sm = ns_in.sell | selectattr('ts', 'eq', ts) | first | default(none) -%}
+                    {%- set s = ((sm.p if sm is not none else b) - deduct) -%}
+                    {#- The running slot only for its remaining part -#}
+                    {%- set start = [ts, now_ts] | max -%}
+                    {%- set h = (ts + step - start) / 3600 -%}
+                    {%- set ns_s = namespace(kwh=0) -%}
+                    {%- for p in ns_in.sun -%}
+                      {%- set ov = ([ts + step, p.ts + 1800] | min - [start, p.ts] | max) / 3600 -%}
+                      {%- if ov > 0 -%}{%- set ns_s.kwh = ns_s.kwh + p.kw * ov -%}{%- endif -%}
+                    {%- endfor -%}
+                    {%- set ns_in.slots = ns_in.slots + [{'ts': ts, 'b': b, 's': s, 'h': h, 'sun': ns_s.kwh, 'load': load_kw * h}] -%}
+                  {%- endif -%}
+                {%- endfor -%}
+                {%- set slots = ns_in.slots | sort(attribute='ts') -%}
+                {%- set N = slots | length -%}
+                {%- if N == 0 -%}
+                  {{ {'plan': [], 'status': 'No price data', 'made': now().isoformat(), 'reason': replan, 'eta': (eta * 100) | round(1)} | tojson }}
+                {%- else -%}
+                  {%- set K = 21 -%}{%- set dE = emax / (K - 1) -%}
+                  {%- set mean_b = (slots | map(attribute='b') | sum) / N -%}
+                  {#- ── Backward pass: value of each energy level per slot ── -#}
+                  {%- set ns = namespace(V=[], Vs=[]) -%}
+                  {%- for k in range(K) -%}{%- set ns.V = ns.V + [-(k * dE) * mean_b * ed] -%}{%- endfor -%}
+                  {%- set ns.Vs = [ns.V] -%}
+                  {%- for t in range(N - 1, -1, -1) -%}
+                    {%- set sl = slots[t] -%}
+                    {%- set nl = sl.load - sl.sun -%}{%- set d = [nl, 0] | max -%}{%- set u = [-nl, 0] | max -%}
+                    {%- set cc = pc * sl.h -%}{%- set cd = pd * sl.h -%}
+                    {%- set nv = namespace(V=[]) -%}
+                    {%- for k in range(K) -%}
+                      {%- set E = k * dE -%}
+                      {%- set room = ([emax - E, 0] | max) / ec -%}{%- set av = ([E - rmin, 0] | max) * ed -%}
+                      {%- set best = namespace(v=1e9) -%}
+                      {%- for a in acts -%}
+                        {%- set ch = ([u, cc, room] | min) if a in ['Self-consumption', 'Charge PV'] else (([cc, room] | min) if a == 'Charge' else 0) -%}
+                        {%- set dis = ([d, cd, av] | min) if a in ['Self-consumption', 'Zero import'] else (([cd, av] | min) if a == 'Sell' else 0) -%}
+                        {%- set net = d - u + ch - dis -%}
+                        {%- set E2 = [[E + ch * ec - dis / ed, 0] | max, emax] | min -%}
+                        {%- set x = E2 / dE -%}{%- set i = [x | int, K - 2] | min -%}{%- set f = x - i -%}
+                        {%- set v = ([net, 0] | max) * sl.b - ([-net, 0] | max) * sl.s + wear * dis + eps[a] + ns.V[i] * (1 - f) + ns.V[i + 1] * f -%}
+                        {%- if v < best.v -%}{%- set best.v = v -%}{%- endif -%}
+                      {%- endfor -%}
+                      {%- set nv.V = nv.V + [best.v] -%}
+                    {%- endfor -%}
+                    {%- set ns.V = nv.V -%}{%- set ns.Vs = [nv.V] + ns.Vs -%}
+                  {%- endfor -%}
+                  {#- ── Forward pass from the real stored energy ── -#}
+                  {%- set E0 = [[e_now, 0] | max, emax] | min -%}
+                  {%- set fw = namespace(E=E0, basis=E0 * mean_b / ec, out=[]) -%}
+                  {%- for t in range(N) -%}
+                    {%- set sl = slots[t] -%}{%- set V = ns.Vs[t + 1] -%}
+                    {%- set nl = sl.load - sl.sun -%}{%- set d = [nl, 0] | max -%}{%- set u = [-nl, 0] | max -%}
+                    {%- set cc = pc * sl.h -%}{%- set cd = pd * sl.h -%}
+                    {%- set E = fw.E -%}
+                    {%- set room = ([emax - E, 0] | max) / ec -%}{%- set av = ([E - rmin, 0] | max) * ed -%}
+                    {%- set best = namespace(v=1e9, a='Self-consumption', E2=E, ch=0, dis=0) -%}
+                    {%- for a in acts -%}
+                      {%- set ch = ([u, cc, room] | min) if a in ['Self-consumption', 'Charge PV'] else (([cc, room] | min) if a == 'Charge' else 0) -%}
+                      {%- set dis = ([d, cd, av] | min) if a in ['Self-consumption', 'Zero import'] else (([cd, av] | min) if a == 'Sell' else 0) -%}
+                      {%- set net = d - u + ch - dis -%}
+                      {%- set E2 = [[E + ch * ec - dis / ed, 0] | max, emax] | min -%}
+                      {%- set x = E2 / dE -%}{%- set i = [x | int, K - 2] | min -%}{%- set f = x - i -%}
+                      {%- set v = ([net, 0] | max) * sl.b - ([-net, 0] | max) * sl.s + wear * dis + eps[a] + V[i] * (1 - f) + V[i + 1] * f -%}
+                      {%- if v < best.v -%}
+                        {%- set best.v = v -%}{%- set best.a = a -%}{%- set best.E2 = E2 -%}{%- set best.ch = ch -%}{%- set best.dis = dis -%}
+                      {%- endif -%}
+                    {%- endfor -%}
+                    {#- Cost of the stored energy (EUR per kWh it delivers), carried forward -#}
+                    {%- set sun_in = [best.ch, u] | min -%}
+                    {%- set fw.basis = fw.basis + sun_in * sl.s + (best.ch - sun_in) * sl.b -%}
+                    {%- if best.dis > 0 and E > 0 -%}
+                      {%- set fw.basis = fw.basis * ([1 - (best.dis / ed) / E, 0] | max) -%}
+                    {%- endif -%}
+                    {%- set cost_out = ((fw.basis / best.E2) / ed + wear) if best.E2 > 0.05 else none -%}
+                    {%- if best.a == 'Charge' -%}{%- set code = 'A' -%}
+                    {%- elif best.a == 'Sell' -%}{%- set code = 'B' -%}
+                    {%- elif sun_in > 0.05 -%}{%- set code = 'E' -%}
+                    {%- elif best.dis > 0.05 -%}{%- set code = 'D' -%}
+                    {%- elif (d > 0.05 and E <= rmin + 0.05) or (u > 0.05 and E >= emax - 0.05) -%}{%- set code = 'G' -%}
+                    {%- elif d > 0.05 and E > rmin + 0.05 -%}{%- set code = 'C' -%}
+                    {%- else -%}{%- set code = 'F' -%}
+                    {%- endif -%}
+                    {%- set fw.out = fw.out + [{
+                         'ts': sl.ts, 'b': sl.b | round(4), 's': sl.s | round(4), 'a': best.a,
+                         'e0': E | round(2), 'e1': best.E2 | round(2),
+                         'c': cost_out | round(3) if cost_out is not none else none,
+                         'r': code, 'sun': sl.sun | round(2)}] -%}
+                    {%- set fw.E = best.E2 -%}
+                  {%- endfor -%}
+                  {{ {'plan': fw.out, 'status': 'OK', 'made': now().isoformat(), 'reason': replan, 'eta': (eta * 100) | round(1)} | tojson }}
+                {%- endif -%}
+              {%- endif -%}
+            {%- endif -%}
+          # Executed slots: when a new slot starts, the previous one moves here with the
+          # stored energy measured now. Last 24 h.
+          history: >-
+            {%- set ns_h = namespace(h=prev_hist | selectattr('ts', 'ge', now_slot - 86400) | list) -%}
+            {%- if prev_slot > 0 and now_slot > prev_slot -%}
+              {%- set done = prev_plan | selectattr('ts', 'eq', prev_slot) | first | default(none) -%}
+              {%- if done is not none and done.ts not in (ns_h.h | map(attribute='ts') | list) -%}
+                {%- set ns_h.h = ns_h.h + [{'ts': done.ts, 'b': done.b, 's': done.s, 'a': done.a, 'r': done.r,
+                                             'e1': e_now | round(2) if e_now >= 0 else done.e1, 'c': done.c}] -%}
+              {%- endif -%}
+            {%- endif -%}
+            {{ ns_h.h | tojson }}
+    sensor:
+      - name: "HBA Planned Strategy"
+        unique_id: hba_planned_strategy
+        icon: mdi:calendar-clock
+        # The strategy for the running slot, or why there is no plan
+        # result / history are JSON text when they contain null (not a Python literal) -> from_json
+        state: >-
+          {%- set r = result if result is mapping else (result | from_json) -%}
+          {%- set row = r.plan | selectattr('ts', 'eq', now_slot) | first | default(none) -%}
+          {{ row.a if row is not none else (r.status if r.status != 'OK' else 'No plan') }}
+        attributes:
+          plan: "{{ (result if result is mapping else (result | from_json)).plan }}"
+          history: "{{ history if history is sequence and history is not string else (history | from_json) }}"
+          status: "{{ (result if result is mapping else (result | from_json)).status }}"
+          plan_made: "{{ (result if result is mapping else (result | from_json)).made }}"
+          plan_reason: "{{ (result if result is mapping else (result | from_json)).reason }}"
+          plan_slot: "{{ now_slot if replan != '' else prev_slot }}"
+          signature: "{{ signature }}"
+          efficiency: "{{ (result if result is mapping else (result | from_json)).eta }}"
+          drift: "{{ drift }}"
+          # Stored energy the plan expects at the end of the running slot (Charge / Sell run to it)
+          target_energy: >-
+            {%- set row = (result if result is mapping else (result | from_json)).plan | selectattr('ts', 'eq', now_slot) | first | default(none) -%}
+            {{ row.e1 if row is not none else none }}
+
+script:
+  # ── Planned dispatch ──────────────────────────────────────────────────────────
+  # Runs the running slot's strategy from sensor.hba_planned_strategy. Charge / Sell run to
+  # the planned end-of-slot energy (attribute target_energy), then hold with Charge PV.
+  # Without a plan: Self-consumption.
+  hba_strategy_planned:
+    alias: "HBA: Strategy - Planned"
+    sequence:
+      - variables:
+          act: "{{ states('sensor.hba_planned_strategy') }}"
+          target: "{{ state_attr('sensor.hba_planned_strategy', 'target_energy') | float(-1) }}"
+          avail: "{{ states('sensor.hba_charge_available_energy') | float(0) }}"
+      - choose:
+          - conditions: "{{ act == 'Charge' and target >= 0 and avail < target - 0.05 }}"
+            sequence:
+              - action: input_text.set_value
+                target: { entity_id: input_text.hba_strategy_active_flow }
+                data: { value: "Planned → Charge" }
+              - choose:
+                  - conditions: "{{ is_state('input_boolean.hba_control_has_power_limit_import', 'on') }}"
+                    sequence:
+                      - action: script.hba_strategy_self_consumption
+                        data: { skip_label: true }
+                default:
+                  - action: script.hba_set_batteries
+                    data:
+                      desired_power_w: "{{ states('sensor.hba_total_max_charge_power') | float(2500) | int }}"
+                      mode: "charge"
+          - conditions: "{{ act == 'Sell' and target >= 0 and avail > target + 0.05 }}"
+            sequence:
+              - action: input_text.set_value
+                target: { entity_id: input_text.hba_strategy_active_flow }
+                data: { value: "Planned → Sell" }
+              - choose:
+                  - conditions: "{{ is_state('input_boolean.hba_control_has_power_limit_export', 'on') }}"
+                    sequence:
+                      - action: script.hba_strategy_self_consumption
+                        data:
+                          skip_label: true
+                          charge_disabled: true
+                          setpoint_override: "{{ -(states('input_number.hba_control_power_limit_export') | float(5000)) }}"
+                default:
+                  - action: script.hba_set_batteries
+                    data:
+                      desired_power_w: "{{ -(states('sensor.hba_total_max_discharge_power') | float(2500)) | int }}"
+                      mode: "discharge"
+          # Charge / Sell done for this slot: hold, the sun may still fill the battery
+          - conditions: "{{ act in ['Charge', 'Sell', 'Charge PV'] }}"
+            sequence:
+              - action: script.hba_strategy_charge_pv
+                data: { flow_prefix: "{{ 'Planned →' if act == 'Charge PV' else 'Planned → ' ~ act ~ ' done →' }}" }
+          - conditions: "{{ act == 'Zero import' }}"
+            sequence:
+              - action: input_text.set_value
+                target: { entity_id: input_text.hba_strategy_active_flow }
+                data: { value: "Planned → Zero import" }
+              - action: script.hba_strategy_zero_import
+                data: { skip_label: true }
+          - conditions: "{{ act == 'Full stop' }}"
+            sequence:
+              - action: input_text.set_value
+                target: { entity_id: input_text.hba_strategy_active_flow }
+                data: { value: "Planned → Full stop" }
+              - action: script.hba_strategy_full_stop
+                data: { skip_label: true }
+        default:
+          - action: input_text.set_value
+            target: { entity_id: input_text.hba_strategy_active_flow }
+            data: { value: "{{ 'Planned → Self-consumption' if act == 'Self-consumption' else 'Planned (' ~ act ~ ') → Self-consumption' }}" }
+          - action: script.hba_strategy_self_consumption
+            data: { skip_label: true }

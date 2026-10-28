@@ -2389,6 +2389,182 @@ views:
       # ── Timed ─────────────────────────────────────────────────────────────────
 
   # ── VIEW 5: INSIGHTS (DEBUG) ────────────────────────────────────────────────
+  # ── Planned: plan over all known prices in time order (hba_strategy_planned.yaml) ──
+  - type: sections
+    max_columns: 2
+    title: Planned
+    path: planned
+    icon: mdi:calendar-clock
+    cards: []
+    badges:
+      - type: entity
+        show_name: true
+        show_state: true
+        show_icon: true
+        entity: input_select.hba_strategy
+        name: Choose strategy
+        tap_action:
+          action: more-info
+      - type: entity
+        show_name: true
+        show_state: true
+        show_icon: true
+        entity: sensor.hba_planned_strategy
+        name: Planned now
+    header:
+      layout: center
+      badges_position: top
+      badges_wrap: scroll
+      card:
+        type: markdown
+        text_only: true
+        content: '### Planned *(HBA v4.10.1-r22)*'
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Planned strategy
+            heading_style: title
+            icon: mdi:calendar-clock
+          - type: markdown
+            text_only: true
+            content: >-
+              <font color=grey>_Plans per price slot over all known prices (today, and tomorrow
+              once published): charge in cheap hours for a later, dearer hour, sell at the
+              peaks, and in between Self-consumption, Charge PV, Zero import or Full stop —
+              whichever costs least. It simulates the battery (stored energy, max power,
+              efficiency), the house (average load) and the sun (Solcast). The plan is
+              always calculated; it only controls the batteries when **Choose strategy** is
+              **Planned**._</font>
+          - type: entities
+            entities:
+              - entity: sensor.hba_planned_strategy
+                name: Planned now
+              - type: attribute
+                entity: sensor.hba_planned_strategy
+                attribute: target_energy
+                name: Stored energy at the end of this slot (kWh)
+              - entity: sensor.hba_charge_available_energy
+                name: Stored energy now
+          - type: heading
+            heading: Prices
+            heading_style: subtitle
+            icon: mdi:cash-clock
+          - type: entities
+            entities:
+              - entity: input_text.hba_strategy_dynamic_frank_sensor_entity_id
+                name: Buy price sensor (shared with Dynamic)
+              - entity: input_text.hba_strategy_planned_sell_price_entity_id
+                name: Sell price sensor (empty = buy price)
+              - entity: input_number.hba_strategy_planned_sell_deduction
+                name: Sell price deduction
+          - type: markdown
+            text_only: true
+            content: >-
+              <font color=grey>_Under net metering (until 2027) selling earns about the
+              buy price: leave the sell sensor empty. From 2027 point it at the market price,
+              e.g. `sensor.frank_energie_prices_current_electricity_market_price`._</font>
+          - type: heading
+            heading: Battery and house
+            heading_style: subtitle
+            icon: mdi:home-battery
+          - type: entities
+            entities:
+              - entity: input_number.hba_strategy_planned_efficiency
+                name: Round-trip efficiency (0 = measured)
+              - type: attribute
+                entity: sensor.hba_planned_strategy
+                attribute: efficiency
+                name: Efficiency used (%)
+              - entity: input_number.hba_strategy_planned_wear_cost
+                name: Wear cost per kWh cycled
+              - entity: input_number.hba_strategy_planned_reserve
+                name: Reserve for unexpected loads
+              - entity: input_number.hba_strategy_solar_aware_house_load
+                name: Average house load (shared with Solar-aware)
+              - entity: input_text.hba_strategy_solar_aware_forecast_entity_id
+                name: Solar forecast today, detailed (shared with Solar-aware)
+              - entity: input_text.hba_strategy_solar_forecast_tomorrow_entity_id
+                name: Solar forecast tomorrow
+          - type: heading
+            heading: Strategies the plan may use
+            heading_style: subtitle
+            icon: mdi:format-list-checks
+          - type: entities
+            entities:
+              - entity: input_boolean.hba_strategy_planned_skip_charge
+                name: Never charge from the grid
+              - entity: input_boolean.hba_strategy_planned_skip_sell
+                name: Never sell
+              - entity: input_boolean.hba_strategy_planned_skip_zero_import
+                name: Never Zero import
+              - entity: input_number.hba_strategy_planned_replan_drift
+                name: Re-plan when off by more than
+          - type: markdown
+            text_only: true
+            content: >-
+              <font color=grey>_Self-consumption, Charge PV and Full stop are always allowed.
+              The plan is redone at every new slot, when new prices or a new solar forecast
+              arrive, when a setting changes, and when the stored energy is further off the
+              plan than set above (checked every 5 minutes)._</font>
+
+      - type: grid
+        cards:
+          - type: heading
+            heading: Plan
+            heading_style: title
+            icon: mdi:table-clock
+          - type: markdown
+            content: |-
+              {%- set E = 'sensor.hba_planned_strategy' -%}
+              {%- set plan = state_attr(E, 'plan') or [] -%}
+              {%- set hist = state_attr(E, 'history') or [] -%}
+              {%- set made = state_attr(E, 'plan_made') -%}
+              {%- set ns_s = namespace(show=false) -%}
+              {%- for r in plan + hist if r.s is defined and r.s is not none and (r.s - r.b) | abs > 0.0005 -%}{%- set ns_s.show = true -%}{%- endfor -%}
+              {%- set showsell = ns_s.show -%}
+              {%- set icon = {'Charge': '🔌', 'Sell': '💶', 'Charge PV': '☀️', 'Self-consumption': '🏠', 'Zero import': '🚫', 'Full stop': '⏸️'} -%}
+              {%- if state_attr(E, 'status') not in [none, 'OK'] -%}
+              <ha-alert alert-type="warning">No plan: {{ state_attr(E, 'status') }}.</ha-alert>
+              {%- endif %}
+              <small>Plan made {{ as_local(as_datetime(made)).strftime('%a %H:%M') if made else '—' }} ({{ state_attr(E, 'plan_reason') or '—' }})</small>
+
+              <small><small>
+
+              | Time | Buy € | {% if showsell %}Sell € | {% endif %}Cost out € | Plan | kWh | |
+              |:--|--:|{% if showsell %}--:|{% endif %}--:|:--|--:|:-:|
+              {%- set ns = namespace(day='') -%}
+              {%- for r in hist | sort(attribute='ts') %}
+              {%- set d = r.ts | timestamp_custom('%a') %}
+              | <font color=grey>{{ (d ~ ' ') if d != ns.day else '' }}{{ r.ts | timestamp_custom('%H:%M') }}</font> | <font color=grey>{{ '%.3f' | format(r.b) }}</font> | {% if showsell %}<font color=grey>{{ '%.3f' | format(r.s) }}</font> | {% endif %}<font color=grey>{{ '%.3f' | format(r.c) if r.c is not none else '—' }}</font> | <font color=grey>{{ icon.get(r.a, '') }} {{ r.a }}</font> | <font color=grey>{{ '%.1f' | format(r.e1) }}</font> | <font color=grey>{{ r.r }}</font> |
+              {%- set ns.day = d %}
+              {%- endfor %}
+              {%- for r in plan %}
+              {%- set d = r.ts | timestamp_custom('%a') %}
+              {%- set now = loop.first %}
+              | {{ '**' if now }}{{ (d ~ ' ') if d != ns.day else '' }}{{ r.ts | timestamp_custom('%H:%M') }}{{ '**' if now }} | {{ '%.3f' | format(r.b) }} | {% if showsell %}{{ '%.3f' | format(r.s) }} | {% endif %}{{ '%.3f' | format(r.c) if r.c is not none else '—' }} | {{ icon.get(r.a, '') }} {{ '**' if now }}{{ r.a }}{{ '**' if now }} | {{ '%.1f' | format(r.e1) }} | {{ r.r }} |
+              {%- set ns.day = d %}
+              {%- endfor %}
+
+              </small></small>
+          - type: markdown
+            text_only: true
+            content: >-
+              <small><font color=grey>**Grey:** executed, with the stored energy measured at the
+              end. **Bold:** now. **kWh:** stored energy at the end of the slot. **Cost out:**
+              what a kWh from the battery has cost (bought ÷ efficiency, sun at the sell price,
+              + wear).</font>
+
+
+              **Reasons:**
+              **A** charge from the grid for a later, dearer slot ·
+              **B** sell at a high price ·
+              **C** keep the energy for a later, dearer slot ·
+              **D** the battery covers the house ·
+              **E** the sun charges the battery ·
+              **F** nothing to gain now ·
+              **G** battery empty (at reserve) or full</small>
+
   - type: sections
     max_columns: 3
     title: Insights

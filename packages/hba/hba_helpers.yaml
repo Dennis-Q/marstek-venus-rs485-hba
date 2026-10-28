@@ -31,6 +31,17 @@ input_boolean:
   hba_notifications_enabled:
     name: "Notifications enabled"
     icon: mdi:bell
+  # Planned strategy: strategies the planner may NOT use (off = allowed, so a new
+  # install allows everything). Self-consumption, Charge PV and Full stop are always allowed.
+  hba_strategy_planned_skip_charge:
+    name: "Planned: never charge from the grid"
+    icon: mdi:transmission-tower-off
+  hba_strategy_planned_skip_sell:
+    name: "Planned: never sell"
+    icon: mdi:cash-remove
+  hba_strategy_planned_skip_zero_import:
+    name: "Planned: never Zero import"
+    icon: mdi:home-off-outline
 
 input_datetime:
   hba_strategy_timed_period_a1:
@@ -411,6 +422,49 @@ input_number:
     mode: box
     unit_of_measurement: W
     icon: mdi:home-lightning-bolt-outline
+  # ── Planned strategy (hba_strategy_planned.yaml) ──────────────────────────────
+  # Each minimum is a sensible default, so a new install works before Apply defaults.
+  # The average house load is shared with Solar-aware (hba_strategy_solar_aware_house_load).
+  hba_strategy_planned_efficiency:
+    name: "Planned: round-trip efficiency (0 = measured)"
+    min: 0
+    max: 100
+    step: 1
+    mode: box
+    unit_of_measurement: "%"
+    icon: mdi:battery-sync-outline
+  hba_strategy_planned_wear_cost:
+    name: "Planned: wear cost per kWh cycled"
+    min: 0
+    max: 0.5
+    step: 0.005
+    mode: box
+    unit_of_measurement: "EUR/kWh"
+    icon: mdi:battery-heart-variant
+  hba_strategy_planned_reserve:
+    name: "Planned: reserve for unexpected loads"
+    min: 0
+    max: 50
+    step: 0.1
+    mode: box
+    unit_of_measurement: kWh
+    icon: mdi:battery-lock
+  hba_strategy_planned_sell_deduction:
+    name: "Planned: sell price deduction"
+    min: 0
+    max: 0.5
+    step: 0.001
+    mode: box
+    unit_of_measurement: "EUR/kWh"
+    icon: mdi:cash-minus
+  hba_strategy_planned_replan_drift:
+    name: "Planned: re-plan when off by more than"
+    min: 0.5
+    max: 10
+    step: 0.1
+    mode: box
+    unit_of_measurement: kWh
+    icon: mdi:chart-timeline-variant-shimmer
   hba_strategy_dynamic_threshold_delta:
     name: "Dynamic min price difference"
     min: 0
@@ -791,6 +845,13 @@ input_text:
     name: "Solar-aware detailed forecast (entity_id)"
     max: 100
     icon: mdi:sun-clock
+  # Planned strategy: price sensor for SELLING (prices attribute like Frank, e.g.
+  # sensor.frank_energie_prices_current_electricity_market_price from 2027). Empty = the
+  # buy price (input_text.hba_strategy_dynamic_frank_sensor_entity_id), as under net metering.
+  hba_strategy_planned_sell_price_entity_id:
+    name: "Planned: sell price sensor (entity_id)"
+    max: 100
+    icon: mdi:cash-plus
   hba_notify_entity_id:
     name: "Notify entity_id"
     max: 100
@@ -815,6 +876,7 @@ input_select:
       - "Self-consumption"
       - "Timed"
       - "Dynamic"
+      - "Planned"
       - "Charge"
       - "Charge PV"
       - "Sell"
@@ -3142,6 +3204,9 @@ recorder:
       - sensor.p1_meter_voltage_l*
       - sensor.ev_charger_power_l*
     entities:
+      # Planned strategy: plan + 24 h history as attributes (well over the recorder's 16 kB
+      # attribute limit); the sensor keeps its own executed history
+      - sensor.hba_planned_strategy
       # Room per phase (main fuse limit, Charge alongside EV) — recalculated on every P1 update
       - sensor.hba_phase_room
       # Per-battery limits now — recalculated every 5 s (the Limit Source sensors stay recorded)

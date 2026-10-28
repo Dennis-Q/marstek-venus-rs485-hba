@@ -259,6 +259,22 @@ Period times (`input_datetime.hba_strategy_timed_period_a1` etc.) are not set by
 Until r22 the max-hours helpers were `input_number.hba_strategy_dynamic_v2_max_*`; values
 did not carry over when they were renamed.
 
+## Planned Strategy
+
+Every minimum is also the default, so a new install plans sensibly before *Apply defaults*.
+
+| Helper | Default |
+|---|---|
+| `input_number.hba_strategy_planned_efficiency` | `0` % = the batteries' measured lifetime round-trip efficiency (85 % until measured) |
+| `input_number.hba_strategy_planned_wear_cost` | `0` EUR/kWh cycled |
+| `input_number.hba_strategy_planned_reserve` | `0` kWh |
+| `input_number.hba_strategy_planned_sell_deduction` | `0` EUR/kWh |
+| `input_number.hba_strategy_planned_replan_drift` | `1` kWh (minimum 0.5) |
+| `input_text.hba_strategy_planned_sell_price_entity_id` | empty = sell at the buy price (net metering) |
+| `input_boolean.hba_strategy_planned_skip_charge` / `_skip_sell` / `_skip_zero_import` | `off` (all strategies allowed) |
+
+Average house load and the solar forecast entities are shared with Solar-aware and the Charge goal.
+
 ## Per-Battery SoC Cutoffs (all 6 slots)
 
 | Helper | Default | Notes |

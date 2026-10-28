@@ -759,6 +759,11 @@ script:
             sequence:
               - action: script.hba_strategy_dynamic
                 data: {}
+          # Planned: a plan over all known prices in time order (hba_strategy_planned.yaml)
+          - conditions: "{{ strategy == 'Planned' }}"
+            sequence:
+              - action: script.hba_strategy_planned
+                data: {}
           - conditions: "{{ strategy == 'Charge' }}"
             sequence:
               - action: script.hba_strategy_charge
@@ -1781,6 +1786,29 @@ script:
       - action: input_text.set_value
         target: { entity_id: input_text.hba_strategy_dynamic_frank_sensor_entity_id }
         data: { value: "sensor.frank_energie_prijzen_gemiddelde_elektriciteitsprijs_alle_uren_all_in" }
+      # ── Planned strategy ──────────────────────────────────────────────────────
+      # Efficiency 0 = the batteries' measured lifetime round-trip efficiency; wear 0
+      # (batteries already paid for); no reserve; sell price = buy price (net metering).
+      - action: input_number.set_value
+        target:
+          entity_id:
+            - input_number.hba_strategy_planned_efficiency
+            - input_number.hba_strategy_planned_wear_cost
+            - input_number.hba_strategy_planned_reserve
+            - input_number.hba_strategy_planned_sell_deduction
+        data: { value: 0 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_strategy_planned_replan_drift }
+        data: { value: 1 }
+      - action: input_boolean.turn_off
+        target:
+          entity_id:
+            - input_boolean.hba_strategy_planned_skip_charge
+            - input_boolean.hba_strategy_planned_skip_sell
+            - input_boolean.hba_strategy_planned_skip_zero_import
+      - action: input_text.set_value
+        target: { entity_id: input_text.hba_strategy_planned_sell_price_entity_id }
+        data: { value: "" }
       # ── Misc ──────────────────────────────────────────────────────────────────
       - action: input_boolean.turn_off
         target: { entity_id: input_boolean.hba_control_is_debug_mode }

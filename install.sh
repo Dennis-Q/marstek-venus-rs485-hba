@@ -198,6 +198,7 @@ CORE_FILES=(
     packages/hba/hba_strategy_charge_pv.yaml
     packages/hba/hba_strategy_charge_sell.yaml
     packages/hba/hba_strategy_dynamic.yaml
+    packages/hba/hba_strategy_planned.yaml
     packages/hba/hba_strategy_others.yaml
     packages/hba/hba_strategy_self_consumption.yaml
     packages/hba/hba_strategy_timed.yaml
