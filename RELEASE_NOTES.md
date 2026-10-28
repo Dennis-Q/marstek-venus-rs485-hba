@@ -194,6 +194,12 @@ open), so the version prefix stays at 4.10.1 for now.
     default 2). Days below 60 % of the median day (absent, e.g. a holiday) and incomplete days are
     skipped. The planner uses the profile per slot instead of one average (prod: ~0.4 kW at night,
     ~1 kW at midday, ~1.3 kW at 17:00); without a profile the average setting stays the fallback.
+  - **Sell spread over the hour:** a Sell slot no longer sells out at full power and then imports for the
+    rest of the hour. Per cycle it takes the power needed to reach the planned target at the end of the
+    slot; at or above max power (e.g. the first sell hour from full batteries) it sells at full power,
+    below it Self-consumption with an export target = that power − expected house use, so the house
+    stays covered on top of a steady export. Executed slots keep the planned target (`pe1`) next to the
+    measured result, to check that a spread-out Sell sold what was planned.
   - Re-plan on drift: the expected stored energy follows full power for Charge and Sell (they finish
     early in the hour) and a straight line for the other strategies, so a Sell that is on schedule
     no longer counts as "off".
