@@ -139,8 +139,11 @@ template:
                              + ([] if is_state('input_boolean.hba_strategy_planned_skip_zero_import', 'on') else ['Zero import'])
                              + ([] if is_state('input_boolean.hba_strategy_planned_skip_charge', 'on') else ['Charge'])
                              + ([] if is_state('input_boolean.hba_strategy_planned_skip_sell', 'on') else ['Sell']) -%}
-              {#- Tiny tie-breakers: with equal cost prefer the simpler strategy -#}
+              {#- Tiny tie-breakers: with equal cost prefer the simpler strategy. Holding in a slot
+                  with sun is Charge PV (stores the sun if the battery turns out not to be full);
+                  without sun Charge PV and Full stop do the same, so it says Full stop (eps_dark). -#}
               {%- set eps = {'Self-consumption': 0, 'Charge PV': 0.0001, 'Zero import': 0.0002, 'Full stop': 0.0003, 'Charge': 0.0005, 'Sell': 0.0005} -%}
+              {%- set eps_dark = {'Self-consumption': 0, 'Full stop': 0.0001, 'Zero import': 0.0002, 'Charge PV': 0.0003, 'Charge': 0.0005, 'Sell': 0.0005} -%}
               {%- if marks | length == 0 -%}
                 {{ {'plan': [], 'status': 'No price data', 'made': now().isoformat(), 'reason': replan, 'eta': (eta * 100) | round(1)} | tojson }}
               {%- elif emax <= 0 or e_now < 0 -%}
@@ -203,7 +206,7 @@ template:
                         {%- set net = d - u + ch - dis -%}
                         {%- set E2 = [[E + ch * ec - dis / ed, 0] | max, emax] | min -%}
                         {%- set x = E2 / dE -%}{%- set i = [x | int, K - 2] | min -%}{%- set f = x - i -%}
-                        {%- set v = ([net, 0] | max) * sl.b - ([-net, 0] | max) * sl.s + wear * dis + eps[a] + ns.V[i] * (1 - f) + ns.V[i + 1] * f -%}
+                        {%- set v = ([net, 0] | max) * sl.b - ([-net, 0] | max) * sl.s + wear * dis + (eps if sl.sun > 0.01 else eps_dark)[a] + ns.V[i] * (1 - f) + ns.V[i + 1] * f -%}
                         {%- if v < best.v -%}{%- set best.v = v -%}{%- endif -%}
                       {%- endfor -%}
                       {%- set nv.V = nv.V + [best.v] -%}
@@ -226,7 +229,7 @@ template:
                       {%- set net = d - u + ch - dis -%}
                       {%- set E2 = [[E + ch * ec - dis / ed, 0] | max, emax] | min -%}
                       {%- set x = E2 / dE -%}{%- set i = [x | int, K - 2] | min -%}{%- set f = x - i -%}
-                      {%- set v = ([net, 0] | max) * sl.b - ([-net, 0] | max) * sl.s + wear * dis + eps[a] + V[i] * (1 - f) + V[i + 1] * f -%}
+                      {%- set v = ([net, 0] | max) * sl.b - ([-net, 0] | max) * sl.s + wear * dis + (eps if sl.sun > 0.01 else eps_dark)[a] + V[i] * (1 - f) + V[i + 1] * f -%}
                       {%- if v < best.v -%}
                         {%- set best.v = v -%}{%- set best.a = a -%}{%- set best.E2 = E2 -%}{%- set best.ch = ch -%}{%- set best.dis = dis -%}
                       {%- endif -%}

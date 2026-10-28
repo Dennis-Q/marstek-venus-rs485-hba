@@ -2531,7 +2531,7 @@ views:
 
               <small><small>
 
-              | Time | Buy € | {% if showsell %}Sell € | {% endif %}Cost out € | Plan | kWh | |
+              | Time | Buy € | {% if showsell %}Sell € | {% endif %}Cost out € | Plan | Stored | |
               |:--|--:|{% if showsell %}--:|{% endif %}--:|:--|--:|:-:|
               {%- set ns = namespace(day='') -%}
               {%- for r in hist | sort(attribute='ts') %}
@@ -2551,7 +2551,8 @@ views:
             text_only: true
             content: >-
               <small><font color=grey>**Grey:** executed, with the stored energy measured at the
-              end. **Bold:** now. **kWh:** stored energy at the end of the slot. **Cost out:**
+              end. **Bold:** now. **Stored:** kWh in the batteries at the END of the slot, above
+              the discharge cutoff (0 = at the cutoff, {{ states('sensor.hba_usable_battery_energy') | float(0) | round(1) }} = full). **Cost out:**
               what a kWh from the battery has cost (bought ÷ efficiency, sun at the sell price,
               + wear).</font>
 
