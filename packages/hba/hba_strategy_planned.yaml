@@ -139,9 +139,9 @@ template:
                              + ([] if is_state('input_boolean.hba_strategy_planned_skip_zero_import', 'on') else ['Zero import'])
                              + ([] if is_state('input_boolean.hba_strategy_planned_skip_charge', 'on') else ['Charge'])
                              + ([] if is_state('input_boolean.hba_strategy_planned_skip_sell', 'on') else ['Sell']) -%}
-              {#- Tiny tie-breakers: with equal cost prefer the simpler strategy. Holding in a slot
-                  with sun is Charge PV (stores the sun if the battery turns out not to be full);
-                  without sun Charge PV and Full stop do the same, so it says Full stop (eps_dark). -#}
+              {#- Tiny tie-breakers: with equal cost prefer the simpler strategy. eps prefers Charge PV
+                  (holding while storing the sun), eps_dark prefers Full stop (no sun, or the sun is
+                  worth more exported); the forward pass picks per slot, see 'worth' below. -#}
               {%- set eps = {'Self-consumption': 0, 'Charge PV': 0.0001, 'Zero import': 0.0002, 'Full stop': 0.0003, 'Charge': 0.0005, 'Sell': 0.0005} -%}
               {%- set eps_dark = {'Self-consumption': 0, 'Full stop': 0.0001, 'Zero import': 0.0002, 'Charge PV': 0.0003, 'Charge': 0.0005, 'Sell': 0.0005} -%}
               {%- if marks | length == 0 -%}
@@ -222,6 +222,21 @@ template:
                     {%- set cc = pc * sl.h -%}{%- set cd = pd * sl.h -%}
                     {%- set E = fw.E -%}
                     {%- set room = ([emax - E, 0] | max) / ec -%}{%- set av = ([E - rmin, 0] | max) * ed -%}
+                    {#- Ties (e.g. a full or empty battery, where several options do the same): decide by
+                        what a stored kWh is worth = the slope of the value table here. That already
+                        counts the power limit, e.g. extra energy at 16:00 is sold in the LAST sell
+                        hour (19:00), not at the 17:00 peak. So the label also says what is right if
+                        reality differs a little from the forecast. -#}
+                    {%- set xm = E / dE -%}{%- set im = [xm | int, K - 2] | min -%}
+                    {%- set slope = (V[im] - V[im + 1]) / dE -%}
+                    {#- keep: a stored kWh is worth more later than it saves now -> do not discharge;
+                        store: storing the sun is worth more than exporting it now -#}
+                    {%- set keep = slope / ed > sl.b -%}
+                    {%- set store = sl.sun > 0.01 and slope * ec > sl.s -%}
+                    {%- set order = (['Charge PV', 'Full stop', 'Self-consumption', 'Zero import'] if store else ['Full stop', 'Charge PV', 'Zero import', 'Self-consumption'])
+                                    if keep else
+                                    (['Self-consumption', 'Zero import', 'Charge PV', 'Full stop'] if store else ['Zero import', 'Self-consumption', 'Full stop', 'Charge PV']) -%}
+                    {%- set tie = {order[0]: 0, order[1]: 0.0001, order[2]: 0.0002, order[3]: 0.0003, 'Charge': 0.0005, 'Sell': 0.0005} -%}
                     {%- set best = namespace(v=1e9, a='Self-consumption', E2=E, ch=0, dis=0) -%}
                     {%- for a in acts -%}
                       {%- set ch = ([u, cc, room] | min) if a in ['Self-consumption', 'Charge PV'] else (([cc, room] | min) if a == 'Charge' else 0) -%}
@@ -229,7 +244,7 @@ template:
                       {%- set net = d - u + ch - dis -%}
                       {%- set E2 = [[E + ch * ec - dis / ed, 0] | max, emax] | min -%}
                       {%- set x = E2 / dE -%}{%- set i = [x | int, K - 2] | min -%}{%- set f = x - i -%}
-                      {%- set v = ([net, 0] | max) * sl.b - ([-net, 0] | max) * sl.s + wear * dis + (eps if sl.sun > 0.01 else eps_dark)[a] + V[i] * (1 - f) + V[i + 1] * f -%}
+                      {%- set v = ([net, 0] | max) * sl.b - ([-net, 0] | max) * sl.s + wear * dis + tie[a] + V[i] * (1 - f) + V[i + 1] * f -%}
                       {%- if v < best.v -%}
                         {%- set best.v = v -%}{%- set best.a = a -%}{%- set best.E2 = E2 -%}{%- set best.ch = ch -%}{%- set best.dis = dis -%}
                       {%- endif -%}
