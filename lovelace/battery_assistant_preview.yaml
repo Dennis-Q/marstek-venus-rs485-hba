@@ -2496,6 +2496,8 @@ views:
                 name: Solar power sensor 1 (W)
               - entity: input_text.hba_solar_power_entity_2
                 name: Solar power sensor 2 (W)
+              - entity: input_text.hba_ev_charger_power_entity_id
+                name: EV charger power sensor (W, subtracted)
               - entity: input_select.hba_house_load_window
                 name: History
               - entity: sensor.hba_house_load_profile
@@ -2505,18 +2507,21 @@ views:
             content: |-
               {%- set P = 'sensor.hba_house_load_profile' -%}
               {%- set p = state_attr(P, 'profile') -%}
+              {%- set nost = state_attr(P, 'no_statistics') or [] -%}
+              {%- if nost | length > 0 %}
+              <ha-alert alert-type="warning">No history (long-term statistics) for {{ nost | join(', ') }} — counted as 0 in the profile. For the EV charger that makes car charging count as house use: pick a sensor that is recorded, e.g. the charger's own power sensor.</ha-alert>
+              {% endif -%}
               {%- if p is sequence and p is not string and p | length == 24 -%}
-              <small>Average W per hour, from {{ state_attr(P, 'days_used') }} days{% if state_attr(P, 'skipped_days') %} — skipped as absent or incomplete: {{ state_attr(P, 'skipped_days') | map('regex_replace', '^[0-9]{4}-', '') | join(', ') }}{% endif %}:</small>
+              {%- set top = [p | reject('none') | max, 1] | max -%}
+              <small>Average per hour from {{ state_attr(P, 'days_used') }} days{% if state_attr(P, 'skipped_days') %} — skipped as absent or incomplete: {{ state_attr(P, 'skipped_days') | map('regex_replace', '^[0-9]{4}-([0-9]{2})-([0-9]{2})$', '\\2-\\1') | join(', ') }}{% endif %}</small>
 
               <small><small>
 
-              | 00 | 01 | 02 | 03 | 04 | 05 | 06 | 07 | 08 | 09 | 10 | 11 |
-              |--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
-              | {% for w in p[:12] %}{{ w if w is not none else '—' }} | {% endfor %}
-
-              | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 |
-              |--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
-              | {% for w in p[12:] %}{{ w if w is not none else '—' }} | {% endfor %}
+              | Hour | W | |
+              |:--|--:|:--|
+              {%- for w in p %}
+              | {{ '%02d' | format(loop.index0) }}:00 | {{ w if w is not none else '—' }} | {{ '▇' * ((w / top * 20) | round(0) | int) if w is not none else '' }} |
+              {%- endfor %}
 
               </small></small>
               {%- else -%}
@@ -2569,18 +2574,18 @@ views:
 
               <small><small>
 
-              | Time | Buy € | {% if showsell %}Sell € | {% endif %}Cost out € | Strategy | Stored | |
-              |:--|--:|{% if showsell %}--:|{% endif %}--:|:--|--:|:-:|
+              | Time | Buy € | {% if showsell %}Sell € | {% endif %}Cost out € | Strategy | Stored | House | |
+              |:--|--:|{% if showsell %}--:|{% endif %}--:|:--|--:|--:|:-:|
               {%- set ns = namespace(day='') -%}
               {%- for r in hist | sort(attribute='ts') %}
               {%- set d = r.ts | timestamp_custom('%a') %}
-              | <font color=grey>{{ (d ~ ' ') if d != ns.day else '' }}{{ r.ts | timestamp_custom('%H:%M') }}</font> | <font color=grey>{{ '%.3f' | format(r.b) }}</font> | {% if showsell %}<font color=grey>{{ '%.3f' | format(r.s) }}</font> | {% endif %}<font color=grey>{{ '%.3f' | format(r.c) if r.c is not none else '—' }}</font> | <font color=grey>{{ icon.get(r.a, '') }} {{ r.a }}</font> | <font color=grey>{{ '%.1f' | format(r.e1) }}</font> | <font color=grey>{{ r.r }}</font> |
+              | <font color=grey>{{ (d ~ ' ') if d != ns.day else '' }}{{ r.ts | timestamp_custom('%H:%M') }}</font> | <font color=grey>{{ '%.3f' | format(r.b) }}</font> | {% if showsell %}<font color=grey>{{ '%.3f' | format(r.s) }}</font> | {% endif %}<font color=grey>{{ '%.3f' | format(r.c) if r.c is not none else '—' }}</font> | <font color=grey>{{ icon.get(r.a, '') }} {{ r.a }}</font> | <font color=grey>{{ '%.1f' | format(r.e1) }}</font> | <font color=grey>{{ '%.1f' | format(r.load) if r.get('load') is not none else '' }}</font> | <font color=grey>{{ r.r }}</font> |
               {%- set ns.day = d %}
               {%- endfor %}
               {%- for r in plan %}
               {%- set d = r.ts | timestamp_custom('%a') %}
               {%- set now = loop.first %}
-              | {{ '**' if now }}{{ (d ~ ' ') if d != ns.day else '' }}{{ r.ts | timestamp_custom('%H:%M') }}{{ '**' if now }} | {{ '%.3f' | format(r.b) }} | {% if showsell %}{{ '%.3f' | format(r.s) }} | {% endif %}{{ '%.3f' | format(r.c) if r.c is not none else '—' }} | {{ icon.get(r.a, '') }} {{ '**' if now }}{{ r.a }}{{ '**' if now }} | {{ '%.1f' | format(r.e1) }} | {{ r.r }} |
+              | {{ '**' if now }}{{ (d ~ ' ') if d != ns.day else '' }}{{ r.ts | timestamp_custom('%H:%M') }}{{ '**' if now }} | {{ '%.3f' | format(r.b) }} | {% if showsell %}{{ '%.3f' | format(r.s) }} | {% endif %}{{ '%.3f' | format(r.c) if r.c is not none else '—' }} | {{ icon.get(r.a, '') }} {{ '**' if now }}{{ r.a }}{{ '**' if now }} | {{ '%.1f' | format(r.e1) }} | {{ '%.1f' | format(r.load) if r.get('load') is not none else '' }} | {{ r.r }} |
               {%- set ns.day = d %}
               {%- endfor %}
 
@@ -2589,7 +2594,8 @@ views:
             text_only: true
             content: >-
               <small><font color=grey>**Grey:** executed, with the stored energy measured at the
-              end. **Bold:** now. **Stored:** kWh in the batteries at the END of the slot, above
+              end. **Bold:** now. **House:** kWh the plan assumes the house uses in that slot (from the
+              profile per hour). **Stored:** kWh in the batteries at the END of the slot, above
               the discharge cutoff (0 = at the cutoff, {{ states('sensor.hba_usable_battery_energy') | float(0) | round(1) }} = full). **Cost out:**
               what a kWh from the battery has cost (bought ÷ efficiency, sun at the sell price,
               + wear).</font>

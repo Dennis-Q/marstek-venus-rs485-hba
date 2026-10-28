@@ -61,6 +61,9 @@ template:
           skipped_days: "{{ trigger.event.data.skipped }}"
           window_weeks: "{{ trigger.event.data.window_weeks }}"
           sources: "{{ trigger.event.data.sources }}"
+          # Source sensors without long-term statistics (recorder-excluded, no state_class, wrong
+          # id): they count as 0 -- an EV charger missing here makes car charging count as house use
+          no_statistics: "{{ trigger.event.data.get('no_statistics', []) }}"
           updated: "{{ now().isoformat() }}"
 
   - triggers:
@@ -360,7 +363,7 @@ template:
               {%- set done = prev_plan | selectattr('ts', 'eq', prev_slot) | first | default(none) -%}
               {%- if done is not none and done.ts not in (ns_h.h | map(attribute='ts') | list) -%}
                 {%- set ns_h.h = ns_h.h + [{'ts': done.ts, 'b': done.b, 's': done.s, 'a': done.a, 'r': done.r,
-                                             'e1': e_now | round(2) if e_now >= 0 else done.e1, 'pe1': done.e1, 'c': done.c}] -%}
+                                             'e1': e_now | round(2) if e_now >= 0 else done.e1, 'pe1': done.e1, 'c': done.c, 'load': done.get('load')}] -%}
               {%- endif -%}
             {%- endif -%}
             {{ ns_h.h | tojson }}
@@ -503,8 +506,10 @@ script:
 automation:
   # ── House load profile: nightly calculation ───────────────────────────────────
   # house = sensor.p1_meter_power (+ = import) + sensor.hba_total_battery_power (+ = discharge)
-  #         + solar (input_text.hba_solar_power_entity_1/2) - EV charger (sensor.ev_charger_power,
-  #         the Charge-alongside-EV sensor, when it exists -- the car is a separate, planned load)
+  #         + solar (input_text.hba_solar_power_entity_1/2) - EV charger (input_text.hba_ev_charger_power_entity_id,
+  #         empty = sensor.ev_charger_power -- the car is a separate, planned load). Each needs long-term
+  #         statistics; ids without them are listed in the profile's no_statistics attribute (prod
+  #         2026-10-28: sensor.ev_charger_power is recorder-excluded, so car charging counted as house use).
   # Hourly means from recorder.get_statistics over the last 1-4 whole weeks
   # (input_select.hba_house_load_window), ending at midnight. Days with < 20 hours of data are
   # incomplete; days below 60 % of the median day are absences (a holiday: ~7 kWh vs ~14-17 on prod
@@ -524,6 +529,7 @@ automation:
         entity_id:
           - input_text.hba_solar_power_entity_1
           - input_text.hba_solar_power_entity_2
+          - input_text.hba_ev_charger_power_entity_id
           - input_select.hba_house_load_window
     actions:
       # Let the recorder and the integrations settle after a start
@@ -541,7 +547,10 @@ automation:
               {%- if e not in ['', 'unknown', 'unavailable'] and states[e] is not none -%}{%- set ns.l = ns.l + [e] -%}{%- endif -%}
             {%- endfor -%}
             {{ ns.l }}
-          ev: "{{ ['sensor.ev_charger_power'] if states.sensor.ev_charger_power is not none else [] }}"
+          ev: >-
+            {%- set e = states('input_text.hba_ev_charger_power_entity_id') | trim -%}
+            {%- set e = e if e not in ['', 'unknown', 'unavailable'] else 'sensor.ev_charger_power' -%}
+            {{ [e] if states[e] is not none else [] }}
           end: "{{ now().replace(hour=0, minute=0, second=0, microsecond=0).strftime('%Y-%m-%d %H:%M:%S') }}"
       - variables:
           ids: "{{ ['sensor.p1_meter_power', 'sensor.hba_total_battery_power'] + solar + ev }}"
@@ -586,6 +595,7 @@ automation:
             {%- endfor -%}
             {{ {'profile': ns2.p if keep | length > 0 else [], 'days_used': keep | length, 'skipped': skipped,
                 'window_weeks': weeks, 'sources': ids,
+                'no_statistics': ids | reject('in', S.keys() | list) | list,
                 'kwh_day': ((ns2.p | reject('none') | sum) / 1000) | round(1) if keep | length > 0 else none} | tojson }}
       - event: hba_house_load_profile
         event_data:
@@ -594,4 +604,5 @@ automation:
           skipped: "{{ (result if result is mapping else (result | from_json)).skipped }}"
           window_weeks: "{{ (result if result is mapping else (result | from_json)).window_weeks }}"
           sources: "{{ (result if result is mapping else (result | from_json)).sources }}"
+          no_statistics: "{{ (result if result is mapping else (result | from_json)).no_statistics }}"
           kwh_day: "{{ (result if result is mapping else (result | from_json)).kwh_day }}"

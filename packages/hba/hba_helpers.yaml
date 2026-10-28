@@ -863,6 +863,14 @@ input_text:
     name: "Solar power sensor 2 (entity_id, W)"
     max: 100
     icon: mdi:solar-power
+  # EV charger power in W for the house-load profile (the car is a separate, planned load and is
+  # subtracted). Must have long-term statistics: sensor.ev_charger_power (Charge alongside EV) is
+  # recorder-excluded, so point this at the charger's own sensor (prod: sensor.peblar_ev_charger_power).
+  # Empty = sensor.ev_charger_power.
+  hba_ev_charger_power_entity_id:
+    name: "EV charger power sensor (entity_id, W)"
+    max: 100
+    icon: mdi:ev-station
   hba_notify_entity_id:
     name: "Notify entity_id"
     max: 100

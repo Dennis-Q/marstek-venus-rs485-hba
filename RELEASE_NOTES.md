@@ -194,6 +194,10 @@ open), so the version prefix stays at 4.10.1 for now.
     default 2). Days below 60 % of the median day (absent, e.g. a holiday) and incomplete days are
     skipped. The planner uses the profile per slot instead of one average (prod: ~0.4 kW at night,
     ~1 kW at midday, ~1.3 kW at 17:00); without a profile the average setting stays the fallback.
+    The EV charger power sensor is a setting too: `sensor.ev_charger_power` is recorder-excluded, so it
+    has no statistics and car charging counted as house use (prod: 1.7 kW at 03:00, 5 kW at 13:00).
+    Sensors without statistics are listed in the profile (`no_statistics`) with a warning. Shown as a
+    24-row table with bars in the Planned view; the plan table has a House column (kWh assumed).
   - **Sell spread over the hour:** a Sell slot no longer sells out at full power and then imports for the
     rest of the hour. Per cycle it takes the power needed to reach the planned target at the end of the
     slot; at or above max power (e.g. the first sell hour from full batteries) it sells at full power,

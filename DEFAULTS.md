@@ -275,6 +275,7 @@ Every minimum is also the default, so a new install plans sensibly before *Apply
 
 | `input_select.hba_house_load_window` | `2 weeks` (history for the house-load profile; 1–4 weeks) |
 | `input_text.hba_solar_power_entity_1` / `_2` | empty (solar power sensors in W — wiring, not reset by Apply defaults) |
+| `input_text.hba_ev_charger_power_entity_id` | empty = `sensor.ev_charger_power` (must have long-term statistics; that one is recorder-excluded, so use the charger's own sensor) |
 
 Average house load and the solar forecast entities are shared with Solar-aware and the Charge goal. The
 average house load is only used while `sensor.hba_house_load_profile` has no profile.
