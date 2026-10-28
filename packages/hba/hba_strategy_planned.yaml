@@ -40,6 +40,29 @@
 # Charge PV. Labels "Planned → <strategy>", so the PID-reset automations see Charge / Sell.
 
 template:
+  # ── House load profile ────────────────────────────────────────────────────────
+  # Average house use per hour of the day, calculated once a night by automation
+  # hba_house_load_profile_update (below) from the recorder's hourly statistics and handed over
+  # with event hba_house_load_profile (a template cannot call recorder.get_statistics).
+  # Trigger-based, so it keeps the profile across restarts. Read by the planner per slot.
+  - triggers:
+      - trigger: event
+        event_type: hba_house_load_profile
+    sensor:
+      - name: "HBA House Load Profile"
+        unique_id: hba_house_load_profile
+        icon: mdi:home-clock-outline
+        unit_of_measurement: kWh
+        state: "{{ trigger.event.data.kwh_day if trigger.event.data.profile | length == 24 else none }}"
+        attributes:
+          # 24 values in W, index = local hour of the day
+          profile: "{{ trigger.event.data.profile }}"
+          days_used: "{{ trigger.event.data.days_used }}"
+          skipped_days: "{{ trigger.event.data.skipped }}"
+          window_weeks: "{{ trigger.event.data.window_weeks }}"
+          sources: "{{ trigger.event.data.sources }}"
+          updated: "{{ now().isoformat() }}"
+
   - triggers:
       - trigger: time_pattern
         minutes: "/5"
@@ -64,6 +87,7 @@ template:
           - input_text.hba_strategy_solar_aware_forecast_entity_id
           - input_text.hba_strategy_solar_forecast_entity_id
           - input_text.hba_strategy_solar_forecast_tomorrow_entity_id
+          - sensor.hba_house_load_profile
         id: settings
     actions:
       # `this` is not available in trigger actions -- read the previous plan by entity id.
@@ -152,6 +176,10 @@ template:
               {%- set rmin = [states('input_number.hba_strategy_planned_reserve') | float(0), emax] | min -%}
               {%- set deduct = states('input_number.hba_strategy_planned_sell_deduction') | float(0) -%}
               {%- set load_kw = states('input_number.hba_strategy_solar_aware_house_load') | float(300) / 1000 -%}
+              {#- House use per local hour from sensor.hba_house_load_profile; the flat setting above
+                  for a missing profile or a missing hour -#}
+              {%- set prof = state_attr('sensor.hba_house_load_profile', 'profile') -%}
+              {%- set prof = prof if prof is sequence and prof is not string and prof | length == 24 else [] -%}
               {%- set acts = ['Self-consumption', 'Charge PV', 'Full stop']
                              + ([] if is_state('input_boolean.hba_strategy_planned_skip_zero_import', 'on') else ['Zero import'])
                              + ([] if is_state('input_boolean.hba_strategy_planned_skip_charge', 'on') else ['Charge'])
@@ -194,7 +222,9 @@ template:
                       {%- set ov = ([ts + step, p.ts + 1800] | min - [start, p.ts] | max) / 3600 -%}
                       {%- if ov > 0 -%}{%- set ns_s.kwh = ns_s.kwh + p.kw * ov -%}{%- endif -%}
                     {%- endfor -%}
-                    {%- set ns_in.slots = ns_in.slots + [{'ts': ts, 'b': b, 's': s, 'h': h, 'sun': ns_s.kwh, 'load': load_kw * h}] -%}
+                    {%- set hr = ts | timestamp_custom('%H') | int -%}
+                    {%- set w = prof[hr] if prof | length == 24 and prof[hr] is number else none -%}
+                    {%- set ns_in.slots = ns_in.slots + [{'ts': ts, 'b': b, 's': s, 'h': h, 'sun': ns_s.kwh, 'load': ((w / 1000) if w is not none else load_kw) * h}] -%}
                   {%- endif -%}
                 {%- endfor -%}
                 {%- set slots = ns_in.slots | sort(attribute='ts') -%}
@@ -312,6 +342,7 @@ template:
                   {%- set sc_total = sc.cost - sc.E * endv -%}
                   {%- set summary = {'usable': emax | round(1), 'charge_kw': pc | round(1), 'discharge_kw': pd | round(1),
                        'efficiency': (eta * 100) | round(1), 'house_w': (load_kw * 1000) | round(0) | int,
+                       'house_profile_days': state_attr('sensor.hba_house_load_profile', 'days_used') if prof | length == 24 else 0,
                        'reserve': rmin | round(1), 'wear': wear, 'end_value': endv | round(3),
                        'plan_cost': plan_total | round(2), 'sc_cost': sc_total | round(2),
                        'gain': (sc_total - plan_total) | round(2),
@@ -430,3 +461,99 @@ script:
             data: { value: "{{ 'Planned → Self-consumption' if act == 'Self-consumption' else 'Planned (' ~ act ~ ') → Self-consumption' }}" }
           - action: script.hba_strategy_self_consumption
             data: { skip_label: true }
+
+automation:
+  # ── House load profile: nightly calculation ───────────────────────────────────
+  # house = sensor.p1_meter_power (+ = import) + sensor.hba_total_battery_power (+ = discharge)
+  #         + solar (input_text.hba_solar_power_entity_1/2) - EV charger (sensor.ev_charger_power,
+  #         the Charge-alongside-EV sensor, when it exists -- the car is a separate, planned load)
+  # Hourly means from recorder.get_statistics over the last 1-4 whole weeks
+  # (input_select.hba_house_load_window), ending at midnight. Days with < 20 hours of data are
+  # incomplete; days below 60 % of the median day are absences (a holiday: ~7 kWh vs ~14-17 on prod
+  # 2026-10-16..22, every one caught, no normal day) and are skipped. Average per local hour of the
+  # remaining days -> event hba_house_load_profile -> sensor.hba_house_load_profile.
+  # Prod analysis 2026-10-28: night ~450 W, midday ~1 kW, 17:00 ~1.5 kW, evening ~0.7 kW.
+  - id: hba_house_load_profile_update
+    alias: "HBA: House load profile update"
+    mode: restart
+    triggers:
+      - trigger: time
+        at: "03:15:00"
+      - trigger: homeassistant
+        event: start
+        id: start
+      - trigger: state
+        entity_id:
+          - input_text.hba_solar_power_entity_1
+          - input_text.hba_solar_power_entity_2
+          - input_select.hba_house_load_window
+    actions:
+      # Let the recorder and the integrations settle after a start
+      - if:
+          - condition: trigger
+            id: start
+        then:
+          - delay: { minutes: 2 }
+      - variables:
+          weeks: "{{ states('input_select.hba_house_load_window').split(' ')[0] | int(2) }}"
+          solar: >-
+            {%- set ns = namespace(l=[]) -%}
+            {%- for i in [1, 2] -%}
+              {%- set e = states('input_text.hba_solar_power_entity_' ~ i) | trim -%}
+              {%- if e not in ['', 'unknown', 'unavailable'] and states[e] is not none -%}{%- set ns.l = ns.l + [e] -%}{%- endif -%}
+            {%- endfor -%}
+            {{ ns.l }}
+          ev: "{{ ['sensor.ev_charger_power'] if states.sensor.ev_charger_power is not none else [] }}"
+          end: "{{ now().replace(hour=0, minute=0, second=0, microsecond=0).strftime('%Y-%m-%d %H:%M:%S') }}"
+      - variables:
+          ids: "{{ ['sensor.p1_meter_power', 'sensor.hba_total_battery_power'] + solar + ev }}"
+          start: "{{ (now().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=7 * weeks)).strftime('%Y-%m-%d %H:%M:%S') }}"
+      - action: recorder.get_statistics
+        continue_on_error: true
+        data:
+          start_time: "{{ start }}"
+          end_time: "{{ end }}"
+          statistic_ids: "{{ ids }}"
+          period: hour
+          types: [mean]
+        response_variable: stats
+      - variables:
+          result: >-
+            {%- set S = (stats.statistics if stats is defined and stats is mapping and 'statistics' in stats else {}) -%}
+            {%- set ns = namespace(add={}, rows=[], days={}) -%}
+            {#- Everything except the P1 meter, summed per hour start (EV with a minus sign) -#}
+            {%- for sid in ['sensor.hba_total_battery_power'] + solar + ev -%}
+              {%- set sign = -1 if sid in ev else 1 -%}
+              {%- for r in S.get(sid, []) if r.mean is number -%}
+                {%- set ns.add = dict(ns.add, **{r.start: ns.add.get(r.start, 0) + sign * r.mean}) -%}
+              {%- endfor -%}
+            {%- endfor -%}
+            {%- for r in S.get('sensor.p1_meter_power', []) if r.mean is number -%}
+              {%- set t = as_local(as_datetime(r.start)) -%}
+              {%- set w = [r.mean + ns.add.get(r.start, 0), 0] | max -%}
+              {%- set d = t.strftime('%Y-%m-%d') -%}
+              {%- set ns.rows = ns.rows + [{'d': d, 'h': t.hour, 'w': w}] -%}
+              {%- set prev = ns.days.get(d, [0, 0]) -%}
+              {%- set ns.days = dict(ns.days, **{d: [prev[0] + w / 1000, prev[1] + 1]}) -%}
+            {%- endfor -%}
+            {%- set complete = ns.days.items() | selectattr('1.1', 'ge', 20) | list -%}
+            {%- set totals = complete | map(attribute='1.0') | sort | list -%}
+            {%- set med = totals[(totals | length) // 2] if totals | length > 0 else 0 -%}
+            {%- set keep = complete | selectattr('1.0', 'ge', 0.6 * med) | map(attribute='0') | list -%}
+            {%- set skipped = ns.days.keys() | reject('in', keep) | sort | list -%}
+            {%- set ns2 = namespace(p=[]) -%}
+            {%- for hr in range(24) -%}
+              {%- set v = ns.rows | selectattr('h', 'eq', hr) | selectattr('d', 'in', keep) | map(attribute='w') | list -%}
+              {%- set ns2.p = ns2.p + [((v | sum / v | length) | round(0) | int) if v | length > 0 else none] -%}
+            {%- endfor -%}
+            {{ {'profile': ns2.p if keep | length > 0 else [], 'days_used': keep | length, 'skipped': skipped,
+                'window_weeks': weeks, 'sources': ids,
+                'kwh_day': ((ns2.p | reject('none') | sum) / 1000) | round(1) if keep | length > 0 else none} | tojson }}
+      - event: hba_house_load_profile
+        event_data:
+          profile: "{{ (result if result is mapping else (result | from_json)).profile }}"
+          days_used: "{{ (result if result is mapping else (result | from_json)).days_used }}"
+          skipped: "{{ (result if result is mapping else (result | from_json)).skipped }}"
+          window_weeks: "{{ (result if result is mapping else (result | from_json)).window_weeks }}"
+          sources: "{{ (result if result is mapping else (result | from_json)).sources }}"
+          kwh_day: "{{ (result if result is mapping else (result | from_json)).kwh_day }}"

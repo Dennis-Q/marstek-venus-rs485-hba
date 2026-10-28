@@ -1809,6 +1809,10 @@ script:
       - action: input_text.set_value
         target: { entity_id: input_text.hba_strategy_planned_sell_price_entity_id }
         data: { value: "" }
+      # House-load profile window (the solar power sensors are wiring and are not reset)
+      - action: input_select.select_option
+        target: { entity_id: input_select.hba_house_load_window }
+        data: { option: "2 weeks" }
       # ── Misc ──────────────────────────────────────────────────────────────────
       - action: input_boolean.turn_off
         target: { entity_id: input_boolean.hba_control_is_debug_mode }

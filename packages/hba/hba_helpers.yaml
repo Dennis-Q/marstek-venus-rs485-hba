@@ -852,6 +852,17 @@ input_text:
     name: "Planned: sell price sensor (entity_id)"
     max: 100
     icon: mdi:cash-plus
+  # Solar production in W (positive = producing), up to two inverters (e.g. SolarEdge +
+  # Enphase), summed. Only used for the house-load profile (sensor.hba_house_load_profile):
+  # house = grid + battery + solar - EV. Same idea as the EV project's ev_solar_power_entity_1/2.
+  hba_solar_power_entity_1:
+    name: "Solar power sensor 1 (entity_id, W)"
+    max: 100
+    icon: mdi:solar-power
+  hba_solar_power_entity_2:
+    name: "Solar power sensor 2 (entity_id, W)"
+    max: 100
+    icon: mdi:solar-power
   hba_notify_entity_id:
     name: "Notify entity_id"
     max: 100
@@ -1026,6 +1037,16 @@ input_select:
       - "Zero import"
       - "Standby / peak shave"
     icon: mdi:clock-end
+  # History for the house-load profile. Whole weeks keep weekdays and weekend in the same
+  # mix; the default comes first so a new install starts on it.
+  hba_house_load_window:
+    name: "House load history"
+    options:
+      - "2 weeks"
+      - "1 week"
+      - "3 weeks"
+      - "4 weeks"
+    icon: mdi:calendar-range
   hba_strategy_dynamic_data_source:
     name: "Dynamic pricing source"
     # Only Frank Energie until other providers are added to

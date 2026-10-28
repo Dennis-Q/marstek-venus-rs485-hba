@@ -187,6 +187,13 @@ open), so the version prefix stays at 4.10.1 for now.
     cost for the whole hour (incl. its effect on later hours) and per kWh ("tie" when the options do
     the same), the assumed sun and house use, the assumptions in one line, and the expected cost of
     the plan versus Self-consumption only.
+  - **House use per hour of the day** (`sensor.hba_house_load_profile`, attribute `profile` = 24 values
+    in W): calculated every night at 03:15 and after a restart from the recorder's hourly statistics
+    (`recorder.get_statistics`) — grid (P1) + batteries + solar (new settings: up to two solar power
+    sensors) − EV charger (`sensor.ev_charger_power` if it exists) — over the last 1–4 weeks (setting,
+    default 2). Days below 60 % of the median day (absent, e.g. a holiday) and incomplete days are
+    skipped. The planner uses the profile per slot instead of one average (prod: ~0.4 kW at night,
+    ~1 kW at midday, ~1.3 kW at 17:00); without a profile the average setting stays the fallback.
   - Re-plan on drift: the expected stored energy follows full power for Charge and Sell (they finish
     early in the hour) and a straight line for the other strategies, so a Sell that is on schedule
     no longer counts as "off".

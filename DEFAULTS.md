@@ -273,7 +273,11 @@ Every minimum is also the default, so a new install plans sensibly before *Apply
 | `input_text.hba_strategy_planned_sell_price_entity_id` | empty = sell at the buy price (net metering) |
 | `input_boolean.hba_strategy_planned_skip_charge` / `_skip_sell` / `_skip_zero_import` | `off` (all strategies allowed) |
 
-Average house load and the solar forecast entities are shared with Solar-aware and the Charge goal.
+| `input_select.hba_house_load_window` | `2 weeks` (history for the house-load profile; 1–4 weeks) |
+| `input_text.hba_solar_power_entity_1` / `_2` | empty (solar power sensors in W — wiring, not reset by Apply defaults) |
+
+Average house load and the solar forecast entities are shared with Solar-aware and the Charge goal. The
+average house load is only used while `sensor.hba_house_load_profile` has no profile.
 
 ## Per-Battery SoC Cutoffs (all 6 slots)
 
