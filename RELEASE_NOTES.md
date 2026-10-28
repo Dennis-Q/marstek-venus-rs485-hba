@@ -181,8 +181,10 @@ open), so the version prefix stays at 4.10.1 for now.
     15-minute prices work the same way.
   - Always calculated; controls the batteries only when *Choose strategy* is **Planned**. Charge
     and Sell run to the stored energy the plan expects at the end of the slot, then hold.
-  - New **Planned** view in the preview dashboard: settings, plan table (executed hours greyed,
-    now in bold, "Stored" = kWh at the end of the slot) and a legend of the reason codes.
+  - New **Planned** view in the preview dashboard: settings and the plan table (executed hours greyed,
+    now in bold, "Stored" = kWh at the end of the slot, "House" = kWh assumed). Instead of reason codes
+    the strategy carries a short hint where it is not obvious: Charge "for 07:00" / holding "keep for
+    17:00" (the first later hour in which the battery delivers again), "empty", "full".
   - **Insights → Planned — decisions:** per slot the runner-up strategy, how much more it would
     cost for the whole hour (incl. its effect on later hours) and per kWh ("tie" when the options do
     the same), the assumed sun and house use, the assumptions in one line, and the expected cost of

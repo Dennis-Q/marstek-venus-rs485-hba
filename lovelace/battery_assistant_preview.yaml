@@ -2574,18 +2574,35 @@ views:
 
               <small><small>
 
-              | Time | Buy € | {% if showsell %}Sell € | {% endif %}Cost out € | Strategy | Stored | House | |
-              |:--|--:|{% if showsell %}--:|{% endif %}--:|:--|--:|--:|:-:|
+              {%- set sm = state_attr(E, 'summary') if state_attr(E, 'summary') is mapping else {} -%}
+              {%- set rsv = sm.get('reserve', 0) | float(0) -%}
+              {%- set full = sm.get('usable', 0) | float(0) -%}
+              | Time | Buy € | {% if showsell %}Sell € | {% endif %}Cost out € | Strategy | Stored | House |
+              |:--|--:|{% if showsell %}--:|{% endif %}--:|:--|--:|--:|
               {%- set ns = namespace(day='') -%}
               {%- for r in hist | sort(attribute='ts') %}
               {%- set d = r.ts | timestamp_custom('%a') %}
-              | <font color=grey>{{ (d ~ ' ') if d != ns.day else '' }}{{ r.ts | timestamp_custom('%H:%M') }}</font> | <font color=grey>{{ '%.3f' | format(r.b) }}</font> | {% if showsell %}<font color=grey>{{ '%.3f' | format(r.s) }}</font> | {% endif %}<font color=grey>{{ '%.3f' | format(r.c) if r.c is not none else '—' }}</font> | <font color=grey>{{ icon.get(r.a, '') }} {{ r.a }}</font> | <font color=grey>{{ '%.1f' | format(r.e1) }}</font> | <font color=grey>{{ '%.1f' | format(r.load) if r.get('load') is not none else '' }}</font> | <font color=grey>{{ r.r }}</font> |
+              | <font color=grey>{{ (d ~ ' ') if d != ns.day else '' }}{{ r.ts | timestamp_custom('%H:%M') }}</font> | <font color=grey>{{ '%.3f' | format(r.b) }}</font> | {% if showsell %}<font color=grey>{{ '%.3f' | format(r.s) }}</font> | {% endif %}<font color=grey>{{ '%.3f' | format(r.c) if r.c is not none else '—' }}</font> | <font color=grey>{{ icon.get(r.a, '') }} {{ r.a }}</font> | <font color=grey>{{ '%.1f' | format(r.e1) }}</font> | <font color=grey>{{ '%.1f' | format(r.load) if r.get('load') is not none else '' }}</font> |
               {%- set ns.day = d %}
               {%- endfor %}
               {%- for r in plan %}
+              {%- set i = loop.index0 %}
               {%- set d = r.ts | timestamp_custom('%a') %}
               {%- set now = loop.first %}
-              | {{ '**' if now }}{{ (d ~ ' ') if d != ns.day else '' }}{{ r.ts | timestamp_custom('%H:%M') }}{{ '**' if now }} | {{ '%.3f' | format(r.b) }} | {% if showsell %}{{ '%.3f' | format(r.s) }} | {% endif %}{{ '%.3f' | format(r.c) if r.c is not none else '—' }} | {{ icon.get(r.a, '') }} {{ '**' if now }}{{ r.a }}{{ '**' if now }} | {{ '%.1f' | format(r.e1) }} | {{ '%.1f' | format(r.load) if r.get('load') is not none else '' }} | {{ r.r }} |
+              {#- Why, in words, only where it is not obvious: Charge / holding with energy ->
+                  the first later hour in which the battery delivers again (Stored goes down);
+                  holding at the reserve / full -> empty / full -#}
+              {%- set hold = r.a in ['Full stop', 'Zero import', 'Self-consumption'] or (r.a == 'Charge PV' and r.e1 <= r.e0 + 0.05) %}
+              {%- set ns_n = namespace(t=none) %}
+              {%- for q in plan[i + 1:] if ns_n.t is none and q.e1 < q.e0 - 0.05 %}{%- set ns_n.t = q %}{%- endfor %}
+              {%- set nxt = ns_n.t %}
+              {%- if r.a == 'Charge' %}{%- set why = ('for ' ~ nxt.ts | timestamp_custom('%H:%M')) if nxt is not none else 'for later' %}
+              {%- elif hold and r.e1 <= rsv + 0.05 %}{%- set why = 'empty' %}
+              {%- elif hold and r.e1 >= r.e0 - 0.05 and nxt is not none %}{%- set why = 'keep for ' ~ nxt.ts | timestamp_custom('%H:%M') %}
+              {%- elif hold and r.e1 >= full - 0.05 %}{%- set why = 'full' %}
+              {%- else %}{%- set why = '' %}
+              {%- endif %}
+              | {{ '**' if now }}{{ (d ~ ' ') if d != ns.day else '' }}{{ r.ts | timestamp_custom('%H:%M') }}{{ '**' if now }} | {{ '%.3f' | format(r.b) }} | {% if showsell %}{{ '%.3f' | format(r.s) }} | {% endif %}{{ '%.3f' | format(r.c) if r.c is not none else '—' }} | {{ icon.get(r.a, '') }} {{ '**' if now }}{{ r.a }}{{ '**' if now }}{{ (' · <i>' ~ why ~ '</i>') if why }} | {{ '%.1f' | format(r.e1) }} | {{ '%.1f' | format(r.load) if r.get('load') is not none else '' }} |
               {%- set ns.day = d %}
               {%- endfor %}
 
@@ -2598,17 +2615,9 @@ views:
               profile per hour). **Stored:** kWh in the batteries at the END of the slot, above
               the discharge cutoff (0 = at the cutoff, {{ states('sensor.hba_usable_battery_energy') | float(0) | round(1) }} = full). **Cost out:**
               what a kWh from the battery has cost (bought ÷ efficiency, sun at the sell price,
-              + wear).</font>
-
-
-              **Reasons:**
-              **A** charge from the grid for a later, dearer slot ·
-              **B** sell at a high price ·
-              **C** keep the energy for a later, dearer slot ·
-              **D** the battery covers the house ·
-              **E** the sun charges the battery ·
-              **F** nothing to gain now ·
-              **G** battery empty (at reserve) or full</small>
+              + wear). **for / keep for HH:MM:** the hour in which that energy leaves the battery again
+              (sold or used in the house). Why exactly a slot got its strategy: Insights → Planned —
+              decisions.</font></small>
 
   - type: sections
     max_columns: 3
