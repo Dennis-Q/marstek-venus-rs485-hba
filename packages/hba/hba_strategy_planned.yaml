@@ -95,9 +95,25 @@ template:
             {%- set row = prev_plan | selectattr('ts', 'eq', now_slot) | first | default(none) -%}
             {%- if row is none or e_now < 0 -%}-1
             {%- else -%}
-              {%- set f = ((now_ts - row.ts) / step) if row.ts <= now_ts else 0 -%}
+              {#- Expected stored energy now. Charge and Sell run at full power until the
+                  target, so they are done early in the slot (2.8 kWh at 7 kW in ~25 min); the
+                  other strategies follow house use and sun, spread over the slot (straight line).
+                  The row's e0 is the energy when the plan was made, so the elapsed time counts
+                  from then. -#}
+              {%- set made = as_timestamp(state_attr('sensor.hba_planned_strategy', 'plan_made'), 0) | int -%}
+              {%- set t0 = [row.ts, made] | max -%}
+              {%- set slot_end = row.ts + step -%}
               {%- set start = row.get('e0', row.e1) | float(0) -%}
-              {%- set expected = start + (row.e1 | float(0) - start) * ([f, 1] | min) -%}
+              {%- set end = row.e1 | float(0) -%}
+              {%- set sm = state_attr('sensor.hba_planned_strategy', 'summary') -%}
+              {%- if row.a in ['Charge', 'Sell'] and sm is mapping -%}
+                {%- set kw = (sm.charge_kw if row.a == 'Charge' else sm.discharge_kw) | float(0) -%}
+                {%- set moved = kw * ([now_ts - t0, 0] | max) / 3600 -%}
+                {%- set expected = (start + [moved, end - start] | min) if end >= start else (start - [moved, start - end] | min) -%}
+              {%- else -%}
+                {%- set f = ([now_ts - t0, 0] | max) / ([slot_end - t0, 1] | max) -%}
+                {%- set expected = start + (end - start) * ([f, 1] | min) -%}
+              {%- endif -%}
               {{ (e_now - expected) | abs | round(2) }}
             {%- endif -%}
           replan: >-
@@ -238,7 +254,7 @@ template:
                                     if keep else
                                     (['Self-consumption', 'Zero import', 'Charge PV', 'Full stop'] if store else ['Zero import', 'Self-consumption', 'Full stop', 'Charge PV']) -%}
                     {%- set tie = {order[0]: 0, order[1]: 0.0001, order[2]: 0.0002, order[3]: 0.0003, 'Charge': 0.0005, 'Sell': 0.0005} -%}
-                    {%- set best = namespace(v=1e9, a='Self-consumption', E2=E, ch=0, dis=0, imm=0, alt='', altv=1e9) -%}
+                    {%- set best = namespace(v=1e9, a='Self-consumption', E2=E, ch=0, dis=0, imm=0, alt='', altv=1e9, altE=E) -%}
                     {%- for a in acts -%}
                       {%- set ch = ([u, cc, room] | min) if a in ['Self-consumption', 'Charge PV'] else (([cc, room] | min) if a == 'Charge' else 0) -%}
                       {%- set dis = ([d, cd, av] | min) if a in ['Self-consumption', 'Zero import'] else (([cd, av] | min) if a == 'Sell' else 0) -%}
@@ -249,10 +265,10 @@ template:
                       {%- set v = imm + tie[a] + V[i] * (1 - f) + V[i + 1] * f -%}
                       {#- Keep the runner-up too: Insights shows how close each decision was -#}
                       {%- if v < best.v -%}
-                        {%- set best.alt = best.a if best.v < 1e9 else '' -%}{%- set best.altv = best.v -%}
+                        {%- set best.alt = best.a if best.v < 1e9 else '' -%}{%- set best.altv = best.v -%}{%- set best.altE = best.E2 -%}
                         {%- set best.v = v -%}{%- set best.a = a -%}{%- set best.E2 = E2 -%}{%- set best.ch = ch -%}{%- set best.dis = dis -%}{%- set best.imm = imm -%}
                       {%- elif v < best.altv -%}
-                        {%- set best.alt = a -%}{%- set best.altv = v -%}
+                        {%- set best.alt = a -%}{%- set best.altv = v -%}{%- set best.altE = E2 -%}
                       {%- endif -%}
                     {%- endfor -%}
                     {#- Cost of the stored energy (EUR per kWh it delivers), carried forward -#}
@@ -275,7 +291,8 @@ template:
                          'e0': E | round(2), 'e1': best.E2 | round(2),
                          'c': cost_out | round(3) if cost_out is not none else none,
                          'r': code, 'sun': sl.sun | round(2), 'load': sl.load | round(2),
-                         'alt': best.alt, 'adv': ((best.altv - best.v) | round(3)) if best.alt != '' else none}] -%}
+                         'alt': best.alt, 'adv': ((best.altv - best.v) | round(3)) if best.alt != '' else none,
+                         'alt_e1': best.altE | round(2)}] -%}
                     {%- set fw.E = best.E2 -%}
                     {%- set fw.cost = fw.cost + best.imm -%}
                   {%- endfor -%}

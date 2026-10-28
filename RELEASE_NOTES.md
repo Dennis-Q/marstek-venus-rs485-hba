@@ -183,9 +183,13 @@ open), so the version prefix stays at 4.10.1 for now.
     and Sell run to the stored energy the plan expects at the end of the slot, then hold.
   - New **Planned** view in the preview dashboard: settings, plan table (executed hours greyed,
     now in bold, "Stored" = kWh at the end of the slot) and a legend of the reason codes.
-  - **Insights → Planned — decisions:** per slot the runner-up strategy and how much more it would
-    cost ("tie" when the options do the same), the assumed sun and house use, the assumptions in one
-    line, and the expected cost of the plan versus Self-consumption only.
+  - **Insights → Planned — decisions:** per slot the runner-up strategy, how much more it would
+    cost for the whole hour (incl. its effect on later hours) and per kWh ("tie" when the options do
+    the same), the assumed sun and house use, the assumptions in one line, and the expected cost of
+    the plan versus Self-consumption only.
+  - Re-plan on drift: the expected stored energy follows full power for Charge and Sell (they finish
+    early in the hour) and a straight line for the other strategies, so a Sell that is on schedule
+    no longer counts as "off".
   - Ties (e.g. a full battery) are labelled by what a stored kWh is worth (slope of the plan's value
     table, so the power limit counts: extra energy at 16:00 is sold in the last sell hour, not at the
     peak): hold without discharging when it is worth more later, store the sun only when that beats
