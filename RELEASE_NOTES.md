@@ -182,7 +182,14 @@ open), so the version prefix stays at 4.10.1 for now.
   - Always calculated; controls the batteries only when *Choose strategy* is **Planned**. Charge
     and Sell run to the stored energy the plan expects at the end of the slot, then hold.
   - New **Planned** view in the preview dashboard: settings, plan table (executed hours greyed,
-    now in bold) and a legend of the reason codes.
+    now in bold, "Stored" = kWh at the end of the slot) and a legend of the reason codes.
+  - **Insights → Planned — decisions:** per slot the runner-up strategy and how much more it would
+    cost ("tie" when the options do the same), the assumed sun and house use, the assumptions in one
+    line, and the expected cost of the plan versus Self-consumption only.
+  - Ties (e.g. a full battery) are labelled by what a stored kWh is worth (slope of the plan's value
+    table, so the power limit counts: extra energy at 16:00 is sold in the last sell hour, not at the
+    peak): hold without discharging when it is worth more later, store the sun only when that beats
+    exporting it now; holding without sun shows as Full stop.
 
 - **Preview dashboard** — `lovelace/battery_assistant_preview.yaml`, downloaded by the installer,
   shown once registered (README "Preview dashboard"). HBA's own dashboard improvements land there

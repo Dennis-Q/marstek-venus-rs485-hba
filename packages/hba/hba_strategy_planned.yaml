@@ -114,7 +114,8 @@ template:
               {{ {'plan': prev_plan, 'status': state_attr('sensor.hba_planned_strategy', 'status') or 'OK',
                   'made': state_attr('sensor.hba_planned_strategy', 'plan_made'),
                   'reason': state_attr('sensor.hba_planned_strategy', 'plan_reason'),
-                  'eta': state_attr('sensor.hba_planned_strategy', 'efficiency')} | tojson }}
+                  'eta': state_attr('sensor.hba_planned_strategy', 'efficiency'),
+                  'summary': state_attr('sensor.hba_planned_strategy', 'summary')} | tojson }}
             {%- else -%}
               {#- ── Inputs ── -#}
               {%- set raw = state_attr('sensor.hba_energy_prices_data', 'marks') -%}
@@ -215,7 +216,7 @@ template:
                   {%- endfor -%}
                   {#- ── Forward pass from the real stored energy ── -#}
                   {%- set E0 = [[e_now, 0] | max, emax] | min -%}
-                  {%- set fw = namespace(E=E0, basis=E0 * mean_b / ec, out=[]) -%}
+                  {%- set fw = namespace(E=E0, basis=E0 * mean_b / ec, out=[], cost=0) -%}
                   {%- for t in range(N) -%}
                     {%- set sl = slots[t] -%}{%- set V = ns.Vs[t + 1] -%}
                     {%- set nl = sl.load - sl.sun -%}{%- set d = [nl, 0] | max -%}{%- set u = [-nl, 0] | max -%}
@@ -237,16 +238,21 @@ template:
                                     if keep else
                                     (['Self-consumption', 'Zero import', 'Charge PV', 'Full stop'] if store else ['Zero import', 'Self-consumption', 'Full stop', 'Charge PV']) -%}
                     {%- set tie = {order[0]: 0, order[1]: 0.0001, order[2]: 0.0002, order[3]: 0.0003, 'Charge': 0.0005, 'Sell': 0.0005} -%}
-                    {%- set best = namespace(v=1e9, a='Self-consumption', E2=E, ch=0, dis=0) -%}
+                    {%- set best = namespace(v=1e9, a='Self-consumption', E2=E, ch=0, dis=0, imm=0, alt='', altv=1e9) -%}
                     {%- for a in acts -%}
                       {%- set ch = ([u, cc, room] | min) if a in ['Self-consumption', 'Charge PV'] else (([cc, room] | min) if a == 'Charge' else 0) -%}
                       {%- set dis = ([d, cd, av] | min) if a in ['Self-consumption', 'Zero import'] else (([cd, av] | min) if a == 'Sell' else 0) -%}
                       {%- set net = d - u + ch - dis -%}
                       {%- set E2 = [[E + ch * ec - dis / ed, 0] | max, emax] | min -%}
                       {%- set x = E2 / dE -%}{%- set i = [x | int, K - 2] | min -%}{%- set f = x - i -%}
-                      {%- set v = ([net, 0] | max) * sl.b - ([-net, 0] | max) * sl.s + wear * dis + tie[a] + V[i] * (1 - f) + V[i + 1] * f -%}
+                      {%- set imm = ([net, 0] | max) * sl.b - ([-net, 0] | max) * sl.s + wear * dis -%}
+                      {%- set v = imm + tie[a] + V[i] * (1 - f) + V[i + 1] * f -%}
+                      {#- Keep the runner-up too: Insights shows how close each decision was -#}
                       {%- if v < best.v -%}
-                        {%- set best.v = v -%}{%- set best.a = a -%}{%- set best.E2 = E2 -%}{%- set best.ch = ch -%}{%- set best.dis = dis -%}
+                        {%- set best.alt = best.a if best.v < 1e9 else '' -%}{%- set best.altv = best.v -%}
+                        {%- set best.v = v -%}{%- set best.a = a -%}{%- set best.E2 = E2 -%}{%- set best.ch = ch -%}{%- set best.dis = dis -%}{%- set best.imm = imm -%}
+                      {%- elif v < best.altv -%}
+                        {%- set best.alt = a -%}{%- set best.altv = v -%}
                       {%- endif -%}
                     {%- endfor -%}
                     {#- Cost of the stored energy (EUR per kWh it delivers), carried forward -#}
@@ -268,10 +274,32 @@ template:
                          'ts': sl.ts, 'b': sl.b | round(4), 's': sl.s | round(4), 'a': best.a,
                          'e0': E | round(2), 'e1': best.E2 | round(2),
                          'c': cost_out | round(3) if cost_out is not none else none,
-                         'r': code, 'sun': sl.sun | round(2)}] -%}
+                         'r': code, 'sun': sl.sun | round(2), 'load': sl.load | round(2),
+                         'alt': best.alt, 'adv': ((best.altv - best.v) | round(3)) if best.alt != '' else none}] -%}
                     {%- set fw.E = best.E2 -%}
+                    {%- set fw.cost = fw.cost + best.imm -%}
                   {%- endfor -%}
-                  {{ {'plan': fw.out, 'status': 'OK', 'made': now().isoformat(), 'reason': replan, 'eta': (eta * 100) | round(1)} | tojson }}
+                  {#- Same hours with Self-consumption only, for the expected gain. Both totals count
+                      the energy left at the end at the same end value. -#}
+                  {%- set endv = mean_b * ed -%}
+                  {%- set sc = namespace(E=E0, cost=0) -%}
+                  {%- for sl in slots -%}
+                    {%- set nl = sl.load - sl.sun -%}{%- set d = [nl, 0] | max -%}{%- set u = [-nl, 0] | max -%}
+                    {%- set ch = [u, pc * sl.h, ([emax - sc.E, 0] | max) / ec] | min -%}
+                    {%- set dis = [d, pd * sl.h, ([sc.E - rmin, 0] | max) * ed] | min -%}
+                    {%- set net = d - u + ch - dis -%}
+                    {%- set sc.cost = sc.cost + ([net, 0] | max) * sl.b - ([-net, 0] | max) * sl.s + wear * dis -%}
+                    {%- set sc.E = [[sc.E + ch * ec - dis / ed, 0] | max, emax] | min -%}
+                  {%- endfor -%}
+                  {%- set plan_total = fw.cost - fw.E * endv -%}
+                  {%- set sc_total = sc.cost - sc.E * endv -%}
+                  {%- set summary = {'usable': emax | round(1), 'charge_kw': pc | round(1), 'discharge_kw': pd | round(1),
+                       'efficiency': (eta * 100) | round(1), 'house_w': (load_kw * 1000) | round(0) | int,
+                       'reserve': rmin | round(1), 'wear': wear, 'end_value': endv | round(3),
+                       'plan_cost': plan_total | round(2), 'sc_cost': sc_total | round(2),
+                       'gain': (sc_total - plan_total) | round(2),
+                       'until': (slots | last).ts + step} -%}
+                  {{ {'plan': fw.out, 'status': 'OK', 'made': now().isoformat(), 'reason': replan, 'eta': (eta * 100) | round(1), 'summary': summary} | tojson }}
                 {%- endif -%}
               {%- endif -%}
             {%- endif -%}
@@ -306,6 +334,8 @@ template:
           plan_slot: "{{ now_slot if replan != '' else prev_slot }}"
           signature: "{{ signature }}"
           efficiency: "{{ (result if result is mapping else (result | from_json)).eta }}"
+          # Assumptions + expected cost of the plan vs Self-consumption only (Insights)
+          summary: "{{ (result if result is mapping else (result | from_json)).get('summary') }}"
           drift: "{{ drift }}"
           # Stored energy the plan expects at the end of the running slot (Charge / Sell run to it)
           target_energy: >-

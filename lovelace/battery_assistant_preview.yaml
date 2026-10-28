@@ -3248,6 +3248,47 @@ views:
                     state: "Solar-aware"
 
 
+
+      # ── Planned: why each slot got its strategy (sensor.hba_planned_strategy) ──
+      - type: grid
+        cards:
+          - type: heading
+            heading: Planned — decisions
+            heading_style: title
+            icon: mdi:scale-balance
+          - type: markdown
+            content: |-
+              {%- set E = 'sensor.hba_planned_strategy' -%}
+              {%- set plan = state_attr(E, 'plan') or [] -%}
+              {%- set sm = state_attr(E, 'summary') -%}
+              {%- if sm is mapping %}
+              <small>**Assumed:** usable {{ sm.usable }} kWh · charge {{ sm.charge_kw }} kW · discharge {{ sm.discharge_kw }} kW · efficiency {{ sm.efficiency }} % · house {{ sm.house_w }} W · reserve {{ sm.reserve }} kWh · wear €{{ sm.wear }}/kWh · energy left at the end valued at €{{ sm.end_value }}/kWh
+
+              **Expected until {{ sm.until | timestamp_custom('%a %H:%M') }}:** plan €{{ '%.2f' | format(sm.plan_cost) }} · Self-consumption only €{{ '%.2f' | format(sm.sc_cost) }} → plan {{ 'saves' if sm.gain >= 0 else 'costs' }} **€{{ '%.2f' | format(sm.gain | abs) }}** <font color=grey>(negative = income)</font></small>
+              {%- else %}
+              <small>No plan yet ({{ states(E) }}).</small>
+              {%- endif %}
+
+              <small><small>
+
+              | Time | Plan | Runner-up | Better by € | Sun kWh | House kWh |
+              |:--|:--|:--|--:|--:|--:|
+              {%- set ns = namespace(day='') -%}
+              {%- for r in plan %}
+              {%- set d = r.ts | timestamp_custom('%a') %}
+              | {{ (d ~ ' ') if d != ns.day else '' }}{{ r.ts | timestamp_custom('%H:%M') }} | {{ r.a }} | {{ r.get('alt') or '—' }} | {{ ('tie' if r.adv < 0.0015 else '%.3f' | format(r.adv)) if r.get('adv') is not none else '—' }} | {{ '%.1f' | format(r.get('sun', 0)) }} | {{ '%.1f' | format(r.get('load', 0)) }} |
+              {%- set ns.day = d %}
+              {%- endfor %}
+
+              </small></small>
+          - type: markdown
+            text_only: true
+            content: >-
+              <small><font color=grey>**Better by:** how much more the runner-up would cost over the
+              whole plan (this slot plus what it does to the slots after it). **Tie:** the options do
+              the same here (e.g. a full battery); the label is then chosen by what a stored kWh is
+              worth. A small amount means a close call that can flip with a small price or forecast
+              change. **Sun / House:** what the plan assumed for that slot.</font></small>
   # ── VIEW 6: ADVANCED SETTINGS ───────────────────────────────────────────────
   - type: sections
     max_columns: 3
