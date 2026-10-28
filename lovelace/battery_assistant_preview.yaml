@@ -2504,31 +2504,11 @@ views:
                 name: House use per day (profile)
           - type: markdown
             text_only: true
-            content: |-
-              {%- set P = 'sensor.hba_house_load_profile' -%}
-              {%- set p = state_attr(P, 'profile') -%}
-              {%- set nost = state_attr(P, 'no_statistics') or [] -%}
-              {%- if nost | length > 0 %}
-              <ha-alert alert-type="warning">No history (long-term statistics) for {{ nost | join(', ') }} — counted as 0 in the profile. For the EV charger that makes car charging count as house use: pick a sensor that is recorded, e.g. the charger's own power sensor.</ha-alert>
-              {% endif -%}
-              {%- if p is sequence and p is not string and p | length == 24 -%}
-              {%- set top = [p | reject('none') | max, 1] | max -%}
-              <small>Average per hour from {{ state_attr(P, 'days_used') }} days{% if state_attr(P, 'skipped_days') %} — skipped as absent or incomplete: {{ state_attr(P, 'skipped_days') | map('regex_replace', '^[0-9]{4}-([0-9]{2})-([0-9]{2})$', '\\2-\\1') | join(', ') }}{% endif %}</small>
-
-              <small><small>
-
-              | Hour | W | |
-              |:--|--:|:--|
-              {%- for w in p %}
-              | {{ '%02d' | format(loop.index0) }}:00 | {{ w if w is not none else '—' }} | {{ '█' * ((w / top * 16) | round(0) | int) if w is not none else '' }} |
-              {%- endfor %}
-
-              </small></small>
-              {%- else -%}
-              <font color=grey>_No profile yet — the plan uses the average house load above. The profile is
-              calculated every night at 03:15 (and after a restart) from the last weeks: grid (P1) +
-              batteries + solar − EV charger, skipping days below 60 % of a normal day (absent)._</font>
-              {%- endif %}
+            content: >-
+              <font color=grey>_The plan uses the house use per hour of the day (the **House** column in
+              the plan), averaged over the history above and calculated every night at 03:15: grid (P1)
+              + batteries + solar − EV charger, skipping absent days. The 24 hours are in **Insights →
+              House use per hour**. Without a profile it uses the average house load above._</font>
           - type: heading
             heading: Strategies the plan may use
             heading_style: subtitle
@@ -2563,6 +2543,9 @@ views:
               {%- set plan = state_attr(E, 'plan') or [] -%}
               {%- set hist = state_attr(E, 'history') or [] -%}
               {%- set made = state_attr(E, 'plan_made') -%}
+              {%- set sm = state_attr(E, 'summary') if state_attr(E, 'summary') is mapping else {} -%}
+              {%- set rsv = sm.get('reserve', 0) | float(0) -%}
+              {%- set full = sm.get('usable', 0) | float(0) -%}
               {%- set ns_s = namespace(show=false) -%}
               {%- for r in plan + hist if r.s is defined and r.s is not none and (r.s - r.b) | abs > 0.0005 -%}{%- set ns_s.show = true -%}{%- endfor -%}
               {%- set showsell = ns_s.show -%}
@@ -2574,9 +2557,6 @@ views:
 
               <small><small>
 
-              {%- set sm = state_attr(E, 'summary') if state_attr(E, 'summary') is mapping else {} -%}
-              {%- set rsv = sm.get('reserve', 0) | float(0) -%}
-              {%- set full = sm.get('usable', 0) | float(0) -%}
               | Time | Buy € | {% if showsell %}Sell € | {% endif %}Cost out € | Strategy | Stored | House |
               |:--|--:|{% if showsell %}--:|{% endif %}--:|:--|--:|--:|
               {%- set ns = namespace(day='') -%}
@@ -3344,6 +3324,40 @@ views:
               the same here (e.g. a full battery); the label is then chosen by what a stored kWh is
               worth. A small amount means a close call that can flip with a small price or forecast
               change. **Sun / House:** what the plan assumed for that slot.</font></small>
+
+      # ── House use per hour of the day (sensor.hba_house_load_profile) ──
+      - type: grid
+        cards:
+          - type: heading
+            heading: House use per hour
+            heading_style: title
+            icon: mdi:home-clock-outline
+          - type: markdown
+            content: |-
+              {%- set P = 'sensor.hba_house_load_profile' -%}
+              {%- set p = state_attr(P, 'profile') -%}
+              {%- set nost = state_attr(P, 'no_statistics') or [] -%}
+              {%- if nost | length > 0 %}
+              <ha-alert alert-type="warning">No history (long-term statistics) for {{ nost | join(', ') }} — counted as 0 in the profile. For the EV charger that makes car charging count as house use: pick a sensor that is recorded, e.g. the charger's own power sensor.</ha-alert>
+              {% endif -%}
+              {%- if p is sequence and p is not string and p | length == 24 -%}
+              {%- set top = [p | reject('none') | max, 1] | max -%}
+              <small>Average per hour from {{ state_attr(P, 'days_used') }} days{% if state_attr(P, 'skipped_days') %} — skipped as absent or incomplete: {{ state_attr(P, 'skipped_days') | map('regex_replace', '^[0-9]{4}-([0-9]{2})-([0-9]{2})$', '\\2-\\1') | join(', ') }}{% endif %}</small>
+
+              <small><small>
+
+              | Hour | W | |
+              |:--|--:|:--|
+              {%- for w in p %}
+              | {{ '%02d' | format(loop.index0) }}:00 | {{ w if w is not none else '—' }} | {{ '█' * ((w / top * 16) | round(0) | int) if w is not none else '' }} |
+              {%- endfor %}
+
+              </small></small>
+              {%- else -%}
+              <font color=grey>_No profile yet — the plan uses the average house load above. The profile is
+              calculated every night at 03:15 (and after a restart) from the last weeks: grid (P1) +
+              batteries + solar − EV charger, skipping days below 60 % of a normal day (absent)._</font>
+              {%- endif %}
   # ── VIEW 6: ADVANCED SETTINGS ───────────────────────────────────────────────
   - type: sections
     max_columns: 3
