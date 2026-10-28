@@ -25,7 +25,8 @@ open), so the version prefix stays at 4.10.1 for now.
   as the remaining forecast dropped the target rose, and Charge bought the energy back from the
   grid in ~3-minute bursts at full power every 5 minutes (prod 2026-10-28 12:00–13:35, Timed
   period B). New `binary_sensor.hba_charge_goal_conflict` warns as soon as the settings
-  combine this way, whatever strategy is active: Overview banner on both dashboards and a
+  combine this way, whatever strategy is active: an alert in Master Battery Control (Overview)
+  and under *When done charging* in the Charge / Sell view, on both dashboards, plus a
   notification + resolved.
 
 - **Number of batteries is a number box, not a slider** — easy to drag by accident on a phone,
