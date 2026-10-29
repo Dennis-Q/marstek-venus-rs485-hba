@@ -191,6 +191,10 @@ open), so the version prefix stays at 4.10.1 for now.
     hour. When Sell reaches its target early, it covers the house for the rest of the hour
     (Self-consumption) unless the energy kept above the target is worth more later: the first later slot
     in which the stored energy goes down buys dearer (or sells higher) than buying now. Otherwise it holds.
+    The spread-out Sell takes the batteries' share from the commanded power, not the measured one: the
+    Marstek power sensors update only every ~10 s, which made the grid target swing and the batteries
+    oscillate between ~1.3 and 3.3 kW every ~30 s (prod 2026-10-29). Now the PID steers straight to the
+    power to sell (settles in ~15 s, no overshoot in a simulation with the prod gains).
     A spread-out Sell never runs below the minimum start power (`input_number.hba_control_min_start_power`,
     200 W): a small remainder is sold at that power and reaches the target early, instead of ~80 W for the
     whole hour (a Marstek feeds mostly its own overhead below ~200 W).

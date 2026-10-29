@@ -586,10 +586,16 @@ script:
             {{ [((((n | int) // step + 1) * step) - n) / 3600, 0.05] | max }}
           ed: "{{ ((state_attr('sensor.hba_planned_strategy', 'efficiency') | float(85)) / 100) ** 0.5 }}"
           pd_kw: "{{ states('sensor.hba_total_max_discharge_power') | float(2500) / 1000 }}"
-          # Measured net house use now (P1 + = import, battery + = discharge): house minus sun.
+          # Net house use now (house minus sun) = P1 (+ = import) + what the batteries deliver, taken
+          # from the COMMANDED total (hba_control_pid_output, + = charge), not the measured battery
+          # power: the Marstek power sensors update only every ~10 s, so P1 + measured swung by
+          # ±1.5 kW while the house used a steady 0.4 kW; the grid target followed and the PID
+          # oscillated 1.3 <-> 3.3 kW every ~30 s (prod 2026-10-29 19:00). With the command the PID
+          # error becomes (power to deliver − command), P1 drops out: it steers straight to that power,
+          # and only a house using more than that (grid target capped at 0) is normal Self-consumption.
           # Not the expected profile value: with the sun covering the house the profile value made the
           # export target 0, so the battery delivered nothing (2026-10-29, a user's prod).
-          house_net_w: "{{ states('sensor.p1_meter_power') | float(0) + states('sensor.hba_total_battery_power') | float(0) }}"
+          house_net_w: "{{ states('sensor.p1_meter_power') | float(0) - states('input_number.hba_control_pid_output') | float(0) }}"
           # After Sell done: where is the energy kept above the target used next? The first later
           # slot in which the stored energy goes down (the dashboard's "keep for HH:MM"); it is worth
           # its buy price there (house) or its sell price (Sell). Worth no more than buying now ->
