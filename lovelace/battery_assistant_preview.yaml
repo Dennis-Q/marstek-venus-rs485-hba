@@ -2423,6 +2423,85 @@ views:
       - type: grid
         cards:
           - type: heading
+            heading: Plan
+            heading_style: title
+            icon: mdi:table-clock
+          - type: markdown
+            content: |-
+              {%- set E = 'sensor.hba_planned_strategy' -%}
+              {%- set plan = state_attr(E, 'plan') or [] -%}
+              {%- set hist = state_attr(E, 'history') or [] -%}
+              {%- set made = state_attr(E, 'plan_made') -%}
+              {%- set sm = state_attr(E, 'summary') if state_attr(E, 'summary') is mapping else {} -%}
+              {%- set rsv = sm.get('reserve', 0) | float(0) -%}
+              {%- set full = sm.get('usable', 0) | float(0) -%}
+              {%- set ns_s = namespace(show=false) -%}
+              {%- for r in plan + hist if r.s is defined and r.s is not none and (r.s - r.b) | abs > 0.0005 -%}{%- set ns_s.show = true -%}{%- endfor -%}
+              {%- set showsell = ns_s.show -%}
+              {%- set icon = {'Charge': '🔌', 'Sell': '💶', 'Charge PV': '☀️', 'Self-consumption': '🏠', 'Zero import': '🚫', 'Full stop': '⏸️'} -%}
+              {%- if state_attr(E, 'status') not in [none, 'OK'] -%}
+              <ha-alert alert-type="warning">No plan: {{ state_attr(E, 'status') }}.</ha-alert>
+              {%- endif %}
+              <small>Plan made {{ as_local(as_datetime(made)).strftime('%a %H:%M') if made else '—' }} ({{ state_attr(E, 'plan_reason') or '—' }})</small>
+
+              <small><small>
+
+              | Time | Buy € | {% if showsell %}Sell € | {% endif %}Strategy | Profit €/kWh | Stored | House |
+              |:--|--:|{% if showsell %}--:|{% endif %}:--|--:|--:|--:|
+              {%- set ns = namespace(day='') -%}
+              {%- for r in hist | sort(attribute='ts') %}
+              {%- set d = r.ts | timestamp_custom('%a') %}
+              | <font color=grey>{{ (d ~ ' ') if d != ns.day else '' }}{{ r.ts | timestamp_custom('%H:%M') }}</font> | <font color=grey>{{ '%.3f' | format(r.b) }}</font> | {% if showsell %}<font color=grey>{{ '%.3f' | format(r.s) }}</font> | {% endif %}<font color=grey>{{ icon.get(r.a, '') }} {{ r.a }}</font> | <font color=grey>{{ ('%.3f' | format(r.s - r.c)) if r.a == 'Sell' and r.c is number else '' }}</font> | <font color=grey>{{ '%.1f' | format(r.e1) }}</font> | <font color=grey>{{ '%.1f' | format(r.load) if r.get('load') is not none else '' }}</font> |
+              {%- set ns.day = d %}
+              {%- endfor %}
+              {%- set ns_c = namespace(last=(hist | sort(attribute='ts') | map(attribute='c') | select('number') | list | last) if hist | map(attribute='c') | select('number') | list | length > 0 else none) %}
+              {%- for r in plan %}
+              {%- set i = loop.index0 %}
+              {%- set d = r.ts | timestamp_custom('%a') %}
+              {%- set now = loop.first %}
+              {#- Why, in words, only where it is not obvious: Charge / holding with energy ->
+                  the first later hour in which the battery delivers again (Stored goes down);
+                  holding at the reserve / full -> empty / full -#}
+              {%- set hold = r.a in ['Full stop', 'Zero import', 'Self-consumption'] or (r.a == 'Charge PV' and r.e1 <= r.e0 + 0.05) %}
+              {%- set ns_n = namespace(t=none) %}
+              {%- for q in plan[i + 1:] if ns_n.t is none and q.e1 < q.e0 - 0.05 %}{%- set ns_n.t = q %}{%- endfor %}
+              {%- set nxt = ns_n.t %}
+              {%- if r.a == 'Charge' %}{%- set why = ('for ' ~ nxt.ts | timestamp_custom('%H:%M')) if nxt is not none else 'for later' %}
+              {%- elif hold and r.e1 <= rsv + 0.05 %}{%- set why = 'empty' %}
+              {%- elif hold and r.e1 >= r.e0 - 0.05 and nxt is not none %}{%- set why = 'keep for ' ~ nxt.ts | timestamp_custom('%H:%M') %}
+              {%- elif hold and r.e1 >= full - 0.05 %}{%- set why = 'full' %}
+              {%- else %}{%- set why = '' %}
+              {%- endif %}
+              {#- Profit per kWh that leaves the battery: Sell -> sell price, discharging for the house ->
+                  the buy price it saves; minus what that kWh cost (cost out before this slot) -#}
+              {%- set c_in = plan[i - 1].c if i > 0 and plan[i - 1].c is number else (ns_c.last if ns_c.last is number else r.c) %}
+              {%- set gain = none %}
+              {%- if c_in is number and r.e1 < r.e0 - 0.05 %}
+                {%- if r.a == 'Sell' %}{%- set gain = r.s - c_in %}
+                {%- elif r.a in ['Self-consumption', 'Zero import'] %}{%- set gain = r.b - c_in %}
+                {%- endif %}
+              {%- endif %}
+              | {{ '**' if now }}{{ (d ~ ' ') if d != ns.day else '' }}{{ r.ts | timestamp_custom('%H:%M') }}{{ '**' if now }} | {{ '%.3f' | format(r.b) }} | {% if showsell %}{{ '%.3f' | format(r.s) }} | {% endif %}{{ icon.get(r.a, '') }} {{ '**' if now }}{{ r.a }}{{ '**' if now }}{{ (' · <i>' ~ why ~ '</i>') if why }} | {{ ('%.3f' | format(gain)) if gain is not none else '' }} | {{ '%.1f' | format(r.e1) }} | {{ '%.1f' | format(r.load) if r.get('load') is not none else '' }} |
+              {%- set ns.day = d %}
+              {%- endfor %}
+
+              </small></small>
+          - type: markdown
+            text_only: true
+            content: >-
+              <small><font color=grey>**Grey:** executed, with the stored energy measured at the
+              end. **Bold:** now. **House:** kWh the plan assumes the house uses in that slot (from the
+              profile per hour). **Stored:** kWh in the batteries at the END of the slot, above
+              the discharge cutoff (0 = at the cutoff, {{ states('sensor.hba_usable_battery_energy') | float(0) | round(1) }} = full). **Profit €/kWh:**
+              per kWh that leaves the battery: the sell price (Sell) or the buy price it saves
+              (Self-consumption / Zero import), minus what that kWh cost (bought ÷ efficiency, sun at
+              the sell price, + wear — the "Cost out" in Insights). **for / keep for HH:MM:** the hour in which that energy leaves the battery again
+              (sold or used in the house). Why exactly a slot got its strategy: Insights → Planned —
+              decisions.</font></small>
+
+      - type: grid
+        cards:
+          - type: heading
             heading: Planned strategy
             heading_style: title
             icon: mdi:calendar-clock
@@ -2530,75 +2609,6 @@ views:
               The plan is redone at every new slot, when new prices or a new solar forecast
               arrive, when a setting changes, and when the stored energy is further off the
               plan than set above (checked every 5 minutes)._</font>
-
-      - type: grid
-        cards:
-          - type: heading
-            heading: Plan
-            heading_style: title
-            icon: mdi:table-clock
-          - type: markdown
-            content: |-
-              {%- set E = 'sensor.hba_planned_strategy' -%}
-              {%- set plan = state_attr(E, 'plan') or [] -%}
-              {%- set hist = state_attr(E, 'history') or [] -%}
-              {%- set made = state_attr(E, 'plan_made') -%}
-              {%- set sm = state_attr(E, 'summary') if state_attr(E, 'summary') is mapping else {} -%}
-              {%- set rsv = sm.get('reserve', 0) | float(0) -%}
-              {%- set full = sm.get('usable', 0) | float(0) -%}
-              {%- set ns_s = namespace(show=false) -%}
-              {%- for r in plan + hist if r.s is defined and r.s is not none and (r.s - r.b) | abs > 0.0005 -%}{%- set ns_s.show = true -%}{%- endfor -%}
-              {%- set showsell = ns_s.show -%}
-              {%- set icon = {'Charge': '🔌', 'Sell': '💶', 'Charge PV': '☀️', 'Self-consumption': '🏠', 'Zero import': '🚫', 'Full stop': '⏸️'} -%}
-              {%- if state_attr(E, 'status') not in [none, 'OK'] -%}
-              <ha-alert alert-type="warning">No plan: {{ state_attr(E, 'status') }}.</ha-alert>
-              {%- endif %}
-              <small>Plan made {{ as_local(as_datetime(made)).strftime('%a %H:%M') if made else '—' }} ({{ state_attr(E, 'plan_reason') or '—' }})</small>
-
-              <small><small>
-
-              | Time | Buy € | {% if showsell %}Sell € | {% endif %}Cost out € | Strategy | Stored | House |
-              |:--|--:|{% if showsell %}--:|{% endif %}--:|:--|--:|--:|
-              {%- set ns = namespace(day='') -%}
-              {%- for r in hist | sort(attribute='ts') %}
-              {%- set d = r.ts | timestamp_custom('%a') %}
-              | <font color=grey>{{ (d ~ ' ') if d != ns.day else '' }}{{ r.ts | timestamp_custom('%H:%M') }}</font> | <font color=grey>{{ '%.3f' | format(r.b) }}</font> | {% if showsell %}<font color=grey>{{ '%.3f' | format(r.s) }}</font> | {% endif %}<font color=grey>{{ '%.3f' | format(r.c) if r.c is not none else '—' }}</font> | <font color=grey>{{ icon.get(r.a, '') }} {{ r.a }}</font> | <font color=grey>{{ '%.1f' | format(r.e1) }}</font> | <font color=grey>{{ '%.1f' | format(r.load) if r.get('load') is not none else '' }}</font> |
-              {%- set ns.day = d %}
-              {%- endfor %}
-              {%- for r in plan %}
-              {%- set i = loop.index0 %}
-              {%- set d = r.ts | timestamp_custom('%a') %}
-              {%- set now = loop.first %}
-              {#- Why, in words, only where it is not obvious: Charge / holding with energy ->
-                  the first later hour in which the battery delivers again (Stored goes down);
-                  holding at the reserve / full -> empty / full -#}
-              {%- set hold = r.a in ['Full stop', 'Zero import', 'Self-consumption'] or (r.a == 'Charge PV' and r.e1 <= r.e0 + 0.05) %}
-              {%- set ns_n = namespace(t=none) %}
-              {%- for q in plan[i + 1:] if ns_n.t is none and q.e1 < q.e0 - 0.05 %}{%- set ns_n.t = q %}{%- endfor %}
-              {%- set nxt = ns_n.t %}
-              {%- if r.a == 'Charge' %}{%- set why = ('for ' ~ nxt.ts | timestamp_custom('%H:%M')) if nxt is not none else 'for later' %}
-              {%- elif hold and r.e1 <= rsv + 0.05 %}{%- set why = 'empty' %}
-              {%- elif hold and r.e1 >= r.e0 - 0.05 and nxt is not none %}{%- set why = 'keep for ' ~ nxt.ts | timestamp_custom('%H:%M') %}
-              {%- elif hold and r.e1 >= full - 0.05 %}{%- set why = 'full' %}
-              {%- else %}{%- set why = '' %}
-              {%- endif %}
-              | {{ '**' if now }}{{ (d ~ ' ') if d != ns.day else '' }}{{ r.ts | timestamp_custom('%H:%M') }}{{ '**' if now }} | {{ '%.3f' | format(r.b) }} | {% if showsell %}{{ '%.3f' | format(r.s) }} | {% endif %}{{ '%.3f' | format(r.c) if r.c is not none else '—' }} | {{ icon.get(r.a, '') }} {{ '**' if now }}{{ r.a }}{{ '**' if now }}{{ (' · <i>' ~ why ~ '</i>') if why }} | {{ '%.1f' | format(r.e1) }} | {{ '%.1f' | format(r.load) if r.get('load') is not none else '' }} |
-              {%- set ns.day = d %}
-              {%- endfor %}
-
-              </small></small>
-          - type: markdown
-            text_only: true
-            content: >-
-              <small><font color=grey>**Grey:** executed, with the stored energy measured at the
-              end. **Bold:** now. **House:** kWh the plan assumes the house uses in that slot (from the
-              profile per hour). **Stored:** kWh in the batteries at the END of the slot, above
-              the discharge cutoff (0 = at the cutoff, {{ states('sensor.hba_usable_battery_energy') | float(0) | round(1) }} = full). **Cost out:**
-              what a kWh from the battery has cost (bought ÷ efficiency, sun at the sell price,
-              + wear). **for / keep for HH:MM:** the hour in which that energy leaves the battery again
-              (sold or used in the house). Why exactly a slot got its strategy: Insights → Planned —
-              decisions.</font></small>
-
   - type: sections
     max_columns: 3
     title: Insights
@@ -3304,12 +3314,12 @@ views:
 
               <small><small>
 
-              | Time | Strategy | Runner-up | Better by € (whole hour) | per kWh | Sun kWh | House kWh |
-              |:--|:--|:--|--:|--:|--:|--:|
+              | Time | Strategy | Runner-up | Better by € (whole hour) | per kWh | Cost out € | Sun kWh | House kWh |
+              |:--|:--|:--|--:|--:|--:|--:|--:|
               {%- set ns = namespace(day='') -%}
               {%- for r in plan %}
               {%- set d = r.ts | timestamp_custom('%a') %}
-              | {{ (d ~ ' ') if d != ns.day else '' }}{{ r.ts | timestamp_custom('%H:%M') }} | {{ r.a }} | {{ r.get('alt') or '—' }} | {{ ('tie' if r.adv < 0.0015 else '%.3f' | format(r.adv)) if r.get('adv') is not none else '—' }} | {% set de = (r.e1 - r.get('alt_e1', r.e1)) | abs %}{{ '%.3f' | format(r.adv / de) if r.get('adv') is not none and r.adv >= 0.0015 and de > 0.1 else '—' }} | {{ '%.1f' | format(r.get('sun', 0)) }} | {{ '%.1f' | format(r.get('load', 0)) }} |
+              | {{ (d ~ ' ') if d != ns.day else '' }}{{ r.ts | timestamp_custom('%H:%M') }} | {{ r.a }} | {{ r.get('alt') or '—' }} | {{ ('tie' if r.adv < 0.0015 else '%.3f' | format(r.adv)) if r.get('adv') is not none else '—' }} | {% set de = (r.e1 - r.get('alt_e1', r.e1)) | abs %}{{ '%.3f' | format(r.adv / de) if r.get('adv') is not none and r.adv >= 0.0015 and de > 0.1 else '—' }} | {{ '%.3f' | format(r.c) if r.c is number else '—' }} | {{ '%.1f' | format(r.get('sun', 0)) }} | {{ '%.1f' | format(r.get('load', 0)) }} |
               {%- set ns.day = d %}
               {%- endfor %}
 
@@ -3323,7 +3333,9 @@ views:
               amount divided by the energy the two options differ in — comparable with the prices. **Tie:** the options do
               the same here (e.g. a full battery); the label is then chosen by what a stored kWh is
               worth. A small amount means a close call that can flip with a small price or forecast
-              change. **Sun / House:** what the plan assumed for that slot.</font></small>
+              change. **Cost out:** what a kWh from the battery has cost after this slot (bought ÷
+              efficiency, sun at the sell price, + wear), carried over between plans. **Sun / House:**
+              what the plan assumed for that slot.</font></small>
 
       # ── House use per hour of the day (sensor.hba_house_load_profile) ──
       - type: grid
