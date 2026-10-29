@@ -8,7 +8,12 @@
 # morning". Dynamic stays HBC-identical; Planned is a separate strategy.
 #
 # How: dynamic programming over (price slot x stored energy). Per slot it may choose
-#   Charge (grid, max power) | Sell (max power) | Self-consumption | Charge PV | Zero import | Full stop
+#   Charge (grid) | Sell | Self-consumption | Charge PV | Zero import | Full stop
+# Charge and Sell either at max power or to a partial target: any of the 21 energy levels in
+# between ("sell down to 1.8 kWh", "charge up to 6.2 kWh"). Without partial targets a Sell hour
+# could only sell everything, e.g. sell all at 0.49 in the last expensive hour and buy back at
+# 0.506 right after (prod plan 2026-10-30 17-19 h). Execution already runs Charge / Sell to the
+# row's e1 (Sell spread over the slot).
 # and simulates the house: average load (input_number.hba_strategy_solar_aware_house_load,
 # shared with Solar-aware) minus the Solcast forecast per slot. Cost per slot =
 #   import x buy price - export x sell price + wear x kWh discharged
@@ -339,13 +344,22 @@ template:
                       {%- set room = ([emax - E, 0] | max) / ec -%}{%- set av = ([E - rmin, 0] | max) * ed -%}
                       {%- set best = namespace(v=1e9) -%}
                       {%- for a in acts -%}
-                        {%- set ch = ([u, cc, room] | min) if a in ['Self-consumption', 'Charge PV'] else (([cc, room] | min) if a == 'Charge' else 0) -%}
-                        {%- set dis = ([d, cd, av] | min) if a in ['Self-consumption', 'Zero import'] else (([cd, av] | min) if a == 'Sell' else 0) -%}
+                        {#- Charge / Sell: max power (j = -1) and every energy level j in between as a
+                            partial target. Sell levels only where the battery still exports (more out
+                            than the house uses), Charge levels only above what the sun alone gives. -#}
+                        {%- set ch0 = ([u, cc, room] | min) if a in ['Self-consumption', 'Charge PV'] else (([cc, room] | min) if a == 'Charge' else 0) -%}
+                        {%- set dis0 = ([d, cd, av] | min) if a in ['Self-consumption', 'Zero import'] else (([cd, av] | min) if a == 'Sell' else 0) -%}
+                        {%- set js = (range(((E - dis0 / ed) / dE + 0.02) | round(0, 'ceil') | int, ((E - d / ed) / dE - 0.02) | round(0, 'ceil') | int) | list) if a == 'Sell'
+                                     else ((range(((E + u * ec) / dE + 0.02) | round(0, 'ceil') | int, ((E + ch0 * ec) / dE - 0.02) | round(0, 'ceil') | int) | list) if a == 'Charge' else []) -%}
+                        {%- for j in [-1] + js -%}
+                        {%- set ch = ch0 if j < 0 else (((j * dE - E) / ec) if a == 'Charge' else 0) -%}
+                        {%- set dis = dis0 if j < 0 else (((E - j * dE) * ed) if a == 'Sell' else 0) -%}
                         {%- set net = d - u + ch - dis -%}
                         {%- set E2 = [[E + ch * ec - dis / ed, 0] | max, emax] | min -%}
                         {%- set x = E2 / dE -%}{%- set i = [x | int, K - 2] | min -%}{%- set f = x - i -%}
                         {%- set v = ([net, 0] | max) * sl.b - ([-net, 0] | max) * sl.s + wear * dis + msp * ([dis - d, 0] | max) + (eps if sl.sun > 0.01 else eps_dark)[a] + ns.V[i] * (1 - f) + ns.V[i + 1] * f -%}
                         {%- if v < best.v -%}{%- set best.v = v -%}{%- endif -%}
+                        {%- endfor -%}
                       {%- endfor -%}
                       {%- set nv.V = nv.V + [best.v] -%}
                     {%- endfor -%}
@@ -386,20 +400,29 @@ template:
                     {%- set tie = {order[0]: 0, order[1]: 0.0001, order[2]: 0.0002, order[3]: 0.0003, 'Charge': 0.0005, 'Sell': 0.0005} -%}
                     {%- set best = namespace(v=1e9, a='Self-consumption', E2=E, ch=0, dis=0, imm=0, alt='', altv=1e9, altE=E) -%}
                     {%- for a in acts -%}
-                      {%- set ch = ([u, cc, room] | min) if a in ['Self-consumption', 'Charge PV'] else (([cc, room] | min) if a == 'Charge' else 0) -%}
-                      {%- set dis = ([d, cd, av] | min) if a in ['Self-consumption', 'Zero import'] else (([cd, av] | min) if a == 'Sell' else 0) -%}
+                      {%- set ch0 = ([u, cc, room] | min) if a in ['Self-consumption', 'Charge PV'] else (([cc, room] | min) if a == 'Charge' else 0) -%}
+                      {%- set dis0 = ([d, cd, av] | min) if a in ['Self-consumption', 'Zero import'] else (([cd, av] | min) if a == 'Sell' else 0) -%}
+                      {%- set js = (range(((E - dis0 / ed) / dE + 0.02) | round(0, 'ceil') | int, ((E - d / ed) / dE - 0.02) | round(0, 'ceil') | int) | list) if a == 'Sell'
+                                   else ((range(((E + u * ec) / dE + 0.02) | round(0, 'ceil') | int, ((E + ch0 * ec) / dE - 0.02) | round(0, 'ceil') | int) | list) if a == 'Charge' else []) -%}
+                      {%- for j in [-1] + js -%}
+                      {%- set ch = ch0 if j < 0 else (((j * dE - E) / ec) if a == 'Charge' else 0) -%}
+                      {%- set dis = dis0 if j < 0 else (((E - j * dE) * ed) if a == 'Sell' else 0) -%}
                       {%- set net = d - u + ch - dis -%}
                       {%- set E2 = [[E + ch * ec - dis / ed, 0] | max, emax] | min -%}
                       {%- set x = E2 / dE -%}{%- set i = [x | int, K - 2] | min -%}{%- set f = x - i -%}
                       {%- set imm = ([net, 0] | max) * sl.b - ([-net, 0] | max) * sl.s + wear * dis -%}
                       {%- set v = imm + msp * ([dis - d, 0] | max) + tie[a] + V[i] * (1 - f) + V[i + 1] * f -%}
                       {#- Keep the runner-up too: Insights shows how close each decision was -#}
+                      {#- (the runner-up is another strategy, not the same one with another amount) -#}
                       {%- if v < best.v -%}
-                        {%- set best.alt = best.a if best.v < 1e9 else '' -%}{%- set best.altv = best.v -%}{%- set best.altE = best.E2 -%}
+                        {%- if a != best.a -%}
+                          {%- set best.alt = best.a if best.v < 1e9 else '' -%}{%- set best.altv = best.v -%}{%- set best.altE = best.E2 -%}
+                        {%- endif -%}
                         {%- set best.v = v -%}{%- set best.a = a -%}{%- set best.E2 = E2 -%}{%- set best.ch = ch -%}{%- set best.dis = dis -%}{%- set best.imm = imm -%}
-                      {%- elif v < best.altv -%}
+                      {%- elif v < best.altv and a != best.a -%}
                         {%- set best.alt = a -%}{%- set best.altv = v -%}{%- set best.altE = E2 -%}
                       {%- endif -%}
+                      {%- endfor -%}
                     {%- endfor -%}
                     {#- Cost of the stored energy (EUR per kWh it delivers), carried forward -#}
                     {%- set sun_in = [best.ch, u] | min -%}

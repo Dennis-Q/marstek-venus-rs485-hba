@@ -177,10 +177,13 @@ open), so the version prefix stays at 4.10.1 for now.
     buy/sell price, strategy, stored energy, cost of a kWh out of the battery, reason code) and
     `history` (the last 24 h as executed, with the measured stored energy). Re-plans at every new
     slot, on new prices or a new solar forecast, on a setting change, and when the stored energy is
-    more than a set amount off the plan (checked every 5 min). ~0.1 s per plan for 48 hourly slots;
+    more than a set amount off the plan (checked every 5 min). ~0.5 s per plan for 48 hourly slots;
     15-minute prices work the same way.
   - Always calculated; controls the batteries only when *Choose strategy* is **Planned**. Charge
     and Sell run to the stored energy the plan expects at the end of the slot, then hold.
+  - Charge and Sell can be partial: the plan may sell down to (or charge up to) any level in between,
+    not only everything at max power. E.g. it keeps enough for the hour after the peak when buying
+    then costs more than selling now earns, instead of selling everything and buying it back.
   - New **Planned** view in the preview dashboard: the plan table at the top (executed hours greyed, now in
     bold, "Profit €/kWh" for hours where energy leaves the battery = sell price or saved buy price − what that
     kWh cost, "Stored" = kWh at the end of the slot, "House" = kWh assumed), the settings below it. The cost of a
