@@ -434,8 +434,15 @@ charge at night → sell tomorrow morning".
 
 - It simulates the batteries (stored energy, max power incl. power groups, the measured round-trip
   efficiency), the house (use per hour of the day, see below) and the sun (Solcast per half hour).
-- Charge and Sell run to the energy the plan expects at the end of the hour; Sell is spread over the
-  hour when full power is not needed, so the house stays covered instead of importing after selling out.
+- Charge and Sell can be partial: the plan may charge up to or sell down to any energy level in between
+  (e.g. keep enough for the hour after the peak when buying then costs more than selling now earns).
+  The levels are the **energy step** setting (0 = auto: usable energy ÷ 20; finest usable ÷ 40, which
+  doubles the calculation time to about 1 s).
+- Charge and Sell run to the energy the plan expects at the end of the hour. Sell is spread over the
+  hour when full power is not needed, never below the minimum start power (200 W), and always covers the
+  whole house (an oven on during a spread-out Sell is not imported). Once Sell reached its target early,
+  the battery keeps covering the house for the rest of the hour unless the energy left is worth more
+  where the plan uses it next.
 - What the stored energy cost is tracked in a ledger from what actually went in (grid charging at the buy
   price, sun at the sell price), so the profit per kWh reflects what you really paid.
 - Re-plans every hour, on new prices or a new forecast, on a setting change, and when the stored
