@@ -436,7 +436,7 @@ template:
                   {%- set summary = {'usable': emax | round(1), 'charge_kw': pc | round(1), 'discharge_kw': pd | round(1),
                        'efficiency': (eta * 100) | round(1), 'house_w': (load_kw * 1000) | round(0) | int,
                        'house_profile_days': state_attr('sensor.hba_house_load_profile', 'days_used') if prof | length == 24 else 0,
-                       'reserve': rmin | round(1), 'wear': wear, 'end_value': endv | round(3),
+                       'reserve': rmin | round(1), 'wear': wear, 'end_value': endv | round(3), 'end_buy': end_b | round(3),
                        'plan_cost': plan_total | round(2), 'sc_cost': sc_total | round(2),
                        'gain': (sc_total - plan_total) | round(2),
                        'until': (slots | last).ts + step} -%}
