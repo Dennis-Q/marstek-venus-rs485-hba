@@ -227,6 +227,11 @@ open), so the version prefix stays at 4.10.1 for now.
     Feeds "Cost out" (Insights) and "Profit €/kWh" (plan table); decisions unchanged.
   - Insights "Expected" line in words ("with the plan you earn €14.21 · with Self-consumption only you earn
     €10.83 → the plan is €3.38 better") instead of negative numbers.
+  - **Spread-out Sell with the sun covering the house:** the grid target is now the measured net house use
+    (P1 + battery power) minus the power the battery should deliver, instead of an export target based on the
+    expected house use. With sun on the house the old export target became 0 W and the battery delivered nothing
+    (2026-10-29, a user's prod). Very small remainders (below the 200 W minimum start power) still don't start a
+    battery — on purpose.
   - **No flapping near the target:** once Charge or Sell reached its target in a slot it only resumes when
     the stored energy is 0.3 kWh (~1.5 % SoC) on the wrong side, and Charge stops as soon as every battery
     is at its charge cutoff (prod 2026-10-29 04:32–04:44: Charge ↔ Charge PV every ~30 s near full,

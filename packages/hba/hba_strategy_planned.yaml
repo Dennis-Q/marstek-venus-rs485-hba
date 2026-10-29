@@ -509,9 +509,9 @@ script:
             {{ ns.full }}
       # Sell spread over the slot: the power needed to reach the target exactly at the end of the
       # slot = what still has to come out (AC) / time left. At or above max power (e.g. the first
-      # sell hour from full batteries) it sells at full power; below it, Self-consumption with an
-      # export target = that power minus the expected house use this hour, so the PID keeps the
-      # house covered on top of a steady export -- instead of selling out at full power and then
+      # sell hour from full batteries) it sells at full power; below it, Self-consumption with a
+      # grid target = measured net house use − that power, so the PID keeps the
+      # battery delivering a steady power (house first) -- instead of selling out at full power and then
       # importing for the rest of the hour at the same high price (costs money once export earns
       # less than import, 2027). Charge stays at full power (a cheap hour: grid for the house is cheap).
       - variables:
@@ -523,16 +523,19 @@ script:
             {{ [((((n | int) // step + 1) * step) - n) / 3600, 0.05] | max }}
           ed: "{{ ((state_attr('sensor.hba_planned_strategy', 'efficiency') | float(85)) / 100) ** 0.5 }}"
           pd_kw: "{{ states('sensor.hba_total_max_discharge_power') | float(2500) / 1000 }}"
-          house_w: >-
-            {%- set prof = state_attr('sensor.hba_house_load_profile', 'profile') -%}
-            {%- set w = prof[now().hour] if prof is sequence and prof is not string and prof | length == 24 else none -%}
-            {{ w if w is number else states('input_number.hba_strategy_solar_aware_house_load') | float(300) }}
+          # Measured net house use now (P1 + = import, battery + = discharge): house minus sun.
+          # Not the expected profile value: with the sun covering the house the profile value made the
+          # export target 0, so the battery delivered nothing (2026-10-29, a user's prod).
+          house_net_w: "{{ states('sensor.p1_meter_power') | float(0) + states('sensor.hba_total_battery_power') | float(0) }}"
       - variables:
           needed_kw: "{{ ([avail - target, 0] | max) * ed / t_left_h }}"
-          export_w: >-
-            {%- set x = [((avail - target) * ed / t_left_h) * 1000 - house_w, 0] | max -%}
+          # Grid target = net house use now − the power the battery should deliver, so the battery
+          # delivers exactly that (house first, the rest exported), whatever the house and the sun do.
+          # Never more export than the export limit.
+          grid_target_w: >-
+            {%- set x = house_net_w - needed_kw * 1000 -%}
             {%- if is_state('input_boolean.hba_control_has_power_limit_export', 'on') -%}
-              {%- set x = [x, states('input_number.hba_control_power_limit_export') | float(5000)] | min -%}
+              {%- set x = [x, -(states('input_number.hba_control_power_limit_export') | float(5000))] | max -%}
             {%- endif -%}
             {{ x | round(0) | int }}
       - choose:
@@ -571,7 +574,7 @@ script:
                         data:
                           skip_label: true
                           charge_disabled: true
-                          setpoint_override: "{{ -export_w }}"
+                          setpoint_override: "{{ grid_target_w }}"
                   - conditions: "{{ is_state('input_boolean.hba_control_has_power_limit_export', 'on') }}"
                     sequence:
                       - action: script.hba_strategy_self_consumption
