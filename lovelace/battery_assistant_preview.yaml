@@ -2446,12 +2446,12 @@ views:
 
               <small><small>
 
-              | Time | Buy € | {% if showsell %}Sell € | {% endif %}Strategy | Profit €/kWh | Stored | House |
-              |:--|--:|{% if showsell %}--:|{% endif %}:--|--:|--:|--:|
+              | Time | Buy € | {% if showsell %}Sell € | {% endif %}Cost out € | Strategy | Profit €/kWh | Stored | House |
+              |:--|--:|{% if showsell %}--:|{% endif %}--:|:--|--:|--:|--:|
               {%- set ns = namespace(day='') -%}
               {%- for r in hist | sort(attribute='ts') %}
               {%- set d = r.ts | timestamp_custom('%a') %}
-              | <font color=grey>{{ (d ~ ' ') if d != ns.day else '' }}{{ r.ts | timestamp_custom('%H:%M') }}</font> | <font color=grey>{{ '%.3f' | format(r.b) }}</font> | {% if showsell %}<font color=grey>{{ '%.3f' | format(r.s) }}</font> | {% endif %}<font color=grey>{{ icon.get(r.a, '') }} {{ r.a }}</font> | <font color=grey>{{ ('%.3f' | format(r.s - r.c)) if r.a == 'Sell' and r.c is number else '' }}</font> | <font color=grey>{{ '%.1f' | format(r.e1) }}</font> | <font color=grey>{{ '%.1f' | format(r.load) if r.get('load') is not none else '' }}</font> |
+              | <font color=grey>{{ (d ~ ' ') if d != ns.day else '' }}{{ r.ts | timestamp_custom('%H:%M') }}</font> | <font color=grey>{{ '%.3f' | format(r.b) }}</font> | {% if showsell %}<font color=grey>{{ '%.3f' | format(r.s) }}</font> | {% endif %}<font color=grey>{{ '%.3f' | format(r.c) if r.c is number else '—' }}</font> | <font color=grey>{{ icon.get(r.a, '') }} {{ r.a }}</font> | <font color=grey>{{ ('%.3f' | format(r.s - r.c)) if r.a == 'Sell' and r.c is number else '' }}</font> | <font color=grey>{{ '%.1f' | format(r.e1) }}</font> | <font color=grey>{{ '%.1f' | format(r.load) if r.get('load') is not none else '' }}</font> |
               {%- set ns.day = d %}
               {%- endfor %}
               {%- set ns_c = namespace(last=(hist | sort(attribute='ts') | map(attribute='c') | select('number') | list | last) if hist | map(attribute='c') | select('number') | list | length > 0 else none) %}
@@ -2481,7 +2481,7 @@ views:
                 {%- elif r.a in ['Self-consumption', 'Zero import'] %}{%- set gain = r.b - c_in %}
                 {%- endif %}
               {%- endif %}
-              | {{ '**' if now }}{{ (d ~ ' ') if d != ns.day else '' }}{{ r.ts | timestamp_custom('%H:%M') }}{{ '**' if now }} | {{ '%.3f' | format(r.b) }} | {% if showsell %}{{ '%.3f' | format(r.s) }} | {% endif %}{{ icon.get(r.a, '') }} {{ '**' if now }}{{ r.a }}{{ '**' if now }}{{ (' · <i>' ~ why ~ '</i>') if why }} | {{ ('%.3f' | format(gain)) if gain is not none else '' }} | {{ '%.1f' | format(r.e1) }} | {{ '%.1f' | format(r.load) if r.get('load') is not none else '' }} |
+              | {{ '**' if now }}{{ (d ~ ' ') if d != ns.day else '' }}{{ r.ts | timestamp_custom('%H:%M') }}{{ '**' if now }} | {{ '%.3f' | format(r.b) }} | {% if showsell %}{{ '%.3f' | format(r.s) }} | {% endif %}{{ '%.3f' | format(r.c) if r.c is number else '—' }} | {{ icon.get(r.a, '') }} {{ '**' if now }}{{ r.a }}{{ '**' if now }}{{ (' · <i>' ~ why ~ '</i>') if why }} | {{ ('%.3f' | format(gain)) if gain is not none else '' }} | {{ '%.1f' | format(r.e1) }} | {{ '%.1f' | format(r.load) if r.get('load') is not none else '' }} |
               {%- set ns.day = d %}
               {%- endfor %}
 
@@ -2492,10 +2492,10 @@ views:
               <small><font color=grey>**Grey:** executed, with the stored energy measured at the
               end. **Bold:** now. **House:** kWh the plan assumes the house uses in that slot (from the
               profile per hour). **Stored:** kWh in the batteries at the END of the slot, above
-              the discharge cutoff (0 = at the cutoff, {{ states('sensor.hba_usable_battery_energy') | float(0) | round(1) }} = full). **Profit €/kWh:**
-              per kWh that leaves the battery: the sell price (Sell) or the buy price it saves
-              (Self-consumption / Zero import), minus what that kWh cost (bought ÷ efficiency, sun at
-              the sell price, + wear — the "Cost out" in Insights). **for / keep for HH:MM:** the hour in which that energy leaves the battery again
+              the discharge cutoff (0 = at the cutoff, {{ states('sensor.hba_usable_battery_energy') | float(0) | round(1) }} = full). **Cost out:** what a kWh from the
+              battery has cost after this slot (bought ÷ efficiency, sun at the sell price, + wear).
+              **Profit €/kWh:** per kWh that leaves the battery: the sell price (Sell) or the buy price it saves
+              (Self-consumption / Zero import), minus what that kWh cost (Cost out before the slot). **for / keep for HH:MM:** the hour in which that energy leaves the battery again
               (sold or used in the house). Why exactly a slot got its strategy: Insights → Planned —
               decisions.</font></small>
 
@@ -3315,7 +3315,7 @@ views:
 
               <small><small>
 
-              | Time | Strategy | Runner-up | Better by € (whole hour) | per kWh | Cost out € | Sun kWh | House kWh |
+              | Time | Strategy | Runner-up | Better by € (whole hour) | Better by per kWh | Cost out € | Sun kWh | House kWh |
               |:--|:--|:--|--:|--:|--:|--:|--:|
               {%- set ns = namespace(day='') -%}
               {%- for r in plan %}
@@ -3330,8 +3330,10 @@ views:
             content: >-
               <small><font color=grey>**Better by (whole hour):** how much more the runner-up would
               cost in total — all energy of this hour, plus what it does to the hours after it (e.g.
-              not selling 7 kWh at the peak means selling them later, cheaper). **Per kWh:** that
-              amount divided by the energy the two options differ in — comparable with the prices. **Tie:** the options do
+              not selling 7 kWh at the peak means selling them later, cheaper). **Better by per kWh:**
+              that amount divided by the energy the two options differ in — how clear the decision is,
+              NOT the profit (e.g. selling at 07:00 vs keeping it for a later sale: 0.011; the profit
+              against what the energy cost is in the plan table). **Tie:** the options do
               the same here (e.g. a full battery); the label is then chosen by what a stored kWh is
               worth. A small amount means a close call that can flip with a small price or forecast
               change. **Cost out:** what a kWh from the battery has cost after this slot (bought ÷
