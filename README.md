@@ -441,8 +441,12 @@ charge at night → sell tomorrow morning".
 - Re-plans every hour, on new prices or a new forecast, on a setting change, and when the stored
   energy drifts from the plan.
 - Settings: wear cost per kWh (default 0), a reserve for unexpected loads, a separate sell-price
-  sensor + deduction (for 2027, when exporting earns the market price), and switches to leave out grid
-  charging, Sell or Zero import.
+  sensor + deduction, a minimum advantage of selling (only sell from the battery when it beats keeping
+  the energy by at least this much per kWh), and switches to leave out grid charging, Sell or Zero import.
+- **Prices:** buy = your supplier's all-in price (market + purchase fee + energy tax + VAT). Under net
+  metering (until 31-12-2026, while you import more than you export over the year) leave the sell sensor
+  empty and set the deduction to the supplier's two fees (Frank Energie: about €0.018 + €0.013 = €0.031).
+  From 2027: sell sensor = the market price sensor, deduction = the selling fee (Frank: about €0.013).
 - **House use per hour** (`sensor.hba_house_load_profile`): calculated every night from the recorder's
   hourly statistics — grid (P1) + batteries + solar − EV charger — over the last 1–4 weeks, skipping
   absent days. Set your solar power sensor(s) and the EV charger's own power sensor (it must have
