@@ -151,6 +151,54 @@ template:
             {%- elif now_slot != prev_slot -%}new slot
             {%- elif drift | float(-1) > states('input_number.hba_strategy_planned_replan_drift') | float(1) -%}off by {{ drift }} kWh
             {%- endif -%}
+      # Ledger: what the energy in the battery really cost (EUR per stored kWh), from what
+      # actually went in -- every 5 min the change in stored energy since the last run, priced at the
+      # running slot's buy price while HBA charges from the grid (active strategy Charge), else at
+      # the sell price (sun: the export it replaces). Discharging keeps the cost per kWh. The plan's
+      # own estimate inherited a wrong start value and never corrected (prod 2026-10-29: 0.653 shown
+      # for energy charged at 0.41). Without a ledger yet (first run) it replays the executed history.
+      - variables:
+          ledger: >-
+            {%- set raw = state_attr('sensor.hba_energy_prices_data', 'marks') -%}
+            {%- set marks = (raw | from_json) if raw is string and (raw | trim)[:1] == '[' else (raw if raw is sequence else []) -%}
+            {%- set cur = marks | selectattr('start', 'defined') | list -%}
+            {%- set ns_m = namespace(b=none) -%}
+            {%- for m in cur if as_timestamp(m.start, 0) | int == now_slot -%}{%- set ns_m.b = (m.price | float(0)) / 100 -%}{%- endfor -%}
+            {%- set prow = prev_plan | selectattr('ts', 'eq', now_slot) | first | default(none) -%}
+            {%- set b_now = ns_m.b if ns_m.b is not none else (prow.b if prow is not none else none) -%}
+            {%- set s_now = prow.s if prow is not none else b_now -%}
+            {%- set eta = (state_attr('sensor.hba_planned_strategy', 'efficiency') | float(85)) / 100 -%}
+            {%- set ec = eta ** 0.5 -%}
+            {%- set pE = state_attr('sensor.hba_planned_strategy', 'ledger_energy') -%}
+            {%- set pC = state_attr('sensor.hba_planned_strategy', 'ledger_cost') -%}
+            {%- set grid = is_state('sensor.hba_active_strategy', 'Charge') -%}
+            {%- if e_now < 0 or b_now is none -%}
+              {{ {'E': pE, 'C': pC} | tojson }}
+            {%- elif pE is number and pC is number -%}
+              {%- set dE = e_now - pE -%}
+              {%- set price = b_now if grid else s_now -%}
+              {%- set C = ((pC * pE + dE * price / ec) / e_now) if dE > 0.02 and e_now > 0.05 else pC -%}
+              {{ {'E': e_now, 'C': C | round(4)} | tojson }}
+            {%- else -%}
+              {#- Seed: replay the executed history (ts, b, s, a, e1), then up to now -#}
+              {%- set hist = prev_hist | sort(attribute='ts') | list -%}
+              {%- set ns_l = namespace(E=none, C=none) -%}
+              {%- for h in hist if h.e1 is number -%}
+                {%- if ns_l.E is none -%}
+                  {%- set ns_l.E = h.e1 -%}{%- set ns_l.C = h.b / ec -%}
+                {%- else -%}
+                  {%- set dE = h.e1 - ns_l.E -%}
+                  {%- if dE > 0.02 and h.e1 > 0.05 -%}
+                    {%- set ns_l.C = (ns_l.C * ns_l.E + dE * (h.b if h.a == 'Charge' else h.s) / ec) / h.e1 -%}
+                  {%- endif -%}
+                  {%- set ns_l.E = h.e1 -%}
+                {%- endif -%}
+              {%- endfor -%}
+              {%- if ns_l.E is none -%}{%- set ns_l.E = e_now -%}{%- set ns_l.C = b_now / ec -%}{%- endif -%}
+              {%- set dE = e_now - ns_l.E -%}
+              {%- set C = ((ns_l.C * ns_l.E + dE * (b_now if grid else s_now) / ec) / e_now) if dE > 0.02 and e_now > 0.05 else ns_l.C -%}
+              {{ {'E': e_now, 'C': C | round(4)} | tojson }}
+            {%- endif -%}
       - variables:
           result: >-
             {%- if replan == '' -%}
@@ -291,16 +339,9 @@ template:
                   {%- endfor -%}
                   {#- ── Forward pass from the real stored energy ── -#}
                   {%- set E0 = [[e_now, 0] | max, emax] | min -%}
-                  {#- What the energy already in the battery cost: carried over from the previous plan
-                      (its row for the slot before this one, else the last executed slot), so it only
-                      changes when something actually goes in. A fresh average of the remaining buy
-                      prices made the same night-charged energy look dearer every hour as the cheap hours
-                      dropped out (prod 2026-10-29). The average only without a previous value. -#}
-                  {%- set prev_row = prev_plan | selectattr('ts', 'eq', now_slot - step) | first | default(none) -%}
-                  {%- if prev_row is none or prev_row.get('c') is none -%}
-                    {%- set prev_row = prev_hist | selectattr('ts', 'lt', now_slot) | rejectattr('c', 'none') | list | last | default(none) -%}
-                  {%- endif -%}
-                  {%- set per_kwh = ((prev_row.c - wear) * ed) if prev_row is not none and prev_row.get('c') is number else mean_b / ec -%}
+                  {#- What the energy already in the battery cost: the ledger (above), per stored kWh -#}
+                  {%- set lg = ledger if ledger is mapping else (ledger | from_json) -%}
+                  {%- set per_kwh = lg.C if lg.C is number else mean_b / ec -%}
                   {%- set fw = namespace(E=E0, basis=E0 * per_kwh, out=[], cost=0) -%}
                   {%- for t in range(N) -%}
                     {%- set sl = slots[t] -%}{%- set V = ns.Vs[t + 1] -%}
@@ -425,6 +466,9 @@ template:
           # Assumptions + expected cost of the plan vs Self-consumption only (Insights)
           summary: "{{ (result if result is mapping else (result | from_json)).get('summary') }}"
           drift: "{{ drift }}"
+          # Ledger (see the variable): stored energy at the last run and what it cost per stored kWh
+          ledger_energy: "{{ (ledger if ledger is mapping else (ledger | from_json)).E }}"
+          ledger_cost: "{{ (ledger if ledger is mapping else (ledger | from_json)).C }}"
           # Stored energy the plan expects at the end of the running slot (Charge / Sell run to it)
           target_energy: >-
             {%- set row = (result if result is mapping else (result | from_json)).plan | selectattr('ts', 'eq', now_slot) | first | default(none) -%}

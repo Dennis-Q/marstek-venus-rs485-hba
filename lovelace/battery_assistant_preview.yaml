@@ -3307,7 +3307,8 @@ views:
               {%- if sm is mapping %}
               <small>**Assumed:** usable {{ sm.usable }} kWh · charge {{ sm.charge_kw }} kW · discharge {{ sm.discharge_kw }} kW · efficiency {{ sm.efficiency }} % · house {{ ('per hour from ' ~ sm.house_profile_days ~ ' days') if sm.get('house_profile_days', 0) | int(0) > 0 else (sm.house_w ~ ' W') }} · reserve {{ sm.reserve }} kWh · wear €{{ sm.wear }}/kWh · energy left at the end valued at €{{ sm.end_value }}/kWh
 
-              **Expected until {{ sm.until | timestamp_custom('%a %H:%M') }}:** plan €{{ '%.2f' | format(sm.plan_cost) }} · Self-consumption only €{{ '%.2f' | format(sm.sc_cost) }} → plan {{ 'saves' if sm.gain >= 0 else 'costs' }} **€{{ '%.2f' | format(sm.gain | abs) }}** <font color=grey>(negative = income)</font></small>
+              {%- macro res(v) -%}{{ ('you earn €%.2f' | format(-v)) if v < 0 else ('you pay €%.2f' | format(v)) }}{%- endmacro %}
+              **Expected until {{ sm.until | timestamp_custom('%a %H:%M') }}** <font color=grey>(all electricity: house, batteries, sun, and what is left in the batteries at the end)</font>: with the plan {{ res(sm.plan_cost) }} · with Self-consumption only {{ res(sm.sc_cost) }} → the plan is **€{{ '%.2f' | format(sm.gain | abs) }} {{ 'better' if sm.gain >= 0 else 'worse' }}**</small>
               {%- else %}
               <small>No plan yet ({{ states(E) }}).</small>
               {%- endif %}
