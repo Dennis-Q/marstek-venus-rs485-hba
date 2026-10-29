@@ -2631,6 +2631,17 @@ views:
               The plan is redone at every new slot, when new prices or a new solar forecast
               arrive, when a setting changes, and when the stored energy is further off the
               plan than set above (checked every 5 minutes)._</font>
+
+
+              <font color=grey>**Energy step:** the plan looks at the stored energy in steps — the
+              usable energy divided into equal parts. A Charge or Sell can only stop at such a step
+              (e.g. "down to 0.9 kWh"), so a smaller step keeps closer to exactly what a later hour needs.
+              0 = auto: usable ÷ 20. The finest is usable ÷ 40; a smaller value is rounded up to that.
+              **Cost:** the calculation time grows about 2× when the step halves, more with 15-minute
+              prices (4× the slots). Home Assistant does nothing else during the calculation (also not the
+              battery control), so keep it under about 1 s.{% set sm = state_attr('sensor.hba_planned_strategy', 'summary') %}{% if sm is mapping and sm.get('calc_s') is not none %}
+              **Last plan:** {{ sm.slots }} slots × {{ sm.levels }} levels, step {{ '%.2f' | format(sm.step_kwh) }} kWh,
+              took {{ '%.2f' | format(sm.calc_s) }} s.{% endif %}</font>
   - type: sections
     max_columns: 3
     title: Insights

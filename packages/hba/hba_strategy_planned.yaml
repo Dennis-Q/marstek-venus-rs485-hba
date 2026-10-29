@@ -209,6 +209,8 @@ template:
             {%- endif -%}
       - variables:
           result: >-
+            {#- Start time: the summary reports how long the calculation took (it blocks HA that long) -#}
+            {%- set t_calc0 = as_timestamp(now()) -%}
             {%- if replan == '' -%}
               {{ {'plan': prev_plan, 'status': state_attr('sensor.hba_planned_strategy', 'status') or 'OK',
                   'made': state_attr('sensor.hba_planned_strategy', 'plan_made'),
@@ -474,7 +476,9 @@ template:
                        'reserve': rmin | round(1), 'wear': wear, 'end_value': endv | round(3), 'end_buy': end_b | round(3),
                        'plan_cost': plan_total | round(2), 'sc_cost': sc_total | round(2),
                        'gain': (sc_total - plan_total) | round(2),
-                       'until': (slots | last).ts + step} -%}
+                       'until': (slots | last).ts + step,
+                       'slots': N, 'levels': K, 'step_kwh': dE | round(2),
+                       'calc_s': (as_timestamp(now()) - t_calc0) | round(2)} -%}
                   {{ {'plan': fw.out, 'status': 'OK', 'made': now().isoformat(), 'reason': replan, 'eta': (eta * 100) | round(1), 'summary': summary} | tojson }}
                 {%- endif -%}
               {%- endif -%}

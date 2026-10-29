@@ -196,7 +196,9 @@ open), so the version prefix stays at 4.10.1 for now.
     whole hour (a Marstek feeds mostly its own overhead below ~200 W).
   - New setting **Planned: energy step** (`input_number.hba_strategy_planned_energy_step`, 0 = auto = usable
     energy / 20, e.g. 0.89 kWh): the energy levels the plan works with, so also the steps of a partial
-    Charge / Sell target. Finest usable / 40 (~1 s per plan instead of ~0.5 s).
+    Charge / Sell target. Finest usable / 40 (~1 s per plan instead of ~0.5 s). The Planned view explains the
+    step and its cost, and shows the last plan's size and calculation time (`summary`: `slots`, `levels`,
+    `step_kwh`, `calc_s`).
   - New **Planned** view in the preview dashboard: the plan table at the top (executed hours greyed, now in
     bold, "Profit €/kWh" for hours where energy leaves the battery = sell price or saved buy price − what that
     kWh cost, "Stored" = kWh at the end of the slot, "House" = kWh assumed), the settings below it. The cost of a
