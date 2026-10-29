@@ -269,7 +269,7 @@ Every minimum is also the default, so a new install plans sensibly before *Apply
 | `input_number.hba_strategy_planned_wear_cost` | `0` EUR/kWh cycled |
 | `input_number.hba_strategy_planned_reserve` | `0` kWh |
 | `input_number.hba_strategy_planned_sell_deduction` | `0` EUR/kWh |
-| `input_number.hba_strategy_planned_min_sell_profit` | `0` EUR/kWh (purely financial; e.g. 0.03 turns close calls into Self-consumption) |
+| `input_number.hba_strategy_planned_min_sell_profit` ("minimum advantage of selling") | `0` EUR/kWh (purely financial; e.g. 0.03 turns close calls into Self-consumption / Zero import; compared with Insights "Better by per kWh") |
 | `input_number.hba_strategy_planned_replan_drift` | `1` kWh (minimum 0.5) |
 | `input_text.hba_strategy_planned_sell_price_entity_id` | empty = sell at the buy price (net metering) |
 | `input_boolean.hba_strategy_planned_skip_charge` / `_skip_sell` / `_skip_zero_import` | `off` (all strategies allowed) |

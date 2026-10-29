@@ -458,10 +458,12 @@ input_number:
     unit_of_measurement: "EUR/kWh"
     icon: mdi:cash-minus
   # Only sell from the battery when it beats keeping the energy (house use until the next
-  # recharge) by at least this much per kWh. An extra cost per kWh the BATTERY sends to the grid
+  # recharge, or a later sale) by at least this much per kWh -- compared with "Better by per kWh"
+  # in Insights, NOT with what the energy cost. An extra cost per kWh the BATTERY sends to the grid
   # (not directly exported sun, not the house share of a Sell slot); not counted as real money.
+  # (Entity id keeps "min_sell_profit"; it was named "minimum profit for selling" at first.)
   hba_strategy_planned_min_sell_profit:
-    name: "Planned: minimum profit for selling"
+    name: "Planned: minimum advantage of selling"
     min: 0
     max: 0.5
     step: 0.005

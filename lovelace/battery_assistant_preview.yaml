@@ -2541,16 +2541,18 @@ views:
               - entity: input_number.hba_strategy_planned_sell_deduction
                 name: Sell price deduction
               - entity: input_number.hba_strategy_planned_min_sell_profit
-                name: Minimum profit for selling (from the battery)
+                name: Minimum advantage of selling (over keeping)
           - type: markdown
             text_only: true
             content: >-
               <font color=grey>_Under net metering (until 2027) selling earns about the
               buy price: leave the sell sensor empty. From 2027 point it at the market price,
-              e.g. `sensor.frank_energie_prices_current_electricity_market_price`. **Minimum profit for
-              selling:** the plan only sells from the battery when that beats keeping the energy for the
-              house (until the next recharge) by at least this much per kWh — e.g. €0.03 turns close calls
-              into Self-consumption. 0 = purely financial._</font>
+              e.g. `sensor.frank_energie_prices_current_electricity_market_price`. **Minimum advantage
+              of selling:** the plan only sells from the battery when that beats keeping the energy (for
+              the house until the next recharge, or a later sale) by at least this much per kWh — the
+              number to compare with is **Better by per kWh** in Insights, not the profit in the plan table
+              (that one is against what the energy cost). E.g. €0.03 turns close calls into Self-consumption
+              / Zero import. 0 = purely financial._</font>
           - type: heading
             heading: Battery and house
             heading_style: subtitle
@@ -3341,7 +3343,8 @@ views:
               not selling 7 kWh at the peak means selling them later, cheaper). **Better by per kWh:**
               that amount divided by the energy the two options differ in — how clear the decision is,
               NOT the profit (e.g. selling at 07:00 vs keeping it for a later sale: 0.011; the profit
-              against what the energy cost is in the plan table). **Tie:** the options do
+              against what the energy cost is in the plan table). A Sell whose value here is below the
+              **Minimum advantage of selling** setting becomes the runner-up. **Tie:** the options do
               the same here (e.g. a full battery); the label is then chosen by what a stored kWh is
               worth. A small amount means a close call that can flip with a small price or forecast
               change. **Cost out:** what a kWh from the battery has cost after this slot (bought ÷
