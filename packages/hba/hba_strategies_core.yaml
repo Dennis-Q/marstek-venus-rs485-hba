@@ -1801,6 +1801,9 @@ script:
       - action: input_number.set_value
         target: { entity_id: input_number.hba_strategy_planned_replan_drift }
         data: { value: 1 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_strategy_planned_energy_step }
+        data: { value: 0 }
       - action: input_boolean.turn_off
         target:
           entity_id:

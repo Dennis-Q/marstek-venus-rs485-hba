@@ -89,6 +89,7 @@ template:
           - input_number.hba_strategy_planned_sell_deduction
           - input_number.hba_strategy_planned_min_sell_profit
           - input_number.hba_strategy_planned_replan_drift
+          - input_number.hba_strategy_planned_energy_step
           - input_number.hba_strategy_solar_aware_house_load
           - input_boolean.hba_strategy_planned_skip_charge
           - input_boolean.hba_strategy_planned_skip_sell
@@ -319,7 +320,12 @@ template:
                 {%- if N == 0 -%}
                   {{ {'plan': [], 'status': 'No price data', 'made': now().isoformat(), 'reason': replan, 'eta': (eta * 100) | round(1)} | tojson }}
                 {%- else -%}
-                  {%- set K = 21 -%}{%- set dE = emax / (K - 1) -%}
+                  {#- Energy levels: input_number.hba_strategy_planned_energy_step (0 = auto, 20 steps);
+                      the step divides the usable energy evenly, 4..40 steps (0.25 kWh = 2.6 s per plan
+                      on the dev box: it blocks HA that long) -#}
+                  {%- set est = states('input_number.hba_strategy_planned_energy_step') | float(0) -%}
+                  {%- set K = ([[(emax / est) | round(0, 'ceil') | int, 4] | max, 40] | min if est > 0 else 20) + 1 -%}
+                  {%- set dE = emax / (K - 1) -%}
                   {%- set mean_b = (slots | map(attribute='b') | sum) / N -%}
                   {#- Value of energy still in the battery when the price data ends: what it will most
                       likely save -- the night after, so the LOWEST buy price in the last 12 h of the
@@ -584,6 +590,12 @@ script:
                and nxt.e1 < nxt.e0 - 0.05 and nxt.b <= cur.b }}
       - variables:
           needed_kw: "{{ ([avail - target, 0] | max) * ed / t_left_h }}"
+          # Never spread below the minimum start power (input_number.hba_control_min_start_power,
+          # 200 W by default): below ~200 W a Marstek mostly feeds its own ~20-25 W overhead
+          # (efficiency ~74 % at 100-200 W). A small remainder is sold at that power from the start
+          # of the slot and reaches the target early ("Sell done"), instead of trickling out at
+          # 80 W for the whole hour.
+          spread_kw: "{{ [needed_kw, states('input_number.hba_control_min_start_power') | float(0) / 1000] | max }}"
           # Grid target = net house use now − the power the battery should deliver, so the battery
           # delivers exactly that (house first, the rest exported), whatever the house and the sun do.
           # Never above 0: while there is energy above the target the battery covers the whole house,
@@ -591,7 +603,7 @@ script:
           # import at the price of a sell hour). needed_kw then drops by itself for the rest of the slot.
           # Never more export than the export limit.
           grid_target_w: >-
-            {%- set x = [house_net_w - needed_kw * 1000, 0] | min -%}
+            {%- set x = [house_net_w - spread_kw * 1000, 0] | min -%}
             {%- if is_state('input_boolean.hba_control_has_power_limit_export', 'on') -%}
               {%- set x = [x, -(states('input_number.hba_control_power_limit_export') | float(5000))] | max -%}
             {%- endif -%}

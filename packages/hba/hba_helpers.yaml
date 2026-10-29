@@ -470,6 +470,18 @@ input_number:
     mode: box
     unit_of_measurement: "EUR/kWh"
     icon: mdi:cash-check
+  # Planned: the energy levels the plan works with (and the steps of a partial Charge / Sell
+  # target). 0 = auto: usable energy / 20 (17.8 kWh -> 0.89 kWh). Smaller = more precise targets,
+  # longer calculation: ~0.5 s at auto, ~1 s at usable / 40 (48 hourly slots; 15-minute prices x4) --
+  # it blocks HA (and the control loop) that long. Never finer than usable / 40.
+  hba_strategy_planned_energy_step:
+    name: "Planned: energy step"
+    min: 0
+    max: 2
+    step: 0.05
+    mode: box
+    unit_of_measurement: kWh
+    icon: mdi:stairs
   hba_strategy_planned_replan_drift:
     name: "Planned: re-plan when off by more than"
     min: 0.5

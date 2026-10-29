@@ -190,6 +190,12 @@ open), so the version prefix stays at 4.10.1 for now.
     power still to be sold (an oven), the battery covers the whole house and sells less for the rest of the
     hour. When Sell reaches its target early and the next slot discharges for the house anyway
     (Self-consumption / Zero import, not dearer), it switches to Self-consumption instead of importing.
+    A spread-out Sell never runs below the minimum start power (`input_number.hba_control_min_start_power`,
+    200 W): a small remainder is sold at that power and reaches the target early, instead of ~80 W for the
+    whole hour (a Marstek feeds mostly its own overhead below ~200 W).
+  - New setting **Planned: energy step** (`input_number.hba_strategy_planned_energy_step`, 0 = auto = usable
+    energy / 20, e.g. 0.89 kWh): the energy levels the plan works with, so also the steps of a partial
+    Charge / Sell target. Finest usable / 40 (~1 s per plan instead of ~0.5 s).
   - New **Planned** view in the preview dashboard: the plan table at the top (executed hours greyed, now in
     bold, "Profit €/kWh" for hours where energy leaves the battery = sell price or saved buy price − what that
     kWh cost, "Stored" = kWh at the end of the slot, "House" = kWh assumed), the settings below it. The cost of a

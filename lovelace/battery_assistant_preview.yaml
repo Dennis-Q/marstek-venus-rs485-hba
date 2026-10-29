@@ -2622,6 +2622,8 @@ views:
                 name: Never Zero import
               - entity: input_number.hba_strategy_planned_replan_drift
                 name: Re-plan when off by more than
+              - entity: input_number.hba_strategy_planned_energy_step
+                name: Energy step (0 = auto, usable ÷ 20)
           - type: markdown
             text_only: true
             content: >-
