@@ -173,8 +173,32 @@ template:
               {%- endfor -%}
               {%- set eta = (eff_set if eff_set > 0 else ((ns_eff.v | sum / ns_eff.v | length) if ns_eff.v | length > 0 else 85)) / 100 -%}
               {%- set ec = eta ** 0.5 -%}{%- set ed = eta ** 0.5 -%}
-              {%- set pc = states('sensor.hba_total_max_charge_power') | float(0) / 1000 -%}
-              {%- set pd = states('sensor.hba_total_max_discharge_power') | float(0) / 1000 -%}
+              {#- Max power. The running slot: what the batteries allow NOW (incl. the BMS limit near
+                  full). Later slots: the set limits WITHOUT the momentary BMS limit and without the
+                  register dip during a power-group leader handover (prod 2026-10-29: full batteries
+                  -> total max charge 2.5 kW / 0 -> the plan thought midday could only recharge at
+                  2.5 kW and kept the morning sell back). Per battery: the power-group target
+                  (sensor.hba_power_limits charge/discharge), else its last known limit, else the
+                  register, else 2500 W. -#}
+              {%- set pc_now = states('sensor.hba_total_max_charge_power') | float(0) / 1000 -%}
+              {%- set pd_now = states('sensor.hba_total_max_discharge_power') | float(0) / 1000 -%}
+              {%- set pl_c = state_attr('sensor.hba_power_limits', 'charge') -%}
+              {%- set pl_d = state_attr('sensor.hba_power_limits', 'discharge') -%}
+              {%- set lk_c = state_attr('sensor.hba_power_limits', 'last_known_charge') -%}
+              {%- set lk_d = state_attr('sensor.hba_power_limits', 'last_known_discharge') -%}
+              {%- set pl_c = pl_c if pl_c is mapping and is_state('sensor.hba_power_limits', 'Active') else {} -%}
+              {%- set pl_d = pl_d if pl_d is mapping and is_state('sensor.hba_power_limits', 'Active') else {} -%}
+              {%- set lk_c = lk_c if lk_c is mapping else {} -%}{%- set lk_d = lk_d if lk_d is mapping else {} -%}
+              {%- set ns_p = namespace(c=0, d=0) -%}
+              {%- for i in range(1, count + 1) -%}
+                {%- set k = i | string -%}
+                {%- set rc = states('number.marstek_m' ~ i ~ '_max_charge_power') | float(0) -%}
+                {%- set rd = states('number.marstek_m' ~ i ~ '_max_discharge_power') | float(0) -%}
+                {%- set ns_p.c = ns_p.c + (pl_c[k] if k in pl_c else (lk_c[k] if k in lk_c else (rc if rc > 50 else 2500))) | float(0) -%}
+                {%- set ns_p.d = ns_p.d + (pl_d[k] if k in pl_d else (lk_d[k] if k in lk_d else (rd if rd > 50 else 2500))) | float(0) -%}
+              {%- endfor -%}
+              {%- set pc = ns_p.c / 1000 -%}
+              {%- set pd = ns_p.d / 1000 -%}
               {%- set wear = states('input_number.hba_strategy_planned_wear_cost') | float(0) -%}
               {%- set rmin = [states('input_number.hba_strategy_planned_reserve') | float(0), emax] | min -%}
               {%- set deduct = states('input_number.hba_strategy_planned_sell_deduction') | float(0) -%}
@@ -227,7 +251,9 @@ template:
                     {%- endfor -%}
                     {%- set hr = ts | timestamp_custom('%H') | int -%}
                     {%- set w = prof[hr] if prof | length == 24 and prof[hr] is number else none -%}
-                    {%- set ns_in.slots = ns_in.slots + [{'ts': ts, 'b': b, 's': s, 'h': h, 'sun': ns_s.kwh, 'load': ((w / 1000) if w is not none else load_kw) * h}] -%}
+                    {%- set first = ts <= now_ts -%}
+                    {%- set ns_in.slots = ns_in.slots + [{'ts': ts, 'b': b, 's': s, 'h': h, 'sun': ns_s.kwh, 'load': ((w / 1000) if w is not none else load_kw) * h,
+                         'pc': ([pc_now, pc] | min) if first else pc, 'pd': ([pd_now, pd] | min) if first else pd}] -%}
                   {%- endif -%}
                 {%- endfor -%}
                 {%- set slots = ns_in.slots | sort(attribute='ts') -%}
@@ -244,7 +270,7 @@ template:
                   {%- for t in range(N - 1, -1, -1) -%}
                     {%- set sl = slots[t] -%}
                     {%- set nl = sl.load - sl.sun -%}{%- set d = [nl, 0] | max -%}{%- set u = [-nl, 0] | max -%}
-                    {%- set cc = pc * sl.h -%}{%- set cd = pd * sl.h -%}
+                    {%- set cc = sl.pc * sl.h -%}{%- set cd = sl.pd * sl.h -%}
                     {%- set nv = namespace(V=[]) -%}
                     {%- for k in range(K) -%}
                       {%- set E = k * dE -%}
@@ -269,7 +295,7 @@ template:
                   {%- for t in range(N) -%}
                     {%- set sl = slots[t] -%}{%- set V = ns.Vs[t + 1] -%}
                     {%- set nl = sl.load - sl.sun -%}{%- set d = [nl, 0] | max -%}{%- set u = [-nl, 0] | max -%}
-                    {%- set cc = pc * sl.h -%}{%- set cd = pd * sl.h -%}
+                    {%- set cc = sl.pc * sl.h -%}{%- set cd = sl.pd * sl.h -%}
                     {%- set E = fw.E -%}
                     {%- set room = ([emax - E, 0] | max) / ec -%}{%- set av = ([E - rmin, 0] | max) * ed -%}
                     {#- Ties (e.g. a full or empty battery, where several options do the same): decide by
@@ -335,8 +361,8 @@ template:
                   {%- set sc = namespace(E=E0, cost=0) -%}
                   {%- for sl in slots -%}
                     {%- set nl = sl.load - sl.sun -%}{%- set d = [nl, 0] | max -%}{%- set u = [-nl, 0] | max -%}
-                    {%- set ch = [u, pc * sl.h, ([emax - sc.E, 0] | max) / ec] | min -%}
-                    {%- set dis = [d, pd * sl.h, ([sc.E - rmin, 0] | max) * ed] | min -%}
+                    {%- set ch = [u, sl.pc * sl.h, ([emax - sc.E, 0] | max) / ec] | min -%}
+                    {%- set dis = [d, sl.pd * sl.h, ([sc.E - rmin, 0] | max) * ed] | min -%}
                     {%- set net = d - u + ch - dis -%}
                     {%- set sc.cost = sc.cost + ([net, 0] | max) * sl.b - ([-net, 0] | max) * sl.s + wear * dis -%}
                     {%- set sc.E = [[sc.E + ch * ec - dis / ed, 0] | max, emax] | min -%}

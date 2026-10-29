@@ -206,6 +206,11 @@ open), so the version prefix stays at 4.10.1 for now.
     below it Self-consumption with an export target = that power − expected house use, so the house
     stays covered on top of a steady export. Executed slots keep the planned target (`pe1`) next to the
     measured result, to check that a spread-out Sell sold what was planned.
+  - **Max power for later hours = the set limits,** not what the batteries allow at this moment: near full the
+    BMS limits charging (prod 2026-10-29: 2.5 kW / 0) and a power-group leader handover dips the registers for a
+    few seconds. The plan used that momentary value for every future hour, thought midday could only recharge at
+    2.5 kW and moved the morning sell from 07:00 to 08:00. Now only the running slot uses the momentary limit;
+    later slots use the power-group targets / last known limits.
   - **No flapping near the target:** once Charge or Sell reached its target in a slot it only resumes when
     the stored energy is 0.3 kWh (~1.5 % SoC) on the wrong side, and Charge stops as soon as every battery
     is at its charge cutoff (prod 2026-10-29 04:32–04:44: Charge ↔ Charge PV every ~30 s near full,
