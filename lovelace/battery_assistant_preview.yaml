@@ -2546,9 +2546,13 @@ views:
           - type: markdown
             text_only: true
             content: >-
-              <font color=grey>_Under net metering (until 2027) selling earns about the
-              buy price: leave the sell sensor empty. From 2027 point it at the market price,
-              e.g. `sensor.frank_energie_prices_current_electricity_market_price`. **Minimum advantage
+              <font color=grey>_**Buy price** = the all-in price (market + supplier's purchase fee + energy tax
+              + VAT) — what an imported kWh costs and what sun you use yourself saves. **Sell price**
+              under net metering (until 31-12-2026, as long as you import more than you export over the
+              year): leave the sell sensor empty (= buy price) and set the **deduction** to the supplier's
+              two fees — Frank Energie: purchase fee ~€0.018 + selling fee ~€0.013 = **€0.031**. From 2027:
+              sell sensor `sensor.frank_energie_prices_current_electricity_market_price`, deduction = the
+              selling fee (~€0.013). Fees change now and then — check the app / contract. **Minimum advantage
               of selling:** the plan only sells from the battery when that beats keeping the energy (for
               the house until the next recharge, or a later sale) by at least this much per kWh — the
               number to compare with is **Better by per kWh** in Insights, not the profit in the plan table
