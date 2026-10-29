@@ -573,13 +573,25 @@ script:
           # Not the expected profile value: with the sun covering the house the profile value made the
           # export target 0, so the battery delivered nothing (2026-10-29, a user's prod).
           house_net_w: "{{ states('sensor.p1_meter_power') | float(0) + states('sensor.hba_total_battery_power') | float(0) }}"
+          # The next slot discharges for the house (Self-consumption / Zero import, stored goes down)
+          # and buying then costs no more than now -> after Sell done, cover the house now
+          next_for_house: >-
+            {%- set plan = state_attr('sensor.hba_planned_strategy', 'plan') or [] -%}
+            {%- set n = as_timestamp(now()) | int -%}
+            {%- set cur = plan | selectattr('ts', 'le', n) | list | last | default(none) -%}
+            {%- set nxt = plan | selectattr('ts', 'gt', n) | first | default(none) -%}
+            {{ cur is not none and nxt is not none and nxt.a in ['Self-consumption', 'Zero import']
+               and nxt.e1 < nxt.e0 - 0.05 and nxt.b <= cur.b }}
       - variables:
           needed_kw: "{{ ([avail - target, 0] | max) * ed / t_left_h }}"
           # Grid target = net house use now − the power the battery should deliver, so the battery
           # delivers exactly that (house first, the rest exported), whatever the house and the sun do.
+          # Never above 0: while there is energy above the target the battery covers the whole house,
+          # also when the house uses more than that power (oven at 2 kW, 600 W to sell: no 1.4 kW
+          # import at the price of a sell hour). needed_kw then drops by itself for the rest of the slot.
           # Never more export than the export limit.
           grid_target_w: >-
-            {%- set x = house_net_w - needed_kw * 1000 -%}
+            {%- set x = [house_net_w - needed_kw * 1000, 0] | min -%}
             {%- if is_state('input_boolean.hba_control_has_power_limit_export', 'on') -%}
               {%- set x = [x, -(states('input_number.hba_control_power_limit_export') | float(5000))] | max -%}
             {%- endif -%}
@@ -633,6 +645,17 @@ script:
                     data:
                       desired_power_w: "{{ -(states('sensor.hba_total_max_discharge_power') | float(2500)) | int }}"
                       mode: "discharge"
+          # Sell done early, and the next slot discharges for the house anyway (Self-consumption /
+          # Zero import) at a buy price not above this one: cover the house now instead of importing
+          # at the sell hour's price and using the energy an hour later (user 2026-10-30). The label
+          # keeps "Sell done", so the Sell hysteresis above still applies.
+          - conditions: "{{ act == 'Sell' and next_for_house }}"
+            sequence:
+              - action: input_text.set_value
+                target: { entity_id: input_text.hba_strategy_active_flow }
+                data: { value: "Planned → Sell done → Self-consumption" }
+              - action: script.hba_strategy_self_consumption
+                data: { skip_label: true }
           # Charge / Sell done for this slot: hold, the sun may still fill the battery
           - conditions: "{{ act in ['Charge', 'Sell', 'Charge PV'] }}"
             sequence:
