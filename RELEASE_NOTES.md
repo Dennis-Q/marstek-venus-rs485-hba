@@ -201,7 +201,7 @@ open), so the version prefix stays at 4.10.1 for now.
     the same), the assumed sun and house use, the assumptions in one line, and the expected cost of
     the plan versus Self-consumption only.
   - **House use per hour of the day** (`sensor.hba_house_load_profile`, attribute `profile` = 24 values
-    in W): calculated every night at 03:15 and after a restart from the recorder's hourly statistics
+    in W): calculated every night at 03:15 (at a restart only when the profile is missing or older than 20 h) from the recorder's hourly statistics
     (`recorder.get_statistics`) — grid (P1) + batteries + solar (new settings: up to two solar power
     sensors) − EV charger (`sensor.ev_charger_power` if it exists) — over the last 1–4 weeks (setting,
     default 2). Days below 60 % of the median day (absent, e.g. a holiday) and incomplete days are

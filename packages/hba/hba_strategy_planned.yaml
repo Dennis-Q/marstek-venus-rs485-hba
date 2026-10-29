@@ -710,13 +710,24 @@ automation:
           - input_text.hba_solar_power_entity_2
           - input_text.hba_ev_charger_power_entity_id
           - input_select.hba_house_load_window
+    conditions:
+      # At start only when needed: the profile sensor keeps its value across restarts, so only
+      # without a profile (new install) or when the 03:15 run was missed (HA down). Running (and
+      # waiting) at every start put this automation in HA's "running, will be interrupted" list
+      # at each quick restart (user 2026-10-30).
+      - condition: template
+        value_template: >-
+          {%- set upd = state_attr('sensor.hba_house_load_profile', 'updated') -%}
+          {{ trigger.id != 'start'
+             or (state_attr('sensor.hba_house_load_profile', 'profile') or []) | length != 24
+             or upd is none or as_timestamp(upd, 0) < as_timestamp(now()) - 20 * 3600 }}
     actions:
-      # Let the recorder and the integrations settle after a start
+      # Let the recorder settle after a start
       - if:
           - condition: trigger
             id: start
         then:
-          - delay: { minutes: 2 }
+          - delay: { seconds: 30 }
       - variables:
           weeks: "{{ states('input_select.hba_house_load_window').split(' ')[0] | int(2) }}"
           solar: >-
