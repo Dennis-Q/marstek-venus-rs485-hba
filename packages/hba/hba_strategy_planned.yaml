@@ -579,15 +579,20 @@ script:
           # Not the expected profile value: with the sun covering the house the profile value made the
           # export target 0, so the battery delivered nothing (2026-10-29, a user's prod).
           house_net_w: "{{ states('sensor.p1_meter_power') | float(0) + states('sensor.hba_total_battery_power') | float(0) }}"
-          # The next slot discharges for the house (Self-consumption / Zero import, stored goes down)
-          # and buying then costs no more than now -> after Sell done, cover the house now
-          next_for_house: >-
+          # After Sell done: where is the energy kept above the target used next? The first later
+          # slot in which the stored energy goes down (the dashboard's "keep for HH:MM"); it is worth
+          # its buy price there (house) or its sell price (Sell). Worth no more than buying now ->
+          # cover the house now instead of importing at this sell hour's price. Never used within
+          # the plan -> it is only worth the end value, also less: cover the house now.
+          use_now: >-
             {%- set plan = state_attr('sensor.hba_planned_strategy', 'plan') or [] -%}
             {%- set n = as_timestamp(now()) | int -%}
             {%- set cur = plan | selectattr('ts', 'le', n) | list | last | default(none) -%}
-            {%- set nxt = plan | selectattr('ts', 'gt', n) | first | default(none) -%}
-            {{ cur is not none and nxt is not none and nxt.a in ['Self-consumption', 'Zero import']
-               and nxt.e1 < nxt.e0 - 0.05 and nxt.b <= cur.b }}
+            {%- set ns = namespace(v=none) -%}
+            {%- for q in plan if q.ts > n and ns.v is none and q.e1 < q.e0 - 0.05 -%}
+              {%- set ns.v = q.s if q.a == 'Sell' else q.b -%}
+            {%- endfor -%}
+            {{ cur is not none and (ns.v is none or ns.v <= cur.b) }}
       - variables:
           needed_kw: "{{ ([avail - target, 0] | max) * ed / t_left_h }}"
           # Never spread below the minimum start power (input_number.hba_control_min_start_power,
@@ -657,11 +662,11 @@ script:
                     data:
                       desired_power_w: "{{ -(states('sensor.hba_total_max_discharge_power') | float(2500)) | int }}"
                       mode: "discharge"
-          # Sell done early, and the next slot discharges for the house anyway (Self-consumption /
-          # Zero import) at a buy price not above this one: cover the house now instead of importing
-          # at the sell hour's price and using the energy an hour later (user 2026-10-30). The label
+          # Sell done early (min power, a big load, full power) and the energy kept above the target
+          # is worth no more later than buying now (use_now): cover the house for the rest of this
+          # expensive slot instead of importing (user 2026-10-30). Otherwise hold (below). The label
           # keeps "Sell done", so the Sell hysteresis above still applies.
-          - conditions: "{{ act == 'Sell' and next_for_house }}"
+          - conditions: "{{ act == 'Sell' and use_now }}"
             sequence:
               - action: input_text.set_value
                 target: { entity_id: input_text.hba_strategy_active_flow }

@@ -188,8 +188,9 @@ open), so the version prefix stays at 4.10.1 for now.
     (Planned view) and "Sell → 1.8 kWh" (Insights → Planned — decisions).
   - A spread-out Sell never imports while there is energy above the target: when the house uses more than the
     power still to be sold (an oven), the battery covers the whole house and sells less for the rest of the
-    hour. When Sell reaches its target early and the next slot discharges for the house anyway
-    (Self-consumption / Zero import, not dearer), it switches to Self-consumption instead of importing.
+    hour. When Sell reaches its target early, it covers the house for the rest of the hour
+    (Self-consumption) unless the energy kept above the target is worth more later: the first later slot
+    in which the stored energy goes down buys dearer (or sells higher) than buying now. Otherwise it holds.
     A spread-out Sell never runs below the minimum start power (`input_number.hba_control_min_start_power`,
     200 W): a small remainder is sold at that power and reaches the target early, instead of ~80 W for the
     whole hour (a Marstek feeds mostly its own overhead below ~200 W).
