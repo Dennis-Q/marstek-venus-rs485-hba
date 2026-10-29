@@ -377,6 +377,12 @@ template:
                     {%- set order = (['Charge PV', 'Full stop', 'Self-consumption', 'Zero import'] if store else ['Full stop', 'Charge PV', 'Zero import', 'Self-consumption'])
                                     if keep else
                                     (['Self-consumption', 'Zero import', 'Charge PV', 'Full stop'] if store else ['Zero import', 'Self-consumption', 'Full stop', 'Charge PV']) -%}
+                    {#- Empty battery (at the reserve): nothing can come out, so the options are equal --
+                        say Self-consumption, the normal mode (user 2026-10-29: Full stop / Zero import
+                        next to "empty" only confused) -#}
+                    {%- if E <= rmin + 0.05 -%}
+                      {%- set order = ['Self-consumption'] + (order | reject('eq', 'Self-consumption') | list) -%}
+                    {%- endif -%}
                     {%- set tie = {order[0]: 0, order[1]: 0.0001, order[2]: 0.0002, order[3]: 0.0003, 'Charge': 0.0005, 'Sell': 0.0005} -%}
                     {%- set best = namespace(v=1e9, a='Self-consumption', E2=E, ch=0, dis=0, imm=0, alt='', altv=1e9, altE=E) -%}
                     {%- for a in acts -%}

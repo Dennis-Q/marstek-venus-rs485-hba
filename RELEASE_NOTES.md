@@ -213,6 +213,9 @@ open), so the version prefix stays at 4.10.1 for now.
     few seconds. The plan used that momentary value for every future hour, thought midday could only recharge at
     2.5 kW and moved the morning sell from 07:00 to 08:00. Now only the running slot uses the momentary limit;
     later slots use the power-group targets / last known limits.
+  - **Clearer labels:** an empty battery (at the reserve) shows as Self-consumption instead of Full stop / Zero
+    import (all do the same then); the "keep for HH:MM" hint only where the battery really holds — not while
+    the sun is filling it. Explanation text under the prices no longer renders "~" as strikethrough.
   - **Energy left when the price data ends** is valued at the lowest buy price of the last 12 h of the plan ×
     efficiency (what it will most likely save: the night after), not the average of all buy prices. The average
     included the peaks, so the last evening of the plan kept the battery full at Full stop while the house bought
