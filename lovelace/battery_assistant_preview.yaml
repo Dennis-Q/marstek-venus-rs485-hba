@@ -2493,8 +2493,9 @@ views:
             text_only: true
             content: >-
               <small><font color=grey>**Grey:** executed, with the stored energy measured at the
-              end. **Bold:** now. **House:** kWh the plan assumes the house uses in that slot (from the
-              profile per hour). **Stored:** kWh in the batteries at the END of the slot, above
+              end. **Bold:** now. **House:** kWh the plan assumes the house uses in that slot — always
+              the average for that hour of the day over the last weeks (the house-use profile, see Insights),
+              also in the grey rows: an assumption, not the measured use (that is in the Energy dashboard). **Stored:** kWh in the batteries at the END of the slot, above
               the discharge cutoff (0 = at the cutoff, {{ states('sensor.hba_usable_battery_energy') | float(0) | round(1) }} = full). **Cost out:** what a kWh from the
               battery has cost after this slot (bought ÷ efficiency, sun at the sell price, + wear).
               **Profit €/kWh:** per kWh that leaves the battery: the sell price (Sell) or the buy price it saves

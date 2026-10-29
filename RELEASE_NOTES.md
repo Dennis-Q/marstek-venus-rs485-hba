@@ -227,6 +227,9 @@ open), so the version prefix stays at 4.10.1 for now.
     Feeds "Cost out" (Insights) and "Profit €/kWh" (plan table); decisions unchanged.
   - Insights "Expected" line in words ("with the plan you earn €14.21 · with Self-consumption only you earn
     €10.83 → the plan is €3.38 better") instead of negative numbers.
+  - **House in executed (grey) rows = the profile value for the whole hour,** not the plan row's value, which
+    only covered what was left of the hour at the last re-plan (showed 0.0 after a late re-plan). The legend says
+    it is always the average for that hour over the last weeks, not the measured use.
   - **Spread-out Sell with the sun covering the house:** the grid target is now the measured net house use
     (P1 + battery power) minus the power the battery should deliver, instead of an export target based on the
     expected house use. With sun on the house the old export target became 0 W and the battery delivered nothing

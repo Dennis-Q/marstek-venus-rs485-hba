@@ -442,9 +442,17 @@ template:
             {%- set ns_h = namespace(h=prev_hist | selectattr('ts', 'ge', now_slot - 86400) | list) -%}
             {%- if prev_slot > 0 and now_slot > prev_slot -%}
               {%- set done = prev_plan | selectattr('ts', 'eq', prev_slot) | first | default(none) -%}
+              {#- House for an executed slot: the assumption for the WHOLE slot (profile value for that
+                  hour of the day, else the average setting) -- not the plan row's value, which only
+                  covers what was left of the slot when the last plan was made (0.0 after a late re-plan) -#}
+              {%- set prof = state_attr('sensor.hba_house_load_profile', 'profile') -%}
+              {%- set hr = prev_slot | timestamp_custom('%H') | int -%}
+              {%- set w = prof[hr] if prof is sequence and prof is not string and prof | length == 24 and prof[hr] is number
+                          else states('input_number.hba_strategy_solar_aware_house_load') | float(300) -%}
+              {%- set hour_load = (w / 1000 * step / 3600) | round(2) -%}
               {%- if done is not none and done.ts not in (ns_h.h | map(attribute='ts') | list) -%}
                 {%- set ns_h.h = ns_h.h + [{'ts': done.ts, 'b': done.b, 's': done.s, 'a': done.a, 'r': done.r,
-                                             'e1': e_now | round(2) if e_now >= 0 else done.e1, 'pe1': done.e1, 'c': done.c, 'load': done.get('load')}] -%}
+                                             'e1': e_now | round(2) if e_now >= 0 else done.e1, 'pe1': done.e1, 'c': done.c, 'load': hour_load}] -%}
               {%- endif -%}
             {%- endif -%}
             {{ ns_h.h | tojson }}
