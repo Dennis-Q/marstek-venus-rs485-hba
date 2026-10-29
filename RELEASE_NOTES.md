@@ -213,6 +213,11 @@ open), so the version prefix stays at 4.10.1 for now.
     few seconds. The plan used that momentary value for every future hour, thought midday could only recharge at
     2.5 kW and moved the morning sell from 07:00 to 08:00. Now only the running slot uses the momentary limit;
     later slots use the power-group targets / last known limits.
+  - **Energy left when the price data ends** is valued at the lowest buy price of the last 12 h of the plan ×
+    efficiency (what it will most likely save: the night after), not the average of all buy prices. The average
+    included the peaks, so the last evening of the plan kept the battery full at Full stop while the house bought
+    from the grid (seen in a 2027 simulation with sell = market price). Mostly replaced anyway once the next
+    day's prices arrive.
   - **Minimum advantage of selling** (`input_number.hba_strategy_planned_min_sell_profit`, default 0): the plan
     only sells from the battery when that beats keeping the energy (for the house until the next recharge, or a
     later sale) by at least this much per kWh — the margin shown as "Better by per kWh" in Insights, not the

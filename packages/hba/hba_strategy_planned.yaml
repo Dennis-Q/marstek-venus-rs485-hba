@@ -15,8 +15,9 @@
 # Battery: usable energy, max charge / discharge power (power groups and own limits included),
 # round-trip efficiency (setting, 0 = the batteries' measured lifetime RTE), split evenly over
 # charging and discharging. Stored energy never goes below the reserve. Energy left at the end
-# of the horizon is valued at the average buy price x discharge efficiency, so the plan does
-# not empty the battery just because the price data ends.
+# of the horizon is valued at the lowest buy price of its last 12 h x discharge efficiency (what
+# it will most likely save: the night after), so the plan neither empties the battery just
+# because the price data ends nor hoards it for an imagined expensive hour.
 # Backward pass: value per energy level (21 levels, linear interpolation between them, so small
 # hourly flows are not rounded away). Forward pass: from the real stored energy, the best
 # strategy per slot -> sensor.hba_planned_strategy attribute 'plan'. Measured 0.13 s for 48
@@ -315,9 +316,18 @@ template:
                 {%- else -%}
                   {%- set K = 21 -%}{%- set dE = emax / (K - 1) -%}
                   {%- set mean_b = (slots | map(attribute='b') | sum) / N -%}
+                  {#- Value of energy still in the battery when the price data ends: what it will most
+                      likely save -- the night after, so the LOWEST buy price in the last 12 h of the
+                      horizon x discharge efficiency. The average of all buy prices (incl. the peaks) made
+                      the last evening hoard (2026-10-29, 2027 simulation: 12 kWh kept at Full stop while
+                      the house bought at 0.41-0.48). Mostly replaced anyway once the next day's prices
+                      arrive and the horizon moves on. -#}
+                  {%- set last_ts = (slots | last).ts -%}
+                  {%- set end_b = slots | selectattr('ts', 'ge', last_ts - 12 * 3600) | map(attribute='b') | min -%}
+                  {%- set endv = end_b * ed -%}
                   {#- ── Backward pass: value of each energy level per slot ── -#}
                   {%- set ns = namespace(V=[], Vs=[]) -%}
-                  {%- for k in range(K) -%}{%- set ns.V = ns.V + [-(k * dE) * mean_b * ed] -%}{%- endfor -%}
+                  {%- for k in range(K) -%}{%- set ns.V = ns.V + [-(k * dE) * endv] -%}{%- endfor -%}
                   {%- set ns.Vs = [ns.V] -%}
                   {%- for t in range(N - 1, -1, -1) -%}
                     {%- set sl = slots[t] -%}
@@ -412,7 +422,6 @@ template:
                   {%- endfor -%}
                   {#- Same hours with Self-consumption only, for the expected gain. Both totals count
                       the energy left at the end at the same end value. -#}
-                  {%- set endv = mean_b * ed -%}
                   {%- set sc = namespace(E=E0, cost=0) -%}
                   {%- for sl in slots -%}
                     {%- set nl = sl.load - sl.sun -%}{%- set d = [nl, 0] | max -%}{%- set u = [-nl, 0] | max -%}
