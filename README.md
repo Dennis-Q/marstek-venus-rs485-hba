@@ -436,6 +436,8 @@ charge at night → sell tomorrow morning".
   efficiency), the house (use per hour of the day, see below) and the sun (Solcast per half hour).
 - Charge and Sell run to the energy the plan expects at the end of the hour; Sell is spread over the
   hour when full power is not needed, so the house stays covered instead of importing after selling out.
+- What the stored energy cost is tracked in a ledger from what actually went in (grid charging at the buy
+  price, sun at the sell price), so the profit per kWh reflects what you really paid.
 - Re-plans every hour, on new prices or a new forecast, on a setting change, and when the stored
   energy drifts from the plan.
 - Settings: wear cost per kWh (default 0), a reserve for unexpected loads, a separate sell-price
@@ -446,8 +448,9 @@ charge at night → sell tomorrow morning".
   absent days. Set your solar power sensor(s) and the EV charger's own power sensor (it must have
   long-term statistics) in the Planned view.
 - The plan is always calculated; it controls the batteries only when *Choose strategy* is **Planned**.
-  The preview dashboard shows it in the **Planned** view (per hour: prices, cost of a kWh from the
-  battery, strategy with a short "for 07:00 / keep for 17:00" hint, stored energy, house use) and in
+  The preview dashboard shows it in the **Planned** view (per hour: buy price, cost of a kWh from the
+  battery, strategy with a short "for 07:00 / keep for 17:00" hint, profit per kWh when energy leaves
+  the battery, stored energy, house use) and in
   **Insights** (runner-up and margin per hour, assumptions, expected gain vs Self-consumption only, the
   house profile).
 
