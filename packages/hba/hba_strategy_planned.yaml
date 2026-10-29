@@ -406,6 +406,23 @@ script:
           act: "{{ states('sensor.hba_planned_strategy') }}"
           target: "{{ state_attr('sensor.hba_planned_strategy', 'target_energy') | float(-1) }}"
           avail: "{{ states('sensor.hba_charge_available_energy') | float(0) }}"
+          # Hysteresis (prod 2026-10-29 04:32-04:44: Charge <-> Charge PV every ~30 s near full).
+          # Stored energy moves in steps of ~0.05 kWh (1 % SoC of one battery) and near 100 % the
+          # SoC readings jump (98.9 -> 100 -> 99.0), so a 0.05 kWh margin kept crossing the target.
+          # Once Charge / Sell reached its target ("... done" in the running flow label) it only
+          # resumes when the stored energy is 0.3 kWh (~1.5 % SoC) on the wrong side of the target.
+          # The label is the memory -- no helper; a new slot with a clearly higher / lower target
+          # resumes anyway.
+          flow: "{{ states('input_text.hba_strategy_active_flow') }}"
+          all_full: >-
+            {%- set ns = namespace(full=true) -%}
+            {%- for i in range(1, (states('input_number.hba_battery_count') | int(1)) + 1) -%}
+              {%- if states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') | float(0)
+                     < states('input_number.hba_marstek_m' ~ i ~ '_charging_cutoff_capacity') | float(100) -%}
+                {%- set ns.full = false -%}
+              {%- endif -%}
+            {%- endfor -%}
+            {{ ns.full }}
       # Sell spread over the slot: the power needed to reach the target exactly at the end of the
       # slot = what still has to come out (AC) / time left. At or above max power (e.g. the first
       # sell hour from full batteries) it sells at full power; below it, Self-consumption with an
@@ -435,7 +452,11 @@ script:
             {%- endif -%}
             {{ x | round(0) | int }}
       - choose:
-          - conditions: "{{ act == 'Charge' and target >= 0 and avail < target - 0.05 }}"
+          # Charge to the target; never once every battery is at its charge cutoff (a "full"
+          # target is reached per battery, not by the summed energy)
+          - conditions: >-
+              {{ act == 'Charge' and target >= 0 and not all_full
+                 and avail < target - (0.3 if flow.startswith('Planned → Charge done') else 0.05) }}
             sequence:
               - action: input_text.set_value
                 target: { entity_id: input_text.hba_strategy_active_flow }
@@ -450,7 +471,9 @@ script:
                     data:
                       desired_power_w: "{{ states('sensor.hba_total_max_charge_power') | float(2500) | int }}"
                       mode: "charge"
-          - conditions: "{{ act == 'Sell' and target >= 0 and avail > target + 0.05 }}"
+          - conditions: >-
+              {{ act == 'Sell' and target >= 0
+                 and avail > target + (0.3 if flow.startswith('Planned → Sell done') else 0.05) }}
             sequence:
               - action: input_text.set_value
                 target: { entity_id: input_text.hba_strategy_active_flow }

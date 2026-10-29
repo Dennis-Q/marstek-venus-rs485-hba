@@ -206,6 +206,10 @@ open), so the version prefix stays at 4.10.1 for now.
     below it Self-consumption with an export target = that power − expected house use, so the house
     stays covered on top of a steady export. Executed slots keep the planned target (`pe1`) next to the
     measured result, to check that a spread-out Sell sold what was planned.
+  - **No flapping near the target:** once Charge or Sell reached its target in a slot it only resumes when
+    the stored energy is 0.3 kWh (~1.5 % SoC) on the wrong side, and Charge stops as soon as every battery
+    is at its charge cutoff (prod 2026-10-29 04:32–04:44: Charge ↔ Charge PV every ~30 s near full,
+    because the SoC readings jump 98.9 → 100 → 99.0 there).
   - Re-plan on drift: the expected stored energy follows full power for Charge and Sell (they finish
     early in the hour) and a straight line for the other strategies, so a Sell that is on schedule
     no longer counts as "off".
