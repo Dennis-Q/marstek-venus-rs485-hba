@@ -1796,6 +1796,7 @@ script:
             - input_number.hba_strategy_planned_wear_cost
             - input_number.hba_strategy_planned_reserve
             - input_number.hba_strategy_planned_sell_deduction
+            - input_number.hba_strategy_planned_min_sell_profit
         data: { value: 0 }
       - action: input_number.set_value
         target: { entity_id: input_number.hba_strategy_planned_replan_drift }

@@ -2540,12 +2540,17 @@ views:
                 name: Sell price sensor (empty = buy price)
               - entity: input_number.hba_strategy_planned_sell_deduction
                 name: Sell price deduction
+              - entity: input_number.hba_strategy_planned_min_sell_profit
+                name: Minimum profit for selling (from the battery)
           - type: markdown
             text_only: true
             content: >-
               <font color=grey>_Under net metering (until 2027) selling earns about the
               buy price: leave the sell sensor empty. From 2027 point it at the market price,
-              e.g. `sensor.frank_energie_prices_current_electricity_market_price`._</font>
+              e.g. `sensor.frank_energie_prices_current_electricity_market_price`. **Minimum profit for
+              selling:** the plan only sells from the battery when that beats keeping the energy for the
+              house (until the next recharge) by at least this much per kWh — e.g. €0.03 turns close calls
+              into Self-consumption. 0 = purely financial._</font>
           - type: heading
             heading: Battery and house
             heading_style: subtitle

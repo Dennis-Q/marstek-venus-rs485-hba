@@ -81,6 +81,7 @@ template:
           - input_number.hba_strategy_planned_wear_cost
           - input_number.hba_strategy_planned_reserve
           - input_number.hba_strategy_planned_sell_deduction
+          - input_number.hba_strategy_planned_min_sell_profit
           - input_number.hba_strategy_planned_replan_drift
           - input_number.hba_strategy_solar_aware_house_load
           - input_boolean.hba_strategy_planned_skip_charge
@@ -250,6 +251,9 @@ template:
               {%- set wear = states('input_number.hba_strategy_planned_wear_cost') | float(0) -%}
               {%- set rmin = [states('input_number.hba_strategy_planned_reserve') | float(0), emax] | min -%}
               {%- set deduct = states('input_number.hba_strategy_planned_sell_deduction') | float(0) -%}
+              {#- Minimum profit for selling: an extra (not real) cost per kWh the battery exports, so a
+                  Sell must beat keeping the energy by this much -#}
+              {%- set msp = states('input_number.hba_strategy_planned_min_sell_profit') | float(0) -%}
               {%- set load_kw = states('input_number.hba_strategy_solar_aware_house_load') | float(300) / 1000 -%}
               {#- House use per local hour from sensor.hba_house_load_profile; the flat setting above
                   for a missing profile or a missing hour -#}
@@ -330,7 +334,7 @@ template:
                         {%- set net = d - u + ch - dis -%}
                         {%- set E2 = [[E + ch * ec - dis / ed, 0] | max, emax] | min -%}
                         {%- set x = E2 / dE -%}{%- set i = [x | int, K - 2] | min -%}{%- set f = x - i -%}
-                        {%- set v = ([net, 0] | max) * sl.b - ([-net, 0] | max) * sl.s + wear * dis + (eps if sl.sun > 0.01 else eps_dark)[a] + ns.V[i] * (1 - f) + ns.V[i + 1] * f -%}
+                        {%- set v = ([net, 0] | max) * sl.b - ([-net, 0] | max) * sl.s + wear * dis + msp * ([dis - d, 0] | max) + (eps if sl.sun > 0.01 else eps_dark)[a] + ns.V[i] * (1 - f) + ns.V[i + 1] * f -%}
                         {%- if v < best.v -%}{%- set best.v = v -%}{%- endif -%}
                       {%- endfor -%}
                       {%- set nv.V = nv.V + [best.v] -%}
@@ -372,7 +376,7 @@ template:
                       {%- set E2 = [[E + ch * ec - dis / ed, 0] | max, emax] | min -%}
                       {%- set x = E2 / dE -%}{%- set i = [x | int, K - 2] | min -%}{%- set f = x - i -%}
                       {%- set imm = ([net, 0] | max) * sl.b - ([-net, 0] | max) * sl.s + wear * dis -%}
-                      {%- set v = imm + tie[a] + V[i] * (1 - f) + V[i + 1] * f -%}
+                      {%- set v = imm + msp * ([dis - d, 0] | max) + tie[a] + V[i] * (1 - f) + V[i + 1] * f -%}
                       {#- Keep the runner-up too: Insights shows how close each decision was -#}
                       {%- if v < best.v -%}
                         {%- set best.alt = best.a if best.v < 1e9 else '' -%}{%- set best.altv = best.v -%}{%- set best.altE = best.E2 -%}

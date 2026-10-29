@@ -457,6 +457,17 @@ input_number:
     mode: box
     unit_of_measurement: "EUR/kWh"
     icon: mdi:cash-minus
+  # Only sell from the battery when it beats keeping the energy (house use until the next
+  # recharge) by at least this much per kWh. An extra cost per kWh the BATTERY sends to the grid
+  # (not directly exported sun, not the house share of a Sell slot); not counted as real money.
+  hba_strategy_planned_min_sell_profit:
+    name: "Planned: minimum profit for selling"
+    min: 0
+    max: 0.5
+    step: 0.005
+    mode: box
+    unit_of_measurement: "EUR/kWh"
+    icon: mdi:cash-check
   hba_strategy_planned_replan_drift:
     name: "Planned: re-plan when off by more than"
     min: 0.5

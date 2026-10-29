@@ -213,6 +213,11 @@ open), so the version prefix stays at 4.10.1 for now.
     few seconds. The plan used that momentary value for every future hour, thought midday could only recharge at
     2.5 kW and moved the morning sell from 07:00 to 08:00. Now only the running slot uses the momentary limit;
     later slots use the power-group targets / last known limits.
+  - **Minimum profit for selling** (`input_number.hba_strategy_planned_min_sell_profit`, default 0): the plan
+    only sells from the battery when that beats keeping the energy for the house by at least this much per kWh.
+    Counted as an extra cost per kWh the battery exports (not directly exported sun, not the house share), not
+    as real money in the expected result. Unlike the sell price deduction it does not lower the value of
+    exporting sun.
   - **What the stored energy cost comes from a ledger:** every 5 min the energy that actually went into the
     battery, priced at the buy price while charging from the grid and at the sell price otherwise (sun). Started
     by replaying the executed history. Before, each plan estimated it (average of the remaining buy prices) and
