@@ -398,7 +398,7 @@ template:
                       {%- set order = ['Self-consumption'] + (order | reject('eq', 'Self-consumption') | list) -%}
                     {%- endif -%}
                     {%- set tie = {order[0]: 0, order[1]: 0.0001, order[2]: 0.0002, order[3]: 0.0003, 'Charge': 0.0005, 'Sell': 0.0005} -%}
-                    {%- set best = namespace(v=1e9, a='Self-consumption', E2=E, ch=0, dis=0, imm=0, alt='', altv=1e9, altE=E) -%}
+                    {%- set best = namespace(v=1e9, a='Self-consumption', E2=E, ch=0, dis=0, imm=0, alt='', altv=1e9, altE=E, part=false) -%}
                     {%- for a in acts -%}
                       {%- set ch0 = ([u, cc, room] | min) if a in ['Self-consumption', 'Charge PV'] else (([cc, room] | min) if a == 'Charge' else 0) -%}
                       {%- set dis0 = ([d, cd, av] | min) if a in ['Self-consumption', 'Zero import'] else (([cd, av] | min) if a == 'Sell' else 0) -%}
@@ -418,7 +418,7 @@ template:
                         {%- if a != best.a -%}
                           {%- set best.alt = best.a if best.v < 1e9 else '' -%}{%- set best.altv = best.v -%}{%- set best.altE = best.E2 -%}
                         {%- endif -%}
-                        {%- set best.v = v -%}{%- set best.a = a -%}{%- set best.E2 = E2 -%}{%- set best.ch = ch -%}{%- set best.dis = dis -%}{%- set best.imm = imm -%}
+                        {%- set best.v = v -%}{%- set best.a = a -%}{%- set best.E2 = E2 -%}{%- set best.ch = ch -%}{%- set best.dis = dis -%}{%- set best.imm = imm -%}{%- set best.part = j >= 0 -%}
                       {%- elif v < best.altv and a != best.a -%}
                         {%- set best.alt = a -%}{%- set best.altv = v -%}{%- set best.altE = E2 -%}
                       {%- endif -%}
@@ -445,7 +445,7 @@ template:
                          'c': cost_out | round(3) if cost_out is not none else none,
                          'r': code, 'sun': sl.sun | round(2), 'load': sl.load | round(2),
                          'alt': best.alt, 'adv': ((best.altv - best.v) | round(3)) if best.alt != '' else none,
-                         'alt_e1': best.altE | round(2)}] -%}
+                         'alt_e1': best.altE | round(2), 'part': best.part}] -%}
                     {%- set fw.E = best.E2 -%}
                     {%- set fw.cost = fw.cost + best.imm -%}
                   {%- endfor -%}

@@ -184,6 +184,8 @@ open), so the version prefix stays at 4.10.1 for now.
   - Charge and Sell can be partial: the plan may sell down to (or charge up to) any level in between,
     not only everything at max power. E.g. it keeps enough for the hour after the peak when buying
     then costs more than selling now earns, instead of selling everything and buying it back.
+    The preview dashboard shows the target: "Sell · down to 1.8 kWh", "Charge · up to 4.5 kWh, for 07:00"
+    (Planned view) and "Sell → 1.8 kWh" (Insights → Planned — decisions).
   - New **Planned** view in the preview dashboard: the plan table at the top (executed hours greyed, now in
     bold, "Profit €/kWh" for hours where energy leaves the battery = sell price or saved buy price − what that
     kWh cost, "Stored" = kWh at the end of the slot, "House" = kWh assumed), the settings below it. The cost of a
