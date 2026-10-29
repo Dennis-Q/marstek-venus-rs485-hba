@@ -396,7 +396,14 @@ template:
                         store: storing the sun is worth more than exporting it now -#}
                     {%- set keep = slope / ed > sl.b -%}
                     {%- set store = sl.sun > 0.01 and slope * ec > sl.s -%}
-                    {%- set order = (['Charge PV', 'Full stop', 'Self-consumption', 'Zero import'] if store else ['Full stop', 'Charge PV', 'Zero import', 'Self-consumption'])
+                    {#- Keeping, but the sun covers the house all slot (u > 0): the plan cannot tell
+                        Self-consumption from Charge PV (hourly averages, no peaks). A short peak (a
+                        Quooker, a kettle) from the battery, refilled by sun that would otherwise be
+                        exported, costs sell / round-trip (+ wear); from the grid the buy price. Cheaper
+                        from the battery (after net metering: sell ~0.10 -> 0.12 vs 0.54) -> Self-consumption
+                        first; under net metering (0.505 / 0.82 = 0.62 > 0.54) Charge PV stays first. -#}
+                    {%- set peak_from_battery = store and u > 0.01 and sl.b > sl.s / (ed * ec) + wear -%}
+                    {%- set order = ((['Self-consumption', 'Charge PV', 'Full stop', 'Zero import'] if peak_from_battery else ['Charge PV', 'Full stop', 'Self-consumption', 'Zero import']) if store else ['Full stop', 'Charge PV', 'Zero import', 'Self-consumption'])
                                     if keep else
                                     (['Self-consumption', 'Zero import', 'Charge PV', 'Full stop'] if store else ['Zero import', 'Self-consumption', 'Full stop', 'Charge PV']) -%}
                     {#- Empty battery (at the reserve): nothing can come out, so the options are equal --

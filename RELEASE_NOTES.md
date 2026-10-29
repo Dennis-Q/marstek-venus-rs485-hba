@@ -199,6 +199,11 @@ open), so the version prefix stays at 4.10.1 for now.
     Charge / Sell target. Finest usable / 40 (~1 s per plan instead of ~0.5 s). The Planned view explains the
     step and its cost, and shows the last plan's size and calculation time (`summary`: `slots`, `levels`,
     `step_kwh`, `calc_s`).
+  - Sunny hours in which the plan keeps the energy (the sun covers the house): Self-consumption instead of
+    Charge PV when a short peak (a Quooker, a kettle) from the battery, refilled by sun that would otherwise
+    be exported, is cheaper than importing it: buy price > sell price ÷ round-trip efficiency + wear. Under net
+    metering (sell ≈ buy − 0.031) that is not the case, so Charge PV stays; after net metering it switches
+    automatically.
   - New **Planned** view in the preview dashboard: the plan table at the top (executed hours greyed, now in
     bold, "Profit €/kWh" for hours where energy leaves the battery = sell price or saved buy price − what that
     kWh cost, "Stored" = kWh at the end of the slot, "House" = kWh assumed), the settings below it. The cost of a
