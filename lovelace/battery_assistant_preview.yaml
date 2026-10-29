@@ -2474,7 +2474,10 @@ views:
               {%- endif %}
               {#- Profit per kWh that leaves the battery: Sell -> sell price, discharging for the house ->
                   the buy price it saves; minus what that kWh cost (cost out before this slot) -#}
-              {%- set c_in = plan[i - 1].c if i > 0 and plan[i - 1].c is number else (ns_c.last if ns_c.last is number else r.c) %}
+              {#- Cost before the slot: the previous plan row; for the running slot its own cost out (the
+                  ledger -- discharging does not change the cost per kWh). Not the last executed hour: those
+                  can carry a value from an older plan (prod 2026-10-29: 0.653 → profit −0.101 at 07:00). -#}
+              {%- set c_in = plan[i - 1].c if i > 0 and plan[i - 1].c is number else (r.c if r.c is number else ns_c.last) %}
               {%- set gain = none %}
               {%- if c_in is number and r.e1 < r.e0 - 0.05 %}
                 {%- if r.a == 'Sell' %}{%- set gain = r.s - c_in %}
