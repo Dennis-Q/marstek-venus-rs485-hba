@@ -211,6 +211,9 @@ open), so the version prefix stays at 4.10.1 for now.
     few seconds. The plan used that momentary value for every future hour, thought midday could only recharge at
     2.5 kW and moved the morning sell from 07:00 to 08:00. Now only the running slot uses the momentary limit;
     later slots use the power-group targets / last known limits.
+  - **"Cost out" carried over between plans:** the cost of the energy already in the battery comes from the
+    previous plan (or the last executed slot) instead of a fresh average of the remaining buy prices, which made
+    night-charged energy look dearer every hour as the cheap hours dropped out. Display only — decisions unchanged.
   - **No flapping near the target:** once Charge or Sell reached its target in a slot it only resumes when
     the stored energy is 0.3 kWh (~1.5 % SoC) on the wrong side, and Charge stops as soon as every battery
     is at its charge cutoff (prod 2026-10-29 04:32–04:44: Charge ↔ Charge PV every ~30 s near full,

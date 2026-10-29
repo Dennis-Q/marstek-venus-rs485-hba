@@ -291,7 +291,17 @@ template:
                   {%- endfor -%}
                   {#- ── Forward pass from the real stored energy ── -#}
                   {%- set E0 = [[e_now, 0] | max, emax] | min -%}
-                  {%- set fw = namespace(E=E0, basis=E0 * mean_b / ec, out=[], cost=0) -%}
+                  {#- What the energy already in the battery cost: carried over from the previous plan
+                      (its row for the slot before this one, else the last executed slot), so it only
+                      changes when something actually goes in. A fresh average of the remaining buy
+                      prices made the same night-charged energy look dearer every hour as the cheap hours
+                      dropped out (prod 2026-10-29). The average only without a previous value. -#}
+                  {%- set prev_row = prev_plan | selectattr('ts', 'eq', now_slot - step) | first | default(none) -%}
+                  {%- if prev_row is none or prev_row.get('c') is none -%}
+                    {%- set prev_row = prev_hist | selectattr('ts', 'lt', now_slot) | rejectattr('c', 'none') | list | last | default(none) -%}
+                  {%- endif -%}
+                  {%- set per_kwh = ((prev_row.c - wear) * ed) if prev_row is not none and prev_row.get('c') is number else mean_b / ec -%}
+                  {%- set fw = namespace(E=E0, basis=E0 * per_kwh, out=[], cost=0) -%}
                   {%- for t in range(N) -%}
                     {%- set sl = slots[t] -%}{%- set V = ns.Vs[t + 1] -%}
                     {%- set nl = sl.load - sl.sun -%}{%- set d = [nl, 0] | max -%}{%- set u = [-nl, 0] | max -%}
