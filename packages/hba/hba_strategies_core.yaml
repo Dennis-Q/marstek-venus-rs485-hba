@@ -1174,6 +1174,13 @@ script:
                           {%- set ns.order = sw.l -%}
                         {%- endif -%}
                       {%- endfor -%}
+                      {#- Capped followers after every leader, also of other groups: with order 1,4,2,3
+                          and leader 4 the swap alone gives 4,1,2,3, so M1 (capped) ran before M2. -#}
+                      {%- set fol = namespace(l=[]) -%}
+                      {%- for G, x in plg.items() if (G ~ '_charge') in pll -%}
+                        {%- set fol.l = fol.l + (x.members | map('int') | reject('eq', pll[G ~ '_charge'] | int) | list) -%}
+                      {%- endfor -%}
+                      {%- set ns.order = (ns.order | reject('in', fol.l) | list) + (ns.order | select('in', fol.l) | list) -%}
                     {%- endif -%}
                     {%- for bat in ns.order -%}
                       {%- set soc = states('sensor.marstek_m' ~ bat ~ '_battery_state_of_charge') | float(0) -%}
@@ -1344,6 +1351,13 @@ script:
                           {%- set ns.order = sw.l -%}
                         {%- endif -%}
                       {%- endfor -%}
+                      {#- Capped followers after every leader, also of other groups: with order 1,4,2,3
+                          and leader 4 the swap alone gives 4,1,2,3, so M1 (capped) ran before M2. -#}
+                      {%- set fol = namespace(l=[]) -%}
+                      {%- for G, x in plg.items() if (G ~ '_discharge') in pll -%}
+                        {%- set fol.l = fol.l + (x.members | map('int') | reject('eq', pll[G ~ '_discharge'] | int) | list) -%}
+                      {%- endfor -%}
+                      {%- set ns.order = (ns.order | reject('in', fol.l) | list) + (ns.order | select('in', fol.l) | list) -%}
                     {%- endif -%}
                     {%- for bat in ns.order -%}
                       {%- set soc = states('sensor.marstek_m' ~ bat ~ '_battery_state_of_charge') | float(0) -%}
