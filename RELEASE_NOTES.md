@@ -19,6 +19,19 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Fixed
 
+- **Venus E 3.0 low-SoC latch** — a battery that reached its floor refuses to discharge until
+  about 17 %, while HBA still counted it as available (prod 2026-10-30: two batteries commanded at
+  1100 W stayed at 0 W around 15 %, and the PID wound up to −2275 W). HBA now tracks this
+  (`sensor.hba_power_limits` attribute `latched`, set below 13.0 %, cleared at 18.0 %, assumes app DoD
+  88 %) and gives the power to the next battery. The PID limit, battery assist and Zero import's
+  "all empty" check follow it. The discharge cutoff stays at 13 %.
+- **Planned: small Charge targets no longer wake every battery** — Charge runs at the power the
+  hour needs, rounded up to whole batteries, instead of always at full power. A small charge ends
+  well above the latch's release point on fewer batteries.
+- **Planned: no false re-plans during a spread-out Sell** — the "off by" check assumed full power.
+- **Power groups: capped batteries run after every group's leader** — with several groups, a
+  capped battery could run before the next group's leader (order 1, 4, 2, 3 with leader 4). This
+  applies to all strategies, for charging and discharging.
 - **Warning when the Charge goal "solar forecast" is followed by a strategy that does not store
   PV** — the goal only buys what the sun will not fill, so after it the batteries must take the
   PV. With *When done charging* = Full stop, Sell, Zero import or Standby the PV was exported;
