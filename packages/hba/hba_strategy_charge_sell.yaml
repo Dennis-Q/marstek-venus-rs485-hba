@@ -129,11 +129,8 @@ script:
                         data: { skip_label: true }
                   - conditions: "{{ next == 'Zero import' }}"
                     sequence:
-                      - action: input_text.set_value
-                        target: { entity_id: input_text.hba_strategy_active_flow }
-                        data: { value: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Charge → Zero import" }
                       - action: script.hba_strategy_zero_import
-                        data: { skip_label: true }
+                        data: { flow_prefix: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Charge →" }
                   - conditions: "{{ next == 'Sell' }}"
                     sequence:
                       - action: input_text.set_value
@@ -221,11 +218,8 @@ script:
                         data: { skip_label: true }
                   - conditions: "{{ next == 'Zero import' }}"
                     sequence:
-                      - action: input_text.set_value
-                        target: { entity_id: input_text.hba_strategy_active_flow }
-                        data: { value: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Sell → Zero import" }
                       - action: script.hba_strategy_zero_import
-                        data: { skip_label: true }
+                        data: { flow_prefix: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Sell →" }
                   - conditions: "{{ next == 'Charge' }}"
                     sequence:
                       - action: script.hba_strategy_charge

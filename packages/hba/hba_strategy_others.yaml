@@ -281,16 +281,18 @@ script:
   # Full stop with a descriptive label so the Insights panel shows the reason.
   # Exact cutoff, consistent with hba_set_batteries.
   #
-  # skip_label: caller manages the label (e.g. "Timed → Zero import").
+  # flow_prefix: the caller's context (e.g. "Timed →"), as in Charge PV. The label is written here, once
+  # per cycle: a caller writing it first made the flow flip with "→ Full stop" every cycle at SoC minimum
+  # (prod 2026-10-30: sensor.hba_active_strategy changed ~1.7×/s, 3527 recorder rows in 35 min).
   hba_strategy_zero_import:
     alias: "HBA: Strategy - Zero import"
     fields:
-      skip_label:
-        description: "Pass true when the caller manages its own sub-strategy label"
-        default: false
+      flow_prefix:
+        description: "Optional prefix for the flow label, e.g. 'Timed →'"
+        default: ""
     sequence:
       - variables:
-          _skip_label: "{{ skip_label | default(false) }}"
+          _flow_prefix: "{{ flow_prefix | default('') }}"
       - variables:
           count: "{{ states('input_number.hba_battery_count') | int(1) }}"
           all_empty: >
@@ -306,16 +308,13 @@ script:
             sequence:
               - action: input_text.set_value
                 target: { entity_id: input_text.hba_strategy_active_flow }
-                data: { value: "Zero import → Full stop (SoC at minimum)" }
+                data: { value: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Zero import → Full stop (SoC at minimum)" }
               - action: script.hba_strategy_full_stop
                 data: { skip_label: true }
         default:
-          - choose:
-              - conditions: "{{ not _skip_label }}"
-                sequence:
-                  - action: input_text.set_value
-                    target: { entity_id: input_text.hba_strategy_active_flow }
-                    data: { value: "Zero import" }
+          - action: input_text.set_value
+            target: { entity_id: input_text.hba_strategy_active_flow }
+            data: { value: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Zero import" }
           - action: script.hba_strategy_self_consumption
             data:
               skip_label: true
@@ -451,12 +450,8 @@ script:
       - choose:
           - conditions: "{{ use_zero_import == 'true' }}"
             sequence:
-              - action: input_text.set_value
-                target: { entity_id: input_text.hba_strategy_active_flow }
-                data:
-                  value: "{{ (_flow_prefix ~ ' → ') if _flow_prefix else '' }}Solar-aware → Zero import"
               - action: script.hba_strategy_zero_import
-                data: { skip_label: true }
+                data: { flow_prefix: "{{ (_flow_prefix ~ ' → ') if _flow_prefix else '' }}Solar-aware →" }
         default:
           - action: input_text.set_value
             target: { entity_id: input_text.hba_strategy_active_flow }

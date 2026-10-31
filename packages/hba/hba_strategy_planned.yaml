@@ -719,11 +719,8 @@ script:
                 data: { flow_prefix: "{{ 'Planned →' if act == 'Charge PV' else 'Planned → ' ~ act ~ ' done →' }}" }
           - conditions: "{{ act == 'Zero import' }}"
             sequence:
-              - action: input_text.set_value
-                target: { entity_id: input_text.hba_strategy_active_flow }
-                data: { value: "Planned → Zero import" }
               - action: script.hba_strategy_zero_import
-                data: { skip_label: true }
+                data: { flow_prefix: "Planned →" }
           - conditions: "{{ act == 'Full stop' }}"
             sequence:
               - action: input_text.set_value

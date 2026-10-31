@@ -76,11 +76,8 @@ script:
                 data: { flow_prefix: "Timed →" }
           - conditions: "{{ sub | trim == 'Zero import' }}"
             sequence:
-              - action: input_text.set_value
-                target: { entity_id: input_text.hba_strategy_active_flow }
-                data: { value: "Timed → Zero import" }
               - action: script.hba_strategy_zero_import
-                data: { skip_label: true }
+                data: { flow_prefix: "Timed →" }
           - conditions: "{{ sub | trim == 'Sell' }}"
             sequence:
               - action: script.hba_strategy_sell
