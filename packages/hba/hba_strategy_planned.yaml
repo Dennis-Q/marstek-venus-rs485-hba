@@ -130,9 +130,9 @@ template:
             {%- set row = prev_plan | selectattr('ts', 'eq', now_slot) | first | default(none) -%}
             {%- if row is none or e_now < 0 -%}-1
             {%- else -%}
-              {#- Expected stored energy now. Charge and Sell run at full power until the
-                  target, so they are done early in the slot (2.8 kWh at 7 kW in ~25 min); the
-                  other strategies follow house use and sun, spread over the slot (straight line).
+              {#- Expected stored energy now. Charge runs at the row's power (pw) until the target,
+                  so it is done early in the slot (2.8 kWh at 5 kW in ~35 min); Sell is spread over
+                  the slot, and the other strategies follow house use and sun: a straight line.
                   The row's e0 is the energy when the plan was made, so the elapsed time counts
                   from then. -#}
               {%- set made = as_timestamp(state_attr('sensor.hba_planned_strategy', 'plan_made'), 0) | int -%}
@@ -141,8 +141,8 @@ template:
               {%- set start = row.get('e0', row.e1) | float(0) -%}
               {%- set end = row.e1 | float(0) -%}
               {%- set sm = state_attr('sensor.hba_planned_strategy', 'summary') -%}
-              {%- if row.a in ['Charge', 'Sell'] and sm is mapping -%}
-                {%- set kw = (sm.charge_kw if row.a == 'Charge' else sm.discharge_kw) | float(0) -%}
+              {%- if row.a == 'Charge' and sm is mapping -%}
+                {%- set kw = ((row.pw / 1000 * ((sm.efficiency | float(85)) / 100) ** 0.5) if row.pw is defined else sm.charge_kw) | float(0) -%}
                 {%- set moved = kw * ([now_ts - t0, 0] | max) / 3600 -%}
                 {%- set expected = (start + [moved, end - start] | min) if end >= start else (start - [moved, start - end] | min) -%}
               {%- else -%}
@@ -247,12 +247,14 @@ template:
               {%- set pl_c = pl_c if pl_c is mapping and is_state('sensor.hba_power_limits', 'Active') else {} -%}
               {%- set pl_d = pl_d if pl_d is mapping and is_state('sensor.hba_power_limits', 'Active') else {} -%}
               {%- set lk_c = lk_c if lk_c is mapping else {} -%}{%- set lk_d = lk_d if lk_d is mapping else {} -%}
-              {%- set ns_p = namespace(c=0, d=0) -%}
+              {%- set ns_p = namespace(c=0, d=0, max_c=0) -%}
               {%- for i in range(1, count + 1) -%}
                 {%- set k = i | string -%}
                 {%- set rc = states('number.marstek_m' ~ i ~ '_max_charge_power') | float(0) -%}
                 {%- set rd = states('number.marstek_m' ~ i ~ '_max_discharge_power') | float(0) -%}
-                {%- set ns_p.c = ns_p.c + (pl_c[k] if k in pl_c else (lk_c[k] if k in lk_c else (rc if rc > 50 else 2500))) | float(0) -%}
+                {%- set lim_c = (pl_c[k] if k in pl_c else (lk_c[k] if k in lk_c else (rc if rc > 50 else 2500))) | float(0) -%}
+                {%- set ns_p.c = ns_p.c + lim_c -%}
+                {%- set ns_p.max_c = [ns_p.max_c, lim_c] | max -%}
                 {%- set ns_p.d = ns_p.d + (pl_d[k] if k in pl_d else (lk_d[k] if k in lk_d else (rd if rd > 50 else 2500))) | float(0) -%}
               {%- endfor -%}
               {%- set pc = ns_p.c / 1000 -%}
@@ -454,13 +456,24 @@ template:
                     {%- elif d > 0.05 and E > rmin + 0.05 -%}{%- set code = 'C' -%}
                     {%- else -%}{%- set code = 'F' -%}
                     {%- endif -%}
-                    {%- set fw.out = fw.out + [{
+                    {%- set rw = {
                          'ts': sl.ts, 'b': sl.b | round(4), 's': sl.s | round(4), 'a': best.a,
                          'e0': E | round(2), 'e1': best.E2 | round(2),
                          'c': cost_out | round(3) if cost_out is not none else none,
                          'r': code, 'sun': sl.sun | round(2), 'load': sl.load | round(2),
                          'alt': best.alt, 'adv': ((best.altv - best.v) | round(3)) if best.alt != '' else none,
-                         'alt_e1': best.altE | round(2), 'part': best.part}] -%}
+                         'alt_e1': best.altE | round(2), 'part': best.part} -%}
+                    {#- Charge power of this slot (pw, W): what the planned energy needs, rounded up to
+                        whole batteries, so a small target runs on as few batteries as possible and each
+                        of them gets a real share. A share of a few % leaves a battery that reached its
+                        floor below the firmware's release point (low-SoC latch, prod 2026-10-30). Constant
+                        within the slot: each new slot re-plans, and so does falling behind (drift). -#}
+                    {%- if best.a == 'Charge' -%}
+                      {%- set bat_w = [ns_p.max_c, 500] | max -%}
+                      {%- set need_w = ([best.E2 - E, 0] | max) / ec / ([sl.h, 0.01] | max) * 1100 -%}
+                      {%- set rw = rw | combine({'pw': ([([(need_w / bat_w) | round(0, 'ceil'), 1] | max) * bat_w, sl.pc * 1000] | min) | round(0) | int}) -%}
+                    {%- endif -%}
+                    {%- set fw.out = fw.out + [rw] -%}
                     {%- set fw.E = best.E2 -%}
                     {%- set fw.cost = fw.cost + best.imm -%}
                   {%- endfor -%}
@@ -576,7 +589,8 @@ script:
       # grid target = measured net house use − that power, so the PID keeps the
       # battery delivering a steady power (house first) -- instead of selling out at full power and then
       # importing for the rest of the hour at the same high price (costs money once export earns
-      # less than import, 2027). Charge stays at full power (a cheap hour: grid for the house is cheap).
+      # less than import, 2027). Charge is not spread: the grid for the house costs the same all
+      # slot, so it runs at the plan row's power (pw, whole batteries) and finishes early.
       - variables:
           step: >-
             {%- set pph = state_attr('sensor.hba_energy_prices_data', 'datapoints_per_hour') | int(1) -%}
@@ -611,6 +625,14 @@ script:
             {%- endfor -%}
             {{ cur is not none and (ns.v is none or ns.v <= cur.b) }}
       - variables:
+          # The plan row's Charge power, never above what the batteries may take right now.
+          # A row without pw (plan made before this existed): full power.
+          charge_w: >-
+            {%- set pmax = states('sensor.hba_total_max_charge_power') | float(2500) -%}
+            {%- set plan = state_attr('sensor.hba_planned_strategy', 'plan') or [] -%}
+            {%- set n = as_timestamp(now()) | int -%}
+            {%- set cur = plan | selectattr('ts', 'le', n) | list | last | default(none) -%}
+            {{ ([cur.pw, pmax] | min if cur is not none and cur.pw is defined else pmax) | int }}
           needed_kw: "{{ ([avail - target, 0] | max) * ed / t_left_h }}"
           # Never spread below the minimum start power (input_number.hba_control_min_start_power,
           # 200 W by default): below ~200 W a Marstek mostly feeds its own ~20-25 W overhead
@@ -648,7 +670,7 @@ script:
                 default:
                   - action: script.hba_set_batteries
                     data:
-                      desired_power_w: "{{ states('sensor.hba_total_max_charge_power') | float(2500) | int }}"
+                      desired_power_w: "{{ charge_w }}"
                       mode: "charge"
           - conditions: >-
               {{ act == 'Sell' and target >= 0
