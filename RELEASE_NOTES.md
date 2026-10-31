@@ -17,8 +17,15 @@ Ports of HBC v4.11.0 – v4.15.1 changes that apply to HBA. HBA is not yet fully
 v4.15.1 (Timed periods D/E, the peak-shaving latch and multi-provider Dynamic are still
 open), so the version prefix stays at 4.10.1 for now.
 
+### Added
+
+- **`binary_sensor.hba_ev_plan_active`** — tells the EV project whether HBA Planned is in charge, with
+  attribute `ev_mode`. First step of letting Planned decide for the car: nothing acts on it yet.
+
 ### Fixed
 
+- **Strategy label no longer flips at SoC minimum** — Zero import and Full stop overwrote each
+  other every control cycle, which wrote thousands of recorder rows. Label only.
 - **Venus E 3.0 low-SoC latch** — a battery that reached its floor refuses to discharge until
   about 17 %, while HBA still counted it as available (prod 2026-10-30: two batteries commanded at
   1100 W stayed at 0 W around 15 %, and the PID wound up to −2275 W). HBA now tracks this

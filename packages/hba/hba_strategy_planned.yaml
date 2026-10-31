@@ -46,6 +46,27 @@
 # Charge PV. Labels "Planned → <strategy>", so the PID-reset automations see Charge / Sell.
 
 template:
+  # ── EV plan ───────────────────────────────────────────────────────────────────
+  # Tells the EV project (ha-smart-ev-charging) who is in charge of the car. HBA only instructs:
+  # the EV project does all charger and car control, and only listens when its
+  # input_boolean.ev_follow_hba is on. A manual force charge always wins there.
+  # on = Planned runs with a fresh plan; ev_mode = what the car does now: grid, battery or none (wait).
+  # Off, missing or stale = the EV project uses its own rules. Older than 2 h = stale, as every new
+  # slot re-plans. For now ev_mode is always none: the planner does not plan the car yet, and
+  # the EV project shows this sensor but does not act on it.
+  - binary_sensor:
+      - name: "HBA EV Plan Active"
+        unique_id: hba_ev_plan_active
+        icon: mdi:car-clock
+        state: >-
+          {{ is_state('input_select.hba_marstek_master_battery_mode', 'Full control')
+             and is_state('input_select.hba_strategy', 'Planned')
+             and state_attr('sensor.hba_planned_strategy', 'status') == 'OK'
+             and as_timestamp(now()) - as_timestamp(state_attr('sensor.hba_planned_strategy', 'plan_made'), 0) < 7200 }}
+        attributes:
+          ev_mode: "none"
+          plan_made: "{{ state_attr('sensor.hba_planned_strategy', 'plan_made') }}"
+
   # ── House load profile ────────────────────────────────────────────────────────
   # Average house use per hour of the day, calculated once a night by automation
   # hba_house_load_profile_update (below) from the recorder's hourly statistics and handed over
