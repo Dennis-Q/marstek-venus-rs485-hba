@@ -1920,7 +1920,7 @@ template:
             {% set b_soc = states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') | float(0) %}
             {% set b_cut = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) %}
             {% set inv   = states('sensor.marstek_m' ~ i ~ '_inverter_state') %}
-            {% if b_soc > b_cut and inv not in ['Fault', 'unknown', 'unavailable'] %}
+            {% if b_soc > b_cut and inv not in ['Fault', 'unknown', 'unavailable'] and i not in (state_attr('sensor.hba_power_limits', 'latched') or []) %}
               {% set ns.dischargeable = true %}
             {% endif %}
           {% endfor %}
@@ -2561,6 +2561,12 @@ template:
   # below 13.0 % (whole-percent reserve check, see hba_apply_defaults), so with its 13 %
   # cutoff empty is ≤ 14 %, with an old 12 % cutoff ≤ 13 %, both reached before it stalls. Charge and
   # discharge are split separately: a full battery still gets its share for discharging.
+  # Low-SoC latch (attribute latched, Venus E 3.0): once a battery reached its floor the firmware
+  # refuses to discharge until reserve + 5 % (~17 %; prod 2026-10-30: 15.4 % no, 18.8 % yes), also when
+  # HBA sees it above the cutoff. The reserve is not readable, so this assumes app DoD 88 (floor
+  # SoC < 13.0): set below 13.0, cleared at 18.0. Any other reserve: never set, as before. Separate
+  # from empty because empty follows the HBA cutoff; a latched battery stays empty so it cannot
+  # take a group's high discharge limit.
   #
   # Firmware facts this rests on (Venus E v3 = D code, static RE by sphings79):
   # 44002/44003 go to the inverter, an external I²C EEPROM (0x202/0x204, change guard:
@@ -2612,9 +2618,10 @@ template:
           plan: >-
             {%- set S = 'sensor.hba_power_limits' -%}
             {%- set count = states('input_number.hba_battery_count') | int(1) -%}
-            {%- set p = namespace(full=[], empty=[], lkc={}, lkd={}, c={}, d={}, lead={}) -%}
+            {%- set p = namespace(full=[], empty=[], latched=[], lkc={}, lkd={}, c={}, d={}, lead={}) -%}
             {%- set v = state_attr(S, 'full') -%}{%- set p.full = v if v is sequence and v is not string else [] -%}
             {%- set v = state_attr(S, 'empty') -%}{%- set p.empty = v if v is sequence and v is not string else [] -%}
+            {%- set v = state_attr(S, 'latched') -%}{%- set p.latched = v if v is sequence and v is not string else [] -%}
             {%- set v = state_attr(S, 'last_known_charge') -%}{%- set p.lkc = v if v is mapping else {} -%}
             {%- set v = state_attr(S, 'last_known_discharge') -%}{%- set p.lkd = v if v is mapping else {} -%}
             {%- set v = state_attr(S, 'charge') -%}{%- set p.c = v if v is mapping else {} -%}
@@ -2644,15 +2651,19 @@ template:
               {%- elif soc >= hi - 1 or (bms_a == 0 and soc >= 90) -%}{%- set full = true -%}
               {%- elif soc < hi - 4 -%}{%- set full = false -%}
               {%- else -%}{%- set full = i in p.full -%}{%- endif -%}
+              {%- if soc < 0 -%}{%- set latched = i in p.latched -%}
+              {%- elif soc < 13 and states('sensor.marstek_m' ~ i ~ '_device_name') | trim is match('VNSE3') -%}{%- set latched = true -%}
+              {%- elif soc >= 18 -%}{%- set latched = false -%}
+              {%- else -%}{%- set latched = i in p.latched -%}{%- endif -%}
               {%- if soc < 0 -%}{%- set empty = i in p.empty -%}
-              {%- elif soc <= lo + 1 -%}{%- set empty = true -%}
+              {%- elif soc <= lo + 1 or latched -%}{%- set empty = true -%}
               {%- elif soc > lo + 4 -%}{%- set empty = false -%}
               {%- else -%}{%- set empty = i in p.empty -%}{%- endif -%}
               {%- set ns.bats = ns.bats + [{
                     'i': i, 'g': states('input_select.hba_marstek_m' ~ i ~ '_power_group'),
                     'capc': states('input_number.hba_marstek_m' ~ i ~ '_max_charge_power') | float(0) | int,
                     'capd': states('input_number.hba_marstek_m' ~ i ~ '_max_discharge_power') | float(0) | int,
-                    'soc': soc, 'hi': hi, 'lo': lo, 'live': live, 'full': full, 'empty': empty,
+                    'soc': soc, 'hi': hi, 'lo': lo, 'live': live, 'full': full, 'empty': empty, 'latched': latched,
                     'lkc': lkc | int, 'lkd': lkd | int}] -%}
             {%- endfor -%}
             {#- The order hba_set_batteries fills batteries in, per direction (for
@@ -2776,6 +2787,7 @@ template:
                 'problems': gs.problems,
                 'full': ns.bats | selectattr('full') | map(attribute='i') | list,
                 'empty': ns.bats | selectattr('empty') | map(attribute='i') | list,
+                'latched': ns.bats | selectattr('latched') | map(attribute='i') | list,
                 'last_known_charge': ns.lkc, 'last_known_discharge': ns.lkd} | tojson }}
     sensor:
       - name: "HBA Power Limits"
@@ -2794,6 +2806,7 @@ template:
           leaders: "{{ (plan | from_json if plan is string else plan).leaders }}"
           full: "{{ (plan | from_json if plan is string else plan).full }}"
           empty: "{{ (plan | from_json if plan is string else plan).empty }}"
+          latched: "{{ (plan | from_json if plan is string else plan).latched }}"
           last_known_charge: "{{ (plan | from_json if plan is string else plan).last_known_charge }}"
           last_known_discharge: "{{ (plan | from_json if plan is string else plan).last_known_discharge }}"
 

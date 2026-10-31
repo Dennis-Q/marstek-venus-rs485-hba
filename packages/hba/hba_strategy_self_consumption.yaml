@@ -141,8 +141,9 @@ script:
             {% endfor %}
             {{ ns.total | int }}
           # Discharge anti-windup: exclude batteries at/near SoC cutoff and any battery
-          # currently not responding to RS485 commands — when BMS limits or stops discharge
-          # near cutoff the full rated power must not feed the I-term ceiling.
+          # currently not responding to RS485 commands or in the firmware's low-SoC latch — when
+          # BMS limits or stops discharge near cutoff the full rated power must not feed the I-term
+          # ceiling (prod 2026-10-30: PID output −2275 W with both remaining batteries latched at 0 W).
           assignable_discharge: >
             {% set count = states('input_number.hba_battery_count') | int(1) %}
             {% set ns = namespace(total=0) %}
@@ -150,7 +151,7 @@ script:
               {% set soc = states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') | float(0) %}
               {% set cutoff = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) %}
               {% set not_responding = is_state('binary_sensor.hba_marstek_m' ~ i ~ '_not_responding', 'on') %}
-              {% if soc > cutoff and not not_responding %}
+              {% if soc > cutoff and not not_responding and i not in (state_attr('sensor.hba_power_limits', 'latched') or []) %}
                 {% set pw = states('number.marstek_m' ~ i ~ '_max_discharge_power') | float(0) %}
                 {% set ns.total = ns.total + (pw if pw > 50 else 2500) %}
               {% endif %}

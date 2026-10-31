@@ -1362,7 +1362,9 @@ script:
                       {%- set hb = states.sensor['marstek_m' ~ bat ~ '_battery_power'] -%}
                       {%- set live = hb is not none and hb.state not in ['unavailable', 'unknown']
                                      and (now() - hb.last_reported).total_seconds() <= 30 -%}
-                      {%- set eligible = live and soc > soc_min and inv not in ['Fault','unknown','unavailable'] -%}
+                      {#- Low-SoC latch: the firmware refuses, give its share to the next battery -#}
+                      {%- set eligible = live and soc > soc_min and bat not in (state_attr('sensor.hba_power_limits', 'latched') or [])
+                                         and inv not in ['Fault','unknown','unavailable'] -%}
                       {%- if eligible -%}
                         {%- set dph = states('input_select.hba_marstek_m' ~ bat ~ '_phase') -%}
                         {%- set dcap = (rmd.d[dph] if dph in rmd.d else (rmd.d.values() | min)) if rmd.d else hw_max -%}
