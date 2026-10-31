@@ -50,10 +50,9 @@ template:
   # Tells the EV project (ha-smart-ev-charging) who is in charge of the car. HBA only instructs:
   # the EV project does all charger and car control, and only listens when its
   # input_boolean.ev_follow_hba is on. A manual force charge always wins there.
-  # on = Planned runs with a fresh plan; ev_mode = what the car does now: grid, battery or none (wait).
+  # on = Planned runs with a fresh plan; ev_mode = what the car does now: grid or wait (solar may still run).
   # Off, missing or stale = the EV project uses its own rules. Older than 2 h = stale, as every new
-  # slot re-plans. For now ev_mode is always none: the planner does not plan the car yet, and
-  # the EV project shows this sensor but does not act on it.
+  # slot re-plans. Needs input_text.hba_strategy_planned_ev_entity (empty = no car, always off).
   - binary_sensor:
       - name: "HBA EV Plan Active"
         unique_id: hba_ev_plan_active
@@ -62,9 +61,13 @@ template:
           {{ is_state('input_select.hba_marstek_master_battery_mode', 'Full control')
              and is_state('input_select.hba_strategy', 'Planned')
              and state_attr('sensor.hba_planned_strategy', 'status') == 'OK'
+             and state_attr(states('input_text.hba_strategy_planned_ev_entity') | trim, 'known') == true
              and as_timestamp(now()) - as_timestamp(state_attr('sensor.hba_planned_strategy', 'plan_made'), 0) < 7200 }}
         attributes:
-          ev_mode: "none"
+          ev_mode: >-
+            {%- set plan = state_attr('sensor.hba_planned_strategy', 'plan') or [] -%}
+            {%- set cur = plan | selectattr('ts', 'le', as_timestamp(now()) | int) | list | last | default(none) -%}
+            {{ 'grid' if cur is not none and cur.get('ev') else 'wait' }}
           plan_made: "{{ state_attr('sensor.hba_planned_strategy', 'plan_made') }}"
 
   # ── House load profile ────────────────────────────────────────────────────────
@@ -143,8 +146,9 @@ template:
           # the two forecast totals.
           signature: >-
             {%- set raw = state_attr('sensor.hba_energy_prices_data', 'marks') -%}
+            {%- set ev_e = states('input_text.hba_strategy_planned_ev_entity') | trim -%}
             {%- set marks = (raw | from_json) if raw is string and (raw | trim)[:1] == '[' else (raw if raw is sequence else []) -%}
-            {{ marks | length }}|{{ (marks | last).start if marks | length > 0 else '' }}|{{ states(today_solar_e) | float(0) | round(1) if today_solar_e != '' else '' }}|{{ states(tomorrow_solar_e) | float(0) | round(1) if tomorrow_solar_e != '' else '' }}
+            {{ marks | length }}|{{ (marks | last).start if marks | length > 0 else '' }}|{{ states(today_solar_e) | float(0) | round(1) if today_solar_e != '' else '' }}|{{ states(tomorrow_solar_e) | float(0) | round(1) if tomorrow_solar_e != '' else '' }}|{{ state_attr(ev_e, 'connected') }}|{{ (states(ev_e) | float(0) / 5) | round(0) }}|{{ state_attr(ev_e, 'max_price') }}|{{ states('input_select.hba_strategy_planned_car_tomorrow') }}
       - variables:
           # The slot that was running according to the previous plan, to measure the drift
           drift: >-
@@ -341,6 +345,49 @@ template:
                   {%- endif -%}
                 {%- endfor -%}
                 {%- set slots = ns_in.slots | sort(attribute='ts') -%}
+                {#- The car (input_text.hba_strategy_planned_ev_entity, empty = no car in the plan): the cheapest
+                    hours before departure below the max price, up to what it needs. Those hours the batteries
+                    only get the phase room the car leaves and do not discharge (Charge alongside EV), so
+                    car and batteries stop competing for the same cheap hours (prod Mar-Oct: 252 kWh). Sun the
+                    car will get on a day it is home does not have to be bought: forecast minus house use
+                    in daytime minus refilling the batteries. "That day" is today before 08:00, else tomorrow. -#}
+                {%- set ev_e = states('input_text.hba_strategy_planned_ev_entity') | trim -%}
+                {%- set car = namespace(need=0, sun=0, left=0, picks={}, home=false) -%}
+                {%- if ev_e not in ['', 'unknown', 'unavailable'] and state_attr(ev_e, 'known') == true and state_attr(ev_e, 'connected') == true -%}
+                  {%- set car_today = now().hour < 8 -%}
+                  {%- set car_day = now() if car_today else now() + timedelta(days=1) -%}
+                  {%- set car_days = states('input_text.hba_strategy_planned_car_home_days') | trim -%}
+                  {%- set car_days = 'Sat,Sun' if car_days in ['', 'unknown', 'unavailable'] else car_days -%}
+                  {%- set car_tm = states('input_select.hba_strategy_planned_car_tomorrow') -%}
+                  {%- set car.home = car_tm == 'Home' or (car_tm != 'Away' and car_day.strftime('%a') in car_days) -%}
+                  {%- set car_fc_e = today_solar_e if car_today else tomorrow_solar_e -%}
+                  {%- set car_fc = (states(car_fc_e) | float(0)) if car_fc_e != '' else 0 -%}
+                  {%- set car_house = ((prof[8:17] | select('number') | sum) / 1000) if prof | length == 24 else load_kw * 9 -%}
+                  {%- set car.sun = ([car_fc - car_house - emax, 0] | max) if car.home else 0 -%}
+                  {%- set car.need = [(states(ev_e) | float(0)) - car.sun, 0] | max -%}
+                  {%- set car.left = car.need -%}
+                  {%- set car_kw = state_attr(ev_e, 'charge_kw') | float(11) -%}
+                  {%- for sl in slots | selectattr('ts', 'lt', state_attr(ev_e, 'deadline') | int(0)) | selectattr('b', 'le', state_attr(ev_e, 'max_price') | float(0)) | sort(attribute='b') -%}
+                    {%- if car.left > 0.1 -%}
+                      {%- set car.picks = car.picks | combine({sl.ts | string: [car_kw * sl.h, car.left] | min}) -%}
+                      {%- set car.left = car.left - car_kw * sl.h -%}
+                    {%- endif -%}
+                  {%- endfor -%}
+                  {%- set car_lim = states('input_number.hba_ev_phase_current_limit') | float(0) -%}
+                  {%- set car_lim = car_lim if car_lim > 0 else states('input_number.hba_phase_current_limit') | float(0) -%}
+                  {%- set car_ph = namespace(l=[]) -%}
+                  {%- for i in range(1, count + 1) -%}
+                    {%- set ph = states('input_select.hba_marstek_m' ~ i ~ '_phase') -%}
+                    {%- if ph in ['L1', 'L2', 'L3'] and ph not in car_ph.l -%}{%- set car_ph.l = car_ph.l + [ph] -%}{%- endif -%}
+                  {%- endfor -%}
+                  {%- set car_room = ([car_lim - car_kw * 1000 / 690, 0] | max) * 0.23 * (car_ph.l | length) -%}
+                  {%- set ns_car = namespace(l=[]) -%}
+                  {%- for sl in slots -%}
+                    {%- set k = sl.ts | string -%}
+                    {%- set ns_car.l = ns_car.l + [(sl | combine({'ev': car.picks[k], 'pd': 0, 'pc': ([sl.pc, car_room] | min) if car_lim > 0 and car_ph.l else sl.pc})) if k in car.picks else sl] -%}
+                  {%- endfor -%}
+                  {%- set slots = ns_car.l -%}
+                {%- endif -%}
                 {%- set N = slots | length -%}
                 {%- if N == 0 -%}
                   {{ {'plan': [], 'status': 'No price data', 'made': now().isoformat(), 'reason': replan, 'eta': (eta * 100) | round(1)} | tojson }}
@@ -494,6 +541,7 @@ template:
                       {%- set need_w = ([best.E2 - E, 0] | max) / ec / ([sl.h, 0.01] | max) * 1100 -%}
                       {%- set rw = rw | combine({'pw': ([([(need_w / bat_w) | round(0, 'ceil'), 1] | max) * bat_w, sl.pc * 1000] | min) | round(0) | int}) -%}
                     {%- endif -%}
+                    {%- if 'ev' in sl -%}{%- set rw = rw | combine({'ev': sl.ev | round(1)}) -%}{%- endif -%}
                     {%- set fw.out = fw.out + [rw] -%}
                     {%- set fw.E = best.E2 -%}
                     {%- set fw.cost = fw.cost + best.imm -%}
@@ -519,6 +567,7 @@ template:
                        'gain': (sc_total - plan_total) | round(2),
                        'until': (slots | last).ts + step,
                        'slots': N, 'levels': K, 'step_kwh': dE | round(2),
+                       'car': {'need': car.need | round(1), 'sun': car.sun | round(1), 'home': car.home, 'unmet': ([car.left, 0] | max) | round(1)},
                        'calc_s': (as_timestamp(now()) - t_calc0) | round(2)} -%}
                   {{ {'plan': fw.out, 'status': 'OK', 'made': now().isoformat(), 'reason': replan, 'eta': (eta * 100) | round(1), 'summary': summary} | tojson }}
                 {%- endif -%}
@@ -769,6 +818,17 @@ automation:
   # 2026-10-16..22, every one caught, no normal day) and are skipped. Average per local hour of the
   # remaining days -> event hba_house_load_profile -> sensor.hba_house_load_profile.
   # Prod analysis 2026-10-28: night ~450 W, midday ~1 kW, 17:00 ~1.5 kW, evening ~0.7 kW.
+  # A one-day override: back to the weekday default once that day has started
+  - id: hba_planned_car_tomorrow_reset
+    alias: "HBA: Planned car tomorrow back to Auto"
+    triggers:
+      - trigger: time
+        at: "08:00:00"
+    actions:
+      - action: input_select.select_option
+        target: { entity_id: input_select.hba_strategy_planned_car_tomorrow }
+        data: { option: "Auto" }
+
   - id: hba_house_load_profile_update
     alias: "HBA: House load profile update"
     mode: restart

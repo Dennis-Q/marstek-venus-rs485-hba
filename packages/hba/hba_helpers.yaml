@@ -877,6 +877,16 @@ input_text:
     name: "Planned: sell price sensor (entity_id)"
     max: 100
     icon: mdi:cash-plus
+  # The EV project's sensor.ev_plan_input. Empty = no car in the plan.
+  hba_strategy_planned_ev_entity:
+    name: "Planned: car plan input (entity_id)"
+    max: 100
+    icon: mdi:car-electric
+  # Days the car is usually home in daytime, e.g. "Sat,Sun". Empty = Sat,Sun.
+  hba_strategy_planned_car_home_days:
+    name: "Planned: car home in daytime on"
+    max: 60
+    icon: mdi:calendar-week
   # Solar production in W (positive = producing), up to two inverters (e.g. SolarEdge +
   # Enphase), summed. Only used for the house-load profile (sensor.hba_house_load_profile):
   # house = grid + battery + solar - EV. Same idea as the EV project's ev_solar_power_entity_1/2.
@@ -1072,6 +1082,15 @@ input_select:
     icon: mdi:clock-end
   # History for the house-load profile. Whole weeks keep weekdays and weekend in the same
   # mix; the default comes first so a new install starts on it.
+  # Override for the next day; back to Auto at 08:00
+  hba_strategy_planned_car_tomorrow:
+    name: "Planned: car tomorrow"
+    options:
+      - "Auto"
+      - "Home"
+      - "Away"
+    icon: mdi:car-clock
+
   hba_house_load_window:
     name: "House load history"
     options:

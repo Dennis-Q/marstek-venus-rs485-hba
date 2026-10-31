@@ -438,6 +438,8 @@ charge at night → sell tomorrow morning".
   (e.g. keep enough for the hour after the peak when buying then costs more than selling now earns).
   The levels are the **energy step** setting (0 = auto: usable energy ÷ 20; finest usable ÷ 40, which
   doubles the calculation time to about 1 s).
+- With the EV project connected (*Car plan input*), the plan picks the car's cheapest hours before departure
+  below its max price, and leaves room for tomorrow's sun on days the car is home.
 - Charge and Sell run to the energy the plan expects at the end of the hour. Charge uses the power the
   hour needs, rounded up to whole batteries, so a small target runs on one battery. Sell is spread over the
   hour when full power is not needed, never below the minimum start power (200 W), and always covers the

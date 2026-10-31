@@ -2476,6 +2476,7 @@ views:
               {%- elif hold and r.e1 >= full - 0.05 %}{%- set why = 'full' %}
               {%- else %}{%- set why = '' %}
               {%- endif %}
+              {%- if r.get('ev') %}{%- set why = (why ~ ', ' if why else '') ~ 'car ' ~ '%.1f' | format(r.ev) ~ ' kWh' %}{%- endif %}
               {#- Profit per kWh that leaves the battery: Sell -> sell price, discharging for the house ->
                   the buy price it saves; minus what that kWh cost (cost out before this slot) -#}
               {#- Cost before the slot: the previous plan row; for the running slot its own cost out (the
@@ -2624,6 +2625,12 @@ views:
                 name: Re-plan when off by more than
               - entity: input_number.hba_strategy_planned_energy_step
                 name: Energy step (0 = auto, usable ÷ 20)
+              - entity: input_text.hba_strategy_planned_ev_entity
+                name: Car plan input (empty = no car)
+              - entity: input_text.hba_strategy_planned_car_home_days
+                name: Car home in daytime on (e.g. Sat,Sun)
+              - entity: input_select.hba_strategy_planned_car_tomorrow
+                name: Car tomorrow
           - type: markdown
             text_only: true
             content: >-
