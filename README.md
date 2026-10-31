@@ -335,7 +335,8 @@ Configure it in **Advanced Settings → Battery Assisted EV Charging**:
 - Enable the toggle and set a start/end time window
 - Set a minimum SoC floor — assist stops automatically when average battery SoC drops below it
 - `binary_sensor.hba_battery_assist_active` is the live gate: create an automation triggered
-  by it turning **on** (start charging) and **off** (stop charging)
+  by it turning **on** (start charging) and **off** (stop charging). With the EV project,
+  `binary_sensor.hba_ev_assist` does this: set **Follow assisted** on there
 
 The overflow guard (`binary_sensor.hba_grid_exporting_sustained`) watches for sustained
 export >1 kW with batteries discharging. If triggered, assist temporarily falls back to

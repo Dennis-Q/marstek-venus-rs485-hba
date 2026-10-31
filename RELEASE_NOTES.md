@@ -19,11 +19,17 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Added
 
-- **Planned can plan the car** — with the EV project and *Car plan input* set, Planned picks the car's
-  cheapest hours before departure below its max price and tells the EV project through
-  `binary_sensor.hba_ev_plan_active` (attribute `ev_mode`: grid or wait). In those hours the batteries
-  get what room is left and do not discharge. A day the car is home in the sun leaves room for it
-  (weekdays setting + *Car tomorrow* override). Without the entity nothing changes.
+- **Planned can plan the car** — with *Plan the car* on and the EV project following (*Follow assisted*),
+  Planned picks the car's cheapest hours before departure: *Minimum* at any price, *Normal* only with
+  *Allow grid charging* and below the max price. It tells the EV project through
+  `binary_sensor.hba_ev_assist` (`ev_mode`, `ev_limit`). In those hours the batteries get what room is
+  left and do not discharge. A day the car is home in the sun leaves room for it (weekdays setting +
+  *Car tomorrow* override). A Car table in the Planned view shows the hours. Minimum above the max
+  price: the EV project asks Charge or Skip. Without the EV project nothing changes.
+- **Warning when the EV project does not listen** — banner, notification and resolved message when Plan
+  the car or Timed EV charge is on but the EV project is missing, too old, or Follow assisted is off.
+  `binary_sensor.hba_battery_assist_active` stays; the EV project now reads `binary_sensor.hba_ev_assist`,
+  so update both projects together and turn on Follow assisted for Timed EV charge.
 
 ### Fixed
 

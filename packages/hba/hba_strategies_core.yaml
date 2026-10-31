@@ -1818,6 +1818,15 @@ script:
         target: { entity_id: input_number.hba_strategy_planned_replan_drift }
         data: { value: 1 }
       - action: input_number.set_value
+        target: { entity_id: input_number.hba_strategy_planned_car_minimum }
+        data: { value: 0 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_strategy_planned_car_normal }
+        data: { value: 80 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_strategy_planned_car_leftover }
+        data: { value: 100 }
+      - action: input_number.set_value
         target: { entity_id: input_number.hba_strategy_planned_energy_step }
         data: { value: 0 }
       - action: input_boolean.turn_off
@@ -1826,6 +1835,8 @@ script:
             - input_boolean.hba_strategy_planned_skip_charge
             - input_boolean.hba_strategy_planned_skip_sell
             - input_boolean.hba_strategy_planned_skip_zero_import
+            - input_boolean.hba_strategy_planned_car
+            - input_boolean.hba_strategy_planned_car_grid
       - action: input_text.set_value
         target: { entity_id: input_text.hba_strategy_planned_sell_price_entity_id }
         data: { value: "" }

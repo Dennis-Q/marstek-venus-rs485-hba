@@ -33,6 +33,14 @@ input_boolean:
     icon: mdi:bell
   # Planned strategy: strategies the planner may NOT use (off = allowed, so a new
   # install allows everything). Self-consumption, Charge PV and Full stop are always allowed.
+  # Planned: put the car in the plan (EV project: sensor.ev_car_info + Follow assisted on).
+  hba_strategy_planned_car:
+    name: "Planned: plan the car"
+    icon: mdi:car-clock
+  # Off: the grid only fills the car up to Minimum.
+  hba_strategy_planned_car_grid:
+    name: "Planned: allow grid charging for the car"
+    icon: mdi:transmission-tower-import
   hba_strategy_planned_skip_charge:
     name: "Planned: never charge from the grid"
     icon: mdi:transmission-tower-off
@@ -470,6 +478,33 @@ input_number:
     mode: box
     unit_of_measurement: "EUR/kWh"
     icon: mdi:cash-check
+  # Planned: the car's levels, same for every car. Minimum = must be there by departure, at any
+  # price. Normal = from the grid below the max price, with Allow grid charging. Leftover = as
+  # far as the sun may fill it.
+  hba_strategy_planned_car_minimum:
+    name: "Planned: car minimum"
+    min: 0
+    max: 100
+    step: 5
+    mode: box
+    unit_of_measurement: "%"
+    icon: mdi:battery-low
+  hba_strategy_planned_car_normal:
+    name: "Planned: car normal"
+    min: 0
+    max: 100
+    step: 5
+    mode: box
+    unit_of_measurement: "%"
+    icon: mdi:battery-70
+  hba_strategy_planned_car_leftover:
+    name: "Planned: car leftover"
+    min: 0
+    max: 100
+    step: 5
+    mode: box
+    unit_of_measurement: "%"
+    icon: mdi:battery-high
   # Planned: the energy levels the plan works with (and the steps of a partial Charge / Sell
   # target). 0 = auto: usable energy / 20 (17.8 kWh -> 0.89 kWh). Smaller = more precise targets,
   # longer calculation: ~0.5 s at auto, ~1 s at usable / 40 (48 hourly slots; 15-minute prices x4) --
@@ -877,11 +912,6 @@ input_text:
     name: "Planned: sell price sensor (entity_id)"
     max: 100
     icon: mdi:cash-plus
-  # The EV project's sensor.ev_plan_input. Empty = no car in the plan.
-  hba_strategy_planned_ev_entity:
-    name: "Planned: car plan input (entity_id)"
-    max: 100
-    icon: mdi:car-electric
   # Days the car is usually home in daytime, e.g. "Sat,Sun". Empty = Sat,Sun.
   hba_strategy_planned_car_home_days:
     name: "Planned: car home in daytime on"

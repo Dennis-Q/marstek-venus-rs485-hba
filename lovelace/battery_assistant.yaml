@@ -546,6 +546,16 @@ views:
                 state: "on"
             content: >
               <ha-alert alert-type="warning">Per-phase limits (main fuse limit, Charge alongside EV) are missing per-phase grid power: {{ state_attr('sensor.hba_phase_room', 'missing_sensors') }}. Define them in packages/hba/hba_config.yaml (like sensor.p1_meter_power, positive = import — see hba_config.yaml.example). Until then the batteries do not charge or discharge on those phases while such a limit applies.</ha-alert>
+          # Plan the car or Timed EV charge on, but the EV project does not listen
+          - type: markdown
+            grid_options:
+              columns: full
+            visibility:
+              - condition: state
+                entity: binary_sensor.hba_ev_link_problem
+                state: "on"
+            content: >
+              <ha-alert alert-type="warning">{{ state_attr('binary_sensor.hba_ev_link_problem', 'reason') }} The car is not in the plan and gets no battery energy.</ha-alert>
           # Reminder: Charge or Sell chosen by hand for an hour or more
           - type: markdown
             grid_options:
