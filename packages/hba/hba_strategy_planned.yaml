@@ -160,7 +160,20 @@ template:
           - input_text.hba_strategy_solar_aware_forecast_entity_id
           - input_text.hba_strategy_solar_forecast_entity_id
           - input_text.hba_strategy_solar_forecast_tomorrow_entity_id
+          - input_select.hba_strategy_planned_car_tomorrow
           - sensor.hba_house_load_profile
+        id: settings
+      - trigger: state
+        entity_id: sensor.ev_car_info
+        attribute: max_price
+        id: settings
+      - trigger: state
+        entity_id: sensor.ev_car_info
+        attribute: max_price_on
+        id: settings
+      - trigger: state
+        entity_id: sensor.ev_car_info
+        attribute: over_price
         id: settings
     actions:
       # `this` is not available in trigger actions -- read the previous plan by entity id.
