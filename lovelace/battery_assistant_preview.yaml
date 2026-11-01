@@ -2687,6 +2687,599 @@ views:
             text_only: true
             content: >-
               <font color=grey>Plan the car, its settings and the car hours are in the [EV Charge](ev-charge) tab.</font>
+  # ── VIEW 7: EV CHARGE ────────────────────────────────────────────────────────
+  - type: sections
+    max_columns: 3
+    title: EV Charge
+    path: ev-charge
+    icon: mdi:car-electric
+    cards: []
+    badges:
+      - type: entity
+        show_name: true
+        show_state: true
+        show_icon: true
+        entity: input_boolean.hba_battery_assist_enabled
+        name: Timed EV charge on
+        tap_action:
+          action: more-info
+      - type: entity
+        show_name: true
+        show_state: true
+        show_icon: true
+        entity: binary_sensor.hba_battery_assist_active
+        name: Timed EV charge active
+        tap_action:
+          action: more-info
+    header:
+      card:
+        type: markdown
+        text_only: true
+        content: >-
+          ### EV Charge *(HBA v4.10.1-r22)*
+
+
+          **HBA-specific feature** — not part of HBC. Configures the EV stop
+          trigger and timed battery discharge to support EV charging.
+      layout: center
+      badges_position: top
+      badges_wrap: scroll
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Car
+            heading_style: title
+            icon: mdi:car-clock
+          - type: markdown
+            text_only: true
+            content: >-
+              <font color=grey>_Lets the plan choose the hours for the active car: the cheapest ones before
+              departure, instead of the batteries and the car competing for them. HBA only decides; the
+              EV project controls the charger. Without this switch the EV project follows its own rules.
+              **Preview only** shows the same plan, including what it does to the batteries, but applies
+              nothing: use it to try settings, or to take the car away from HBA for a while._</font>
+          - type: entities
+            entities:
+              - entity: input_boolean.hba_strategy_planned_car
+                name: Plan the car
+              - type: conditional
+                conditions:
+                  - entity: input_boolean.hba_strategy_planned_car
+                    state: "on"
+                row:
+                  entity: input_boolean.hba_strategy_planned_car_preview
+                  name: Preview only (apply nothing)
+          - type: markdown
+            visibility:
+              - condition: state
+                entity: input_boolean.hba_strategy_planned_car
+                state: "on"
+            content: |-
+              {%- set I = 'sensor.ev_car_info' -%}
+              {%- set lmin = states('input_number.hba_strategy_planned_car_minimum') | float(0) -%}
+              {%- set lnorm = states('input_number.hba_strategy_planned_car_normal') | float(0) -%}
+              {%- set lleft = states('input_number.hba_strategy_planned_car_leftover') | float(0) -%}
+              {%- set grid = is_state('input_boolean.hba_strategy_planned_car_grid', 'on') -%}
+              {%- set following = state_attr(I, 'following') -%}
+              {%- set preview = is_state('input_boolean.hba_strategy_planned_car_preview', 'on') -%}
+              {%- set listens_to = states('input_text.ev_assisted_entity') -%}
+              {%- set status = state_attr('sensor.hba_planned_strategy', 'status') -%}
+              {%- set day_words = ['mon','tue','wed','thu','fri','sat','sun','monday','tuesday','wednesday','thursday','friday','saturday','sunday','none'] -%}
+              {%- set bad = states('input_text.hba_strategy_planned_car_home_days') | lower | regex_findall('[^,; ]+') | reject('in', ['unknown', 'unavailable'] + day_words) | list -%}
+              {%- set p = namespace(l=[]) -%}
+              {%- if following is none -%}{%- set p.l = p.l + ['The EV project is missing or too old (no sensor.ev_car_info). The car is left out of the plan.'] -%}{%- endif -%}
+              {%- if following == false and not preview -%}{%- set p.l = p.l + ['Turn on <b>Follow assisted</b> in the EV project. Until then the car is left out of the plan.'] -%}{%- endif -%}
+              {%- if following == true and listens_to != 'binary_sensor.hba_ev_assist' and not preview -%}{%- set p.l = p.l + ['The EV project listens to <b>' ~ listens_to ~ '</b> instead of binary_sensor.hba_ev_assist.'] -%}{%- endif -%}
+              {%- if not is_state('input_select.hba_strategy', 'Planned') and not preview -%}{%- set p.l = p.l + ['<b>Choose strategy</b> is not Planned: the car follows no plan.'] -%}{%- endif -%}
+              {%- if not is_state('input_select.hba_marstek_master_battery_mode', 'Full control') and not preview -%}{%- set p.l = p.l + ['HBA is not in <b>Full control</b>: the car follows no plan.'] -%}{%- endif -%}
+              {%- if status is not none and status != 'OK' -%}{%- set p.l = p.l + ['The plan has a problem: ' ~ status ~ '.'] -%}{%- endif -%}
+              {%- if following is not none and state_attr(I, 'known') != true -%}{%- set p.l = p.l + ['The active car has no SoC, or is a guest: no plan for this car, the EV project uses its own rules.'] -%}{%- endif -%}
+              {%- if following is not none and state_attr(I, 'capacity_kwh') | float(0) <= 0 -%}{%- set p.l = p.l + ['The active car has no battery capacity set in the EV project.'] -%}{%- endif -%}
+              {%- if following is not none and state_attr(I, 'max_price_on') != false and state_attr(I, 'max_price') | float(0) <= 0 -%}{%- set p.l = p.l + ['The max price in the EV project is 0: every hour counts as above it.'] -%}{%- endif -%}
+              {%- if bad -%}{%- set p.l = p.l + ['Car home in daytime: <b>' ~ bad | join(', ') ~ '</b> is not a day and is ignored.'] -%}{%- endif -%}
+              {%- if lnorm > 0 and lnorm < lmin -%}{%- set p.l = p.l + ['Normal is below Minimum: Minimum counts.'] -%}{%- endif -%}
+              {%- if lnorm <= 0 and grid -%}{%- set p.l = p.l + ['Normal is 0: only Minimum comes from the grid.'] -%}{%- endif -%}
+              {%- if lleft > 0 and lleft < [lmin, lnorm] | max -%}{%- set p.l = p.l + ['Leftover is below Minimum or Normal: solar stops at Leftover.'] -%}{%- endif -%}
+              {%- if lleft <= 0 -%}{%- set p.l = p.l + ['Leftover is 0, which counts as 100 %.'] -%}{%- endif -%}
+              {%- set fc_t = states('input_text.hba_strategy_solar_forecast_tomorrow_entity_id') | trim -%}
+              {%- if 'forecast_tomorrow' in fc_t and is_state('input_boolean.hba_strategy_planned_car_ask_normal', 'on') -%}
+              {%- set off = namespace(l=[]) -%}
+              {%- for n in range(3, 8) -%}{%- if not has_value(fc_t | replace('forecast_tomorrow', 'forecast_day_' ~ n)) -%}{%- set off.l = off.l + [n] -%}{%- endif -%}{%- endfor -%}
+              {%- if off.l -%}{%- set p.l = p.l + ['Solcast forecast day ' ~ off.l | join(', ') ~ ': not available. Enable these sensors in Solcast, or a later home day shows no forecast.'] -%}{%- endif -%}
+              {%- endif -%}
+              {%- if preview -%}
+              <ha-alert alert-type="info">Preview only: nothing below is applied.</ha-alert>
+              {%- endif -%}
+              {%- if p.l -%}
+              <ha-alert alert-type="warning">{{ p.l | join('<br>') }}</ha-alert>
+              {%- else -%}
+              <ha-alert alert-type="success">Car settings OK.{{ ' The car is not connected.' if state_attr(I, 'connected') == false }}</ha-alert>
+              {%- endif %}
+          - type: entities
+            visibility:
+              - condition: state
+                entity: input_boolean.hba_strategy_planned_car
+                state: "on"
+            entities:
+              - entity: sensor.ev_active_car
+                name: Active car
+              - entity: sensor.ev_car_info
+                name: Car SoC now
+              - entity: input_number.ev_window_charging_end_hour
+                name: Departure (hour)
+              - entity: input_number.hba_strategy_planned_car_minimum
+                name: Minimum by departure
+              - entity: input_number.hba_strategy_planned_car_normal
+                name: Normal (cheap hours)
+              - entity: input_number.hba_strategy_planned_car_leftover
+                name: Leftover (as far as solar fills it)
+              - entity: input_boolean.hba_strategy_planned_car_grid
+                name: Allow grid charging
+              - entity: input_boolean.ev_window_max_price_enabled
+                name: Use the max price
+              - entity: input_number.ev_window_charging_max_price
+                name: Max price
+              - entity: input_select.ev_assisted_over_price
+                name: Minimum above the max price
+              - entity: input_text.hba_strategy_planned_car_home_days
+                name: Car home in daytime on
+              - entity: input_select.hba_strategy_planned_car_tomorrow
+                name: Car tomorrow
+              - entity: input_boolean.hba_strategy_planned_car_ask_normal
+                name: Ask before Normal
+              - entity: input_select.hba_strategy_planned_car_normal_tonight
+                name: Normal coming night
+          - type: markdown
+            text_only: true
+            visibility:
+              - condition: state
+                entity: input_boolean.hba_strategy_planned_car
+                state: "on"
+            content: >-
+              <font color=grey>**The three levels** are % of the car's battery, the same for every car.
+              **Minimum:** must be there by departure, at any price, also with grid charging off. **Minimum above
+              the max price:** Charge, Skip those hours, or Ask (a notification with both buttons; no answer
+              means it charges). **Normal:** only with
+              **Allow grid charging**, in the cheapest hours below the max price. Solar expected on a day the
+              car is home is taken off this amount. **Leftover:** never from the grid. Solar fills the car up
+              to here. So Minimum ≤ Normal ≤ Leftover, e.g. 40 / 80 / 100.</font>
+
+
+              <font color=grey>**Car home in daytime on:** the days the car can catch solar, separated by commas,
+              in English: Mon, Tue, Wed, Thu, Fri, Sat, Sun, or full names. Empty = Sat,Sun; `none` = never.
+              **Car tomorrow:** overrides this once (Home or Away); back to Auto at 08:00.</font>
+
+
+              <font color=grey>**Ask before Normal:** a question in the evening when Normal has hours tonight:
+              skip tonight, or skip until the next day the car is home. It shows that day's expected spare
+              solar. No answer means it charges, and Minimum always stays. With Skip until home day it only
+              speaks up when solar looks too low. **Normal coming night** shows the answer, and you can set it
+              here too. Solcast gives this for up to 7 days once its day 4 to 7 sensors are enabled.</font>
+
+
+              <font color=grey>**Max price:** Normal never goes above it. Switch and field are the same as in the
+              EV project, so they also count for its own rules. With **Use the max price** off there is no
+              limit, and no question for Minimum either. The car hours show the other choice as well, so you can
+              compare without switching. The employer price is a good value; it changes every month.</font>
+
+
+              <font color=grey>**Departure** is the same field as the end of the charging window in the EV
+              project. Minimum and Normal must fit before it; Leftover has no end, it only limits solar.</font>
+
+
+              <font color=grey>**Effect on the batteries:** in a car hour the batteries do not discharge, and
+              charge only with what the main fuse leaves. Other hours can move as a result. The car hours show
+              this while Preview only is on. The batteries are not charged for the car: that is a later step.</font>
+
+
+              <font color=grey>**The Ask question** comes only with the car connected, not in Preview only,
+              one minute after the plan needs it and again at the reminder time in the EV project. The answer
+              is shown in Minimum above the max price, and goes back to Ask at unplugging or departure.</font>
+
+
+              <font color=grey>**In the EV project:** turn on Follow assisted, and set the end of
+              the charging window (= departure) and per car the capacity and max power. Only the active
+              car counts. A manual force charge always wins.</font>
+      - type: grid
+        cards:
+          - type: markdown
+            visibility:
+              - condition: state
+                entity: input_boolean.hba_strategy_planned_car
+                state: "on"
+            content: |-
+              {%- set R = 'sensor.hba_planned_strategy' -%}
+              {%- set preview = is_state('input_boolean.hba_strategy_planned_car_preview', 'on') -%}
+              {%- set E = 'sensor.hba_planned_car_preview' if preview else R -%}
+              {%- set I = 'sensor.ev_car_info' -%}
+              {%- set plan = state_attr(E, 'plan') or [] -%}
+              {%- set sm = state_attr(E, 'summary') if state_attr(E, 'summary') is mapping else {} -%}
+              {%- set run = state_attr(R, 'summary') if state_attr(R, 'summary') is mapping else {} -%}
+              {%- set now_plan = state_attr(R, 'plan') or [] -%}
+              {%- set car = sm.get('car') or {} -%}
+              {%- set full = sm.get('usable', 0) | float(0) -%}
+              {%- set dl = state_attr(I, 'deadline') | int(0) -%}
+              {%- set cheap = (plan | selectattr('ts', 'lt', dl) | sort(attribute='b') | map(attribute='ts') | list)[:3] -%}
+              ### Car hours
+              {{ state_attr(I, 'car_name') or 'Active car' }} · departure {{ dl | timestamp_custom('%a %H:%M') }}{{ ' · not connected' if state_attr(I, 'connected') != true }}
+
+
+              {% if preview or state_attr(I, 'connected') == true -%}
+              {%- if car.get('normal_skip') %}
+              Normal skipped: {{ car.get('normal', 0) }} kWh, € {{ '%.2f' | format(car.get('normal_eur', 0)) }} ({{ states('input_select.hba_strategy_planned_car_normal_tonight') | lower }}).
+              {% endif -%}
+              {%- if car.get('home_day') %}
+              Next home day {{ car.home_day }}: {{ ('about ' ~ car.home_sun ~ ' kWh spare solar') if car.get('home_sun', -1) >= 0 else 'no forecast yet' }}.
+
+              {% endif -%}
+              {{ states(I) | float(0) | round(0) | int }} % · Minimum {{ car.get('min', 0) }} kWh · from the grid {{ 0 if car.get('normal_skip') else car.get('need', 0) }} kWh · spare solar on the next day {{ car.get('sun', 0) }} kWh{{ ' · ' ~ car.unmet ~ ' kWh not planned (price or hours)' if car.get('unmet') }}{{ ' · not connected: from today\'s SoC' if state_attr(I, 'connected') != true }}
+
+              Car: {{ car.get('kwh', 0) }} kWh, € {{ '%.2f' | format(car.get('eur', 0)) }} · {{ 'without' if state_attr(I, 'max_price_on') != false else 'with' }} the max price: {{ car.get('alt_kwh', 0) }} kWh, € {{ '%.2f' | format(car.get('alt_eur', 0)) }}
+              {%- if preview and sm.get('plan_cost') is not none and run.get('plan_cost') is not none %}
+
+              Effect on the batteries and the house: € {{ '%+.2f' | format(sm.plan_cost - run.plan_cost) }} compared with the plan that runs now.
+              {%- set moved = namespace(n=0) %}
+              {%- for r in plan %}{%- set was = now_plan | selectattr('ts', 'eq', r.ts) | first | default(none) %}{%- if was is not none and (was.a != r.a or (was.e1 - r.e1) | abs > 0.1) %}{%- set moved.n = moved.n + 1 %}{%- endif %}{%- endfor %}
+              {{ ' The car changes ' ~ moved.n ~ ' battery hour(s), marked (now ...) below.' if moved.n else ' The car does not change the battery hours.' }}
+              {%- elif not preview %}
+
+              Turn on Preview only to compare the battery plan with and without the car.
+              {%- endif %}
+              {%- else -%}
+              Not connected: these hours show what is possible.
+              {%- endif %}
+
+
+              <small>
+
+              | Time | Price | Solar above house | Car | Batteries | Stored | |
+              |---|---|---|---|---|---|---|
+              {%- for r in plan %}
+              {%- set spare = [r.get('sun', 0) - r.get('load', 0), 0] | max %}
+              {%- set best = 'Preferred: batteries full' if spare > 0.5 and r.e1 >= full - 0.2 else ('Cheapest' if r.ts in cheap else '') %}
+              {%- set was = now_plan | selectattr('ts', 'eq', r.ts) | first | default(none) %}
+              | {{ r.ts | timestamp_custom('%a %H:%M') }} | {{ '%.3f' | format(r.b) }} | {{ ('%.1f' | format(spare)) if spare > 0.05 else '' }} | {{ ('%.1f kWh → %d %%' | format(r.ev, r.ev_lim)) if r.get('ev') else '' }} | {{ r.a }}{{ ' (now ' ~ was.a ~ ')' if preview and was is not none and was.a != r.a }} | {{ '%.1f' | format(r.e1) }}{{ ' (now ' ~ '%.1f' | format(was.e1) ~ ')' if preview and was is not none and (was.e1 - r.e1) | abs > 0.1 }} | {{ best }} |
+              {%- endfor %}
+
+              </small>
+      - type: grid
+        cards:
+          - type: heading
+            icon: mdi:power-plug-off
+            heading: EV Stop Trigger
+            heading_style: title
+          - type: markdown
+            content: '---'
+            grid_options:
+              columns: full
+            text_only: true
+          - type: markdown
+            content: >-
+              <font color=grey>The Stop Trigger will OVERRULE ALL active
+              strategies.
+
+              _E.g. use to disengage your home batteries when EV is
+              charging_</font>
+            text_only: true
+          - type: entities
+            entities:
+              - entity: input_text.hba_strategy_ev_sensor_entity_id
+                secondary_info: none
+          - type: markdown
+            content: >-
+              <font color=grey>Enter the `entity_id` of an `input_boolean` or
+              `on/off template_sensor` in the field above</font>
+            text_only: true
+          - type: tile
+            entity: binary_sensor.hba_ev_is_active
+            name: EV stop trigger
+            vertical: false
+            features_position: bottom
+            grid_options:
+              columns: full
+          - type: markdown
+            content: >-
+              <font color=grey>The EV stop trigger indicates the EV is charging.
+              Trigger **on** = batteries follow the strategy selected below
+              instead of the active strategy.</font>
+            text_only: true
+          - type: tile
+            entity: input_select.hba_control_strategy_during_ev_charge
+            name: Strategy during EV charge
+            color: blue
+            vertical: false
+            features_position: bottom
+            grid_options:
+              columns: full
+          - type: markdown
+            content: >-
+              <font color=grey>**Full stop** — batteries idle while the EV charges.
+              **Standby / peak shave** — idle, but still respond to import/export
+              power limits. **Charge PV** — charge the solar surplus the EV cannot
+              take (e.g. between 1-phase max and the 3-phase switch threshold);
+              discharge stays disabled, so the batteries never compete with the
+              charger. **Charge alongside EV** — the normal strategy keeps
+              running (it decides whether the batteries charge, e.g. a cheap hour)
+              but never discharges into the car; below the battery-priority energy
+              the batteries charge at full power and the charger's load balancing
+              slows the car, above it the batteries only use what is left under
+              the phase limit.</font>
+            text_only: true
+          - type: entities
+            entities:
+              - entity: input_number.hba_ev_battery_priority_energy
+                name: Batteries first below
+              - entity: input_number.hba_ev_phase_current_limit
+                name: Car-first limit per phase
+              - entity: input_number.hba_ev_max_current
+                name: Car max current per phase
+              - entity: binary_sensor.hba_ev_charge_alongside
+                name: Charging alongside now
+                secondary_info: none
+              - type: attribute
+                entity: binary_sensor.hba_ev_charge_alongside
+                attribute: mode
+                name: Priority now
+              - entity: binary_sensor.hba_batteries_before_ev
+                name: Batteries before EV now (for EV solar charging)
+                secondary_info: none
+            visibility:
+              - condition: state
+                entity: input_select.hba_control_strategy_during_ev_charge
+                state: "Charge alongside EV"
+          - type: markdown
+            content: >-
+              <font color=grey>**Batteries first below**: usable energy (kWh above
+              the discharge cutoffs) the batteries may claim before the car, e.g.
+              what the house needs at night; 0 = the car always first.
+              **Car-first limit per phase**: set just below where your charger's load
+              balancing starts slowing the car (a Peblar at ~22.5 A). Only applies while
+              the car charges; not the same as the **main fuse limit** (Advanced settings,
+              now {{ states('input_number.hba_phase_current_limit') | float(0) | round(0) | int }} A),
+              which applies always and should be higher. Set each
+              battery's **phase** in Advanced settings — as your P1 meter numbers
+              the phases, which may differ from the labels in the meter cupboard.
+              **Check it:** let one battery charge or discharge at a steady power
+              with the others idle; only that phase's `sensor.p1_meter_power_lX`
+              should move by about that amount. **Car max current**: with the
+              charger's power defined (`sensor.ev_charger_power` or per phase, see
+              hba_config.yaml) HBA keeps that room free for the car, so after the
+              charger's load balancing throttled it, it goes straight back to full
+              speed. Requires an EV charger with its own load balancing measuring the
+              whole connection.</font>
+            text_only: true
+            visibility:
+              - condition: state
+                entity: input_select.hba_control_strategy_during_ev_charge
+                state: "Charge alongside EV"
+          - type: markdown
+            content: >-
+              <ha-alert alert-type="warning">Per-phase limits (main fuse limit, Charge alongside EV) are missing per-phase grid power: {{ state_attr('sensor.hba_phase_room', 'missing_sensors') }}. Define them in packages/hba/hba_config.yaml (like sensor.p1_meter_power, positive = import — see hba_config.yaml.example). Until then the batteries do not charge or discharge on those phases while such a limit applies.</ha-alert>
+            grid_options:
+              columns: full
+            visibility:
+              - condition: state
+                entity: binary_sensor.hba_phase_sensors_missing
+                state: "on"
+          - type: entities
+            entities:
+              - entity: input_text.hba_strategy_ev_saturated_entity_id
+                name: EV charger saturated entity
+                secondary_info: none
+            visibility:
+              - condition: state
+                entity: input_select.hba_control_strategy_during_ev_charge
+                state: "Charge PV"
+          - type: markdown
+            content: >-
+              <font color=grey>**Saturated entity**: a binary_sensor from the
+              EV side that is on when the charger cannot take more power
+              (pinned at its current limit or derated by load balancing). When
+              set, Charge PV only runs while the charger is saturated, so the
+              batteries never compete with the charger's own regulation.
+              Example: `binary_sensor.ev_charger_saturated`. Leave empty to
+              run Charge PV whenever the EV charges.</font>
+            text_only: true
+            visibility:
+              - condition: state
+                entity: input_select.hba_control_strategy_during_ev_charge
+                state: "Charge PV"
+
+      - type: grid
+        cards:
+          - type: heading
+            icon: mdi:car-electric
+            heading: Timed EV charge
+            heading_style: title
+          - type: markdown
+            content: '---'
+            grid_options:
+              columns: full
+            text_only: true
+          - type: markdown
+            content: >-
+              <font color=grey><i>Discharges batteries during a configured time
+              window to direct that capacity to an EV charger — useful when you
+              have excess battery reserves and want to maximize EV charge before
+              the car is needed. Stops automatically when SoC drops below the
+              configured minimum.</i>
+
+
+              <b>To start/stop EV charging:</b> create an automation triggered
+              by <code>binary_sensor.hba_battery_assist_active</code> turning
+              <b>on</b> (start charging) and <b>off</b> (stop charging).</font>
+            text_only: true
+          - type: tile
+            entity: input_boolean.hba_battery_assist_enabled
+            name: Timed EV charge on
+            color: blue
+            vertical: false
+            hide_state: true
+            features_position: bottom
+            grid_options:
+              columns: full
+          - type: tile
+            entity: binary_sensor.hba_battery_assist_active
+            name: Timed EV charge active
+            vertical: false
+            features_position: bottom
+            grid_options:
+              columns: full
+          - type: entities
+            entities:
+              - entity: input_datetime.hba_battery_assist_start_time
+                name: Start time
+              - entity: input_datetime.hba_battery_assist_end_time
+                name: End time
+              - entity: input_number.hba_battery_assist_min_soc
+                name: Minimum SoC (stop threshold)
+              - entity: sensor.hba_average_battery_soc
+                name: Current average SoC
+                secondary_info: none
+              - entity: sensor.hba_battery_assist_reserved_energy
+                name: Energy reserved for home (above hardware cutoff)
+                secondary_info: none
+              - entity: input_number.hba_battery_assist_max_discharge_power
+                name: Max discharge power (0 = battery maximum)
+                secondary_info: none
+              - entity: input_text.hba_battery_assist_car_connected_entity
+                name: Car connected entity (optional)
+                secondary_info: none
+              - type: divider
+              - entity: script.hba_apply_battery_assist_defaults
+                name: Apply section defaults
+                icon: mdi:cog-refresh
+                secondary_info: last-triggered
+                tap_action:
+                  action: perform-action
+                  perform_action: script.turn_on
+                  target:
+                    entity_id: script.hba_apply_battery_assist_defaults
+                  confirmation:
+                    text: >-
+                      Reset Timed EV charge settings to defaults? Your other HBA
+                      settings will not be affected.
+          - type: tile
+            entity: binary_sensor.hba_grid_exporting_sustained
+            name: Grid exporting sustained (overflow guard)
+            vertical: false
+            features_position: bottom
+            grid_options:
+              columns: full
+          - type: markdown
+            content: >-
+              <font color=grey>When <b>Grid exporting sustained</b> turns on
+              (grid export >1 kW for 2+ min with batteries discharging), the
+              timed EV charge temporarily switches to self-consumption to avoid
+              unnecessary grid feed-in.</font>
+            text_only: true
+
+  # ── VIEW 8: NOTIFICATIONS ────────────────────────────────────────────────────
+  - type: sections
+    max_columns: 3
+    title: Notifications
+    path: notifications
+    icon: mdi:bell-outline
+    cards: []
+    header:
+      card:
+        type: markdown
+        text_only: true
+        content: >-
+          ### Notifications *(HBA v4.10.1-r22)*
+
+
+          **HBA-specific feature** — not part of HBC. Configure where HBA
+          sends notifications (unexpected grid export, HBC conflicts, etc.).
+      layout: center
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Notifications
+            heading_style: title
+            icon: mdi:bell-outline
+          - type: markdown
+            content: '---'
+            grid_options:
+              columns: full
+            text_only: true
+          - type: markdown
+            content: >-
+              <ha-alert alert-type="warning"><strong>Notify action
+              invalid</strong><br>The value in
+              <code>input_text.hba_notify_entity_id</code> is not a valid legacy
+              notify service. Use <code>notify.mobile_app_*</code> — not a
+              modern notify entity. HBA notifications fall back to persistent
+              notifications until you correct it.<br><br>Current value:
+              <code>{{ states('input_text.hba_notify_entity_id') }}</code><br>
+              Available: <code>{{
+              state_attr('binary_sensor.hba_notify_target_invalid',
+              'available_notify_services') | join(', ') or '(none found)'
+              }}</code></ha-alert>
+            text_only: true
+            grid_options:
+              columns: full
+            visibility:
+              - condition: state
+                entity: binary_sensor.hba_notify_target_invalid
+                state: "on"
+          - type: tile
+            entity: input_boolean.hba_notifications_enabled
+            name: Notifications enabled
+            color: blue
+            vertical: false
+            hide_state: true
+            features_position: bottom
+            grid_options:
+              columns: full
+          - type: entities
+            entities:
+              - entity: input_text.hba_notify_entity_id
+                secondary_info: none
+                name: Notify action
+              - entity: binary_sensor.hba_notify_target_invalid
+                name: Validation
+                icon: mdi:check-decagram
+              - type: divider
+              - type: button
+                name: Send test notification
+                icon: mdi:bell-ring-outline
+                action_name: Send
+                tap_action:
+                  action: perform-action
+                  perform_action: script.turn_on
+                  target:
+                    entity_id: script.hba_notify_test
+          - type: markdown
+            content: >-
+              <font color=grey>Enter a legacy <code>notify.mobile_app_*</code>
+              service name. Leave empty to use persistent notifications (HA
+              notification bell). Do not enter a modern notify entity — use the
+              <code>mobile_app_</code> service name instead.<br>Available:
+              <code>{{
+              state_attr('binary_sensor.hba_notify_target_invalid',
+              'available_notify_services') | join(', ') or 'none found'
+              }}</code></font>
+            text_only: true
+          - type: heading
+            heading: Notification automations
+            heading_style: subtitle
+            icon: mdi:robot-outline
+            grid_options:
+              columns: full
+          - type: custom:auto-entities
+            card:
+              type: entities
+              show_header_toggle: false
+            filter:
+              include:
+                - entity_id: "automation.hba_*notif*"
+            sort:
+              method: friendly_name
+            grid_options:
+              columns: full
   - type: sections
     max_columns: 3
     title: Insights
@@ -5259,596 +5852,3 @@ views:
                       This will reset all HBA parameters to safe starting values.
                       Any values you have configured will be overwritten. Continue?
 
-  # ── VIEW 7: EV CHARGE ────────────────────────────────────────────────────────
-  - type: sections
-    max_columns: 3
-    title: EV Charge
-    path: ev-charge
-    icon: mdi:car-electric
-    cards: []
-    badges:
-      - type: entity
-        show_name: true
-        show_state: true
-        show_icon: true
-        entity: input_boolean.hba_battery_assist_enabled
-        name: Timed EV charge on
-        tap_action:
-          action: more-info
-      - type: entity
-        show_name: true
-        show_state: true
-        show_icon: true
-        entity: binary_sensor.hba_battery_assist_active
-        name: Timed EV charge active
-        tap_action:
-          action: more-info
-    header:
-      card:
-        type: markdown
-        text_only: true
-        content: >-
-          ### EV Charge *(HBA v4.10.1-r22)*
-
-
-          **HBA-specific feature** — not part of HBC. Configures the EV stop
-          trigger and timed battery discharge to support EV charging.
-      layout: center
-      badges_position: top
-      badges_wrap: scroll
-    sections:
-      - type: grid
-        cards:
-          - type: heading
-            heading: Car
-            heading_style: title
-            icon: mdi:car-clock
-          - type: markdown
-            text_only: true
-            content: >-
-              <font color=grey>_Lets the plan choose the hours for the active car: the cheapest ones before
-              departure, instead of the batteries and the car competing for them. HBA only decides; the
-              EV project controls the charger. Without this switch the EV project follows its own rules.
-              **Preview only** shows the same plan, including what it does to the batteries, but applies
-              nothing: use it to try settings, or to take the car away from HBA for a while._</font>
-          - type: entities
-            entities:
-              - entity: input_boolean.hba_strategy_planned_car
-                name: Plan the car
-              - type: conditional
-                conditions:
-                  - entity: input_boolean.hba_strategy_planned_car
-                    state: "on"
-                row:
-                  entity: input_boolean.hba_strategy_planned_car_preview
-                  name: Preview only (apply nothing)
-          - type: markdown
-            visibility:
-              - condition: state
-                entity: input_boolean.hba_strategy_planned_car
-                state: "on"
-            content: |-
-              {%- set I = 'sensor.ev_car_info' -%}
-              {%- set lmin = states('input_number.hba_strategy_planned_car_minimum') | float(0) -%}
-              {%- set lnorm = states('input_number.hba_strategy_planned_car_normal') | float(0) -%}
-              {%- set lleft = states('input_number.hba_strategy_planned_car_leftover') | float(0) -%}
-              {%- set grid = is_state('input_boolean.hba_strategy_planned_car_grid', 'on') -%}
-              {%- set following = state_attr(I, 'following') -%}
-              {%- set preview = is_state('input_boolean.hba_strategy_planned_car_preview', 'on') -%}
-              {%- set listens_to = states('input_text.ev_assisted_entity') -%}
-              {%- set status = state_attr('sensor.hba_planned_strategy', 'status') -%}
-              {%- set day_words = ['mon','tue','wed','thu','fri','sat','sun','monday','tuesday','wednesday','thursday','friday','saturday','sunday','none'] -%}
-              {%- set bad = states('input_text.hba_strategy_planned_car_home_days') | lower | regex_findall('[^,; ]+') | reject('in', ['unknown', 'unavailable'] + day_words) | list -%}
-              {%- set p = namespace(l=[]) -%}
-              {%- if following is none -%}{%- set p.l = p.l + ['The EV project is missing or too old (no sensor.ev_car_info). The car is left out of the plan.'] -%}{%- endif -%}
-              {%- if following == false and not preview -%}{%- set p.l = p.l + ['Turn on <b>Follow assisted</b> in the EV project. Until then the car is left out of the plan.'] -%}{%- endif -%}
-              {%- if following == true and listens_to != 'binary_sensor.hba_ev_assist' and not preview -%}{%- set p.l = p.l + ['The EV project listens to <b>' ~ listens_to ~ '</b> instead of binary_sensor.hba_ev_assist.'] -%}{%- endif -%}
-              {%- if not is_state('input_select.hba_strategy', 'Planned') and not preview -%}{%- set p.l = p.l + ['<b>Choose strategy</b> is not Planned: the car follows no plan.'] -%}{%- endif -%}
-              {%- if not is_state('input_select.hba_marstek_master_battery_mode', 'Full control') and not preview -%}{%- set p.l = p.l + ['HBA is not in <b>Full control</b>: the car follows no plan.'] -%}{%- endif -%}
-              {%- if status is not none and status != 'OK' -%}{%- set p.l = p.l + ['The plan has a problem: ' ~ status ~ '.'] -%}{%- endif -%}
-              {%- if following is not none and state_attr(I, 'known') != true -%}{%- set p.l = p.l + ['The active car has no SoC, or is a guest: no plan for this car, the EV project uses its own rules.'] -%}{%- endif -%}
-              {%- if following is not none and state_attr(I, 'capacity_kwh') | float(0) <= 0 -%}{%- set p.l = p.l + ['The active car has no battery capacity set in the EV project.'] -%}{%- endif -%}
-              {%- if following is not none and state_attr(I, 'max_price_on') != false and state_attr(I, 'max_price') | float(0) <= 0 -%}{%- set p.l = p.l + ['The max price in the EV project is 0: every hour counts as above it.'] -%}{%- endif -%}
-              {%- if bad -%}{%- set p.l = p.l + ['Car home in daytime: <b>' ~ bad | join(', ') ~ '</b> is not a day and is ignored.'] -%}{%- endif -%}
-              {%- if lnorm > 0 and lnorm < lmin -%}{%- set p.l = p.l + ['Normal is below Minimum: Minimum counts.'] -%}{%- endif -%}
-              {%- if lnorm <= 0 and grid -%}{%- set p.l = p.l + ['Normal is 0: only Minimum comes from the grid.'] -%}{%- endif -%}
-              {%- if lleft > 0 and lleft < [lmin, lnorm] | max -%}{%- set p.l = p.l + ['Leftover is below Minimum or Normal: solar stops at Leftover.'] -%}{%- endif -%}
-              {%- if lleft <= 0 -%}{%- set p.l = p.l + ['Leftover is 0, which counts as 100 %.'] -%}{%- endif -%}
-              {%- set fc_t = states('input_text.hba_strategy_solar_forecast_tomorrow_entity_id') | trim -%}
-              {%- if 'forecast_tomorrow' in fc_t and is_state('input_boolean.hba_strategy_planned_car_ask_normal', 'on') -%}
-              {%- set off = namespace(l=[]) -%}
-              {%- for n in range(3, 8) -%}{%- if not has_value(fc_t | replace('forecast_tomorrow', 'forecast_day_' ~ n)) -%}{%- set off.l = off.l + [n] -%}{%- endif -%}{%- endfor -%}
-              {%- if off.l -%}{%- set p.l = p.l + ['Solcast forecast day ' ~ off.l | join(', ') ~ ': not available. Enable these sensors in Solcast, or a later home day shows no forecast.'] -%}{%- endif -%}
-              {%- endif -%}
-              {%- if preview -%}
-              <ha-alert alert-type="info">Preview only: nothing below is applied.</ha-alert>
-              {%- endif -%}
-              {%- if p.l -%}
-              <ha-alert alert-type="warning">{{ p.l | join('<br>') }}</ha-alert>
-              {%- else -%}
-              <ha-alert alert-type="success">Car settings OK.{{ ' The car is not connected.' if state_attr(I, 'connected') == false }}</ha-alert>
-              {%- endif %}
-          - type: entities
-            visibility:
-              - condition: state
-                entity: input_boolean.hba_strategy_planned_car
-                state: "on"
-            entities:
-              - entity: sensor.ev_active_car
-                name: Active car
-              - entity: sensor.ev_car_info
-                name: Car SoC now
-              - entity: input_number.ev_window_charging_end_hour
-                name: Departure (hour)
-              - entity: input_number.hba_strategy_planned_car_minimum
-                name: Minimum by departure
-              - entity: input_number.hba_strategy_planned_car_normal
-                name: Normal (cheap hours)
-              - entity: input_number.hba_strategy_planned_car_leftover
-                name: Leftover (as far as solar fills it)
-              - entity: input_boolean.hba_strategy_planned_car_grid
-                name: Allow grid charging
-              - entity: input_boolean.ev_window_max_price_enabled
-                name: Use the max price
-              - entity: input_number.ev_window_charging_max_price
-                name: Max price
-              - entity: input_select.ev_assisted_over_price
-                name: Minimum above the max price
-              - entity: input_text.hba_strategy_planned_car_home_days
-                name: Car home in daytime on
-              - entity: input_select.hba_strategy_planned_car_tomorrow
-                name: Car tomorrow
-              - entity: input_boolean.hba_strategy_planned_car_ask_normal
-                name: Ask before Normal
-              - entity: input_select.hba_strategy_planned_car_normal_tonight
-                name: Normal coming night
-          - type: markdown
-            text_only: true
-            visibility:
-              - condition: state
-                entity: input_boolean.hba_strategy_planned_car
-                state: "on"
-            content: >-
-              <font color=grey>**The three levels** are % of the car's battery, the same for every car.
-              **Minimum:** must be there by departure, at any price, also with grid charging off. **Minimum above
-              the max price:** Charge, Skip those hours, or Ask (a notification with both buttons; no answer
-              means it charges). **Normal:** only with
-              **Allow grid charging**, in the cheapest hours below the max price. Solar expected on a day the
-              car is home is taken off this amount. **Leftover:** never from the grid. Solar fills the car up
-              to here. So Minimum ≤ Normal ≤ Leftover, e.g. 40 / 80 / 100.</font>
-
-
-              <font color=grey>**Car home in daytime on:** the days the car can catch solar, separated by commas,
-              in English: Mon, Tue, Wed, Thu, Fri, Sat, Sun, or full names. Empty = Sat,Sun; `none` = never.
-              **Car tomorrow:** overrides this once (Home or Away); back to Auto at 08:00.</font>
-
-
-              <font color=grey>**Ask before Normal:** a question in the evening when Normal has hours tonight:
-              skip tonight, or skip until the next day the car is home. It shows that day's expected spare
-              solar. No answer means it charges, and Minimum always stays. With Skip until home day it only
-              speaks up when solar looks too low. **Normal coming night** shows the answer, and you can set it
-              here too. Solcast gives this for up to 7 days once its day 4 to 7 sensors are enabled.</font>
-
-
-              <font color=grey>**Max price:** Normal never goes above it. Switch and field are the same as in the
-              EV project, so they also count for its own rules. With **Use the max price** off there is no
-              limit, and no question for Minimum either. The car hours show the other choice as well, so you can
-              compare without switching. The employer price is a good value; it changes every month.</font>
-
-
-              <font color=grey>**Departure** is the same field as the end of the charging window in the EV
-              project. Minimum and Normal must fit before it; Leftover has no end, it only limits solar.</font>
-
-
-              <font color=grey>**Effect on the batteries:** in a car hour the batteries do not discharge, and
-              charge only with what the main fuse leaves. Other hours can move as a result. The car hours show
-              this while Preview only is on. The batteries are not charged for the car: that is a later step.</font>
-
-
-              <font color=grey>**The Ask question** comes only with the car connected, not in Preview only,
-              one minute after the plan needs it and again at the reminder time in the EV project. The answer
-              is shown in Minimum above the max price, and goes back to Ask at unplugging or departure.</font>
-
-
-              <font color=grey>**In the EV project:** turn on Follow assisted, and set the end of
-              the charging window (= departure) and per car the capacity and max power. Only the active
-              car counts. A manual force charge always wins.</font>
-      - type: grid
-        cards:
-          - type: markdown
-            visibility:
-              - condition: state
-                entity: input_boolean.hba_strategy_planned_car
-                state: "on"
-            content: |-
-              {%- set R = 'sensor.hba_planned_strategy' -%}
-              {%- set preview = is_state('input_boolean.hba_strategy_planned_car_preview', 'on') -%}
-              {%- set E = 'sensor.hba_planned_car_preview' if preview else R -%}
-              {%- set I = 'sensor.ev_car_info' -%}
-              {%- set plan = state_attr(E, 'plan') or [] -%}
-              {%- set sm = state_attr(E, 'summary') if state_attr(E, 'summary') is mapping else {} -%}
-              {%- set run = state_attr(R, 'summary') if state_attr(R, 'summary') is mapping else {} -%}
-              {%- set now_plan = state_attr(R, 'plan') or [] -%}
-              {%- set car = sm.get('car') or {} -%}
-              {%- set full = sm.get('usable', 0) | float(0) -%}
-              {%- set dl = state_attr(I, 'deadline') | int(0) -%}
-              {%- set cheap = (plan | selectattr('ts', 'lt', dl) | sort(attribute='b') | map(attribute='ts') | list)[:3] -%}
-              ### Car hours
-              {{ state_attr(I, 'car_name') or 'Active car' }} · departure {{ dl | timestamp_custom('%a %H:%M') }}{{ ' · not connected' if state_attr(I, 'connected') != true }}
-
-
-              {% if preview or state_attr(I, 'connected') == true -%}
-              {%- if car.get('normal_skip') %}
-              Normal skipped: {{ car.get('normal', 0) }} kWh, € {{ '%.2f' | format(car.get('normal_eur', 0)) }} ({{ states('input_select.hba_strategy_planned_car_normal_tonight') | lower }}).
-              {% endif -%}
-              {%- if car.get('home_day') %}
-              Next home day {{ car.home_day }}: {{ ('about ' ~ car.home_sun ~ ' kWh spare solar') if car.get('home_sun', -1) >= 0 else 'no forecast yet' }}.
-
-              {% endif -%}
-              {{ states(I) | float(0) | round(0) | int }} % · Minimum {{ car.get('min', 0) }} kWh · from the grid {{ 0 if car.get('normal_skip') else car.get('need', 0) }} kWh · spare solar on the next day {{ car.get('sun', 0) }} kWh{{ ' · ' ~ car.unmet ~ ' kWh not planned (price or hours)' if car.get('unmet') }}{{ ' · not connected: from today\'s SoC' if state_attr(I, 'connected') != true }}
-
-              Car: {{ car.get('kwh', 0) }} kWh, € {{ '%.2f' | format(car.get('eur', 0)) }} · {{ 'without' if state_attr(I, 'max_price_on') != false else 'with' }} the max price: {{ car.get('alt_kwh', 0) }} kWh, € {{ '%.2f' | format(car.get('alt_eur', 0)) }}
-              {%- if preview and sm.get('plan_cost') is not none and run.get('plan_cost') is not none %}
-
-              Effect on the batteries and the house: € {{ '%+.2f' | format(sm.plan_cost - run.plan_cost) }} compared with the plan that runs now.
-              {%- set moved = namespace(n=0) %}
-              {%- for r in plan %}{%- set was = now_plan | selectattr('ts', 'eq', r.ts) | first | default(none) %}{%- if was is not none and (was.a != r.a or (was.e1 - r.e1) | abs > 0.1) %}{%- set moved.n = moved.n + 1 %}{%- endif %}{%- endfor %}
-              {{ ' The car changes ' ~ moved.n ~ ' battery hour(s), marked (now ...) below.' if moved.n else ' The car does not change the battery hours.' }}
-              {%- elif not preview %}
-
-              Turn on Preview only to compare the battery plan with and without the car.
-              {%- endif %}
-              {%- else -%}
-              Not connected: these hours show what is possible.
-              {%- endif %}
-
-
-              <small>
-
-              | Time | Price | Solar above house | Car | Batteries | Stored | |
-              |---|---|---|---|---|---|---|
-              {%- for r in plan %}
-              {%- set spare = [r.get('sun', 0) - r.get('load', 0), 0] | max %}
-              {%- set best = 'Preferred: batteries full' if spare > 0.5 and r.e1 >= full - 0.2 else ('Cheapest' if r.ts in cheap else '') %}
-              {%- set was = now_plan | selectattr('ts', 'eq', r.ts) | first | default(none) %}
-              | {{ r.ts | timestamp_custom('%a %H:%M') }} | {{ '%.3f' | format(r.b) }} | {{ ('%.1f' | format(spare)) if spare > 0.05 else '' }} | {{ ('%.1f kWh → %d %%' | format(r.ev, r.ev_lim)) if r.get('ev') else '' }} | {{ r.a }}{{ ' (now ' ~ was.a ~ ')' if preview and was is not none and was.a != r.a }} | {{ '%.1f' | format(r.e1) }}{{ ' (now ' ~ '%.1f' | format(was.e1) ~ ')' if preview and was is not none and (was.e1 - r.e1) | abs > 0.1 }} | {{ best }} |
-              {%- endfor %}
-
-              </small>
-      - type: grid
-        cards:
-          - type: heading
-            icon: mdi:power-plug-off
-            heading: EV Stop Trigger
-            heading_style: title
-          - type: markdown
-            content: '---'
-            grid_options:
-              columns: full
-            text_only: true
-          - type: markdown
-            content: >-
-              <font color=grey>The Stop Trigger will OVERRULE ALL active
-              strategies.
-
-              _E.g. use to disengage your home batteries when EV is
-              charging_</font>
-            text_only: true
-          - type: entities
-            entities:
-              - entity: input_text.hba_strategy_ev_sensor_entity_id
-                secondary_info: none
-          - type: markdown
-            content: >-
-              <font color=grey>Enter the `entity_id` of an `input_boolean` or
-              `on/off template_sensor` in the field above</font>
-            text_only: true
-          - type: tile
-            entity: binary_sensor.hba_ev_is_active
-            name: EV stop trigger
-            vertical: false
-            features_position: bottom
-            grid_options:
-              columns: full
-          - type: markdown
-            content: >-
-              <font color=grey>The EV stop trigger indicates the EV is charging.
-              Trigger **on** = batteries follow the strategy selected below
-              instead of the active strategy.</font>
-            text_only: true
-          - type: tile
-            entity: input_select.hba_control_strategy_during_ev_charge
-            name: Strategy during EV charge
-            color: blue
-            vertical: false
-            features_position: bottom
-            grid_options:
-              columns: full
-          - type: markdown
-            content: >-
-              <font color=grey>**Full stop** — batteries idle while the EV charges.
-              **Standby / peak shave** — idle, but still respond to import/export
-              power limits. **Charge PV** — charge the solar surplus the EV cannot
-              take (e.g. between 1-phase max and the 3-phase switch threshold);
-              discharge stays disabled, so the batteries never compete with the
-              charger. **Charge alongside EV** — the normal strategy keeps
-              running (it decides whether the batteries charge, e.g. a cheap hour)
-              but never discharges into the car; below the battery-priority energy
-              the batteries charge at full power and the charger's load balancing
-              slows the car, above it the batteries only use what is left under
-              the phase limit.</font>
-            text_only: true
-          - type: entities
-            entities:
-              - entity: input_number.hba_ev_battery_priority_energy
-                name: Batteries first below
-              - entity: input_number.hba_ev_phase_current_limit
-                name: Car-first limit per phase
-              - entity: input_number.hba_ev_max_current
-                name: Car max current per phase
-              - entity: binary_sensor.hba_ev_charge_alongside
-                name: Charging alongside now
-                secondary_info: none
-              - type: attribute
-                entity: binary_sensor.hba_ev_charge_alongside
-                attribute: mode
-                name: Priority now
-              - entity: binary_sensor.hba_batteries_before_ev
-                name: Batteries before EV now (for EV solar charging)
-                secondary_info: none
-            visibility:
-              - condition: state
-                entity: input_select.hba_control_strategy_during_ev_charge
-                state: "Charge alongside EV"
-          - type: markdown
-            content: >-
-              <font color=grey>**Batteries first below**: usable energy (kWh above
-              the discharge cutoffs) the batteries may claim before the car, e.g.
-              what the house needs at night; 0 = the car always first.
-              **Car-first limit per phase**: set just below where your charger's load
-              balancing starts slowing the car (a Peblar at ~22.5 A). Only applies while
-              the car charges; not the same as the **main fuse limit** (Advanced settings,
-              now {{ states('input_number.hba_phase_current_limit') | float(0) | round(0) | int }} A),
-              which applies always and should be higher. Set each
-              battery's **phase** in Advanced settings — as your P1 meter numbers
-              the phases, which may differ from the labels in the meter cupboard.
-              **Check it:** let one battery charge or discharge at a steady power
-              with the others idle; only that phase's `sensor.p1_meter_power_lX`
-              should move by about that amount. **Car max current**: with the
-              charger's power defined (`sensor.ev_charger_power` or per phase, see
-              hba_config.yaml) HBA keeps that room free for the car, so after the
-              charger's load balancing throttled it, it goes straight back to full
-              speed. Requires an EV charger with its own load balancing measuring the
-              whole connection.</font>
-            text_only: true
-            visibility:
-              - condition: state
-                entity: input_select.hba_control_strategy_during_ev_charge
-                state: "Charge alongside EV"
-          - type: markdown
-            content: >-
-              <ha-alert alert-type="warning">Per-phase limits (main fuse limit, Charge alongside EV) are missing per-phase grid power: {{ state_attr('sensor.hba_phase_room', 'missing_sensors') }}. Define them in packages/hba/hba_config.yaml (like sensor.p1_meter_power, positive = import — see hba_config.yaml.example). Until then the batteries do not charge or discharge on those phases while such a limit applies.</ha-alert>
-            grid_options:
-              columns: full
-            visibility:
-              - condition: state
-                entity: binary_sensor.hba_phase_sensors_missing
-                state: "on"
-          - type: entities
-            entities:
-              - entity: input_text.hba_strategy_ev_saturated_entity_id
-                name: EV charger saturated entity
-                secondary_info: none
-            visibility:
-              - condition: state
-                entity: input_select.hba_control_strategy_during_ev_charge
-                state: "Charge PV"
-          - type: markdown
-            content: >-
-              <font color=grey>**Saturated entity**: a binary_sensor from the
-              EV side that is on when the charger cannot take more power
-              (pinned at its current limit or derated by load balancing). When
-              set, Charge PV only runs while the charger is saturated, so the
-              batteries never compete with the charger's own regulation.
-              Example: `binary_sensor.ev_charger_saturated`. Leave empty to
-              run Charge PV whenever the EV charges.</font>
-            text_only: true
-            visibility:
-              - condition: state
-                entity: input_select.hba_control_strategy_during_ev_charge
-                state: "Charge PV"
-
-      - type: grid
-        cards:
-          - type: heading
-            icon: mdi:car-electric
-            heading: Timed EV charge
-            heading_style: title
-          - type: markdown
-            content: '---'
-            grid_options:
-              columns: full
-            text_only: true
-          - type: markdown
-            content: >-
-              <font color=grey><i>Discharges batteries during a configured time
-              window to direct that capacity to an EV charger — useful when you
-              have excess battery reserves and want to maximize EV charge before
-              the car is needed. Stops automatically when SoC drops below the
-              configured minimum.</i>
-
-
-              <b>To start/stop EV charging:</b> create an automation triggered
-              by <code>binary_sensor.hba_battery_assist_active</code> turning
-              <b>on</b> (start charging) and <b>off</b> (stop charging).</font>
-            text_only: true
-          - type: tile
-            entity: input_boolean.hba_battery_assist_enabled
-            name: Timed EV charge on
-            color: blue
-            vertical: false
-            hide_state: true
-            features_position: bottom
-            grid_options:
-              columns: full
-          - type: tile
-            entity: binary_sensor.hba_battery_assist_active
-            name: Timed EV charge active
-            vertical: false
-            features_position: bottom
-            grid_options:
-              columns: full
-          - type: entities
-            entities:
-              - entity: input_datetime.hba_battery_assist_start_time
-                name: Start time
-              - entity: input_datetime.hba_battery_assist_end_time
-                name: End time
-              - entity: input_number.hba_battery_assist_min_soc
-                name: Minimum SoC (stop threshold)
-              - entity: sensor.hba_average_battery_soc
-                name: Current average SoC
-                secondary_info: none
-              - entity: sensor.hba_battery_assist_reserved_energy
-                name: Energy reserved for home (above hardware cutoff)
-                secondary_info: none
-              - entity: input_number.hba_battery_assist_max_discharge_power
-                name: Max discharge power (0 = battery maximum)
-                secondary_info: none
-              - entity: input_text.hba_battery_assist_car_connected_entity
-                name: Car connected entity (optional)
-                secondary_info: none
-              - type: divider
-              - entity: script.hba_apply_battery_assist_defaults
-                name: Apply section defaults
-                icon: mdi:cog-refresh
-                secondary_info: last-triggered
-                tap_action:
-                  action: perform-action
-                  perform_action: script.turn_on
-                  target:
-                    entity_id: script.hba_apply_battery_assist_defaults
-                  confirmation:
-                    text: >-
-                      Reset Timed EV charge settings to defaults? Your other HBA
-                      settings will not be affected.
-          - type: tile
-            entity: binary_sensor.hba_grid_exporting_sustained
-            name: Grid exporting sustained (overflow guard)
-            vertical: false
-            features_position: bottom
-            grid_options:
-              columns: full
-          - type: markdown
-            content: >-
-              <font color=grey>When <b>Grid exporting sustained</b> turns on
-              (grid export >1 kW for 2+ min with batteries discharging), the
-              timed EV charge temporarily switches to self-consumption to avoid
-              unnecessary grid feed-in.</font>
-            text_only: true
-
-  # ── VIEW 8: NOTIFICATIONS ────────────────────────────────────────────────────
-  - type: sections
-    max_columns: 3
-    title: Notifications
-    path: notifications
-    icon: mdi:bell-outline
-    cards: []
-    header:
-      card:
-        type: markdown
-        text_only: true
-        content: >-
-          ### Notifications *(HBA v4.10.1-r22)*
-
-
-          **HBA-specific feature** — not part of HBC. Configure where HBA
-          sends notifications (unexpected grid export, HBC conflicts, etc.).
-      layout: center
-    sections:
-      - type: grid
-        cards:
-          - type: heading
-            heading: Notifications
-            heading_style: title
-            icon: mdi:bell-outline
-          - type: markdown
-            content: '---'
-            grid_options:
-              columns: full
-            text_only: true
-          - type: markdown
-            content: >-
-              <ha-alert alert-type="warning"><strong>Notify action
-              invalid</strong><br>The value in
-              <code>input_text.hba_notify_entity_id</code> is not a valid legacy
-              notify service. Use <code>notify.mobile_app_*</code> — not a
-              modern notify entity. HBA notifications fall back to persistent
-              notifications until you correct it.<br><br>Current value:
-              <code>{{ states('input_text.hba_notify_entity_id') }}</code><br>
-              Available: <code>{{
-              state_attr('binary_sensor.hba_notify_target_invalid',
-              'available_notify_services') | join(', ') or '(none found)'
-              }}</code></ha-alert>
-            text_only: true
-            grid_options:
-              columns: full
-            visibility:
-              - condition: state
-                entity: binary_sensor.hba_notify_target_invalid
-                state: "on"
-          - type: tile
-            entity: input_boolean.hba_notifications_enabled
-            name: Notifications enabled
-            color: blue
-            vertical: false
-            hide_state: true
-            features_position: bottom
-            grid_options:
-              columns: full
-          - type: entities
-            entities:
-              - entity: input_text.hba_notify_entity_id
-                secondary_info: none
-                name: Notify action
-              - entity: binary_sensor.hba_notify_target_invalid
-                name: Validation
-                icon: mdi:check-decagram
-              - type: divider
-              - type: button
-                name: Send test notification
-                icon: mdi:bell-ring-outline
-                action_name: Send
-                tap_action:
-                  action: perform-action
-                  perform_action: script.turn_on
-                  target:
-                    entity_id: script.hba_notify_test
-          - type: markdown
-            content: >-
-              <font color=grey>Enter a legacy <code>notify.mobile_app_*</code>
-              service name. Leave empty to use persistent notifications (HA
-              notification bell). Do not enter a modern notify entity — use the
-              <code>mobile_app_</code> service name instead.<br>Available:
-              <code>{{
-              state_attr('binary_sensor.hba_notify_target_invalid',
-              'available_notify_services') | join(', ') or 'none found'
-              }}</code></font>
-            text_only: true
-          - type: heading
-            heading: Notification automations
-            heading_style: subtitle
-            icon: mdi:robot-outline
-            grid_options:
-              columns: full
-          - type: custom:auto-entities
-            card:
-              type: entities
-              show_header_toggle: false
-            filter:
-              include:
-                - entity_id: "automation.hba_*notif*"
-            sort:
-              method: friendly_name
-            grid_options:
-              columns: full
