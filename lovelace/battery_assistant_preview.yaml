@@ -2738,7 +2738,7 @@ views:
                 state: "on"
             entities:
               - entity: input_number.hba_strategy_planned_car_minimum
-                name: Minimum (by departure, at any price)
+                name: Minimum by departure
               - entity: input_number.hba_strategy_planned_car_normal
                 name: Normal (cheap hours)
               - entity: input_number.hba_strategy_planned_car_leftover
@@ -2748,7 +2748,7 @@ views:
               - entity: input_boolean.ev_window_max_price_enabled
                 name: Use the max price
               - entity: input_number.ev_window_charging_max_price
-                name: Max price (same field as in the EV project)
+                name: Max price
               - entity: input_select.ev_assisted_over_price
                 name: Minimum above the max price
               - entity: input_text.hba_strategy_planned_car_home_days
@@ -2805,7 +2805,7 @@ views:
               {%- set cheap = (plan | selectattr('ts', 'lt', dl) | sort(attribute='b') | map(attribute='ts') | list)[:3] -%}
               ### Car hours
               {% if preview or state_attr(I, 'connected') == true -%}
-              {{ states(I) | float(0) | round(0) | int }} % · Minimum {{ car.get('min', 0) }} kWh · from the grid {{ car.get('need', 0) }} kWh · solar tomorrow {{ car.get('sun', 0) }} kWh{{ ' · ' ~ car.unmet ~ ' kWh not planned (price or hours)' if car.get('unmet') }}{{ ' · not connected: from today\'s SoC' if state_attr(I, 'connected') != true }}
+              {{ states(I) | float(0) | round(0) | int }} % · Minimum {{ car.get('min', 0) }} kWh · from the grid {{ car.get('need', 0) }} kWh · spare solar on the next day {{ car.get('sun', 0) }} kWh{{ ' · ' ~ car.unmet ~ ' kWh not planned (price or hours)' if car.get('unmet') }}{{ ' · not connected: from today\'s SoC' if state_attr(I, 'connected') != true }}
 
               Car: {{ car.get('kwh', 0) }} kWh, € {{ '%.2f' | format(car.get('eur', 0)) }} · {{ 'without' if state_attr(I, 'max_price_on') != false else 'with' }} the max price: {{ car.get('alt_kwh', 0) }} kWh, € {{ '%.2f' | format(car.get('alt_eur', 0)) }}
               {%- if preview and sm.get('plan_cost') is not none and run.get('plan_cost') is not none %}
@@ -2825,7 +2825,7 @@ views:
               {%- set spare = [r.get('sun', 0) - r.get('load', 0), 0] | max %}
               {%- set best = 'Preferred: batteries full' if spare > 0.5 and r.e1 >= full - 0.2 else ('Cheapest' if r.ts in cheap else '') %}
               {%- set was = now_plan | selectattr('ts', 'eq', r.ts) | first | default(none) %}
-              | {{ r.ts | timestamp_custom('%a %H:%M') }} | {{ '%.3f' | format(r.b) }} | {{ ('%.1f' | format(spare)) if spare > 0.05 else '' }} | {{ ('%.1f kWh to %d %%, grid' | format(r.ev, r.ev_lim)) if r.get('ev') else '' }} | {{ r.a }}{{ ' (now ' ~ was.a ~ ')' if preview and was is not none and was.a != r.a }} | {{ '%.1f' | format(r.e1) }} | {{ best }} |
+              | {{ r.ts | timestamp_custom('%a %H:%M') }} | {{ '%.3f' | format(r.b) }} | {{ ('%.1f' | format(spare)) if spare > 0.05 else '' }} | {{ ('%.1f kWh → %d %%' | format(r.ev, r.ev_lim)) if r.get('ev') else '' }} | {{ r.a }}{{ ' (now ' ~ was.a ~ ')' if preview and was is not none and was.a != r.a }} | {{ '%.1f' | format(r.e1) }} | {{ best }} |
               {%- endfor %}
 
               </small>
