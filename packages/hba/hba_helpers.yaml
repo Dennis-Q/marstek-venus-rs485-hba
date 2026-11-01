@@ -37,6 +37,10 @@ input_boolean:
   hba_strategy_planned_car:
     name: "Planned: plan the car"
     icon: mdi:car-clock
+  # On: the car is planned and shown, but nothing is applied (sensor.hba_planned_car_preview).
+  hba_strategy_planned_car_preview:
+    name: "Planned: car preview only"
+    icon: mdi:car-search
   # Off: the grid only fills the car up to Minimum.
   hba_strategy_planned_car_grid:
     name: "Planned: allow grid charging for the car"
@@ -480,7 +484,7 @@ input_number:
     icon: mdi:cash-check
   # Planned: the car's levels, same for every car. Minimum = must be there by departure, at any
   # price. Normal = from the grid below the max price, with Allow grid charging. Leftover = as
-  # far as the sun may fill it.
+  # far as solar may fill it.
   hba_strategy_planned_car_minimum:
     name: "Planned: car minimum"
     min: 0
@@ -912,7 +916,7 @@ input_text:
     name: "Planned: sell price sensor (entity_id)"
     max: 100
     icon: mdi:cash-plus
-  # Days the car is usually home in daytime, e.g. "Sat,Sun". Empty = Sat,Sun.
+  # Days the car is usually home in daytime, e.g. "Sat,Sun". Empty = Sat,Sun, none = never.
   hba_strategy_planned_car_home_days:
     name: "Planned: car home in daytime on"
     max: 60
@@ -3323,6 +3327,7 @@ recorder:
       # Planned strategy: plan + 24 h history as attributes (well over the recorder's 16 kB
       # attribute limit); the sensor keeps its own executed history
       - sensor.hba_planned_strategy
+      - sensor.hba_planned_car_preview
       # Room per phase (main fuse limit, Charge alongside EV) — recalculated on every P1 update
       - sensor.hba_phase_room
       # Per-battery limits now — recalculated every 5 s (the Limit Source sensors stay recorded)

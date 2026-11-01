@@ -560,6 +560,19 @@ views:
                 state: "on"
             content: >
               <ha-alert alert-type="warning">{{ state_attr('binary_sensor.hba_ev_link_problem', 'reason') }} The car is not in the plan and gets no battery energy.</ha-alert>
+          # Plan the car in Preview only: nothing of the car plan is applied
+          - type: markdown
+            grid_options:
+              columns: full
+            visibility:
+              - condition: state
+                entity: input_boolean.hba_strategy_planned_car
+                state: "on"
+              - condition: state
+                entity: input_boolean.hba_strategy_planned_car_preview
+                state: "on"
+            content: >
+              <ha-alert alert-type="info">The car plan is a preview and is not applied. The batteries run the plan without the car, and the EV project follows its own rules.</ha-alert>
           # Reminder: Charge or Sell chosen by hand for an hour or more
           - type: markdown
             grid_options:
@@ -2518,39 +2531,6 @@ views:
               (sold or used in the house). **up to / down to X kWh:** Charge or Sell stops at that stored energy
               instead of going all the way (Sell spreads it over the hour) — the rest is worth more later. Why exactly a slot got its strategy: Insights → Planned —
               decisions.</font></small>
-          - type: markdown
-            visibility:
-              - condition: state
-                entity: input_boolean.hba_strategy_planned_car
-                state: "on"
-            content: |-
-              {%- set E = 'sensor.hba_planned_strategy' -%}
-              {%- set I = 'sensor.ev_car_info' -%}
-              {%- set plan = state_attr(E, 'plan') or [] -%}
-              {%- set sm = state_attr(E, 'summary') if state_attr(E, 'summary') is mapping else {} -%}
-              {%- set car = sm.get('car') or {} -%}
-              {%- set full = sm.get('usable', 0) | float(0) -%}
-              {%- set dl = state_attr(I, 'deadline') | int(0) -%}
-              {%- set cheap = (plan | selectattr('ts', 'lt', dl) | sort(attribute='b') | map(attribute='ts') | list)[:3] -%}
-              ### Car
-              {% if state_attr(I, 'connected') == true -%}
-              {{ states(I) | float(0) | round(0) | int }} % · Minimum {{ car.get('min', 0) }} kWh · from the grid {{ car.get('need', 0) }} kWh · sun tomorrow {{ car.get('sun', 0) }} kWh{{ ' · ' ~ car.unmet ~ ' kWh not planned (price or hours)' if car.get('unmet') }}
-              {%- else -%}
-              Not connected: these hours show what is possible.
-              {%- endif %}
-
-
-              <small>
-
-              | Time | Price | Spare sun | Car | |
-              |---|---|---|---|---|
-              {%- for r in plan %}
-              {%- set spare = [r.get('sun', 0) - r.get('load', 0), 0] | max %}
-              {%- set best = 'Preferred: batteries full' if spare > 0.5 and r.e1 >= full - 0.2 else ('Cheapest' if r.ts in cheap else '') %}
-              | {{ r.ts | timestamp_custom('%a %H:%M') }} | {{ '%.3f' | format(r.b) }} | {{ ('%.1f' | format(spare)) if spare > 0.05 else '' }} | {{ ('%.1f kWh to %d %%, grid' | format(r.ev, r.ev_lim)) if r.get('ev') else '' }} | {{ best }} |
-              {%- endfor %}
-
-              </small>
 
       - type: grid
         cards:
@@ -2668,50 +2648,6 @@ views:
                 name: Re-plan when off by more than
               - entity: input_number.hba_strategy_planned_energy_step
                 name: Energy step (0 = auto, usable ÷ 20)
-              - entity: input_boolean.hba_strategy_planned_car
-                name: Plan the car
-              - type: conditional
-                conditions:
-                  - entity: input_boolean.hba_strategy_planned_car
-                    state: "on"
-                row:
-                  entity: input_number.hba_strategy_planned_car_minimum
-                  name: Car minimum (by departure, any price)
-              - type: conditional
-                conditions:
-                  - entity: input_boolean.hba_strategy_planned_car
-                    state: "on"
-                row:
-                  entity: input_number.hba_strategy_planned_car_normal
-                  name: Car normal
-              - type: conditional
-                conditions:
-                  - entity: input_boolean.hba_strategy_planned_car
-                    state: "on"
-                row:
-                  entity: input_number.hba_strategy_planned_car_leftover
-                  name: Car leftover (as far as the sun fills it)
-              - type: conditional
-                conditions:
-                  - entity: input_boolean.hba_strategy_planned_car
-                    state: "on"
-                row:
-                  entity: input_boolean.hba_strategy_planned_car_grid
-                  name: Allow grid charging for the car
-              - type: conditional
-                conditions:
-                  - entity: input_boolean.hba_strategy_planned_car
-                    state: "on"
-                row:
-                  entity: input_text.hba_strategy_planned_car_home_days
-                  name: Car home in daytime on (e.g. Sat,Sun)
-              - type: conditional
-                conditions:
-                  - entity: input_boolean.hba_strategy_planned_car
-                    state: "on"
-                row:
-                  entity: input_select.hba_strategy_planned_car_tomorrow
-                  name: Car tomorrow
           - type: markdown
             text_only: true
             content: >-
@@ -2730,6 +2666,169 @@ views:
               battery control), so keep it under about 1 s.{% set sm = state_attr('sensor.hba_planned_strategy', 'summary') %}{% if sm is mapping and sm.get('calc_s') is not none %}
               **Last plan:** {{ sm.slots }} slots × {{ sm.levels }} levels, step {{ '%.2f' | format(sm.step_kwh) }} kWh,
               took {{ '%.2f' | format(sm.calc_s) }} s.{% endif %}</font>
+      - type: grid
+        cards:
+          - type: heading
+            heading: Car
+            heading_style: title
+            icon: mdi:car-clock
+          - type: markdown
+            text_only: true
+            content: >-
+              <font color=grey>_Lets the plan choose the hours for the active car: the cheapest ones before
+              departure, instead of the batteries and the car competing for them. HBA only decides; the
+              EV project controls the charger. Without this switch the EV project follows its own rules.
+              **Preview only** shows the same plan, including what it does to the batteries, but applies
+              nothing: use it to try settings, or to take the car away from HBA for a while._</font>
+          - type: entities
+            entities:
+              - entity: input_boolean.hba_strategy_planned_car
+                name: Plan the car
+              - type: conditional
+                conditions:
+                  - entity: input_boolean.hba_strategy_planned_car
+                    state: "on"
+                row:
+                  entity: input_boolean.hba_strategy_planned_car_preview
+                  name: Preview only (apply nothing)
+          - type: markdown
+            visibility:
+              - condition: state
+                entity: input_boolean.hba_strategy_planned_car
+                state: "on"
+            content: |-
+              {%- set I = 'sensor.ev_car_info' -%}
+              {%- set lmin = states('input_number.hba_strategy_planned_car_minimum') | float(0) -%}
+              {%- set lnorm = states('input_number.hba_strategy_planned_car_normal') | float(0) -%}
+              {%- set lleft = states('input_number.hba_strategy_planned_car_leftover') | float(0) -%}
+              {%- set grid = is_state('input_boolean.hba_strategy_planned_car_grid', 'on') -%}
+              {%- set following = state_attr(I, 'following') -%}
+              {%- set preview = is_state('input_boolean.hba_strategy_planned_car_preview', 'on') -%}
+              {%- set listens_to = states('input_text.ev_assisted_entity') -%}
+              {%- set status = state_attr('sensor.hba_planned_strategy', 'status') -%}
+              {%- set day_words = ['mon','tue','wed','thu','fri','sat','sun','monday','tuesday','wednesday','thursday','friday','saturday','sunday','none'] -%}
+              {%- set bad = states('input_text.hba_strategy_planned_car_home_days') | lower | regex_findall('[^,; ]+') | reject('in', ['unknown', 'unavailable'] + day_words) | list -%}
+              {%- set p = namespace(l=[]) -%}
+              {%- if following is none -%}{%- set p.l = p.l + ['The EV project is missing or too old (no sensor.ev_car_info). The car is left out of the plan.'] -%}{%- endif -%}
+              {%- if following == false and not preview -%}{%- set p.l = p.l + ['Turn on <b>Follow assisted</b> in the EV project. Until then the car is left out of the plan.'] -%}{%- endif -%}
+              {%- if following == true and listens_to != 'binary_sensor.hba_ev_assist' and not preview -%}{%- set p.l = p.l + ['The EV project listens to <b>' ~ listens_to ~ '</b> instead of binary_sensor.hba_ev_assist.'] -%}{%- endif -%}
+              {%- if not is_state('input_select.hba_strategy', 'Planned') and not preview -%}{%- set p.l = p.l + ['<b>Choose strategy</b> is not Planned: the car follows no plan.'] -%}{%- endif -%}
+              {%- if not is_state('input_select.hba_marstek_master_battery_mode', 'Full control') and not preview -%}{%- set p.l = p.l + ['HBA is not in <b>Full control</b>: the car follows no plan.'] -%}{%- endif -%}
+              {%- if status is not none and status != 'OK' -%}{%- set p.l = p.l + ['The plan has a problem: ' ~ status ~ '.'] -%}{%- endif -%}
+              {%- if following is not none and state_attr(I, 'known') != true -%}{%- set p.l = p.l + ['The active car has no SoC, or is a guest: no plan for this car, the EV project uses its own rules.'] -%}{%- endif -%}
+              {%- if following is not none and state_attr(I, 'capacity_kwh') | float(0) <= 0 -%}{%- set p.l = p.l + ['The active car has no battery capacity set in the EV project.'] -%}{%- endif -%}
+              {%- if following is not none and state_attr(I, 'max_price_on') != false and state_attr(I, 'max_price') | float(0) <= 0 -%}{%- set p.l = p.l + ['The max price in the EV project is 0: every hour counts as above it.'] -%}{%- endif -%}
+              {%- if bad -%}{%- set p.l = p.l + ['Car home in daytime: <b>' ~ bad | join(', ') ~ '</b> is not a day and is ignored.'] -%}{%- endif -%}
+              {%- if lnorm > 0 and lnorm < lmin -%}{%- set p.l = p.l + ['Normal is below Minimum: Minimum counts.'] -%}{%- endif -%}
+              {%- if lnorm <= 0 and grid -%}{%- set p.l = p.l + ['Normal is 0: only Minimum comes from the grid.'] -%}{%- endif -%}
+              {%- if lleft > 0 and lleft < [lmin, lnorm] | max -%}{%- set p.l = p.l + ['Leftover is below Minimum or Normal: solar stops at Leftover.'] -%}{%- endif -%}
+              {%- if lleft <= 0 -%}{%- set p.l = p.l + ['Leftover is 0, which counts as 100 %.'] -%}{%- endif -%}
+              {%- if preview -%}
+              <ha-alert alert-type="info">Preview only: nothing below is applied.</ha-alert>
+              {%- endif -%}
+              {%- if p.l -%}
+              <ha-alert alert-type="warning">{{ p.l | join('<br>') }}</ha-alert>
+              {%- else -%}
+              <ha-alert alert-type="success">Car settings OK.{{ ' The car is not connected.' if state_attr(I, 'connected') == false }}</ha-alert>
+              {%- endif %}
+          - type: entities
+            visibility:
+              - condition: state
+                entity: input_boolean.hba_strategy_planned_car
+                state: "on"
+            entities:
+              - entity: input_number.hba_strategy_planned_car_minimum
+                name: Minimum (by departure, at any price)
+              - entity: input_number.hba_strategy_planned_car_normal
+                name: Normal (cheap hours)
+              - entity: input_number.hba_strategy_planned_car_leftover
+                name: Leftover (as far as solar fills it)
+              - entity: input_boolean.hba_strategy_planned_car_grid
+                name: Allow grid charging
+              - entity: input_boolean.ev_window_max_price_enabled
+                name: Use the max price
+              - entity: input_number.ev_window_charging_max_price
+                name: Max price (same field as in the EV project)
+              - entity: input_select.ev_assisted_over_price
+                name: Minimum above the max price
+              - entity: input_text.hba_strategy_planned_car_home_days
+                name: Car home in daytime on
+              - entity: input_select.hba_strategy_planned_car_tomorrow
+                name: Car tomorrow
+          - type: markdown
+            text_only: true
+            visibility:
+              - condition: state
+                entity: input_boolean.hba_strategy_planned_car
+                state: "on"
+            content: >-
+              <font color=grey>**The three levels** are % of the car's battery, the same for every car.
+              **Minimum:** must be there by departure, at any price, also with grid charging off. **Minimum above
+              the max price:** Charge, Skip those hours, or Ask (a notification with both buttons; no answer
+              means it charges). **Normal:** only with
+              **Allow grid charging**, in the cheapest hours below the max price. Solar expected on a day the
+              car is home is taken off this amount. **Leftover:** never from the grid. Solar fills the car up
+              to here. So Minimum ≤ Normal ≤ Leftover, e.g. 40 / 80 / 100.</font>
+
+
+              <font color=grey>**Car home in daytime on:** the days the car can catch solar, separated by commas,
+              in English: Mon, Tue, Wed, Thu, Fri, Sat, Sun, or full names. Empty = Sat,Sun; `none` = never.
+              **Car tomorrow:** overrides this once (Home or Away); back to Auto at 08:00.</font>
+
+
+              <font color=grey>**Max price:** Normal never goes above it. Switch and field are the same as in the
+              EV project, so they also count for its own rules. With **Use the max price** off there is no
+              limit, and no question for Minimum either. The car hours show the other choice as well, so you can
+              compare without switching. The employer price is a good value; it changes every month.</font>
+
+
+              <font color=grey>**In the EV project:** turn on Follow assisted, and set the end of
+              the charging window (= departure) and per car the capacity and max power. Only the active
+              car counts. A manual force charge always wins.</font>
+          - type: markdown
+            visibility:
+              - condition: state
+                entity: input_boolean.hba_strategy_planned_car
+                state: "on"
+            content: |-
+              {%- set R = 'sensor.hba_planned_strategy' -%}
+              {%- set preview = is_state('input_boolean.hba_strategy_planned_car_preview', 'on') -%}
+              {%- set E = 'sensor.hba_planned_car_preview' if preview else R -%}
+              {%- set I = 'sensor.ev_car_info' -%}
+              {%- set plan = state_attr(E, 'plan') or [] -%}
+              {%- set sm = state_attr(E, 'summary') if state_attr(E, 'summary') is mapping else {} -%}
+              {%- set run = state_attr(R, 'summary') if state_attr(R, 'summary') is mapping else {} -%}
+              {%- set now_plan = state_attr(R, 'plan') or [] -%}
+              {%- set car = sm.get('car') or {} -%}
+              {%- set full = sm.get('usable', 0) | float(0) -%}
+              {%- set dl = state_attr(I, 'deadline') | int(0) -%}
+              {%- set cheap = (plan | selectattr('ts', 'lt', dl) | sort(attribute='b') | map(attribute='ts') | list)[:3] -%}
+              ### Car hours
+              {% if preview or state_attr(I, 'connected') == true -%}
+              {{ states(I) | float(0) | round(0) | int }} % · Minimum {{ car.get('min', 0) }} kWh · from the grid {{ car.get('need', 0) }} kWh · solar tomorrow {{ car.get('sun', 0) }} kWh{{ ' · ' ~ car.unmet ~ ' kWh not planned (price or hours)' if car.get('unmet') }}{{ ' · not connected: from today\'s SoC' if state_attr(I, 'connected') != true }}
+
+              Car: {{ car.get('kwh', 0) }} kWh, € {{ '%.2f' | format(car.get('eur', 0)) }} · {{ 'without' if state_attr(I, 'max_price_on') != false else 'with' }} the max price: {{ car.get('alt_kwh', 0) }} kWh, € {{ '%.2f' | format(car.get('alt_eur', 0)) }}
+              {%- if preview and sm.get('plan_cost') is not none and run.get('plan_cost') is not none %}
+
+              Effect on the batteries and the house: € {{ '%+.2f' | format(sm.plan_cost - run.plan_cost) }} compared with the plan that runs now.
+              {%- endif %}
+              {%- else -%}
+              Not connected: these hours show what is possible.
+              {%- endif %}
+
+
+              <small>
+
+              | Time | Price | Spare solar | Car | Batteries | Stored | |
+              |---|---|---|---|---|---|---|
+              {%- for r in plan %}
+              {%- set spare = [r.get('sun', 0) - r.get('load', 0), 0] | max %}
+              {%- set best = 'Preferred: batteries full' if spare > 0.5 and r.e1 >= full - 0.2 else ('Cheapest' if r.ts in cheap else '') %}
+              {%- set was = now_plan | selectattr('ts', 'eq', r.ts) | first | default(none) %}
+              | {{ r.ts | timestamp_custom('%a %H:%M') }} | {{ '%.3f' | format(r.b) }} | {{ ('%.1f' | format(spare)) if spare > 0.05 else '' }} | {{ ('%.1f kWh to %d %%, grid' | format(r.ev, r.ev_lim)) if r.get('ev') else '' }} | {{ r.a }}{{ ' (now ' ~ was.a ~ ')' if preview and was is not none and was.a != r.a }} | {{ '%.1f' | format(r.e1) }} | {{ best }} |
+              {%- endfor %}
+
+              </small>
   - type: sections
     max_columns: 3
     title: Insights

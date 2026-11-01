@@ -556,6 +556,19 @@ views:
                 state: "on"
             content: >
               <ha-alert alert-type="warning">{{ state_attr('binary_sensor.hba_ev_link_problem', 'reason') }} The car is not in the plan and gets no battery energy.</ha-alert>
+          # Plan the car in Preview only: nothing of the car plan is applied
+          - type: markdown
+            grid_options:
+              columns: full
+            visibility:
+              - condition: state
+                entity: input_boolean.hba_strategy_planned_car
+                state: "on"
+              - condition: state
+                entity: input_boolean.hba_strategy_planned_car_preview
+                state: "on"
+            content: >
+              <ha-alert alert-type="info">The car plan is a preview and is not applied. The batteries run the plan without the car, and the EV project follows its own rules.</ha-alert>
           # Reminder: Charge or Sell chosen by hand for an hour or more
           - type: markdown
             grid_options:
