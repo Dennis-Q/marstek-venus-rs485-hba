@@ -45,6 +45,10 @@ input_boolean:
   hba_strategy_planned_car_grid:
     name: "Planned: allow grid charging for the car"
     icon: mdi:transmission-tower-import
+  # On: an evening question whether Normal may charge the coming night (hba_notifications.yaml).
+  hba_strategy_planned_car_ask_normal:
+    name: "Planned: ask before Normal"
+    icon: mdi:car-clock
   hba_strategy_planned_skip_charge:
     name: "Planned: never charge from the grid"
     icon: mdi:transmission-tower-off
@@ -1123,6 +1127,15 @@ input_select:
       - "Auto"
       - "Home"
       - "Away"
+    icon: mdi:car-clock
+  # Normal skipped by the evening question or by hand. Minimum always stays. Back to Auto at
+  # departure; "until home day" at the departure of the next day the car is home.
+  hba_strategy_planned_car_normal_tonight:
+    name: "Planned: car Normal coming night"
+    options:
+      - "Auto"
+      - "Skip tonight"
+      - "Skip until home day"
     icon: mdi:car-clock
 
   hba_house_load_window:

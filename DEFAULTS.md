@@ -277,6 +277,8 @@ Every minimum is also the default, so a new install plans sensibly before *Apply
 | `input_number.hba_strategy_planned_car_minimum` / `_car_normal` / `_car_leftover` | `0` / `80` / `100` % |
 | `input_text.hba_strategy_planned_car_home_days` | `Sat,Sun` (filled at HA start; empty = Sat,Sun, `none` = never; commas, English day names, any case) |
 | `input_select.hba_strategy_planned_car_tomorrow` | Auto (back to Auto at 08:00) |
+| `input_boolean.hba_strategy_planned_car_ask_normal` | `off` (on = evening question whether Normal may charge) |
+| `input_select.hba_strategy_planned_car_normal_tonight` | Auto (Skip tonight ends at departure, Skip until home day at the departure of a home day) |
 | `input_text.hba_strategy_planned_sell_price_entity_id` | empty = sell at the buy price (net metering) |
 | `input_boolean.hba_strategy_planned_skip_charge` / `_skip_sell` / `_skip_zero_import` | `off` (all strategies allowed) |
 

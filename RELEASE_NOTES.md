@@ -24,8 +24,9 @@ open), so the version prefix stays at 4.10.1 for now.
   *Allow grid charging* and below the max price. It tells the EV project through
   `binary_sensor.hba_ev_assist` (`ev_mode`, `ev_limit`). In those hours the batteries get what room is
   left and do not discharge. A day the car is home in the sun leaves room for it (weekdays setting +
-  *Car tomorrow* override). The Planned view has its own Car section with the settings, instructions, the car hours and a check that shows whether all settings are OK. Minimum above the max
+  *Car tomorrow* override). The EV Charge view has a Car section with the settings, instructions, the car hours and a check that shows whether all settings are OK. Minimum above the max
   price: the EV project asks Charge or Skip. Without the EV project nothing changes.
+- **Ask before Normal** — an optional evening question: skip Normal tonight, or until the next day the car is home (wait for the weekend's solar). It shows that day's expected spare solar and speaks up when solar looks too low; no answer means it charges, Minimum always stays. Solcast gives up to 7 days; the Car check warns when those sensors are off.
 - **Preview the car** — *Preview only* plans the car and shows what it would do to the batteries, but
   applies nothing: the batteries run the plan without the car and the EV project follows its own rules,
   with a banner on top. It costs a second plan calculation, only while it is on.
