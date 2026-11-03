@@ -49,6 +49,11 @@ input_boolean:
   hba_strategy_planned_car_ask_normal:
     name: "Planned: ask before Normal"
     icon: mdi:car-clock
+  # On: the car may take solar in an hour the plan exports it (Full stop / Sell / Zero import with
+  # the sun above the house). Off: that solar is exported (binary_sensor.hba_ev_solar_allowed).
+  hba_strategy_planned_car_solar_export:
+    name: "Planned: car takes solar the plan would export"
+    icon: mdi:solar-power-variant
   hba_strategy_planned_skip_charge:
     name: "Planned: never charge from the grid"
     icon: mdi:transmission-tower-off
@@ -1940,9 +1945,15 @@ template:
           {%- if not ok and states('binary_sensor.hba_batteries_before_ev') in ['on', 'off'] -%}
           {{ was }}
           {%- else -%}
+          {#- Planned in charge of the car (ev_mode solar / wait): the plan decides, not the kWh setting --
+              batteries first until they have what they need (hba_ev_solar_allowed), or while the
+              plan exports the sun (then the car takes only what the batteries leave). -#}
+          {%- set ea = 'binary_sensor.hba_ev_assist' -%}
+          {%- set planned = is_state(ea, 'on') and state_attr(ea, 'ev_mode') in ['solar', 'wait'] -%}
           {{ is_state('input_select.hba_control_strategy_during_ev_charge', 'Charge alongside EV')
              and not is_state('input_select.hba_strategy', 'Full stop')
-             and (e < r or (was and r > 0 and e < r + 0.2)) }}
+             and ((state_attr('binary_sensor.hba_ev_solar_allowed', 'reason') not in ['target', 'export']) if planned
+                  else (e < r or (was and r > 0 and e < r + 0.2))) }}
           {%- endif -%}
 
       # Setup hint (banner only): a per-phase limit is in use — Charge alongside EV, or the

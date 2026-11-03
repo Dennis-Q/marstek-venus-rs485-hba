@@ -34,6 +34,15 @@ open), so the version prefix stays at 4.10.1 for now.
   the car or Timed EV charge is on but the EV project is missing, too old, or Follow assisted is off.
   `binary_sensor.hba_battery_assist_active` stays; the EV project now reads `binary_sensor.hba_ev_assist`,
   so update both projects together and turn on Follow assisted for Timed EV charge.
+- **Planned decides the solar for the car** — with Plan the car, the batteries get the sun first until they
+  have what the plan uses before the next charge; after that the car gets it for the rest of the day (sun the
+  batteries would not use goes straight into the car, without the battery losses). Before that the car only
+  gets sun while the batteries charge at their maximum (from 3 minutes, back off after 5 minutes below it).
+  In an hour the plan exports the sun, the car takes it only with the new setting *Solar the plan would
+  export* (off by default). New `binary_sensor.hba_ev_solar_allowed` (reason, target); under Planned
+  `binary_sensor.hba_batteries_before_ev` follows it instead of the kWh setting. `binary_sensor.hba_ev_assist`
+  `ev_mode` is now `force`, `battery`, `solar` or `wait`, and **`wait` now means no solar either**: update
+  the EV project together with HBA.
 - **Plan table shows what runs after Charge / Sell** — when a Charge or a small Sell is expected to be done
   at least 10 minutes before the end of the hour, the row shows the strategy HBA runs for the rest of it,
   e.g. *Charge → Charge PV from ~14:35*.

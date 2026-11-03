@@ -51,8 +51,10 @@ template:
   # now. HBA only instructs: the EV project does all charger and car control, and only listens when
   # its input_boolean.ev_follow_assisted is on. A manual force charge always wins there.
   # on = Timed EV charge is pushing, or Planned runs with a fresh plan and Plan the car (not Preview only).
-  # ev_mode: battery = batteries push (Timed EV charge), force = plan's grid hour, wait = nothing
-  # from the grid (solar is still taken). ev_limit = the car's limit in %. over_price_* = Minimum
+  # ev_mode: battery = batteries push (Timed EV charge), force = plan's grid hour, solar = nothing
+  # from the grid, spare solar allowed (binary_sensor.hba_ev_solar_allowed), wait = nothing, no solar
+  # either. (Until 2026-11 wait meant today's solar: update both projects together.)
+  # ev_limit = the car's limit in %. over_price_* = Minimum
   # charging above the max price, the EV project asks Charge or Skip. Off, missing or stale = the EV
   # project's own rules. Older than 2 h = stale, as every new slot re-plans.
   - binary_sensor:
@@ -73,7 +75,9 @@ template:
           ev_mode: >-
             {%- set plan = state_attr('sensor.hba_planned_strategy', 'plan') or [] -%}
             {%- set cur = plan | selectattr('ts', 'le', as_timestamp(now()) | int) | list | last | default(none) -%}
-            {{ 'battery' if is_state('binary_sensor.hba_battery_assist_active', 'on') else ('force' if cur is not none and cur.get('ev') else 'wait') }}
+            {{ 'battery' if is_state('binary_sensor.hba_battery_assist_active', 'on')
+               else ('force' if cur is not none and cur.get('ev')
+               else ('solar' if is_state('binary_sensor.hba_ev_solar_allowed', 'on') else 'wait')) }}
           ev_limit: >-
             {%- set plan = state_attr('sensor.hba_planned_strategy', 'plan') or [] -%}
             {%- set cur = plan | selectattr('ts', 'le', as_timestamp(now()) | int) | list | last | default(none) -%}
@@ -101,6 +105,105 @@ template:
           reason: >-
             {%- set what = 'Plan the car' if is_state('input_boolean.hba_strategy_planned_car', 'on') and is_state('input_boolean.hba_strategy_planned_car_preview', 'off') and is_state('input_select.hba_strategy', 'Planned') else 'Timed EV charge' -%}
             {{ what }} is on, but {{ 'the EV project is missing or too old (no sensor.ev_car_info)' if state_attr('sensor.ev_car_info', 'following') is none else 'Follow assisted is off in the EV project' }}.
+
+      # The batteries charge at what they may take right now (sensor.hba_limits_now: full batteries,
+      # groups, BMS, phase room). On after 3 min, off after 5 min clearly below it: ev_mode solar ->
+      # wait stops the charger after 30 s, so a short cloud must not do that, and a car start / stop
+      # cycle takes at least ~15 min (Peblar: max 3 switches in 10 min). Within 150 W, off 400 W under.
+      - name: "HBA Batteries Charging At Max"
+        unique_id: hba_batteries_charging_at_max
+        icon: mdi:battery-arrow-up
+        delay_on: "00:03:00"
+        delay_off: "00:05:00"
+        state: >-
+          {%- set p = states('sensor.hba_total_battery_power') | float(0) -%}
+          {%- set mx = states('sensor.hba_limits_now') | float(0) -%}
+          {%- set m = 400 if is_state('binary_sensor.hba_batteries_charging_at_max', 'on') else 150 -%}
+          {{ mx > 100 and p < -50 and -p >= mx - m }}
+
+  # May the car take solar now (ev_mode solar) or not (wait)? Under Planned the plan decides how much
+  # sun the batteries need; fixed "Batteries first below X kWh" is for the other strategies.
+  # - A grid Charge hour: no (the batteries take the sun).
+  # - An hour the plan exports the sun (Full stop / Sell / Zero import, sun above the house): only
+  #   with input_boolean.hba_strategy_planned_car_solar_export (user 2026-11-03: export usually pays more).
+  # - The batteries have what they use before the next refill: yes, for the rest of the day (attribute
+  #   reached = that date; no switching back on SoC noise; only checked in a slot with sun). Target =
+  #   the plan's highest stored energy until the next refill (a grid Charge, or the sun above the
+  #   house again after a night: slots with < 0.05 kWh sun; a cloudy hour is no night),
+  #   minus what is still there at the lowest point after it (never used, so it may go straight into
+  #   the car without the battery losses). No refill within the plan: the whole peak.
+  # - Before that: only while the batteries charge at their max (more sun than they can take).
+  # Trigger-based for the reached memory (restored after a restart).
+  - triggers:
+      - trigger: time_pattern
+        minutes: "/1"
+      - trigger: state
+        entity_id:
+          - binary_sensor.hba_batteries_charging_at_max
+          - input_boolean.hba_strategy_planned_car_solar_export
+      - trigger: state
+        entity_id: sensor.hba_planned_strategy
+        attribute: plan_made
+      - trigger: homeassistant
+        event: start
+    actions:
+      - variables:
+          res: >-
+            {%- set E = 'sensor.hba_planned_strategy' -%}
+            {%- set plan = state_attr(E, 'plan') or [] -%}
+            {%- set sm = state_attr(E, 'summary') if state_attr(E, 'summary') is mapping else {} -%}
+            {%- set rsv = sm.get('reserve', 0) | float(0) -%}
+            {%- set n = as_timestamp(now()) | int -%}
+            {%- set today = now().date() | string -%}
+            {%- set e_now = states('sensor.hba_charge_available_energy') | float(0) -%}
+            {%- set prev = state_attr('binary_sensor.hba_ev_solar_allowed', 'reached') or '' -%}
+            {%- set past = plan | selectattr('ts', 'le', n) | list -%}
+            {%- set i = past | length - 1 -%}
+            {%- if i < 0 -%}
+              {{ {'on': false, 'reason': 'no plan', 'target': none, 'reached': prev} | tojson }}
+            {%- else -%}
+              {%- set cur = plan[i] -%}
+              {%- set ns = namespace(end=plan | length, found=false, dark=false, grid=false) -%}
+              {%- for q in plan[i + 1:] if not ns.found -%}
+                {%- if q.a == 'Charge' or (ns.dark and q.sun > q.load) -%}
+                  {%- set ns.end = i + 1 + loop.index0 -%}{%- set ns.found = true -%}{%- set ns.grid = q.a == 'Charge' -%}
+                {%- elif q.sun < 0.05 -%}{%- set ns.dark = true -%}
+                {%- endif -%}
+              {%- endfor -%}
+              {%- set w = plan[i:ns.end] -%}
+              {%- set pk = namespace(e=-1, k=0) -%}
+              {%- for q in w if q.e1 > pk.e -%}{%- set pk.e = q.e1 -%}{%- set pk.k = loop.index0 -%}{%- endfor -%}
+              {%- set after = w[pk.k + 1:] | map(attribute='e1') | list -%}
+              {%- set low = (after | min) if after and ns.found else pk.e -%}
+              {%- set spare = [low - rsv, 0] | max if ns.found else 0 -%}
+              {%- set target = [pk.e - spare, 0] | max -%}
+              {#- Only by day: at night the window would end at the morning sun and the target be tiny.
+                  Remembered for the day only when the window ends with the night: before a grid Charge
+                  later today the target is small, and after that Charge it is a new one. -#}
+              {%- set now_ok = cur.sun >= 0.05 and e_now >= target - 0.05 -%}
+              {%- set day_ok = prev == today or (now_ok and not ns.grid) -%}
+              {%- set reached = day_ok or now_ok -%}
+              {%- set export = cur.a in ['Full stop', 'Sell', 'Zero import'] and cur.sun > cur.load + 0.05 -%}
+              {%- if cur.a == 'Charge' -%}{%- set r = ['charge', false] -%}
+              {%- elif export -%}{%- set r = ['export', is_state('input_boolean.hba_strategy_planned_car_solar_export', 'on')] -%}
+              {%- elif reached -%}{%- set r = ['target', true] -%}
+              {%- elif is_state('binary_sensor.hba_batteries_charging_at_max', 'on') -%}{%- set r = ['max', true] -%}
+              {%- else -%}{%- set r = ['batteries', false] -%}
+              {%- endif -%}
+              {{ {'on': r[1], 'reason': r[0], 'target': target | round(2), 'reached': today if day_ok else prev} | tojson }}
+            {%- endif -%}
+    binary_sensor:
+      - name: "HBA EV Solar Allowed"
+        unique_id: hba_ev_solar_allowed
+        icon: mdi:solar-power-variant
+        state: "{{ (res | from_json if res is string else res).on }}"
+        attributes:
+          # charge / export / target / max / batteries / no plan
+          reason: "{{ (res | from_json if res is string else res).reason }}"
+          # kWh the batteries need before the car gets the sun (stored, above the discharge cutoffs)
+          target: "{{ (res | from_json if res is string else res).target }}"
+          # Date the target was reached (the car keeps the sun for the rest of that day)
+          reached: "{{ (res | from_json if res is string else res).reached }}"
 
   # ── House load profile ────────────────────────────────────────────────────────
   # Average house use per hour of the day, calculated once a night by automation

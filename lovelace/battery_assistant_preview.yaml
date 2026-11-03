@@ -2823,6 +2823,19 @@ views:
               {%- else -%}
               <ha-alert alert-type="success">Car settings OK.{{ ' The car is not connected.' if state_attr(I, 'connected') == false }}</ha-alert>
               {%- endif %}
+              {%- set S = 'binary_sensor.hba_ev_solar_allowed' -%}
+              {%- set why = state_attr(S, 'reason') -%}
+              {%- set tgt = state_attr(S, 'target') -%}
+              {%- set txt = {'target': 'allowed, the batteries have what they need until the next charge',
+                             'max': 'allowed, the batteries charge at their maximum',
+                             'export': ('allowed, the plan exports the sun this hour' if is_state(S, 'on') else 'not now, the plan exports the sun this hour (more than it saves)'),
+                             'charge': 'not now, the batteries charge from the grid this hour',
+                             'batteries': 'not yet, the batteries first get ' ~ ('%.1f' | format(tgt | float(0))) ~ ' kWh (now ' ~ ('%.1f' | format(states('sensor.hba_charge_available_energy') | float(0))) ~ ')',
+                             'no plan': 'no plan'} -%}
+              {%- if why and not preview %}
+
+              <small>**Solar for the car:** {{ txt.get(why, why) }}.</small>
+              {%- endif %}
           - type: entities
             visibility:
               - condition: state
@@ -2843,6 +2856,8 @@ views:
                 name: Leftover (as far as solar fills it)
               - entity: input_boolean.hba_strategy_planned_car_grid
                 name: Allow grid charging
+              - entity: input_boolean.hba_strategy_planned_car_solar_export
+                name: Solar the plan would export
               - entity: input_boolean.ev_window_max_price_enabled
                 name: Use the max price
               - entity: input_number.ev_window_charging_max_price
@@ -2871,6 +2886,15 @@ views:
               **Allow grid charging**, in the cheapest hours below the max price. Solar expected on a day the
               car is home is taken off this amount. **Leftover:** never from the grid. Solar fills the car up
               to here. So Minimum ≤ Normal ≤ Leftover, e.g. 40 / 80 / 100.</font>
+
+
+              <font color=grey>**Solar for the car:** the batteries get the sun first, until they have what the
+              plan uses before the next charge; after that the car gets it for the rest of the day (sun the
+              batteries would not use goes straight into the car). Before that the car only gets sun while the
+              batteries charge at their maximum (from 3 minutes, back off after 5 minutes below it). **Solar the
+              plan would export:** in an hour the plan exports the sun because that pays more, the car may take
+              it (off = exported). In the EV project, set the home battery priority entity to
+              `binary_sensor.hba_batteries_before_ev`: it follows this.</font>
 
 
               <font color=grey>**Car home in daytime on:** the days the car can catch solar, separated by commas,
