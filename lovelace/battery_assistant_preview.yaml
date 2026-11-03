@@ -2538,7 +2538,9 @@ views:
               {%- if dur_h is not none and t0 + dur_h * 3600 <= t_end - 600 %}
                 {%- set v_next = none if nxt is none else (nxt.s if nxt.a == 'Sell' else nxt.b) %}
                 {%- set then_a = 'Self-consumption' if r.a == 'Sell' and (v_next is none or v_next <= r.b) else 'Charge PV' %}
-                {%- set then = ' → ' ~ icon[then_a] ~ ' ' ~ then_a ~ ' from ~' ~ ((((t0 + dur_h * 3600) / 300) | round(0) * 300) | timestamp_custom('%H:%M')) %}
+                {#- Charge PV without sun only holds: the same as Full stop, so say that (user 2026-11-03) -#}
+                {%- set then_a = 'Full stop' if then_a == 'Charge PV' and (r.sun or 0) < 0.05 else then_a %}
+                {%- set then = '<br>↳ ' ~ icon[then_a] ~ ' ' ~ then_a ~ ' from ~' ~ ((((t0 + dur_h * 3600) / 300) | round(0) * 300) | timestamp_custom('%H:%M')) %}
               {%- endif %}
               {#- Profit per kWh that leaves the battery: Sell -> sell price, discharging for the house ->
                   the buy price it saves; minus what that kWh cost (cost out before this slot) -#}
@@ -2552,7 +2554,7 @@ views:
                 {%- elif r.a in ['Self-consumption', 'Zero import'] %}{%- set gain = r.b - c_in %}
                 {%- endif %}
               {%- endif %}
-              | {{ '**' if now }}{{ (d ~ ' ') if d != ns.day else '' }}{{ r.ts | timestamp_custom('%H:%M') }}{{ '**' if now }} | {{ '%.3f' | format(r.b) }} | {% if showsell %}{{ '%.3f' | format(r.s) }} | {% endif %}{{ '%.3f' | format(r.c) if r.c is number else '—' }} | {{ icon.get(r.a, '') }} {{ '**' if now }}{{ r.a }}{{ '**' if now }}{{ then }}{{ (' · <i>' ~ why ~ '</i>') if why }} | {{ ('%.3f' | format(gain)) if gain is not none else '' }} | {{ '%.1f' | format(r.e1) }} | {{ '%.1f' | format(r.load) if r.get('load') is not none else '' }} |
+              | {{ '**' if now }}{{ (d ~ ' ') if d != ns.day else '' }}{{ r.ts | timestamp_custom('%H:%M') }}{{ '**' if now }} | {{ '%.3f' | format(r.b) }} | {% if showsell %}{{ '%.3f' | format(r.s) }} | {% endif %}{{ '%.3f' | format(r.c) if r.c is number else '—' }} | {{ icon.get(r.a, '') }} {{ '**' if now }}{{ r.a }}{{ '**' if now }}{{ (' · <i>' ~ why ~ '</i>') if why }}{{ then }} | {{ ('%.3f' | format(gain)) if gain is not none else '' }} | {{ '%.1f' | format(r.e1) }} | {{ '%.1f' | format(r.load) if r.get('load') is not none else '' }} |
               {%- set ns.day = d %}
               {%- endfor %}
 
@@ -2570,8 +2572,9 @@ views:
               (Self-consumption / Zero import), minus what that kWh cost (Cost out before the slot). **for / keep for HH:MM:** the hour in which that energy leaves the battery again
               (sold or used in the house). **up to / down to X kWh:** Charge or Sell stops at that stored energy
               instead of going all the way (Sell spreads it over the hour) — the rest is worth more later.
-              **Charge → Charge PV from ~HH:MM:** the Charge or Sell is expected to be done at least 10 minutes
-              before the end of the slot; after that HBA runs the second strategy for the rest of the slot. Why exactly a slot got its strategy: Insights → Planned —
+              **↳ second line, from ~HH:MM:** the Charge or Sell is expected to be done at least 10 minutes
+              before the end of the slot; after that HBA runs that strategy for the rest of the slot (after a
+              Charge: Charge PV, or Full stop without sun — the same thing then). Why exactly a slot got its strategy: Insights → Planned —
               decisions.</font></small>
 
       - type: grid
