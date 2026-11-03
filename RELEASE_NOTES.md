@@ -34,6 +34,9 @@ open), so the version prefix stays at 4.10.1 for now.
   the car or Timed EV charge is on but the EV project is missing, too old, or Follow assisted is off.
   `binary_sensor.hba_battery_assist_active` stays; the EV project now reads `binary_sensor.hba_ev_assist`,
   so update both projects together and turn on Follow assisted for Timed EV charge.
+- **Plan table shows what runs after Charge / Sell** — when a Charge or a small Sell is expected to be done
+  at least 10 minutes before the end of the hour, the row shows the strategy HBA runs for the rest of it,
+  e.g. *Charge → Charge PV from ~14:35*.
 
 ### Fixed
 
