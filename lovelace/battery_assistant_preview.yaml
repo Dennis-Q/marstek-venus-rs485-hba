@@ -2506,13 +2506,20 @@ views:
               {%- set i = loop.index0 %}
               {%- set d = r.ts | timestamp_custom('%a') %}
               {%- set now = loop.first %}
-              {#- Why, in words, only where it is not obvious: Charge / holding with energy ->
-                  the first later hour in which the battery delivers again (Stored goes down);
+              {#- Why, in words, only where it is not obvious: Charge / holding with energy -> the
+                  first later hour in which Stored drops below what was there before this slot (Charge)
+                  or what it keeps (hold): earlier drops are covered by energy that was there anyway
+                  (user 2026-11-04: Charge 05:00 "for 07:00" while 8.9 kWh already covered 07:00's 0.5);
                   holding at the reserve / full -> empty / full -#}
               {#- Holding = nothing comes in either (the sun filling the battery is not holding) -#}
               {%- set hold = r.a in ['Full stop', 'Zero import', 'Self-consumption', 'Charge PV'] and r.e1 <= r.e0 + 0.05 %}
+              {%- set lvl = r.e0 if r.a == 'Charge' else r.e1 %}
               {%- set ns_n = namespace(t=none) %}
-              {%- for q in plan[i + 1:] if ns_n.t is none and q.e1 < q.e0 - 0.05 %}{%- set ns_n.t = q %}{%- endfor %}
+              {%- if lvl > rsv + 0.05 %}
+                {%- for q in plan[i + 1:] if ns_n.t is none and q.e1 < lvl - 0.05 %}{%- set ns_n.t = q %}{%- endfor %}
+              {%- else %}
+                {%- for q in plan[i + 1:] if ns_n.t is none and q.e1 < q.e0 - 0.05 %}{%- set ns_n.t = q %}{%- endfor %}
+              {%- endif %}
               {%- set nxt = ns_n.t %}
               {#- Partial Charge / Sell (not at max power): the target, so it is clear the plan stops there -#}
               {%- set upto = ('up to ' ~ '%.1f' | format(r.e1) ~ ' kWh, ') if r.a == 'Charge' and r.get('part') else '' %}
@@ -2579,8 +2586,9 @@ views:
               battery has cost after this slot (bought ÷ efficiency, sun at the sell price, + wear); shown now and
               where energy leaves the battery. **Grey strategy "A → B":** the hour's plan changed (e.g. Charge done → Full stop).
               **Profit €/kWh:** per kWh that leaves the battery: the sell price (Sell) or the buy price it saves
-              (Self-consumption / Zero import), minus what that kWh cost (Cost out before the slot). **for / keep for HH:MM:** the hour in which that energy leaves the battery again
-              (sold or used in the house). **up to / down to X kWh:** Charge or Sell stops at that stored energy
+              (Self-consumption / Zero import), minus what that kWh cost (Cost out before the slot). **for / keep for HH:MM:** the first hour in which the stored energy drops below what
+              was there before the Charge (or what is kept) — that is where this energy is needed; earlier
+              hours are covered by what was there anyway (sold or used in the house). **up to / down to X kWh:** Charge or Sell stops at that stored energy
               instead of going all the way (Sell spreads it over the hour) — the rest is worth more later.
               **↳ second line, from ~HH:MM:** the Charge or Sell is expected to be done at least 10 minutes
               before the end of the slot; then HBA plans the rest of the slot again and runs the best

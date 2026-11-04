@@ -50,6 +50,8 @@ open), so the version prefix stays at 4.10.1 for now.
   kWh per slot (a morning the plan expected the sun to cover showed only "Zero import · empty"). Executed
   hours list every strategy their plans had (*Charge → Full stop*) instead of only the last re-plan's.
   Cost out only on the running slot and on rows where energy leaves the battery.
+  *for / keep for HH:MM* names the first hour the stored energy drops below what was there before
+  (a Charge on top of enough energy for the morning now says when its own energy is used).
 - **Planned: finer energy steps, with the real step and a time estimate** — the step can now go down
   to usable ÷ 100 (was ÷ 40, so 0.45 kWh was the finest step for 18 kWh). Settings show the step the
   plan really uses and the expected calculation time, now and with tomorrow's prices, from the last
