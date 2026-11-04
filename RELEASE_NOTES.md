@@ -46,6 +46,25 @@ open), so the version prefix stays at 4.10.1 for now.
 - **Plan table shows what runs after Charge / Sell** — when a Charge or a small Sell is expected to be done
   at least 10 minutes before the end of the hour, the row shows the strategy HBA runs for the rest of it,
   e.g. *Charge → Charge PV from ~14:35*.
+- **Plan table: Sun column, what really ran, Cost out where it matters** — a Sun column with the forecast
+  kWh per slot (a morning the plan expected the sun to cover showed only "Zero import · empty"). Executed
+  hours list every strategy their plans had (*Charge → Full stop*) instead of only the last re-plan's.
+  Cost out only on the running slot and on rows where energy leaves the battery.
+- **Planned: finer energy steps, with the real step and a time estimate** — the step can now go down
+  to usable ÷ 100 (was ÷ 40, so 0.45 kWh was the finest step for 18 kWh). Settings show the step the
+  plan really uses and the expected calculation time, now and with tomorrow's prices, from the last
+  plan's measured time (it grows with the square of the number of steps).
+- **Planned: debug copy of each plan** — switch *Keep a copy of each plan (debug)* (default off) stores
+  every new plan in `sensor.hba_planned_strategy_debug` as compact rows (sun, house, runner-up per slot)
+  that the recorder keeps, to look back at what a plan expected.
+- **Planned: house use margin** (default 15 % via Apply defaults, 0 until set) — the plan counts on that
+  much more house use, so an hour the battery covers still has energy left when the house uses more
+  than usual. What is left stays stored for the next plan. *Reserve for unexpected loads* is renamed
+  *Never plan below*: it never was a buffer (the plan never buys it).
+- **Planned: sun per half hour** — what the battery must cover and what it may store are added up per
+  half hour of the Solcast forecast, so sun late in an hour no longer covers the house earlier in it
+  (2026-11-04: 0.7 kWh forecast at 08:00, battery empty at 07:47). The plan table stays hourly; such an
+  hour gets a second line *↳ ☀️ late sun: X kWh needed before, Y over*.
 
 ### Fixed
 
@@ -557,6 +576,15 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Changed
 
+- **Planned: strategy names say what the battery does** — where nothing goes in or out of the battery
+  the plan says *Full stop*, or *Charge PV* while the sun is up (sunrise–sunset from `sun.sun`, not the
+  forecast amount) and storing is worth it. No more Charge PV at night, no Zero import / Self-consumption
+  on an empty battery (was: empty = Self-consumption). The running slot keeps its strategy after running
+  empty (e.g. *Zero import*, which stops by itself); the table shows *until empty* / *empty*.
+- **Planned: after an early Charge / Sell, the plan decides the rest of the slot** — HBA re-plans once
+  when the target is reached and runs what that plan says (Full stop, Zero import, Self-consumption or
+  Charge PV), instead of always Charge PV after Charge and a fixed rule after Sell. The plan table's
+  second line (*↳ … from ~HH:MM*) shows that choice in advance.
 - **Batteries stop exactly at their SoC cutoff** — HBA allowed discharging only above
   cutoff + 0.5 % and charging only below cutoff − 0.5 %. With a whole-percent SoC that meant
   "stop at the cutoff", but batteries that report tenths (Venus E 3.0) stopped 0.5 % early:

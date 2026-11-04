@@ -63,6 +63,10 @@ input_boolean:
   hba_strategy_planned_skip_zero_import:
     name: "Planned: never Zero import"
     icon: mdi:home-off-outline
+  # Keeps a recorded copy of every new plan in sensor.hba_planned_strategy_debug (off = no data)
+  hba_strategy_planned_debug:
+    name: "Planned: keep a copy of each plan (debug)"
+    icon: mdi:bug-outline
 
 input_datetime:
   hba_strategy_timed_period_a1:
@@ -462,14 +466,27 @@ input_number:
     mode: box
     unit_of_measurement: "EUR/kWh"
     icon: mdi:battery-heart-variant
+  # Plan-only floor: energy below it counts as worth nothing, so the plan never uses it -- and
+  # never buys it either. Zero import / Self-consumption still discharge down to the cutoff.
+  # (Entity id keeps "reserve"; it was named "reserve for unexpected loads" at first.)
   hba_strategy_planned_reserve:
-    name: "Planned: reserve for unexpected loads"
+    name: "Planned: never plan below"
     min: 0
     max: 50
     step: 0.1
     mode: box
     unit_of_measurement: kWh
     icon: mdi:battery-lock
+  # Plans with this much more house use, so a battery-covered hour still has energy left when
+  # the house uses more than usual. What is left stays stored for the next hour.
+  hba_strategy_planned_house_margin:
+    name: "Planned: house use margin"
+    min: 0
+    max: 100
+    step: 5
+    mode: box
+    unit_of_measurement: "%"
+    icon: mdi:home-plus-outline
   hba_strategy_planned_sell_deduction:
     name: "Planned: sell price deduction"
     min: 0
@@ -3349,7 +3366,8 @@ recorder:
       - sensor.ev_charger_power_l*
     entities:
       # Planned strategy: plan + 24 h history as attributes (well over the recorder's 16 kB
-      # attribute limit); the sensor keeps its own executed history
+      # attribute limit); the sensor keeps its own executed history. Its compact copy,
+      # sensor.hba_planned_strategy_debug, stays recorded (only with the debug switch on).
       - sensor.hba_planned_strategy
       - sensor.hba_planned_car_preview
       # Room per phase (main fuse limit, Charge alongside EV) — recalculated on every P1 update

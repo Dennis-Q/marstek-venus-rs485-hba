@@ -1818,6 +1818,9 @@ script:
         target: { entity_id: input_number.hba_strategy_planned_replan_drift }
         data: { value: 1 }
       - action: input_number.set_value
+        target: { entity_id: input_number.hba_strategy_planned_house_margin }
+        data: { value: 15 }
+      - action: input_number.set_value
         target: { entity_id: input_number.hba_strategy_planned_car_minimum }
         data: { value: 0 }
       - action: input_number.set_value
