@@ -2501,6 +2501,10 @@ views:
               {%- set ns.day = d %}
               {%- set ns.e = r.e1 %}
               {%- endfor %}
+              {#- Car SoC estimate per car hour: today's SoC + the planned kWh ÷ (capacity ÷ 100 ÷ charging
+                  efficiency, as the plan counts it), never above that hour's limit -#}
+              {%- set car_kp = (state_attr('sensor.ev_car_info', 'capacity_kwh') | float(0)) / 100 / (state_attr('sensor.ev_car_info', 'efficiency') | float(0.9)) %}
+              {%- set ns_ev = namespace(soc=states('sensor.ev_car_info') | float(-1)) %}
               {%- set ns_c = namespace(last=(hist | sort(attribute='ts') | map(attribute='c') | select('number') | list | last) if hist | map(attribute='c') | select('number') | list | length > 0 else none) %}
               {%- for r in plan %}
               {%- set i = loop.index0 %}
@@ -2532,7 +2536,11 @@ views:
               {%- else %}{%- set why = '' %}
               {%- endif %}
               {#- Car hour: its own line, with the car's limit for that hour -#}
-              {%- set car_line = ('<br>🚗 Car ' ~ '%.1f' | format(r.ev) ~ ' kWh' ~ ((' → ' ~ r.ev_lim ~ ' %') if r.get('ev_lim') else '')) if r.get('ev') else '' %}
+              {%- set car_line = '' %}
+              {%- if r.get('ev') %}
+                {%- if ns_ev.soc >= 0 and car_kp > 0 %}{%- set ns_ev.soc = [ns_ev.soc + r.ev / car_kp, r.get('ev_lim') or 100, 100] | min %}{%- endif %}
+                {%- set car_line = '<br>🚗 Car ' ~ '%.1f' | format(r.ev) ~ ' kWh' ~ ((' → ~' ~ (ns_ev.soc | round(0) | int) ~ ' %') if ns_ev.soc >= 0 and car_kp > 0 else ((' → ' ~ r.ev_lim ~ ' %') if r.get('ev_lim') else '')) %}
+              {%- endif %}
               {#- Charge / Sell done at least 10 min before the end of the slot: what runs after it -- the
                   plan's best hold strategy for the rest of the slot (row 'then'). Charge runs at the row's
                   power (pw, whole batteries); Sell is spread over the slot but never below the minimum
@@ -2593,7 +2601,7 @@ views:
               instead of going all the way (Sell spreads it over the hour) — the rest is worth more later.
               **↳ second line, from ~HH:MM:** the Charge or Sell is expected to be done at least 10 minutes
               before the end of the slot; then HBA plans the rest of the slot again and runs the best
-              strategy for it — this line is what the plan expects that to be. **🚗 Car X kWh → Y %:** the plan charges the car in that slot, up to that car limit. **↳ ☀️ late sun:** the
+              strategy for it — this line is what the plan expects that to be. **🚗 Car X kWh → ~Y %:** the plan charges the car in that slot; ~Y = the car's expected charge level at the end of it (from its SoC now, never above the limit). **↳ ☀️ late sun:** the
               sun covers the house only for part of the slot (per half hour of the forecast): kWh the house
               needs before that (from the battery or the grid) and kWh sun left over after. **empty / until
               empty:** the battery starts the slot empty / runs empty in it (Zero import and
@@ -3048,11 +3056,14 @@ views:
 
               | Time | Price | Solar above house | Car | Batteries | Stored | |
               |---|---|---|---|---|---|---|
+              {%- set car_kp = (state_attr(I, 'capacity_kwh') | float(0)) / 100 / (state_attr(I, 'efficiency') | float(0.9)) %}
+              {%- set ns_ev = namespace(soc=states(I) | float(-1)) %}
               {%- for r in plan %}
               {%- set spare = [r.get('sun', 0) - r.get('load', 0), 0] | max %}
+              {%- if r.get('ev') and ns_ev.soc >= 0 and car_kp > 0 %}{%- set ns_ev.soc = [ns_ev.soc + r.ev / car_kp, r.get('ev_lim') or 100, 100] | min %}{%- endif %}
               {%- set best = 'Preferred: batteries full' if spare > 0.5 and r.e1 >= full - 0.2 else ('Cheapest' if r.ts in cheap else '') %}
               {%- set was = now_plan | selectattr('ts', 'eq', r.ts) | first | default(none) %}
-              | {{ r.ts | timestamp_custom('%a %H:%M') }} | {{ '%.3f' | format(r.b) }} | {{ ('%.1f' | format(spare)) if spare > 0.05 else '' }} | {{ ('%.1f kWh → %d %%' | format(r.ev, r.ev_lim)) if r.get('ev') else '' }} | {{ r.a }}{{ ' (now ' ~ was.a ~ ')' if preview and was is not none and was.a != r.a }} | {{ '%.1f' | format(r.e1) }}{{ ' (now ' ~ '%.1f' | format(was.e1) ~ ')' if preview and was is not none and (was.e1 - r.e1) | abs > 0.1 }} | {{ best }} |
+              | {{ r.ts | timestamp_custom('%a %H:%M') }} | {{ '%.3f' | format(r.b) }} | {{ ('%.1f' | format(spare)) if spare > 0.05 else '' }} | {{ (('%.1f kWh → ~%d %%' | format(r.ev, ns_ev.soc | round(0) | int)) ~ (' (limit %d %%)' | format(r.ev_lim) if r.get('ev_lim') and (ns_ev.soc | round(0)) < r.ev_lim else '')) if r.get('ev') and ns_ev.soc >= 0 and car_kp > 0 else (('%.1f kWh → %d %%' | format(r.ev, r.ev_lim)) if r.get('ev') else '') }} | {{ r.a }}{{ ' (now ' ~ was.a ~ ')' if preview and was is not none and was.a != r.a }} | {{ '%.1f' | format(r.e1) }}{{ ' (now ' ~ '%.1f' | format(was.e1) ~ ')' if preview and was is not none and (was.e1 - r.e1) | abs > 0.1 }} | {{ best }} |
               {%- endfor %}
 
               </small>
