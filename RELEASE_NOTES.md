@@ -61,6 +61,12 @@ open), so the version prefix stays at 4.10.1 for now.
 - **Planned: debug copy of each plan** — switch *Keep a copy of each plan (debug)* (default off) stores
   every new plan in `sensor.hba_planned_strategy_debug` as compact rows (sun, house, runner-up per slot)
   that the recorder keeps, to look back at what a plan expected.
+- **Planned: a car hour stops at its planned kWh** — new setting *EV charger energy meter* (a kWh
+  counter, Peblar: `sensor.peblar_ev_charger_lifetime_energy`). `sensor.hba_ev_hour_energy` counts what
+  the car got in the running slot; once the plan's kWh for that slot are in, `ev_mode` goes from force
+  to wait, so the rest waits for the cheaper hour the plan chose (was: full power until the car's limit,
+  11 kWh at 00:00 where the plan wanted 5.5). Overshoot ~0.2–0.3 kWh (meter every 60 s + stop delay).
+  Empty = as before. The Car hours card shows "This hour: X of Y kWh".
 - **Planned: house use margin** (default 15 % via Apply defaults, 0 until set) — the plan counts on that
   much more house use, so an hour the battery covers still has energy left when the house uses more
   than usual. What is left stays stored for the next plan. *Reserve for unexpected loads* is renamed

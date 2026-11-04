@@ -966,6 +966,13 @@ input_text:
     name: "EV charger power sensor (entity_id, W)"
     max: 100
     icon: mdi:ev-station
+  # EV charger energy meter in kWh (a counter that only goes up, e.g. the Peblar's lifetime energy,
+  # sensor.peblar_ev_charger_lifetime_energy). Planned stops a car hour once the planned kWh are in
+  # (sensor.hba_ev_hour_energy). Empty = a car hour runs until the car's limit or the end of the hour.
+  hba_ev_charger_energy_entity_id:
+    name: "EV charger energy meter (entity_id, kWh)"
+    max: 100
+    icon: mdi:meter-electric-outline
   hba_notify_entity_id:
     name: "Notify entity_id"
     max: 100

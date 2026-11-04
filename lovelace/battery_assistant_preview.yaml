@@ -2942,6 +2942,8 @@ views:
                 name: Ask before Normal
               - entity: input_select.hba_strategy_planned_car_normal_tonight
                 name: Normal coming night
+              - entity: input_text.hba_ev_charger_energy_entity_id
+                name: EV charger energy meter (kWh counter)
           - type: markdown
             text_only: true
             visibility:
@@ -2949,6 +2951,12 @@ views:
                 entity: input_boolean.hba_strategy_planned_car
                 state: "on"
             content: >-
+              <font color=grey>**EV charger energy meter:** a kWh counter of the charger (Peblar:
+              `sensor.peblar_ev_charger_lifetime_energy`). A car hour then stops once the planned kWh for that
+              hour are in, so the rest waits for the cheaper hour the plan chose. Empty: a car hour charges at
+              full power until the car's limit or the end of the hour.</font>
+
+
               <font color=grey>**The three levels** are % of the car's battery, the same for every car.
               **Minimum:** must be there by departure, at any price, also with grid charging off. **Minimum above
               the max price:** Charge, Skip those hours, or Ask (a notification with both buttons; no answer
@@ -3036,6 +3044,11 @@ views:
               {% endif -%}
               {{ states(I) | float(0) | round(0) | int }} % · Minimum {{ car.get('min', 0) }} kWh · from the grid {{ 0 if car.get('normal_skip') else car.get('need', 0) }} kWh · spare solar on the next day {{ car.get('sun', 0) }} kWh{{ ' · ' ~ car.unmet ~ ' kWh not planned (price or hours)' if car.get('unmet') }}{{ ' · not connected: from today\'s SoC' if state_attr(I, 'connected') != true }}
 
+              {% set hk = 'sensor.hba_ev_hour_energy' %}
+              {% if not preview and (state_attr(hk, 'planned') | float(0)) > 0 and state_attr(hk, 'meter') == true %}
+              This hour: {{ states(hk) | float(0) | round(1) }} of {{ state_attr(hk, 'planned') | float(0) | round(1) }} kWh{{ ' — done, the car waits for its next hour' if state_attr(hk, 'done') == true }}.
+
+              {% endif %}
               Car: {{ car.get('kwh', 0) }} kWh, € {{ '%.2f' | format(car.get('eur', 0)) }} · {{ 'without' if state_attr(I, 'max_price_on') != false else 'with' }} the max price: {{ car.get('alt_kwh', 0) }} kWh, € {{ '%.2f' | format(car.get('alt_eur', 0)) }}
               {%- if preview and sm.get('plan_cost') is not none and run.get('plan_cost') is not none %}
 

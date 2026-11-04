@@ -51,7 +51,8 @@ template:
   # now. HBA only instructs: the EV project does all charger and car control, and only listens when
   # its input_boolean.ev_follow_assisted is on. A manual force charge always wins there.
   # on = Timed EV charge is pushing, or Planned runs with a fresh plan and Plan the car (not Preview only).
-  # ev_mode: battery = batteries push (Timed EV charge), force = plan's grid hour, solar = nothing
+  # ev_mode: battery = batteries push (Timed EV charge), force = plan's grid hour until its kWh are in
+  # (sensor.hba_ev_hour_energy, with a charger energy meter), solar = nothing
   # from the grid, spare solar allowed (binary_sensor.hba_ev_solar_allowed), wait = nothing, no solar
   # either. (Until 2026-11 wait meant today's solar: update both projects together.)
   # ev_limit = the car's limit in %. over_price_* = Minimum
@@ -77,6 +78,7 @@ template:
             {%- set cur = plan | selectattr('ts', 'le', as_timestamp(now()) | int) | list | last | default(none) -%}
             {{ 'battery' if is_state('binary_sensor.hba_battery_assist_active', 'on')
                else ('force' if cur is not none and cur.get('ev')
+                     and not (state_attr('sensor.hba_ev_hour_energy', 'done') == true and state_attr('sensor.hba_ev_hour_energy', 'slot') | int(0) == cur.ts)
                else ('solar' if is_state('binary_sensor.hba_ev_solar_allowed', 'on') else 'wait')) }}
           ev_limit: >-
             {%- set plan = state_attr('sensor.hba_planned_strategy', 'plan') or [] -%}
@@ -204,6 +206,57 @@ template:
           target: "{{ (res | from_json if res is string else res).target }}"
           # Date the target was reached (the car keeps the sun for the rest of that day)
           reached: "{{ (res | from_json if res is string else res).reached }}"
+
+  # kWh the car got in the running slot, from the charger's energy meter
+  # (input_text.hba_ev_charger_energy_entity_id, a counter): the meter at the first check in the
+  # slot is the start. done = the plan's car kWh for this slot (row ev) are in, so ev_mode goes from
+  # force to wait (user 2026-11-04: full power until the limit took 11 kWh at 00:00 where the plan
+  # wanted 5.5 and the rest at the cheaper 05:00). The meter, not the car's SoC: the SoC comes late
+  # and sometimes sticks; the Peblar's Modbus counter updates every 60 s (overshoot ~0.2-0.3 kWh).
+  # Trigger-based, so start survives a restart.
+  - triggers:
+      - trigger: time_pattern
+        seconds: "/20"
+      - trigger: state
+        entity_id: sensor.hba_planned_strategy
+        attribute: plan_made
+      - trigger: homeassistant
+        event: start
+    actions:
+      - variables:
+          res: >-
+            {%- set pph = state_attr('sensor.hba_energy_prices_data', 'datapoints_per_hour') | int(1) -%}
+            {%- set step = 3600 // ([pph, 1] | max) -%}
+            {%- set slot = ((as_timestamp(now()) | int) // step) * step -%}
+            {%- set e = states('input_text.hba_ev_charger_energy_entity_id') | trim -%}
+            {%- set m = states(e) | float(-1) if e not in ['', 'unknown', 'unavailable'] else -1 -%}
+            {%- set S = 'sensor.hba_ev_hour_energy' -%}
+            {%- set p_slot = state_attr(S, 'slot') | int(0) -%}
+            {%- set p_start = state_attr(S, 'start') -%}
+            {%- set plan = state_attr('sensor.hba_planned_strategy', 'plan') or [] -%}
+            {%- set cur = plan | selectattr('ts', 'eq', slot) | first | default(none) -%}
+            {%- set planned = (cur.ev | float(0)) if cur is not none and cur.ev is defined else 0 -%}
+            {%- if m < 0 -%}
+              {{ {'kwh': 0, 'slot': slot, 'start': p_start if p_slot == slot else none, 'planned': planned, 'done': false, 'meter': false} | tojson }}
+            {%- else -%}
+              {%- set start = p_start if p_slot == slot and p_start is number and m >= p_start else m -%}
+              {%- set kwh = m - start -%}
+              {{ {'kwh': kwh | round(2), 'slot': slot, 'start': start, 'planned': planned, 'done': planned > 0 and kwh >= planned - 0.05, 'meter': true} | tojson }}
+            {%- endif -%}
+    sensor:
+      - name: "HBA EV Hour Energy"
+        unique_id: hba_ev_hour_energy
+        icon: mdi:car-electric-outline
+        unit_of_measurement: kWh
+        state: "{{ (res | from_json if res is string else res).kwh }}"
+        attributes:
+          slot: "{{ (res | from_json if res is string else res).slot }}"
+          start: "{{ (res | from_json if res is string else res).start }}"
+          # The plan's car kWh for this slot (0 = no car hour)
+          planned: "{{ (res | from_json if res is string else res).planned }}"
+          # Planned kWh are in: the car waits for the rest of the slot
+          done: "{{ (res | from_json if res is string else res).done }}"
+          meter: "{{ (res | from_json if res is string else res).meter }}"
 
   # ── House load profile ────────────────────────────────────────────────────────
   # Average house use per hour of the day, calculated once a night by automation
