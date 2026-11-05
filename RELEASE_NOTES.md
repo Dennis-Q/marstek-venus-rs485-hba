@@ -69,7 +69,7 @@ open), so the version prefix stays at 4.10.1 for now.
   set up. Then Planned charges alongside whatever *Strategy during EV charge* says (that setting stays
   for the other strategies), capped by the room the car leaves, car first (*EV first* in a car hour).
   Not ready: only the leftover sun, or nothing, per that setting, with a line in the Car section saying
-  what is missing. The plan table's car line says *batteries charge alongside* for a Charge car hour.
+  what is missing. The plan table marks a Charge car hour with *+ 🚗 Car …*.
   The sun the car takes counts at the export price in the car's cost.
 - **Planned: a car hour stops at its planned kWh** — new setting *EV charger energy meter* (a kWh
   counter, Peblar: `sensor.peblar_ev_charger_lifetime_energy`). `sensor.hba_ev_hour_energy` counts what
