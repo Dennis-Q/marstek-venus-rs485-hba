@@ -930,7 +930,7 @@ template:
                        'gain': (sc_total - plan_total) | round(2),
                        'until': (slots | last).ts + step,
                        'slots': N, 'levels': K, 'step_kwh': dE | round(2),
-                       'car': {'min': car.min | round(1), 'need': car.need | round(1), 'sun': car.sun | round(1), 'home': car.home,
+                       'car': {'soc': states('sensor.ev_car_info') | float(-1), 'min': car.min | round(1), 'need': car.need | round(1), 'sun': car.sun | round(1), 'home': car.home,
                                'unmet': ([car.min_left + car.left, 0] | max) | round(1), 'over': car.over | round(1), 'over_eur': car.over_eur | round(2),
                                'over_from': car.over_from | timestamp_custom('%H:%M') if car.over_from != '' else '',
                                'kwh': car.kwh | round(1), 'eur': car.eur | round(2), 'alt_kwh': car.alt_kwh | round(1), 'alt_eur': car.alt_eur | round(2),
@@ -983,11 +983,11 @@ template:
             {%- if is_state('input_boolean.hba_strategy_planned_debug', 'on') and replan != '' -%}
               {%- set ns_d = namespace(rows=[]) -%}
               {%- for x in r.plan -%}
-                {%- set ns_d.rows = ns_d.rows + [[x.ts, x.a, x.e0, x.e1, x.b, x.s, x.sun, x.load, x.c, x.alt, x.adv, x.alt_e1, x.part, x.get('pw'), x.get('ev'), x.get('du')]] -%}
+                {%- set ns_d.rows = ns_d.rows + [[x.ts, x.a, x.e0, x.e1, x.b, x.s, x.sun, x.load, x.c, x.alt, x.adv, x.alt_e1, x.part, x.get('pw'), x.get('ev'), x.get('du'), x.r, x.get('then'), x.get('ev_lim')]] -%}
               {%- endfor -%}
               {%- set d = {'made': r.made, 'reason': r.reason, 'status': r.status, 'e_now': e_now, 'drift': drift,
                            'ledger': ledger if ledger is mapping else (ledger | from_json), 'summary': r.get('summary'),
-                           'fields': ['ts', 'a', 'e0', 'e1', 'b', 's', 'sun', 'load', 'c', 'alt', 'adv', 'alt_e1', 'part', 'pw', 'ev', 'du'],
+                           'fields': ['ts', 'a', 'e0', 'e1', 'b', 's', 'sun', 'load', 'c', 'alt', 'adv', 'alt_e1', 'part', 'pw', 'ev', 'du', 'r', 'then', 'ev_lim'],
                            'rows': ns_d.rows} -%}
               {#- Safety: stay under the recorder's 16 kB (48 slots ~ 6.5 kB, 96 ~ 12 kB): else the first
                   rows that fit, 'cut' = how many the plan had -#}
