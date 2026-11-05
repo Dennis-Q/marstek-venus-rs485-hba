@@ -860,9 +860,13 @@ template:
                         value / discharge efficiency + wear): the battery covers what the forecast missed
                         (a cloud, a kettle) -- Zero import instead of Full stop, Self-consumption instead
                         of Charge PV. Costs nothing when the sun does cover the house (user 2026-11-05:
-                        08:00 at 0.486 Full stop while the battery fills up from the midday sun anyway). -#}
+                        08:00 at 0.486 Full stop while the battery fills up from the midday sun anyway).
+                        A car hour: never discharging (cover off), Charge PV only with sun the car leaves
+                        (u is already net of the car), else Full stop. -#}
                     {%- set holds = ['Self-consumption', 'Charge PV', 'Full stop', 'Zero import'] -%}
-                    {%- set cover = sl.up and av > 0.05 and slope / ed + wear < sl.b -%}
+                    {%- set car_h = 'ev' in sl -%}
+                    {%- set cover = sl.up and av > 0.05 and slope / ed + wear < sl.b and not car_h -%}
+                    {%- set store = store and (u > 0.05 or not car_h) -%}
                     {%- if best.a in holds and best.dis < 0.01 and best.ch < 0.01 -%}
                       {%- set pr = (state_attr('sensor.hba_planned_strategy', 'plan') or []) | selectattr('ts', 'eq', sl.ts) | first | default(none) if t == 0 else none -%}
                       {%- set na = pr.a if pr is mapping and pr.a in holds
@@ -893,7 +897,7 @@ template:
                           {%- set v = ([net, 0] | max) * sl.b - ([-net, 0] | max) * sl.s + wear * dis + tie[a] + V[i] * (1 - f) + V[i + 1] * f -%}
                           {%- if v < th.v -%}{%- set th.v = v -%}{%- set th.a = a -%}{%- set th.ch = ch -%}{%- set th.dis = dis -%}{%- endif -%}
                         {%- endfor -%}
-                        {%- set cover1 = sl.up and av1 > 0.05 and slope / ed + wear < sl.b -%}
+                        {%- set cover1 = sl.up and av1 > 0.05 and slope / ed + wear < sl.b and not car_h -%}
                         {%- set then_a = th.a if th.dis >= 0.01 or th.ch >= 0.01 else ((('Self-consumption' if cover1 else 'Charge PV') if store and room1 > 0.05 else ('Zero import' if cover1 else 'Full stop'))) -%}
                       {%- endif -%}
                     {%- endif -%}
