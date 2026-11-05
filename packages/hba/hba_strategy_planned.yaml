@@ -235,13 +235,22 @@ template:
             {%- set p_start = state_attr(S, 'start') -%}
             {%- set plan = state_attr('sensor.hba_planned_strategy', 'plan') or [] -%}
             {%- set cur = plan | selectattr('ts', 'eq', slot) | first | default(none) -%}
-            {%- set planned = (cur.ev | float(0)) if cur is not none and cur.ev is defined else 0 -%}
+            {%- set ev = (cur.ev | float(0)) if cur is not none and cur.ev is defined else 0 -%}
             {%- if m < 0 -%}
-              {{ {'kwh': 0, 'slot': slot, 'start': p_start if p_slot == slot else none, 'planned': planned, 'done': false, 'meter': false} | tojson }}
+              {{ {'kwh': 0, 'slot': slot, 'start': p_start if p_slot == slot else none, 'planned': ev, 'done': false, 'meter': false} | tojson }}
             {%- else -%}
               {%- set start = p_start if p_slot == slot and p_start is number and m >= p_start else m -%}
+              {#- A plan made inside the slot counts the car kWh from then on (rest of the hour, need
+                  from the SoC then): base = the meter when it was made, so planned = kWh before it +
+                  its row ev (prod 11-05: the 00:15 re-plan said 1.7 of the 5.5 still to come, compared
+                  against the 2.4 already in it stopped the car at 2.5 kWh; 05:00 at 6.1 of 11) -#}
+              {%- set made = as_timestamp(state_attr('sensor.hba_planned_strategy', 'plan_made'), 0) | int -%}
+              {%- set p_base = state_attr(S, 'base') -%}
+              {%- set base = p_base if p_slot == slot and start == p_start and state_attr(S, 'made') | int(-1) == made and p_base is number and start <= p_base <= m
+                             else (m if made > slot else start) -%}
               {%- set kwh = m - start -%}
-              {{ {'kwh': kwh | round(2), 'slot': slot, 'start': start, 'planned': planned, 'done': planned > 0 and kwh >= planned - 0.05, 'meter': true} | tojson }}
+              {%- set planned = (base - start + ev) if ev > 0 else 0 -%}
+              {{ {'kwh': kwh | round(2), 'slot': slot, 'start': start, 'base': base, 'made': made, 'planned': planned | round(2), 'done': planned > 0 and kwh >= planned - 0.05, 'meter': true} | tojson }}
             {%- endif -%}
     sensor:
       - name: "HBA EV Hour Energy"
@@ -252,8 +261,12 @@ template:
         attributes:
           slot: "{{ (res | from_json if res is string else res).slot }}"
           start: "{{ (res | from_json if res is string else res).start }}"
-          # The plan's car kWh for this slot (0 = no car hour)
+          # The car's kWh for this slot: in before the running plan was made + that plan's row ev
+          # (0 = no car hour)
           planned: "{{ (res | from_json if res is string else res).planned }}"
+          # Meter when the running plan was made (= start for a plan made before the slot)
+          base: "{{ (res | from_json if res is string else res).get('base') }}"
+          made: "{{ (res | from_json if res is string else res).get('made') }}"
           # Planned kWh are in: the car waits for the rest of the slot
           done: "{{ (res | from_json if res is string else res).done }}"
           meter: "{{ (res | from_json if res is string else res).meter }}"
