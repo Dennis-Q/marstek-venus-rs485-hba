@@ -617,7 +617,7 @@ template:
                     (input_select.hba_strategy_planned_car_normal_tonight); its hours are still worked out
                     for the evening question. -#}
                 {%- set ev_e = 'sensor.ev_car_info' -%}
-                {%- set car = namespace(min=0, need=0, sun=0, min_left=0, left=0, picks={}, lims={}, home=false, over=0, over_eur=0, over_from='', kwh=0, eur=0, alt_kwh=0, alt_eur=0, nskip=false, nkwh=0, neur=0, nfrom='', home_day='', home_fc=-1, home_sun=-1) -%}
+                {%- set car = namespace(min=0, need=0, sun=0, min_left=0, left=0, picks={}, lims={}, home=false, over=0, over_eur=0, over_from='', kwh=0, eur=0, alt_kwh=0, alt_eur=0, nskip=false, nkwh=0, neur=0, nfrom='', home_day='', home_fc=-1, home_sun=-1, sun_in=0, along=false) -%}
                 {#- Preview only: the plan that runs leaves the car out, the preview run takes it in even
                     with Follow assisted off or the car unplugged (then from today's SoC), to show what
                     it would do to the batteries. Nothing of it reaches the batteries or the EV project. -#}
@@ -706,10 +706,30 @@ template:
                     {%- if ph in ['L1', 'L2', 'L3'] and ph not in car_ph.l -%}{%- set car_ph.l = car_ph.l + [ph] -%}{%- endif -%}
                   {%- endfor -%}
                   {%- set car_room = ([car_lim - car_kw * 1000 / 690, 0] | max) * 0.23 * (car_ph.l | length) -%}
+                  {#- A car hour: the car takes the sun first (it pulls more than the sun gives, so nothing
+                      is exported for Charge PV to store); the batteries only get the sun above the car's
+                      kWh. Grid Charge alongside the car only when HBA can keep the phases within the limits
+                      (binary_sensor.hba_ev_alongside_ready), capped by the room the car leaves; else what
+                      the setting during EV charge allows: the leftover sun (Charge PV / alongside) or
+                      nothing. Never discharging into the car. The sun the car takes costs what exporting
+                      it would have earned (user 2026-11-05: a friend's plan stored 3.5 kWh of sun per hour
+                      next to an 11 kW car). -#}
+                  {%- set car.along = is_state('binary_sensor.hba_ev_alongside_ready', 'on') -%}
+                  {%- set car_pv = states('input_select.hba_control_strategy_during_ev_charge') in ['Charge PV', 'Charge alongside EV'] -%}
                   {%- set ns_car = namespace(l=[]) -%}
                   {%- for sl in slots -%}
                     {%- set k = sl.ts | string -%}
-                    {%- set ns_car.l = ns_car.l + [(sl | combine({'ev': car.picks[k], 'ev_lim': car.lims[k], 'pd': 0, 'pc': ([sl.pc, car_room] | min) if car_lim > 0 and car_ph.l else sl.pc})) if k in car.picks else sl] -%}
+                    {%- if k in car.picks -%}
+                      {%- set c_sun = [sl.u, car.picks[k]] | min -%}
+                      {%- set u2 = [sl.u - car.picks[k], 0] | max -%}
+                      {%- set c_pc = (([sl.pc, car_room] | min) if car_lim > 0 and car_ph.l else sl.pc) if car.along
+                                     else (([sl.pc, u2 / ([sl.h, 0.01] | max)] | min) if car_pv else 0) -%}
+                      {%- set car.sun_in = car.sun_in + c_sun -%}
+                      {%- set car.eur = car.eur - c_sun * (sl.b - sl.s) -%}
+                      {%- set ns_car.l = ns_car.l + [sl | combine({'ev': car.picks[k], 'ev_lim': car.lims[k], 'pd': 0, 'pc': c_pc, 'u': u2})] -%}
+                    {%- else -%}
+                      {%- set ns_car.l = ns_car.l + [sl] -%}
+                    {%- endif -%}
                   {%- endfor -%}
                   {%- set slots = ns_car.l -%}
                 {%- endif -%}
@@ -938,7 +958,7 @@ template:
                        'gain': (sc_total - plan_total) | round(2),
                        'until': (slots | last).ts + step,
                        'slots': N, 'levels': K, 'step_kwh': dE | round(2),
-                       'car': {'soc': states('sensor.ev_car_info') | float(-1), 'min': car.min | round(1), 'need': car.need | round(1), 'sun': car.sun | round(1), 'home': car.home,
+                       'car': {'soc': states('sensor.ev_car_info') | float(-1), 'along': car.along, 'sun_in': car.sun_in | round(1), 'min': car.min | round(1), 'need': car.need | round(1), 'sun': car.sun | round(1), 'home': car.home,
                                'unmet': ([car.min_left + car.left, 0] | max) | round(1), 'over': car.over | round(1), 'over_eur': car.over_eur | round(2),
                                'over_from': car.over_from | timestamp_custom('%H:%M') if car.over_from != '' else '',
                                'kwh': car.kwh | round(1), 'eur': car.eur | round(2), 'alt_kwh': car.alt_kwh | round(1), 'alt_eur': car.alt_eur | round(2),

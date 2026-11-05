@@ -657,7 +657,11 @@ script:
               false
             {% endif %}
       - variables:
-          ev_policy: "{{ states('input_select.hba_control_strategy_during_ev_charge') }}"
+          # Planned charges alongside the car when HBA can keep within the phase limits
+          # (binary_sensor.hba_ev_alongside_ready), whatever the setting says
+          ev_policy: >-
+            {{ 'Charge alongside EV' if strategy == 'Planned' and is_state('binary_sensor.hba_ev_alongside_ready', 'on')
+               else states('input_select.hba_control_strategy_during_ev_charge') }}
           # Saturation gate for Charge PV during EV charge. Pointer not
           # configured → gate is always open (previous behaviour).
           ev_saturated: >

@@ -61,6 +61,16 @@ open), so the version prefix stays at 4.10.1 for now.
 - **Planned: debug copy of each plan** — switch *Keep a copy of each plan (debug)* (default off) stores
   every new plan in `sensor.hba_planned_strategy_debug` as compact rows (sun, house, runner-up per slot)
   that the recorder keeps, to look back at what a plan expected.
+- **Planned: car hours count the sun and charge the batteries alongside** — in a car hour the car takes
+  the sun first (it pulls more than the sun gives, so there is nothing for Charge PV to store); the
+  batteries only get the sun above the car's kWh (was: the plan stored the sun next to an 11 kW car).
+  Grid Charge alongside the car only when HBA can keep the phases within the limits — new
+  `binary_sensor.hba_ev_alongside_ready`: the EV charging entity and per-phase grid power sensors are
+  set up. Then Planned charges alongside whatever *Strategy during EV charge* says (that setting stays
+  for the other strategies), capped by the room the car leaves, car first (*EV first* in a car hour).
+  Not ready: only the leftover sun, or nothing, per that setting, with a line in the Car section saying
+  what is missing. The plan table's car line says *batteries charge alongside* for a Charge car hour.
+  The sun the car takes counts at the export price in the car's cost.
 - **Planned: a car hour stops at its planned kWh** — new setting *EV charger energy meter* (a kWh
   counter, Peblar: `sensor.peblar_ev_charger_lifetime_energy`). `sensor.hba_ev_hour_energy` counts what
   the car got in the running slot; once the plan's kWh for that slot are in, `ev_mode` goes from force

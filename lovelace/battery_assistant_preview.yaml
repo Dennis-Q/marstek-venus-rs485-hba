@@ -2539,7 +2539,7 @@ views:
               {%- set car_line = '' %}
               {%- if r.get('ev') %}
                 {%- if ns_ev.soc >= 0 and car_kp > 0 %}{%- set ns_ev.soc = [ns_ev.soc + r.ev / car_kp, r.get('ev_lim') or 100, 100] | min %}{%- endif %}
-                {%- set car_line = '<br>🚗 Car ' ~ '%.1f' | format(r.ev) ~ ' kWh' ~ ((' → ~' ~ (ns_ev.soc | round(0) | int) ~ ' %') if ns_ev.soc >= 0 and car_kp > 0 else ((' → ' ~ r.ev_lim ~ ' %') if r.get('ev_lim') else '')) %}
+                {%- set car_line = '<br>🚗 Car ' ~ '%.1f' | format(r.ev) ~ ' kWh' ~ ((' → ~' ~ (ns_ev.soc | round(0) | int) ~ ' %') if ns_ev.soc >= 0 and car_kp > 0 else ((' → ' ~ r.ev_lim ~ ' %') if r.get('ev_lim') else '')) ~ (' · batteries charge alongside' if r.a == 'Charge' else '') %}
               {%- endif %}
               {#- Charge / Sell done at least 10 min before the end of the slot: what runs after it -- the
                   plan's best hold strategy for the rest of the slot (row 'then'). Charge runs at the row's
@@ -2879,6 +2879,7 @@ views:
               {%- if lnorm <= 0 and grid -%}{%- set p.l = p.l + ['Normal is 0: only Minimum comes from the grid.'] -%}{%- endif -%}
               {%- if lleft > 0 and lleft < [lmin, lnorm] | max -%}{%- set p.l = p.l + ['Leftover is below Minimum or Normal: solar stops at Leftover.'] -%}{%- endif -%}
               {%- if lleft <= 0 -%}{%- set p.l = p.l + ['Leftover is 0, which counts as 100 %.'] -%}{%- endif -%}
+              {%- if following is not none and not is_state('binary_sensor.hba_ev_alongside_ready', 'on') -%}{%- set p.l = p.l + ['The batteries do not charge alongside the car (only the sun it leaves): HBA needs ' ~ (state_attr('binary_sensor.hba_ev_alongside_ready', 'missing') or 'its per-phase sensors') ~ ' to keep the phases within the limits (EV Charge → limits, hba_config.yaml).'] -%}{%- endif -%}
               {%- set fc_t = states('input_text.hba_strategy_solar_forecast_tomorrow_entity_id') | trim -%}
               {%- if 'forecast_tomorrow' in fc_t and is_state('input_boolean.hba_strategy_planned_car_ask_normal', 'on') -%}
               {%- set off = namespace(l=[]) -%}

@@ -1909,12 +1909,35 @@ template:
         attributes:
           next_strategy: "{{ states('input_select.hba_strategy_charge_goal_reached') }}"
 
+      # HBA can keep the phases within the limits while the batteries charge alongside the car:
+      # it sees the car charge (EV charging entity) and the phases the batteries are on
+      # (sensor.p1_meter_power_lX, see sensor.hba_phase_room). Then Planned charges alongside
+      # the car whatever input_select.hba_control_strategy_during_ev_charge says (user
+      # 2026-11-05: that setting predates the plan): the plan may Charge in a car hour, capped by
+      # the phase room (car first, main fuse). missing = what is not set up, for the Car section.
+      - name: "HBA EV Alongside Ready"
+        unique_id: hba_ev_alongside_ready
+        icon: mdi:car-battery
+        state: >-
+          {%- set e = states('input_text.hba_strategy_ev_sensor_entity_id') | trim -%}
+          {{ e not in ['', 'unknown', 'unavailable'] and states(e) in ['on', 'off']
+             and state_attr('sensor.hba_phase_room', 'missing_sensors') == '' }}
+        attributes:
+          missing: >-
+            {%- set e = states('input_text.hba_strategy_ev_sensor_entity_id') | trim -%}
+            {%- set m = state_attr('sensor.hba_phase_room', 'missing_sensors') -%}
+            {%- set l = [] if e not in ['', 'unknown', 'unavailable'] and states(e) in ['on', 'off'] else ['the EV charging entity'] -%}
+            {%- set l = l + ([] if m == '' else ['per-phase grid power ' ~ (m if m else 'sensors (sensor.p1_meter_power_l1..l3)')]) -%}
+            {{ l | join(' and ') }}
+
       # "Charge alongside EV" is in effect: the car charges (EV stop trigger entity on),
-      # the policy is Charge alongside EV, no manual Full stop and no Timed EV charge
+      # the policy is Charge alongside EV (or Planned with binary_sensor.hba_ev_alongside_ready),
+      # no manual Full stop and no Timed EV charge
       # (that one discharges into the car on purpose). While on, hba_set_batteries never
       # discharges and self-consumption runs with discharge disabled. Attributes:
       #   mode       "Batteries first" below input_number.hba_ev_battery_priority_energy
-      #              of usable energy, else "EV first"
+      #              of usable energy, else "EV first"; always "EV first" in a Planned car
+      #              hour (ev_mode force: the plan counts on the car's full power)
       # The room per phase lives in sensor.hba_phase_room (recorder-excluded: it changes on
       # every P1 update; this sensor's history stays useful).
       - name: "HBA EV Charge Alongside"
@@ -1926,7 +1949,8 @@ template:
           {%- set assist = is_state('binary_sensor.hba_battery_assist_active', 'on')
                            and not is_state('binary_sensor.hba_battery_assist_waiting', 'on') -%}
           {{ ev and not assist
-             and is_state('input_select.hba_control_strategy_during_ev_charge', 'Charge alongside EV')
+             and (is_state('input_select.hba_control_strategy_during_ev_charge', 'Charge alongside EV')
+                  or (is_state('input_select.hba_strategy', 'Planned') and is_state('binary_sensor.hba_ev_alongside_ready', 'on')))
              and not is_state('input_select.hba_strategy', 'Full stop') }}
         attributes:
           # Batteries first below the reserve, EV first again only 0.2 kWh above it: with the
@@ -1941,7 +1965,9 @@ template:
             {%- set q = namespace(ok=true) -%}
             {%- for i in range(1, n + 1) if not is_number(states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge')) -%}{%- set q.ok = false -%}{%- endfor -%}
             {%- set ok = q.ok -%}
-            {%- if not ok and state_attr('binary_sensor.hba_ev_charge_alongside', 'mode') in ['Batteries first', 'EV first'] -%}
+            {%- if is_state('binary_sensor.hba_ev_assist', 'on') and is_state_attr('binary_sensor.hba_ev_assist', 'ev_mode', 'force') -%}
+            EV first
+            {%- elif not ok and state_attr('binary_sensor.hba_ev_charge_alongside', 'mode') in ['Batteries first', 'EV first'] -%}
             {{ state_attr('binary_sensor.hba_ev_charge_alongside', 'mode') }}
             {%- else -%}
             {{ 'Batteries first' if e < r or (was and r > 0 and e < r + 0.2) else 'EV first' }}
@@ -1974,7 +2000,8 @@ template:
               plan exports the sun (then the car takes only what the batteries leave). -#}
           {%- set ea = 'binary_sensor.hba_ev_assist' -%}
           {%- set planned = is_state(ea, 'on') and state_attr(ea, 'ev_mode') in ['solar', 'wait'] -%}
-          {{ is_state('input_select.hba_control_strategy_during_ev_charge', 'Charge alongside EV')
+          {{ (is_state('input_select.hba_control_strategy_during_ev_charge', 'Charge alongside EV')
+              or (is_state('input_select.hba_strategy', 'Planned') and is_state('binary_sensor.hba_ev_alongside_ready', 'on')))
              and not is_state('input_select.hba_strategy', 'Full stop')
              and ((state_attr('binary_sensor.hba_ev_solar_allowed', 'reason') not in ['target', 'export']) if planned
                   else (e < r or (was and r > 0 and e < r + 0.2))) }}
