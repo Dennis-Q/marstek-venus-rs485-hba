@@ -61,6 +61,10 @@ open), so the version prefix stays at 4.10.1 for now.
 - **Planned: debug copy of each plan** — switch *Keep a copy of each plan (debug)* (default off) stores
   every new plan in `sensor.hba_planned_strategy_debug` as compact rows (sun, house, runner-up per slot)
   that the recorder keeps, to look back at what a plan expected.
+- **Planned: the car no longer takes the sun the plan stores before a grid Charge** — *EV Solar
+  Allowed* ended its window at the next grid Charge; with the plan's highest point just before it,
+  the batteries' target became 0 and the car got the morning sun (batteries near empty). A grid Charge
+  only tops up, so the window now runs to the next morning's sun.
 - **Planned: car hours count the sun and charge the batteries alongside** — in a car hour the car takes
   the sun first (it pulls more than the sun gives, so there is nothing for Charge PV to store); the
   batteries only get the sun above the car's kWh (was: the plan stored the sun next to an 11 kW car).

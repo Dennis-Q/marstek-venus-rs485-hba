@@ -130,10 +130,13 @@ template:
   #   with input_boolean.hba_strategy_planned_car_solar_export (user 2026-11-03: export usually pays more).
   # - The batteries have what they use before the next refill: yes, for the rest of the day (attribute
   #   reached = that date; no switching back on SoC noise; only checked in a slot with sun). Target =
-  #   the plan's highest stored energy until the next refill (a grid Charge, or the sun above the
-  #   house again after a night: slots with < 0.05 kWh sun; a cloudy hour is no night),
-  #   minus what is still there at the lowest point after it (never used, so it may go straight into
-  #   the car without the battery losses). No refill within the plan: the whole peak.
+  #   the plan's highest stored energy until the next refill (the sun above the house again after a
+  #   night: slots with < 0.05 kWh sun; a cloudy hour is no night), minus what is still there at the
+  #   lowest point after it (never used, so it may go straight into the car without the battery
+  #   losses). No refill within the plan: the whole peak. A grid Charge is no refill: it charges up to
+  #   a level, so the sun stored before it is energy it does not have to buy (2026-11-05: the window
+  #   ended at a Charge at 12:00, the peak 11:00 was the last slot before it, nothing came "after"
+  #   it, so target 0 -- the car took the morning sun the plan stored, batteries near empty).
   # - Before that: only while the batteries charge at their max (more sun than they can take).
   # Trigger-based for the reached memory (restored after a restart).
   - triggers:
@@ -165,10 +168,10 @@ template:
               {{ {'on': false, 'reason': 'no plan', 'target': none, 'reached': prev} | tojson }}
             {%- else -%}
               {%- set cur = plan[i] -%}
-              {%- set ns = namespace(end=plan | length, found=false, dark=false, grid=false) -%}
+              {%- set ns = namespace(end=plan | length, found=false, dark=false) -%}
               {%- for q in plan[i + 1:] if not ns.found -%}
-                {%- if q.a == 'Charge' or (ns.dark and q.sun > q.load) -%}
-                  {%- set ns.end = i + 1 + loop.index0 -%}{%- set ns.found = true -%}{%- set ns.grid = q.a == 'Charge' -%}
+                {%- if ns.dark and q.sun > q.load -%}
+                  {%- set ns.end = i + 1 + loop.index0 -%}{%- set ns.found = true -%}
                 {%- elif q.sun < 0.05 -%}{%- set ns.dark = true -%}
                 {%- endif -%}
               {%- endfor -%}
@@ -179,11 +182,9 @@ template:
               {%- set low = (after | min) if after and ns.found else pk.e -%}
               {%- set spare = [low - rsv, 0] | max if ns.found else 0 -%}
               {%- set target = [pk.e - spare, 0] | max -%}
-              {#- Only by day: at night the window would end at the morning sun and the target be tiny.
-                  Remembered for the day only when the window ends with the night: before a grid Charge
-                  later today the target is small, and after that Charge it is a new one. -#}
+              {#- Only by day: at night the window would end at the morning sun and the target be tiny -#}
               {%- set now_ok = cur.sun >= 0.05 and e_now >= target - 0.05 -%}
-              {%- set day_ok = prev == today or (now_ok and not ns.grid) -%}
+              {%- set day_ok = prev == today or now_ok -%}
               {%- set reached = day_ok or now_ok -%}
               {%- set export = cur.a in ['Full stop', 'Sell', 'Zero import'] and cur.sun > cur.load + 0.05 -%}
               {%- if cur.a == 'Charge' -%}{%- set r = ['charge', false] -%}
