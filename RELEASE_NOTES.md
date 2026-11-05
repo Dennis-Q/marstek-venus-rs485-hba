@@ -26,6 +26,12 @@ open), so the version prefix stays at 4.10.1 for now.
   left and do not discharge. A day the car is home in the sun leaves room for it (weekdays setting +
   *Car tomorrow* override). The EV Charge view has a Car section with the settings, instructions, the car hours and a check that shows whether all settings are OK. Minimum above the max
   price: the EV project asks Charge or Skip. Without the EV project nothing changes.
+- **Sun into the car by price** — with Plan the car, the plan sends exported sun to the car where
+  selling pays less than a kWh in the car is worth (the dearest grid hour it saves, else the max price),
+  and buys that much less from the grid for Normal. The batteries still get the sun first where storing
+  pays more. Shown as *☀️ 🚗 Car X kWh sun* in the plan and in the Car hours (with the price
+  comparison per sunny hour). The live solar rule (`binary_sensor.hba_ev_solar_allowed`) applies the
+  same price check: new reason `price` when exporting pays more.
 - **Ask before Normal** — an optional evening question: skip Normal tonight, or until the next day the car is home (wait for the weekend's solar). It shows that day's expected spare solar and speaks up when solar looks too low; no answer means it charges, Minimum always stays. Solcast gives up to 7 days; the Car check warns when those sensors are off.
 - **Preview the car** — *Preview only* plans the car and shows what it would do to the batteries, but
   applies nothing: the batteries run the plan without the car and the EV project follows its own rules,

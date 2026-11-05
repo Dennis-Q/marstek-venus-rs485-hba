@@ -2540,6 +2540,10 @@ views:
               {%- if r.get('ev') %}
                 {%- if ns_ev.soc >= 0 and car_kp > 0 %}{%- set ns_ev.soc = [ns_ev.soc + r.ev / car_kp, r.get('ev_lim') or 100, 100] | min %}{%- endif %}
                 {%- set car_line = '<br>' ~ ('+ ' if r.a == 'Charge' else '') ~ '🚗 Car ' ~ '%.1f' | format(r.ev) ~ ' kWh' ~ ((' → ~' ~ (ns_ev.soc | round(0) | int) ~ ' %') if ns_ev.soc >= 0 and car_kp > 0 else ((' → ' ~ r.ev_lim ~ ' %') if r.get('ev_lim') else '')) %}
+              {%- elif r.get('ev_sun') %}
+                {#- Sun the plan sends to the car instead of exporting it -#}
+                {%- if ns_ev.soc >= 0 and car_kp > 0 %}{%- set ns_ev.soc = [ns_ev.soc + r.ev_sun / car_kp, 100] | min %}{%- endif %}
+                {%- set car_line = '<br>☀️ 🚗 Car ' ~ '%.1f' | format(r.ev_sun) ~ ' kWh sun' ~ ((' → ~' ~ (ns_ev.soc | round(0) | int) ~ ' %') if ns_ev.soc >= 0 and car_kp > 0 else '') %}
               {%- endif %}
               {#- Charge / Sell done at least 10 min before the end of the slot: what runs after it -- the
                   plan's best hold strategy for the rest of the slot (row 'then'). Charge runs at the row's
@@ -2601,7 +2605,7 @@ views:
               instead of going all the way (Sell spreads it over the hour) — the rest is worth more later.
               **↳ second line, from ~HH:MM:** the Charge or Sell is expected to be done at least 10 minutes
               before the end of the slot; then HBA plans the rest of the slot again and runs the best
-              strategy for it — this line is what the plan expects that to be. **🚗 Car X kWh → ~Y %:** the plan charges the car in that slot; ~Y = the car's expected charge level at the end of it (from its SoC now, never above the limit). **+ 🚗:** the batteries charge alongside the car in that slot. **↳ ☀️ late sun:** the
+              strategy for it — this line is what the plan expects that to be. **🚗 Car X kWh → ~Y %:** the plan charges the car in that slot; ~Y = the car's expected charge level at the end of it (from its SoC now, never above the limit). **+ 🚗:** the batteries charge alongside the car in that slot. **☀️ 🚗 Car X kWh sun:** sun the plan gives the car instead of exporting it, because the sell price is below what a kWh in the car is worth (the grid hour it saves, else the max price); the batteries get the sun first where storing pays more. **↳ ☀️ late sun:** the
               sun covers the house only for part of the slot (per half hour of the forecast): kWh the house
               needs before that (from the battery or the grid) and kWh sun left over after. **empty / until
               empty:** the battery starts the slot empty / runs empty in it (Zero import and
@@ -2970,9 +2974,11 @@ views:
               <font color=grey>**Solar for the car:** the batteries get the sun first, until they have what the
               plan uses before the next charge; after that the car gets it for the rest of the day (sun the
               batteries would not use goes straight into the car). Before that the car only gets sun while the
-              batteries charge at their maximum (from 3 minutes, back off after 5 minutes below it). **Solar the
-              plan would export:** in an hour the plan exports the sun because that pays more, the car may take
-              it (off = exported). In the EV project, set the home battery priority entity to
+              batteries charge at their maximum (from 3 minutes, back off after 5 minutes below it). Only where
+              selling pays less than a kWh in the car is worth: the dearest grid hour that sun saves, else the
+              max price. The plan counts that sun (☀️ 🚗 in the plan) and buys that much less from the grid
+              for Normal. **Solar the plan would export:** in an hour the plan exports the sun, the car may take
+              it at that price (off = always exported). In the EV project, set the home battery priority entity to
               `binary_sensor.hba_batteries_before_ev`: it follows this.</font>
 
 
@@ -3050,6 +3056,10 @@ views:
               This hour: {{ states(hk) | float(0) | round(1) }} of {{ state_attr(hk, 'planned') | float(0) | round(1) }} kWh{{ ' — done, the car waits for its next hour' if state_attr(hk, 'done') == true }}.
 
               {% endif %}
+              {% if car.get('sun_value', 0) | float(0) > 0 -%}
+              Sun into the car today: {{ car.get('sun_kwh', 0) }} kWh where selling pays less than {{ '%.3f' | format(car.sun_value) }} €/kWh (what a kWh in the car is worth now), € {{ '%.2f' | format(car.get('sun_eur', 0)) }} better than exporting{{ (' · ' ~ car.sun_off_grid ~ ' kWh less from the grid') if car.get('sun_off_grid', 0) > 0 }}.
+
+              {% endif -%}
               Car: {{ car.get('kwh', 0) }} kWh, € {{ '%.2f' | format(car.get('eur', 0)) }} · {{ 'without' if state_attr(I, 'max_price_on') != false else 'with' }} the max price: {{ car.get('alt_kwh', 0) }} kWh, € {{ '%.2f' | format(car.get('alt_eur', 0)) }}
               {%- if preview and sm.get('plan_cost') is not none and run.get('plan_cost') is not none %}
 
@@ -3075,9 +3085,11 @@ views:
               {%- for r in plan %}
               {%- set spare = [r.get('sun', 0) - r.get('load', 0), 0] | max %}
               {%- if r.get('ev') and ns_ev.soc >= 0 and car_kp > 0 %}{%- set ns_ev.soc = [ns_ev.soc + r.ev / car_kp, r.get('ev_lim') or 100, 100] | min %}{%- endif %}
-              {%- set best = 'Preferred: batteries full' if spare > 0.5 and r.e1 >= full - 0.2 else ('Cheapest' if r.ts in cheap else '') %}
+              {%- if r.get('ev_sun') and ns_ev.soc >= 0 and car_kp > 0 %}{%- set ns_ev.soc = [ns_ev.soc + r.ev_sun / car_kp, 100] | min %}{%- endif %}
+              {%- set sv = car.get('sun_value', 0) | float(0) %}
+              {%- set best = ('Sun: sell ' ~ '%.3f' | format(r.s) ~ (' < ' if r.s < sv else ' ≥ ') ~ '%.3f' | format(sv) ~ (' → car' if r.s < sv else ' → export')) if spare > 0.5 and r.e1 >= full - 0.2 and sv > 0 and not r.get('ev') else ('Cheapest' if r.ts in cheap else '') %}
               {%- set was = now_plan | selectattr('ts', 'eq', r.ts) | first | default(none) %}
-              | {{ r.ts | timestamp_custom('%a %H:%M') }} | {{ '%.3f' | format(r.b) }} | {{ ('%.1f' | format(spare)) if spare > 0.05 else '' }} | {{ (('%.1f kWh → ~%d %%' | format(r.ev, ns_ev.soc | round(0) | int)) ~ (' (limit %d %%)' | format(r.ev_lim) if r.get('ev_lim') and (ns_ev.soc | round(0)) < r.ev_lim else '')) if r.get('ev') and ns_ev.soc >= 0 and car_kp > 0 else (('%.1f kWh → %d %%' | format(r.ev, r.ev_lim)) if r.get('ev') else '') }} | {{ r.a }}{{ ' (now ' ~ was.a ~ ')' if preview and was is not none and was.a != r.a }} | {{ '%.1f' | format(r.e1) }}{{ ' (now ' ~ '%.1f' | format(was.e1) ~ ')' if preview and was is not none and (was.e1 - r.e1) | abs > 0.1 }} | {{ best }} |
+              | {{ r.ts | timestamp_custom('%a %H:%M') }} | {{ '%.3f' | format(r.b) }} | {{ ('%.1f' | format(spare)) if spare > 0.05 else '' }} | {{ ('☀️ %.1f kWh sun → ~%d %%' | format(r.ev_sun, ns_ev.soc | round(0) | int)) if r.get('ev_sun') and ns_ev.soc >= 0 and car_kp > 0 else (('☀️ %.1f kWh sun' | format(r.ev_sun)) if r.get('ev_sun') else ((('%.1f kWh → ~%d %%' | format(r.ev, ns_ev.soc | round(0) | int)) ~ (' (limit %d %%)' | format(r.ev_lim) if r.get('ev_lim') and (ns_ev.soc | round(0)) < r.ev_lim else '')) if r.get('ev') and ns_ev.soc >= 0 and car_kp > 0 else (('%.1f kWh → %d %%' | format(r.ev, r.ev_lim)) if r.get('ev') else ''))) }} | {{ r.a }}{{ ' (now ' ~ was.a ~ ')' if preview and was is not none and was.a != r.a }} | {{ '%.1f' | format(r.e1) }}{{ ' (now ' ~ '%.1f' | format(was.e1) ~ ')' if preview and was is not none and (was.e1 - r.e1) | abs > 0.1 }} | {{ best }} |
               {%- endfor %}
 
               </small>
