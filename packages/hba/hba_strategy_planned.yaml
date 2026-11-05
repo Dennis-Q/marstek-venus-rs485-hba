@@ -835,11 +835,18 @@ template:
                         there is room, else Full stop -- never Charge PV at night, never Zero import /
                         Self-consumption on an empty battery. The running slot keeps the hold strategy
                         it was planned with (e.g. Zero import that ran empty, which stops by itself), so
-                        a re-plan does not rename the hour. Replaces "empty = Self-consumption" (10-29). -#}
+                        a re-plan does not rename the hour. Replaces "empty = Self-consumption" (10-29).
+                        Sun up and a stored kWh worth less than buying one (cover = buy price above its
+                        value / discharge efficiency + wear): the battery covers what the forecast missed
+                        (a cloud, a kettle) -- Zero import instead of Full stop, Self-consumption instead
+                        of Charge PV. Costs nothing when the sun does cover the house (user 2026-11-05:
+                        08:00 at 0.486 Full stop while the battery fills up from the midday sun anyway). -#}
                     {%- set holds = ['Self-consumption', 'Charge PV', 'Full stop', 'Zero import'] -%}
+                    {%- set cover = sl.up and av > 0.05 and slope / ed + wear < sl.b -%}
                     {%- if best.a in holds and best.dis < 0.01 and best.ch < 0.01 -%}
                       {%- set pr = (state_attr('sensor.hba_planned_strategy', 'plan') or []) | selectattr('ts', 'eq', sl.ts) | first | default(none) if t == 0 else none -%}
-                      {%- set na = pr.a if pr is mapping and pr.a in holds else ('Charge PV' if store and room > 0.05 else 'Full stop') -%}
+                      {%- set na = pr.a if pr is mapping and pr.a in holds
+                                   else ((('Self-consumption' if cover else 'Charge PV') if store and room > 0.05 else ('Zero import' if cover else 'Full stop'))) -%}
                       {%- if na != best.a -%}
                         {%- if best.alt == na -%}{%- set best.alt = best.a -%}{%- endif -%}
                         {%- set best.a = na -%}
@@ -866,7 +873,8 @@ template:
                           {%- set v = ([net, 0] | max) * sl.b - ([-net, 0] | max) * sl.s + wear * dis + tie[a] + V[i] * (1 - f) + V[i + 1] * f -%}
                           {%- if v < th.v -%}{%- set th.v = v -%}{%- set th.a = a -%}{%- set th.ch = ch -%}{%- set th.dis = dis -%}{%- endif -%}
                         {%- endfor -%}
-                        {%- set then_a = th.a if th.dis >= 0.01 or th.ch >= 0.01 else ('Charge PV' if store and room1 > 0.05 else 'Full stop') -%}
+                        {%- set cover1 = sl.up and av1 > 0.05 and slope / ed + wear < sl.b -%}
+                        {%- set then_a = th.a if th.dis >= 0.01 or th.ch >= 0.01 else ((('Self-consumption' if cover1 else 'Charge PV') if store and room1 > 0.05 else ('Zero import' if cover1 else 'Full stop'))) -%}
                       {%- endif -%}
                     {%- endif -%}
                     {#- Cost of the stored energy (EUR per kWh it delivers), carried forward -#}

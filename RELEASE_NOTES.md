@@ -593,6 +593,9 @@ open), so the version prefix stays at 4.10.1 for now.
   forecast amount) and storing is worth it. No more Charge PV at night, no Zero import / Self-consumption
   on an empty battery (was: empty = Self-consumption). The running slot keeps its strategy after running
   empty (e.g. *Zero import*, which stops by itself); the table shows *until empty* / *empty*.
+  While the sun is up and a stored kWh is worth less than buying one, such an hour runs *Zero import*
+  (or *Self-consumption* instead of *Charge PV*): the battery covers what the forecast missed (a cloud,
+  a kettle) instead of the grid, and costs nothing when the sun does cover the house.
 - **Planned: after an early Charge / Sell, the plan decides the rest of the slot** — HBA re-plans once
   when the target is reached and runs what that plan says (Full stop, Zero import, Self-consumption or
   Charge PV), instead of always Charge PV after Charge and a fixed rule after Sell. The plan table's
