@@ -618,7 +618,7 @@ template:
                     (input_select.hba_strategy_planned_car_normal_tonight); its hours are still worked out
                     for the evening question. -#}
                 {%- set ev_e = 'sensor.ev_car_info' -%}
-                {%- set car = namespace(min=0, need=0, sun=0, min_left=0, left=0, picks={}, lims={}, home=false, over=0, over_eur=0, over_from='', kwh=0, eur=0, alt_kwh=0, alt_eur=0, nskip=false, nkwh=0, neur=0, nfrom='', home_day='', home_fc=-1, home_sun=-1, sun_in=0, along=false) -%}
+                {%- set car = namespace(min=0, need=0, sun=0, min_left=0, left=0, picks={}, lims={}, home=false, over=0, over_eur=0, over_from='', kwh=0, eur=0, alt_kwh=0, alt_eur=0, nskip=false, nkwh=0, neur=0, nfrom='', home_day='', home_fc=-1, home_sun=-1, sun_in=0, along=is_state('binary_sensor.hba_ev_alongside_ready', 'on')) -%}
                 {#- Preview only: the plan that runs leaves the car out, the preview run takes it in even
                     with Follow assisted off or the car unplugged (then from today's SoC), to show what
                     it would do to the batteries. Nothing of it reaches the batteries or the EV project. -#}
@@ -715,7 +715,6 @@ template:
                       nothing. Never discharging into the car. The sun the car takes costs what exporting
                       it would have earned (user 2026-11-05: a friend's plan stored 3.5 kWh of sun per hour
                       next to an 11 kW car). -#}
-                  {%- set car.along = is_state('binary_sensor.hba_ev_alongside_ready', 'on') -%}
                   {%- set car_pv = states('input_select.hba_control_strategy_during_ev_charge') in ['Charge PV', 'Charge alongside EV'] -%}
                   {%- set ns_car = namespace(l=[]) -%}
                   {%- for sl in slots -%}
