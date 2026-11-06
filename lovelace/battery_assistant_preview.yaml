@@ -12,7 +12,7 @@ views:
     header:
       card:
         type: markdown
-        content: '### Home Battery Assistant *(HBA v4.10.1-r22)*'
+        content: '### Home Battery Assistant *(HBA v4.10.1-r23)*'
         text_only: true
     cards: []
     sections:
@@ -488,10 +488,10 @@ views:
                 conditions:
                   - condition: state
                     entity: sensor.hba_version
-                    state: "v4.10.1-r22"
+                    state: "v4.10.1-r23"
             content: >
               <ha-alert alert-type="error">**HBA version mismatch** — Dashboard is
-              v4.10.1-r22 but loaded packages report
+              v4.10.1-r23 but loaded packages report
               {{ states('sensor.hba_version') }}. Reload YAML to apply the update:
               Developer Tools → YAML → Reload All YAML.</ha-alert>
           - type: markdown
@@ -1475,7 +1475,7 @@ views:
       card:
         type: markdown
         content: >-
-          ### Self-consumption strategy *(HBA v4.10.1-r22)*
+          ### Self-consumption strategy *(HBA v4.10.1-r23)*
 
           The **PID controller** steers your batteries to keep grid usage near
           target, _e.g. 0 Watt_, and is used by:
@@ -1620,7 +1620,7 @@ views:
       card:
         type: markdown
         text_only: true
-        content: '### Charge / Sell *(HBA v4.10.1-r22)*'
+        content: '### Charge / Sell *(HBA v4.10.1-r23)*'
     cards: []
     badges:
       - type: entity
@@ -2012,7 +2012,7 @@ views:
       card:
         type: markdown
         text_only: true
-        content: '### Timed *(HBA v4.10.1-r22)*'
+        content: '### Timed *(HBA v4.10.1-r23)*'
     sections:
       - type: grid
         cards:
@@ -2300,7 +2300,7 @@ views:
       card:
         type: markdown
         text_only: true
-        content: '### Dynamic *(HBA v4.10.1-r22)*'
+        content: '### Dynamic *(HBA v4.10.1-r23)*'
     sections:
       # ── Dynamic: config column ────────────────────────────────────────────────────────
       - type: grid
@@ -2587,7 +2587,7 @@ views:
       card:
         type: markdown
         text_only: true
-        content: '### Planned *(HBA v4.10.1-r22)*'
+        content: '### Planned *(HBA v4.10.1-r23)*'
     sections:
       - type: grid
         cards:
@@ -2948,7 +2948,7 @@ views:
         type: markdown
         text_only: true
         content: >-
-          ### EV Charge *(HBA v4.10.1-r22)*
+          ### EV Charge *(HBA v4.10.1-r23)*
 
 
           **HBA-specific feature** — not part of HBC. Configures the EV stop
@@ -3468,7 +3468,7 @@ views:
         type: markdown
         text_only: true
         content: >-
-          ### Notifications *(HBA v4.10.1-r22)*
+          ### Notifications *(HBA v4.10.1-r23)*
 
 
           **HBA-specific feature** — not part of HBC. Configure where HBA
@@ -3599,7 +3599,7 @@ views:
         type: markdown
         text_only: true
         content: >-
-          ### Insights *(HBA v4.10.1-r22)*
+          ### Insights *(HBA v4.10.1-r23)*
 
           Need help figuring out what is going on?
 
@@ -4357,7 +4357,7 @@ views:
       card:
         type: markdown
         text_only: true
-        content: '### Advanced settings *(HBA v4.10.1-r22)*'
+        content: '### Advanced settings *(HBA v4.10.1-r23)*'
     sections:
       # Battery offline warning — full width, hidden when all batteries are online
       - type: grid
@@ -6146,7 +6146,7 @@ views:
         type: markdown
         text_only: true
         content: >-
-          ### Labs *(HBA v4.10.1-r22)*
+          ### Labs *(HBA v4.10.1-r23)*
 
 
           Experimental features, off by default. They only collect data or show

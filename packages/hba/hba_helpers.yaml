@@ -1342,7 +1342,7 @@ template:
       - name: "HBA Version"
         unique_id: hba_version
         icon: mdi:tag
-        state: "v4.10.1-r22"
+        state: "v4.10.1-r23"
 
       - name: "HBA Active strategy"
         unique_id: hba_active_strategy
