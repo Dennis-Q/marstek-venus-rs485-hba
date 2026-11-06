@@ -18,7 +18,9 @@
 # discharging takes the part of the basis that left the batteries (by stored
 # kWh). Saved = raw + basis, so a charging day does not look like a loss and
 # the round-trip loss ends up in the result. At the very first run the stored
-# energy is valued at the buy price of that moment. Wear is not subtracted.
+# energy is valued at Planned's ledger cost per kWh when there is one, else at the
+# buy price of that moment (prod 2026-11-06: deployed at the evening peak, so the
+# first battery-full counted at 0.535 and earned ~0 that evening). Wear is not subtracted.
 # Works with every strategy: it only reads the meter, the batteries and the prices.
 #
 # sensor.hba_savings_vs_self_consumption: the same sum for a simulated
@@ -114,7 +116,9 @@ template:
             {%- set c_g0 = g0 * (ns.buy if g0 > 0 else sell) -%}
             {%- set inc = (c_g0 - c_g) * dt / 3600 -%}
             {%- if basis is none -%}
-              {%- set basis = ns.stored * ns.buy -%}
+              {#- First run: what Planned's ledger says the stored energy cost, else the buy price now -#}
+              {%- set lc = state_attr('sensor.hba_planned_strategy', 'ledger_cost') -%}
+              {%- set basis = ns.stored * (lc | float if lc is number or lc | is_number else ns.buy) -%}
             {%- else -%}
               {%- set basis = basis | float(0) -%}
             {%- endif -%}

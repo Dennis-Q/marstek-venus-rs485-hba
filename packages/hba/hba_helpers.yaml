@@ -3379,6 +3379,7 @@ recorder:
       # Savings: the 15 s accumulator; the recorded total is sensor.hba_savings
       - sensor.hba_savings_accumulator
       - input_text.hba_savings_store
+      - automation.hba_savings_store
       # Forcible power setpoints — continuous numeric value, changes every ~1 s
       - number.marstek_m*_forcible_charge_power
       - number.marstek_m*_forcible_discharge_power
