@@ -19,8 +19,8 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Added
 
-- **Savings** (new `packages/hba/hba_savings.yaml`, new *Savings* section on the Home view of the
-  preview dashboard). `sensor.hba_savings` is a running total in EUR of what the batteries saved
+- **Savings** (new `packages/hba/hba_savings.yaml`, new *Savings* view on the preview dashboard,
+  today and this month also on Home). `sensor.hba_savings` is a running total in EUR of what the batteries saved
   compared with no batteries, measured every 15 s from the P1 meter, the battery power and the
   price of the moment (buy price; sell price and deduction from the Planned price settings).
   Energy still in the batteries counts at what it cost, so a charging day is not a loss; wear is
