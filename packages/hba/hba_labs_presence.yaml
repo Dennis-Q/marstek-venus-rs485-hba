@@ -277,12 +277,14 @@ template:
             {%- endfor -%}
             {{ ns.d }}
 
-  # Occupied = present, or present in the last 10 min (last_seen). Not delay_off:
+  # Occupied = present, or present in the last 10 min (empty_since). Not delay_off:
   # HA restarts that timer on every re-render, and the present templates re-render
   # on every room-tracker change and (motion on) about every minute, so a floor
   # would hardly ever go empty. Checked every minute and on every present change.
-  # last_seen does not survive a restart: a floor left just before it goes empty
-  # at the first check.
+  # empty_since = none while present, the time the floor became empty after that,
+  # so it changes only at those moments (a time stamp every minute while present
+  # wrote ~100 recorder rows an hour per floor, prod 2026-11-06). It does not
+  # survive a restart ('unknown'): a floor left just before it goes empty at once.
   - triggers:
       - trigger: state
         entity_id: binary_sensor.hba_labs_floor_1_present
@@ -301,14 +303,22 @@ template:
           {{ states('binary_sensor.hba_labs_floor_' ~ n ~ '_present') in ['on', 'off'] }}
         state: &oc_state >-
           {%- set n = this.entity_id | regex_findall('floor_(\d)_') | first | default(0) | int -%}
-          {%- set seen = (this.attributes | default({})).get('last_seen') -%}
+          {%- set a = this.attributes | default({}) -%}
+          {#- none = present at the previous render, so it just became empty -#}
+          {%- set es = a.get('empty_since') if 'empty_since' in a else 'unknown' -%}
           {{ is_state('binary_sensor.hba_labs_floor_' ~ n ~ '_present', 'on')
-             or (seen is not none and as_timestamp(now()) - as_timestamp(seen, 0) < 600) }}
+             or es is none or as_timestamp(now()) - as_timestamp(es, 0) < 600 }}
         attributes:
-          last_seen: &oc_seen >-
+          empty_since: &oc_empty >-
             {%- set n = this.entity_id | regex_findall('floor_(\d)_') | first | default(0) | int -%}
-            {{ now().isoformat() if is_state('binary_sensor.hba_labs_floor_' ~ n ~ '_present', 'on')
-               else (this.attributes | default({})).get('last_seen') }}
+            {%- set a = this.attributes | default({}) -%}
+            {%- if is_state('binary_sensor.hba_labs_floor_' ~ n ~ '_present', 'on') -%}
+              {{ none }}
+            {%- elif 'empty_since' not in a -%}
+              unknown
+            {%- else -%}
+              {{ a.get('empty_since') or now().isoformat() }}
+            {%- endif -%}
           floor: &oc_floor >-
             {%- set n = this.entity_id | regex_findall('floor_(\d)_') | first | default(0) | int -%}
             {{ state_attr('binary_sensor.hba_labs_floor_' ~ n ~ '_present', 'floor') }}
@@ -331,7 +341,7 @@ template:
         availability: *oc_avail
         state: *oc_state
         attributes:
-          last_seen: *oc_seen
+          empty_since: *oc_empty
           floor: *oc_floor
           by: *oc_by
   - triggers:
@@ -350,7 +360,7 @@ template:
         availability: *oc_avail
         state: *oc_state
         attributes:
-          last_seen: *oc_seen
+          empty_since: *oc_empty
           floor: *oc_floor
           by: *oc_by
   - triggers:
@@ -369,6 +379,6 @@ template:
         availability: *oc_avail
         state: *oc_state
         attributes:
-          last_seen: *oc_seen
+          empty_since: *oc_empty
           floor: *oc_floor
           by: *oc_by

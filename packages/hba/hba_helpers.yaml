@@ -2552,6 +2552,8 @@ template:
             ] %}
             {{ new | reject('has_value') | join(', ') }}
 
+      # Core sensors the control loop and the strategies read. Not sensor.hba_total_battery_power:
+      # it goes unavailable with any offline battery, which the not-responding check reports.
       - name: "HBA Entity Health"
         unique_id: hba_entity_health
         device_class: problem
@@ -2568,6 +2570,16 @@ template:
             'binary_sensor.hba_marstek_m5_not_responding',
             'binary_sensor.hba_marstek_m6_not_responding',
             'sensor.hba_power_limits',
+            'sensor.hba_total_commanded_power',
+            'sensor.hba_total_max_charge_power',
+            'sensor.hba_total_max_discharge_power',
+            'sensor.hba_average_battery_soc',
+            'sensor.hba_charge_remaining_energy',
+            'sensor.hba_charge_available_energy',
+            'sensor.hba_usable_battery_energy',
+            'binary_sensor.hba_any_battery_offline',
+            'binary_sensor.hba_rs485_mode_mismatch',
+            'binary_sensor.hba_control_loop_stalled',
           ] %}
           {{ expected | reject('has_value') | list | length > 0 }}
         attributes:
@@ -2583,6 +2595,16 @@ template:
               'binary_sensor.hba_marstek_m5_not_responding',
               'binary_sensor.hba_marstek_m6_not_responding',
               'sensor.hba_power_limits',
+              'sensor.hba_total_commanded_power',
+              'sensor.hba_total_max_charge_power',
+              'sensor.hba_total_max_discharge_power',
+              'sensor.hba_average_battery_soc',
+              'sensor.hba_charge_remaining_energy',
+              'sensor.hba_charge_available_energy',
+              'sensor.hba_usable_battery_energy',
+              'binary_sensor.hba_any_battery_offline',
+              'binary_sensor.hba_rs485_mode_mismatch',
+              'binary_sensor.hba_control_loop_stalled',
             ] %}
             {% set ns = namespace(missing=[]) %}
             {% for e in expected %}

@@ -6302,8 +6302,8 @@ views:
               {%- if states(b) not in ['unavailable'] -%}
               {%- set ns = namespace(by=[]) -%}
               {%- for e in state_attr(b, 'by') or [] -%}{%- set ns.by = ns.by + [state_attr(e, 'friendly_name') or e] -%}{%- endfor -%}
-              {%- set seen = state_attr(b, 'last_seen') -%}
-              | {{ state_attr(b, 'floor') }} | {{ {'on': 'occupied', 'off': 'empty'}.get(states(b), 'starting') }} | {{ ns.by | join(', ') if ns.by else ('last ' ~ as_timestamp(seen) | timestamp_custom('%H:%M') if seen else '—') }} |
+              {%- set seen = state_attr(b, 'empty_since') -%}
+              | {{ state_attr(b, 'floor') }} | {{ {'on': 'occupied', 'off': 'empty'}.get(states(b), 'starting') }} | {{ ns.by | join(', ') if ns.by else ('last ' ~ as_timestamp(seen) | timestamp_custom('%H:%M') if as_timestamp(seen, none) else '—') }} |
 
               {% endif -%}
               {%- endfor -%}
