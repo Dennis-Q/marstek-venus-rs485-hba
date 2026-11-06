@@ -4262,7 +4262,8 @@ views:
               What the batteries saved on electricity compared with no batteries, at the prices of
               the moment (buy price, and the sell price settings of Planned). Energy still in the
               batteries counts at what it cost
-              ({{ state_attr('sensor.hba_savings', 'battery_value') | float(0) | round(2) }} EUR now),
+              {%- set s = states('sensor.hba_savings_accumulator') %}
+              ({{ ((s | from_json).get('basis') or 0 if s[:1] == '{' else 0) | float(0) | round(2) }} EUR now),
               so a charging day is not a loss. Wear is not subtracted.
           - type: statistic
             entity: sensor.hba_savings

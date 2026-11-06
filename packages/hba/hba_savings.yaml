@@ -33,8 +33,8 @@
 # (tested on dev 2026-11-06: `this.state` is unknown at the first render), so
 # input_text.hba_savings_store keeps a copy (every minute and at shutdown) and the
 # accumulator continues from it. Starting from scratch only when the store is
-# still empty one tick after the start. sensor.hba_savings is rounded to cents,
-# so it writes a row only when a cent changes.
+# still empty one tick after the start. sensor.hba_savings is rounded to cents and
+# its attributes change only per price slot, so it writes a row only when a cent changes.
 # =============================================================================
 
 input_text:
@@ -177,11 +177,9 @@ template:
         state: >-
           {%- set a = states('sensor.hba_savings_accumulator') | from_json -%}
           {{ (a.raw + (a.basis or 0)) | round(2) }}
+        # No battery value attribute: it changes every cent while (dis)charging and made the
+        # recorder write ~2 rows a minute (prod 2026-11-06). It is 'basis' in the accumulator.
         attributes:
-          # What the energy in the batteries cost (part of the total above)
-          battery_value: >-
-            {%- set s = states('sensor.hba_savings_accumulator') -%}
-            {{ ((s | from_json).get('basis') or 0) | round(2) if s[:1] == '{' else none }}
           buy_price: >-
             {%- set s = states('sensor.hba_savings_accumulator') -%}
             {{ (s | from_json).get('buy') if s[:1] == '{' else none }}
