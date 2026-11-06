@@ -1,4 +1,4 @@
-# Home Battery Assistant (HBA) — v4.10.1-r21
+# Home Battery Assistant (HBA) — v4.10.1-r23
 
 A native Home Assistant replacement for the Node-RED battery control flows in
 [gitcodebob/marstek-venus-rs485-node-red](https://github.com/gitcodebob/marstek-venus-rs485-node-red).
@@ -185,7 +185,7 @@ The script downloads all HBA files, skips files you have already configured (P1 
 
 > **Tip:** The [SSH & Web Terminal add-on](https://github.com/hassio-addons/addon-ssh) gives you a terminal on your HA instance. Run the command above from `/config`.
 
-To install a specific version: `HBA_VERSION=v4.10.1-r21 bash <(curl -fsSL ...)`
+To install a specific version: `HBA_VERSION=v4.10.1-r23 bash <(curl -fsSL ...)`
 
 **Option B — Manual**
 
@@ -275,7 +275,10 @@ no manual helper editing required.
 | `marstek_m1–6_modbus_tcp.yaml` | Modbus hub + all sensors per battery | IPs only |
 | `hba_helpers.yaml` | All input helpers and aggregate sensors | No |
 | `hba_strategies_core.yaml` | Control loop, PID controller, strategy dispatch | No |
-| `hba_strategy_*.yaml` (8 files) | Individual strategy scripts (incl. `hba_strategy_planned.yaml`: the Planned strategy and the house-load profile) | No |
+| `hba_strategy_*.yaml` (7 files) | Individual strategy scripts (incl. `hba_strategy_planned.yaml`: the Planned strategy and the house-load profile) | No |
+| `hba_notifications.yaml` | All notifications (each with a dashboard banner and a "resolved" message) | No |
+| `hba_savings.yaml` | Savings sensors (what the batteries saved, in EUR) | No |
+| `hba_labs_presence.yaml` | Labs: presence per floor (off by default) | No |
 | `hba_hbc_coexistence.yaml` | HBC coexistence controls | No — skip on clean install without HBC |
 
 All default values for helpers are documented in [DEFAULTS.md](DEFAULTS.md).
@@ -427,7 +430,7 @@ update the entity ID there — for example:
 
 ### Planned strategy
 
-**HBA-only, on dev (preview).** *Planned* plans per price slot over all known prices (today, and
+**HBA-only, preview.** *Planned* plans per price slot over all known prices (today, and
 tomorrow once published) in time order: charge in cheap hours for a later, dearer hour, sell at the
 peaks, and in between Self-consumption, Charge PV, Zero import or Full stop — whichever costs least.
 Unlike Dynamic it knows a battery must be charged before it can sell, so it can plan "sell tonight →
@@ -468,6 +471,27 @@ charge at night → sell tomorrow morning".
   the battery, stored energy, house use) and in
   **Insights** (runner-up and margin per hour, assumptions, expected gain vs Self-consumption only, the
   house profile).
+
+### Savings
+
+`sensor.hba_savings` is a running total in EUR of what the batteries saved compared with no
+batteries: every 15 s the grid cost without the batteries (P1 + battery power) minus the real grid
+cost, at the price of the moment (the buy price sensor of Dynamic / Planned; the sell price sensor and
+deduction of Planned). Energy still in the batteries counts at what it cost, so a charging day is not
+a loss and the round-trip loss ends up in the result; wear is not subtracted.
+`sensor.hba_savings_vs_self_consumption` compares with a simulated Self-consumption battery of the
+same size: what your strategy added on top (buying cheap, selling at the peaks, keeping sun for later).
+Both work with every strategy and keep long-term statistics; the preview dashboard's **Savings** view
+shows today, the last 3 / 7 days, this month, this year and bars per day and month.
+
+### Labs: presence per floor
+
+Off by default (*Collect presence per floor* in the preview dashboard's **Labs** view). Records how
+much of every hour each HA floor is occupied, as long-term statistics, to predict heating and house use
+later. Sources: room trackers whose state is an area name (e.g. Bermuda `sensor.*_ble_area`), binary
+sensors, and optionally every motion / occupancy / presence sensor on the floor. A room tracker counts
+on a floor after 2 min there; a floor stays occupied 10 min after the last source left. It only
+collects data: nothing controls the batteries yet.
 
 ---
 

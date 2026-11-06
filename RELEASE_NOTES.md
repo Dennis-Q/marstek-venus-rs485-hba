@@ -11,11 +11,30 @@ This document covers HBA-specific changes only.
 
 ---
 
-## Unreleased — dev branch
+## v4.10.1-r23 — November 2026
 
-Ports of HBC v4.11.0 – v4.15.1 changes that apply to HBA. HBA is not yet fully aligned with
-v4.15.1 (Timed periods D/E, the peak-shaving latch and multi-provider Dynamic are still
-open), so the version prefix stays at 4.10.1 for now.
+First release on `main` since r21 (dev builds reported r22 and r23; r22 was never released on its
+own). Includes ports of HBC v4.11.0 – v4.15.1 changes that apply to HBA. HBA is not yet fully
+aligned with v4.15.1 (the peak-shaving latch and multi-provider Dynamic are still open), so the
+version prefix stays at 4.10.1 for now.
+
+### Upgrading from r21 — read this first
+
+- **Breaking: Dynamic v1 is removed and Dynamic v2 is now "Dynamic"** — entity IDs drop the `_v2`
+  (`script.hba_strategy_dynamic`, `input_number.hba_strategy_dynamic_max_cheap/expensive_hours_per_day`).
+  Update your own dashboards and automations that use the old names. A notification lists leftovers
+  of the old files until they are gone. Details under *Removed — breaking*.
+- **Changes for every install, no setting needed:**
+  - Batteries stop exactly at their SoC cutoff (Venus E 3.0 stopped 0.5 % early before).
+  - Charging follows each battery's BMS limit, and what one battery cannot take goes to the next.
+  - After the priority battery, power goes to the next battery in line (cyclic), not always to
+    battery 1, so the batteries level out.
+  - Venus E 3.0: a battery held at its floor by the firmware (until ~17 %) gets no discharge share.
+- **Only with *Apply defaults* (existing settings are kept):** discharge cutoff 13 % on a Venus E 3.0,
+  slow charge off when all batteries are E 3.0, PID presets one Ki step higher (*Regular* = 0.30).
+- **Opt-in, nothing changes until you switch it on:** power groups (every battery starts in *Own*),
+  Charge alongside EV, the Planned strategy and car planning, Labs, the preview dashboard. The
+  Savings sensors run for everyone but only read.
 
 ### Added
 
@@ -119,6 +138,10 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Fixed
 
+- **Entity health checks the core sensors** — `binary_sensor.hba_entity_health` now also warns when
+  total commanded / max charge / max discharge power, average SoC, remaining / available / usable
+  energy, battery offline, RS485 mode mismatch or the control-loop watchdog is missing. Before, it
+  watched only a few entities, so a broken core sensor went unnoticed.
 - **Strategy label no longer flips at SoC minimum** — Zero import and Full stop overwrote each
   other every control cycle, which wrote thousands of recorder rows. Label only.
 - **Venus E 3.0 low-SoC latch** — a battery that reached its floor refuses to discharge until

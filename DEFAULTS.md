@@ -272,6 +272,7 @@ Every minimum is also the default, so a new install plans sensibly before *Apply
 | `input_number.hba_strategy_planned_min_sell_profit` ("minimum advantage of selling") | `0` EUR/kWh (purely financial; e.g. 0.03 turns close calls into Self-consumption / Zero import; compared with Insights "Better by per kWh") |
 | `input_number.hba_strategy_planned_replan_drift` | `1` kWh (minimum 0.5) |
 | `input_number.hba_strategy_planned_energy_step` | `0` kWh = auto (usable energy / 20) |
+| `input_number.hba_strategy_planned_house_margin` | `15` % via *Apply defaults* (`0` until set): the plan counts on house use × (1 + margin) |
 | `input_boolean.hba_strategy_planned_car` / `_car_grid` | `off` (no car in the plan / the grid only fills the car up to Minimum) |
 | `input_boolean.hba_strategy_planned_car_preview` | `off` (on = the car is planned and shown, nothing is applied) |
 | `input_number.hba_strategy_planned_car_minimum` / `_car_normal` / `_car_leftover` | `0` / `80` / `100` % |
@@ -281,6 +282,9 @@ Every minimum is also the default, so a new install plans sensibly before *Apply
 | `input_select.hba_strategy_planned_car_normal_tonight` | Auto (Skip tonight ends at departure, Skip until home day at the departure of a home day) |
 | `input_text.hba_strategy_planned_sell_price_entity_id` | empty = sell at the buy price (net metering) |
 | `input_boolean.hba_strategy_planned_skip_charge` / `_skip_sell` / `_skip_zero_import` | `off` (all strategies allowed) |
+| `input_boolean.hba_strategy_planned_car_solar_export` | `off` (the car only gets sun the plan would export when selling pays less than a kWh in the car is worth) |
+| `input_boolean.hba_strategy_planned_debug` | `off` (on = a recorded copy of each plan in `sensor.hba_planned_strategy_debug`) |
+| `input_text.hba_ev_charger_energy_entity_id` | empty (EV charger energy meter in kWh; lets a car hour stop at its planned kWh) |
 
 | `input_select.hba_house_load_window` | `2 weeks` (history for the house-load profile; 1–4 weeks) |
 | `input_text.hba_solar_power_entity_1` / `_2` | empty (solar power sensors in W — wiring, not reset by Apply defaults) |
@@ -288,6 +292,15 @@ Every minimum is also the default, so a new install plans sensibly before *Apply
 
 Average house load and the solar forecast entities are shared with Solar-aware and the Charge goal. The
 average house load is only used while `sensor.hba_house_load_profile` has no profile.
+
+## Labs: Presence per Floor
+
+| Helper | Default |
+|---|---|
+| `input_boolean.hba_labs_presence` | `off` (nothing is collected) |
+| `input_boolean.hba_labs_presence_motion` | `off` (on = every motion / occupancy / presence sensor on a floor counts too) |
+| `input_text.hba_labs_presence_floors` | empty = the first 4 HA floors |
+| `input_text.hba_labs_presence_sources` | empty (room trackers and binary sensors, comma-separated) |
 
 ## Per-Battery SoC Cutoffs (all 6 slots)
 
