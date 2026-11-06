@@ -6036,6 +6036,8 @@ views:
               Records how much of every hour each floor is occupied, as long-term
               statistics, to predict heating (one AC per floor) and house use later.
               Floors are the HA floors (Settings → Areas, labels & zones); up to 4.
+              The history is kept per slot (Floor 1-4), so fill in the floor names
+              to keep the order fixed when you add a floor later.
 
 
               **Sources:** room trackers whose state is an area name (e.g. Bermuda

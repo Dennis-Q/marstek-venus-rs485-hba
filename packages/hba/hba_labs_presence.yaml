@@ -22,7 +22,11 @@
 # the recorder keeps: its hourly mean = the share of that hour the floor was
 # occupied. Room trackers are text sensors, which get no long-term statistics,
 # and states are kept only a few days. sensor.hba_labs_home_occupancy does the
-# same for "anyone home" (zone.home).
+# same for "anyone home" (zone.home, or any floor occupied).
+#
+# The history belongs to the slot, not the floor: with the floors list empty the
+# slots follow HA's floor order, so adding a floor later can shift them. Fill in
+# the floor names to fix the order.
 #
 # Slots 1-4 share their templates (YAML anchors); the slot number comes from
 # the entity id.
@@ -85,13 +89,19 @@ template:
             {%- endif -%}
             {{ ns.l }}
 
+      # Someone home: a person in zone.home, or any floor occupied (a motion sensor also
+      # catches someone without a tracked phone)
       - name: "HBA Labs Home Occupancy"
         unique_id: hba_labs_home_occupancy
         unit_of_measurement: "%"
         state_class: measurement
         icon: mdi:home-account
         availability: "{{ is_state('input_boolean.hba_labs_presence', 'on') and states('zone.home') | is_number }}"
-        state: "{{ 100 if states('zone.home') | int(0) > 0 else 0 }}"
+        state: >-
+          {{ 100 if states('zone.home') | int(0) > 0
+             or ['binary_sensor.hba_labs_floor_1_occupied', 'binary_sensor.hba_labs_floor_2_occupied',
+                 'binary_sensor.hba_labs_floor_3_occupied', 'binary_sensor.hba_labs_floor_4_occupied']
+                | select('is_state', 'on') | list | count > 0 else 0 }}
 
       # Recorded share of the time the slot's floor is occupied (0/100 %)
       - name: "HBA Labs Floor 1 Occupancy"
