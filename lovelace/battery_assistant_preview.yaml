@@ -6051,9 +6051,18 @@ views:
               columns: full
             content: >-
               {%- set nf = state_attr('sensor.hba_labs_presence_floors_resolved', 'not_found') or [] -%}
+              {%- set src = states('input_text.hba_labs_presence_sources') -%}
+              {%- set ns = namespace(bad=[]) -%}
+              {%- for e in (src if src not in ['unknown', 'unavailable'] else '').split(',') | map('trim') | reject('eq', '') -%}
+                {%- if states(e) == 'unknown' and states[e] is none -%}{%- set ns.bad = ns.bad + [e] -%}{%- endif -%}
+              {%- endfor -%}
               {%- if is_state('input_boolean.hba_labs_presence', 'on') and (nf or floors() | length == 0) -%}
               <ha-alert alert-type="warning"><strong>{{ 'Floor not found' if nf else 'No floors' }}</strong><br>
               {{ (nf | join(', ') ~ ' — ') if nf }}known floors: {{ floors() | map('floor_name') | join(', ') or '(none — add floors in HA first)' }}</ha-alert>
+              {%- endif -%}
+              {%- if is_state('input_boolean.hba_labs_presence', 'on') and ns.bad -%}
+              <ha-alert alert-type="warning"><strong>Source not found</strong><br>
+              {{ ns.bad | join(', ') }} — check the spelling in Sources.</ha-alert>
               {%- endif -%}
           - type: tile
             entity: input_boolean.hba_labs_presence
@@ -6110,6 +6119,9 @@ views:
             chart_type: line
             period: hour
             days_to_show: 7
+            min_y_axis: 0
+            max_y_axis: 100
+            fit_y_data: false
             stat_types:
               - mean
             entities:
