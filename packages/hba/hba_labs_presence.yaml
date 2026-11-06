@@ -9,7 +9,9 @@
 # Floors are HA floors (Settings → Areas, labels & zones). A floor counts as
 # occupied when one of the presence sources puts someone on it:
 #   - a sensor whose state is an area name or id (a room tracker such as
-#     Bermuda's sensor.<device>_area, ESPresense) → that area's floor
+#     Bermuda's sensor.<device>_area, ESPresense) → that area's floor, once it
+#     has stayed on that floor for 2 min (sensor.hba_labs_presence_trackers;
+#     short jumps to another floor are ignored)
 #   - a binary_sensor that is on → the floor of its own area
 #   - with input_boolean.hba_labs_presence_motion on: every motion / occupancy
 #     / presence binary_sensor whose area is on the floor
@@ -163,12 +165,13 @@ template:
           {%- set ids = states('sensor.hba_labs_presence_floors_resolved').split(',') | reject('eq', '') | list -%}
           {%- set fl = ids[n - 1] if n >= 1 and ids | length >= n else none -%}
           {%- set ns = namespace(by=[]) -%}
+          {%- set tr = state_attr('sensor.hba_labs_presence_trackers', 'trackers') or {} -%}
           {%- if fl -%}
             {%- for e in states('input_text.hba_labs_presence_sources').split(',') | map('trim') | reject('eq', '') -%}
               {%- set st = states(e) -%}
               {%- if e.startswith('binary_sensor.') -%}
                 {%- if st == 'on' and floor_id(e) == fl -%}{%- set ns.by = ns.by + [e] -%}{%- endif -%}
-              {%- elif st not in ['unknown', 'unavailable'] and floor_id(st) == fl -%}
+              {%- elif (tr.get(e) or {}).get('s') == fl -%}
                 {%- set ns.by = ns.by + [e] -%}
               {%- endif -%}
             {%- endfor -%}
@@ -187,12 +190,13 @@ template:
             {%- set ids = states('sensor.hba_labs_presence_floors_resolved').split(',') | reject('eq', '') | list -%}
             {%- set fl = ids[n - 1] if n >= 1 and ids | length >= n else none -%}
             {%- set ns = namespace(by=[]) -%}
+            {%- set tr = state_attr('sensor.hba_labs_presence_trackers', 'trackers') or {} -%}
             {%- if fl -%}
               {%- for e in states('input_text.hba_labs_presence_sources').split(',') | map('trim') | reject('eq', '') -%}
                 {%- set st = states(e) -%}
                 {%- if e.startswith('binary_sensor.') -%}
                   {%- if st == 'on' and floor_id(e) == fl -%}{%- set ns.by = ns.by + [e] -%}{%- endif -%}
-                {%- elif st not in ['unknown', 'unavailable'] and floor_id(st) == fl -%}
+                {%- elif (tr.get(e) or {}).get('s') == fl -%}
                   {%- set ns.by = ns.by + [e] -%}
                 {%- endif -%}
               {%- endfor -%}
@@ -233,6 +237,45 @@ template:
         attributes:
           by: *pr_by
           floor: *pr_floor
+
+  # Settled floor per room tracker (non-binary source), sampled every 20 s:
+  # trackers = {source: {f: floor now, t: since when, s: settled floor}}. A
+  # tracker settles on a floor (or on none = away/out of range) after 2 min
+  # there; until then the previous settled floor stays. Prod 2026-11-05: a
+  # phone in the bedroom jumped to the attic for ~5 s, 230-360 times a night;
+  # counting every jump kept the attic occupied all night. A delay per area
+  # instead would drop the bedroom too (every jump restarts it). Lost at a
+  # restart: no settled floor for the first 2 min.
+  - triggers:
+      - trigger: time_pattern
+        seconds: "/20"
+      - trigger: homeassistant
+        event: start
+      - trigger: event
+        event_type: event_template_reloaded
+    sensor:
+      - name: "HBA Labs Presence Trackers"
+        unique_id: hba_labs_presence_trackers
+        icon: mdi:map-marker-path
+        availability: "{{ is_state('input_boolean.hba_labs_presence', 'on') }}"
+        state: >-
+          {{ states('input_text.hba_labs_presence_sources').split(',') | map('trim')
+             | reject('eq', '') | reject('match', 'binary_sensor\.') | list | count }}
+        attributes:
+          trackers: >-
+            {%- set prev = (this.attributes | default({})).get('trackers') or {} -%}
+            {%- set now_ts = as_timestamp(now()) | int -%}
+            {%- set ns = namespace(d={}) -%}
+            {%- for e in states('input_text.hba_labs_presence_sources').split(',') | map('trim')
+                  | reject('eq', '') | reject('match', 'binary_sensor\.') -%}
+              {%- set st = states(e) -%}
+              {%- set f = floor_id(st) if st not in ['unknown', 'unavailable'] else none -%}
+              {%- set p = prev.get(e) or {} -%}
+              {%- set t = p.get('t', now_ts) if 'f' in p and p.get('f') == f else now_ts -%}
+              {%- set s = f if now_ts - t >= 120 else p.get('s') -%}
+              {%- set ns.d = dict(ns.d.items() | list + [(e, {'f': f, 't': t, 's': s})]) -%}
+            {%- endfor -%}
+            {{ ns.d }}
 
   # Occupied = present, or present in the last 10 min (last_seen). Not delay_off:
   # HA restarts that timer on every re-render, and the present templates re-render

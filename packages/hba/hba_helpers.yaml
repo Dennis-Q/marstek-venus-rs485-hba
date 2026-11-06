@@ -3375,6 +3375,7 @@ recorder:
       # Labs presence: someone on a floor right now — follows every room-tracker flip
       # (thousands a day); the recorded history is sensor.hba_labs_floor_*_occupancy
       - binary_sensor.hba_labs_floor_*_present
+      - sensor.hba_labs_presence_trackers
       # Forcible power setpoints — continuous numeric value, changes every ~1 s
       - number.marstek_m*_forcible_charge_power
       - number.marstek_m*_forcible_discharge_power
