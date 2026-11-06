@@ -14,7 +14,7 @@ PID tuning, strategy settings, and SoC cutoffs. It never touches internal state
 | `input_select.hba_strategy` | `Self-consumption` |
 | `input_number.hba_battery_count` | `1` |
 | `input_number.hba_control_prioritize_battery` | `1` |
-| `input_select.hba_control_priority_change_interval` | `Auto balance` |
+| `input_select.hba_control_priority_change_interval` | `Auto balance (SoC)` — HBA-only; HBC defaults to `Auto balance` (plain 30-min rotation) |
 
 ## PID Parameters
 
@@ -23,15 +23,16 @@ are always consistent with "Very safe" so the preset selector is not misleading.
 
 | Helper | Default | Notes |
 |---|---|---|
-| `input_select.hba_control_pid_presets` | `Very safe` | Deliberately conservative for an unverified install. **Switch to `Regular` once the batteries are confirmed responding** — it is the validated operating point and roughly halves the grid energy per disturbance. |
+| `input_select.hba_control_pid_presets` | `Very safe` | Deliberately conservative for an unverified install. **Switch to `Regular` once the batteries are confirmed responding** — it is the validated operating point (residual 137 W vs ~410 W at Ki 0.22, 8 s after a 2.25 kW step). |
 | `input_number.hba_target_grid_consumption` | `0` W | Keep grid import at 0 W |
 | `input_number.hba_control_kp` | `0.35` | Matches Very safe preset |
-| `input_number.hba_control_ki` | `0.1` | Matches Very safe preset |
+| `input_number.hba_control_ki` | `0.15` | Matches Very safe preset |
 | `input_number.hba_control_kd` | `0.1` | Matches Very safe preset |
 | `input_number.hba_control_pid_output_dampening` | `10` % | Matches Very safe preset |
 | `input_number.hba_control_error_signal_dampening` | `20` % | Matches Very safe preset |
 | `input_number.hba_control_hysteresis` | `20` W | Direction-flip guard threshold |
 | `input_number.hba_control_idle_time` | `5` min | Per-battery idle hold before relay disconnect |
+| `input_number.hba_control_min_start_power` | `200` W | An extra battery only starts at this share or more (the first always may); 0 = off. Below ~200 W a Marstek mostly covers its own ~20–25 W |
 | `input_number.hba_control_write_refresh_secs` | `30` s | Re-send an unchanged battery command at least this often. Identical commands in between skip their three Modbus writes (~150 ms each), which roughly halves the control-loop period under load. `0` disables de-duplication and writes every cycle. |
 
 ### PID Presets
@@ -79,17 +80,41 @@ reason to change — see `Low peak (grid limit)` below.
 
 | Preset | Ki | Character | Measured on an 863 W step |
 |---|---|---|---|
-| Very safe | 0.10 | Calmest, least battery activity | 6.1 Wh, ~38 s to settle |
-| Safe | 0.15 | Noticeably slower tail | 4.4 Wh |
-| **Regular** *(default)* | **0.22** | **Validated on production** | 3.7 Wh. Against a real 2.25 kW step: residual **143 W at +8 s**, zero setpoint crossings |
-| Responsive | 0.30 | Fastest measured | 3.2 Wh. Untested against 2.25 kW steps — may overshoot, as overshoot scales with step size |
+| Very safe | 0.15 | Calmest, least battery activity | 4.4 Wh |
+| Safe | 0.22 | The `Regular` of r21 and earlier | 3.7 Wh. Against a real 2.25 kW step (four batteries): residual 410 W at +8 s, zero setpoint crossings |
+| **Regular** *(default)* | **0.30** | **Validated on production** | 3.2 Wh. Against a real 2.25 kW step (four batteries, 2026-10-05): residual **137 W at +8 s**, worst brief undershoot −188 W, cost per pulse 0.72 ct (Ki 0.22: 0.77 ct) |
+| Responsive | 0.40 | Fastest, but overshoots and jitters — see the trade-off below | Against a real 2.25 kW step (four batteries, 2026-10-06): residual **−138 W at +8 s** (it overshoots into export), 9 of 23 steps below −200 W, worst −795 W; cost per pulse 0.64 ct |
+
+The ladder was shifted up one step in r22: Ki 0.10 (6.1 Wh, ~38 s to settle on an 863 W step)
+was too slow to be useful even as a first-install setting, and Ki 0.30 beat 0.22 on production
+with no overshoot beyond the −200 W pass limit. Every preset value has now been measured on
+production.
+
+**Responsive — the trade-off.** Measured for a night and a day on production (four batteries,
+1 s P1 meter), against Regular the day and night before:
+
+| | Regular (0.30) | Responsive (0.40) |
+|---|---|---|
+| residual 8 s after a 2.25 kW step (median) | 137 W | −138 W (overshoot) |
+| steps that overshoot below −200 W at +8/+10 s | 0 of 13 | 9 of 23 (worst −795 W) |
+| cost per step @ 30/10 ct | 0.72 ct | **0.64 ct** |
+| grid-power wobble by day (std. dev. per minute, same output band) | ~100 W | ~145–165 W |
+| charge↔discharge switches per hour near solar balance | ≤ 16 | **434–525** |
+
+It reaches zero faster and the overshoot goes into export, so a step costs a little less. The
+price is a loop on the edge of oscillating: near solar balance it settled into a steady
+~4.5 s swing of roughly ±500 W, switching between charge and discharge several times a minute
+(this does not wear a relay — HBA's earlier measurements found no mechanical switching on a
+direction change — but it is a visibly restless grid reading). Choose Responsive only if
+night-time load steps dominate and you do not mind that; otherwise stay on Regular.
 
 #### `Low peak (grid limit)` — the one preset that is not a Ki step
 
-`Kp 0.35 / Ki 0.22 / Kd 0.1 / error damping 20 % / **output damping 0 %**` — Regular's gains
-with output damping removed.
+`Kp 0.35 / Ki 0.22 / Kd 0.1 / error damping 20 % / **output damping 0 %**` — Safe's gains
+(the `Regular` of r21 and earlier) with output damping removed. It keeps Ki 0.22 because that
+is the combination that was measured; Ki 0.30 without output damping has not been tested.
 
-Measured on production over **two nights** (2026-08-06 and 08-07) against Regular on the same
+Measured on production over **two nights** (2026-08-06 and 08-07) against Ki 0.22 + 10 % output damping (then `Regular`) on the same
 2250 W load, with the two arms **interleaved pulse by pulse** so SoC, weather and household
 drift hit both equally, and with the arm order reversed on the second night so a
 first-vs-second-in-cycle artefact would have shown up as a sign flip. It did not:
@@ -122,10 +147,21 @@ both arms.
 > Regular remains the default: `Low peak` buys a few seconds of lower excursion and nothing
 > else, so it is only worth selecting if an instantaneous limit actually binds.
 
-> **These Ki values assume a ~1.1 s control loop**, i.e. Modbus write de-duplication enabled
-> (`input_number.hba_control_write_refresh_secs` > 0, v4.10.1-r15+). With de-duplication off
-> the loop runs at ~2.2 s and the integrator accumulates half as fast per second, so every
-> preset behaves roughly one step slower than its name suggests.
+> **These Ki values assume a ~1.1 s control loop**: a P1 meter that updates every second
+> (DSMR 5) and Modbus write de-duplication enabled
+> (`input_number.hba_control_write_refresh_secs` > 0, v4.10.1-r15+). HBA runs one PID cycle per
+> P1 update and adds `Ki × error` to the integrator **per cycle**, not per second. So the
+> control loop runs at the slower of the two: the P1 update interval or ~1.1 s (~2.2 s with
+> de-duplication off).
+>
+> **With a slower loop the presets stay safe but get slower.** How far the integrator moves per
+> cycle is unchanged; there are just fewer cycles per second.
+>
+> | loop period | what to expect |
+> |---|---|
+> | ~1 s (DSMR 5, de-duplication on) | as measured above |
+> | ~2 s (de-duplication off, or a 2 s P1 reader) | every preset about one step slower. Measured at 2.24 s: Ki 0.30 left 321 W at +8 s (167 W at 1.1 s), Ki 0.45 overshot. Responsive is then a reasonable choice |
+> | 5–10 s (DSMR 4 / older meters, throttled readers) | **not measured.** The batteries finish reacting within one meter update, so overshoot becomes unlikely at these Ki values; but a large step takes roughly 1–2 minutes to settle on Regular. Responsive is the better starting point. Higher Ki than 0.40 is probably fine here, but HBA has no measurement to back a number, so tune it in `Custom` and watch for the grid reading swinging back and forth |
 
 
 ## Peak Shaving
@@ -139,21 +175,45 @@ both arms.
 
 ## Slow Charge Limits
 
-Reduces max charge power near full SoC to protect battery cells. Set a limit to `0` to disable that threshold.
+Reduces max charge power near full SoC to protect battery cells. Set a limit to `0` to disable that threshold. The battery's own BMS limit always applies on top (HBA follows it); an E 3.0's BMS allows ≥ 2500 W up to full, a Venus E 1/2 tapers to ~1270 W from 90 % and ~500 W from 95 % by itself.
 
 | Helper | Default |
 |---|---|
 | `input_number.hba_control_slow_charge_soc_threshold_1` | `95` % |
-| `input_number.hba_control_slow_charge_power_limit_1` | `1500` W |
+| `input_number.hba_control_slow_charge_power_limit_1` | `1500` W, `0` (off) when every battery is a Venus E 3.0 |
 | `input_number.hba_control_slow_charge_soc_threshold_2` | `99` % |
-| `input_number.hba_control_slow_charge_power_limit_2` | `1000` W |
+| `input_number.hba_control_slow_charge_power_limit_2` | `1000` W, `0` (off) when every battery is a Venus E 3.0 |
+
+## Charge alongside EV
+
+| Helper | Default | Notes |
+|---|---|---|
+| `input_number.hba_ev_battery_priority_energy` | `0` kWh | Batteries first below this usable energy; 0 = the car always first |
+| `input_number.hba_ev_phase_current_limit` | `22` A | Car first: batteries keep each phase below this (Peblar throttles at ~22.5 A) |
+| `input_number.hba_ev_max_current` | `16` A | Car first: room kept free for the car per phase (needs `sensor.ev_charger_power` or `_l1/_l2/_l3`); 0 = off |
+| `input_select.hba_marstek_m{1-6}_phase` | `Not set` | L1 / L2 / L3; Not set counts against every phase |
+
+## Power Groups
+
+A combined power limit for several batteries (shared breaker, a limit per phase, plug-in
+batteries under the 800 W guideline). Every battery starts in its own group, so HBA leaves the
+limit registers alone until you choose a group. **Use at your own risk** — a software limit, not
+electrical protection; have an electrician check the installation.
+
+| Helper | Default | Notes |
+|---|---|---|
+| `input_select.hba_marstek_m{1-6}_power_group` | `Own` | Own / A / B / C |
+| `input_number.hba_marstek_m{1-6}_max_charge_power` / `…_max_discharge_power` | `0` W | The battery's own limits while in a group (in Own they are its registers). 0 = not set. Prefilled from the registers when it joins a group |
+| `input_number.hba_power_group_{a,b,c}_max_power` | `3500` W | 16 A breaker ≈ 3680 W |
+| `input_select.hba_power_group_{a,b,c}_policy` | `Follow battery order` | Follow battery order / Equal / One at a time |
+| `input_number.hba_phase_current_limit` | `0` A (off) | Main fuse limit per phase, every strategy (charge = import, discharge = export); e.g. 24 A for a 25 A fuse; needs per-phase P1 sensors |
 
 ## Charge Strategy
 
 | Helper | Default | Notes |
 |---|---|---|
 | `input_select.hba_strategy_charge_goal` | `batteries are full` | |
-| `input_select.hba_strategy_charge_goal_reached` | `Full stop` | |
+| `input_select.hba_strategy_charge_goal_reached` | `Charge PV — use battery if the sun refills it` | With the *solar forecast* goal: Self-consumption when solar fills the battery (target 0 kWh), else Charge PV. Other goals: Charge PV. |
 | `input_number.hba_strategy_charge_target_soc` | `90` % | Used when goal = state of charge |
 | `input_number.hba_strategy_charge_target_energy` | `5` kWh | Used when goal = energy reserve |
 | `input_number.hba_solar_reserved_for_house` | `0` kWh | Expected house consumption during daylight hours; solar surplus beyond this charges the battery |
@@ -173,41 +233,81 @@ Reduces max charge power near full SoC to protect battery cells. Set a limit to 
 |---|---|
 | `input_boolean.hba_strategy_timed_has_period_b` | `off` |
 | `input_boolean.hba_strategy_timed_has_period_c` | `off` |
+| `input_boolean.hba_strategy_timed_has_period_d` | `off` |
+| `input_boolean.hba_strategy_timed_has_period_e` | `off` |
 | `input_select.hba_strategy_timed_strat_0` | `Self-consumption` (default / no period match) |
 | `input_select.hba_strategy_timed_strat_a` | `Charge` |
 | `input_select.hba_strategy_timed_strat_b` | `Sell` |
 | `input_select.hba_strategy_timed_strat_c` | `Self-consumption` |
+| `input_select.hba_strategy_timed_strat_d` | `Self-consumption` |
+| `input_select.hba_strategy_timed_strat_e` | `Self-consumption` |
 
 Period times (`input_datetime.hba_strategy_timed_period_a1` etc.) are not set by apply_defaults — configure them manually.
 
-## Dynamic Pricing (v1)
+## Dynamic Pricing (Extreme-Pair Matching)
 
 | Helper | Default |
 |---|---|
-| `input_select.hba_strategy_dynamic_data_source` | `Frank Energie` |
+| `input_select.hba_strategy_dynamic_data_source` | `Frank Energie` (only option for now) |
 | `input_select.hba_strategy_dynamic_default` | `Self-consumption` |
 | `input_select.hba_strategy_dynamic_cheapest` | `Charge` |
 | `input_select.hba_strategy_dynamic_expensive` | `Self-consumption` |
-| `input_number.hba_strategy_dynamic_cheapest_hrs` | `4` h |
-| `input_number.hba_strategy_dynamic_expensive_hrs` | `2` h |
-| `input_number.hba_strategy_dynamic_threshold_cheapest_period` | `5` ct/kWh |
 | `input_number.hba_strategy_dynamic_threshold_delta` | `5` ct/kWh |
+| `input_number.hba_strategy_dynamic_max_cheap_hours_per_day` | `0` h/day (no cap) |
+| `input_number.hba_strategy_dynamic_max_expensive_hours_per_day` | `0` h/day (no cap) |
 
-## Dynamic Pricing (v2 — Extreme-Pair Matching)
+Until r22 the max-hours helpers were `input_number.hba_strategy_dynamic_v2_max_*`; values
+did not carry over when they were renamed.
+
+## Planned Strategy
+
+Every minimum is also the default, so a new install plans sensibly before *Apply defaults*.
 
 | Helper | Default |
 |---|---|
-| `input_number.hba_strategy_dynamic_v2_max_cheap_hours_per_day` | `4` h/day |
-| `input_number.hba_strategy_dynamic_v2_max_expensive_hours_per_day` | `2` h/day |
+| `input_number.hba_strategy_planned_efficiency` | `0` % = the batteries' measured lifetime round-trip efficiency (85 % until measured) |
+| `input_number.hba_strategy_planned_wear_cost` | `0` EUR/kWh cycled |
+| `input_number.hba_strategy_planned_reserve` | `0` kWh |
+| `input_number.hba_strategy_planned_sell_deduction` | `0` EUR/kWh |
+| `input_number.hba_strategy_planned_min_sell_profit` ("minimum advantage of selling") | `0` EUR/kWh (purely financial; e.g. 0.03 turns close calls into Self-consumption / Zero import; compared with Insights "Better by per kWh") |
+| `input_number.hba_strategy_planned_replan_drift` | `1` kWh (minimum 0.5) |
+| `input_number.hba_strategy_planned_energy_step` | `0` kWh = auto (usable energy / 20) |
+| `input_number.hba_strategy_planned_house_margin` | `15` % via *Apply defaults* (`0` until set): the plan counts on house use × (1 + margin) |
+| `input_boolean.hba_strategy_planned_car` / `_car_grid` | `off` (no car in the plan / the grid only fills the car up to Minimum) |
+| `input_boolean.hba_strategy_planned_car_preview` | `off` (on = the car is planned and shown, nothing is applied) |
+| `input_number.hba_strategy_planned_car_minimum` / `_car_normal` / `_car_leftover` | `0` / `80` / `100` % |
+| `input_text.hba_strategy_planned_car_home_days` | `Sat,Sun` (filled at HA start; empty = Sat,Sun, `none` = never; commas, English day names, any case) |
+| `input_select.hba_strategy_planned_car_tomorrow` | Auto (back to Auto at 08:00) |
+| `input_boolean.hba_strategy_planned_car_ask_normal` | `off` (on = evening question whether Normal may charge) |
+| `input_select.hba_strategy_planned_car_normal_tonight` | Auto (Skip tonight ends at departure, Skip until home day at the departure of a home day) |
+| `input_text.hba_strategy_planned_sell_price_entity_id` | empty = sell at the buy price (net metering) |
+| `input_boolean.hba_strategy_planned_skip_charge` / `_skip_sell` / `_skip_zero_import` | `off` (all strategies allowed) |
+| `input_boolean.hba_strategy_planned_car_solar_export` | `off` (the car only gets sun the plan would export when selling pays less than a kWh in the car is worth) |
+| `input_boolean.hba_strategy_planned_debug` | `off` (on = a recorded copy of each plan in `sensor.hba_planned_strategy_debug`) |
+| `input_text.hba_ev_charger_energy_entity_id` | empty (EV charger energy meter in kWh; lets a car hour stop at its planned kWh) |
 
-`threshold_delta` is shared with v1 (see above). `threshold_cheapest_period` is v1-only and ignored by v2.
+| `input_select.hba_house_load_window` | `2 weeks` (history for the house-load profile; 1–4 weeks) |
+| `input_text.hba_solar_power_entity_1` / `_2` | empty (solar power sensors in W — wiring, not reset by Apply defaults) |
+| `input_text.hba_ev_charger_power_entity_id` | empty = `sensor.ev_charger_power` (must have long-term statistics; that one is recorder-excluded, so use the charger's own sensor) |
+
+Average house load and the solar forecast entities are shared with Solar-aware and the Charge goal. The
+average house load is only used while `sensor.hba_house_load_profile` has no profile.
+
+## Labs: Presence per Floor
+
+| Helper | Default |
+|---|---|
+| `input_boolean.hba_labs_presence` | `off` (nothing is collected) |
+| `input_boolean.hba_labs_presence_motion` | `off` (on = every motion / occupancy / presence sensor on a floor counts too) |
+| `input_text.hba_labs_presence_floors` | empty = the first 4 HA floors |
+| `input_text.hba_labs_presence_sources` | empty (room trackers and binary sensors, comma-separated) |
 
 ## Per-Battery SoC Cutoffs (all 6 slots)
 
 | Helper | Default | Notes |
 |---|---|---|
 | `input_number.hba_marstek_m{1-6}_charging_cutoff_capacity` | `100` % | |
-| `input_number.hba_marstek_m{1-6}_discharging_cutoff_capacity` | `12` % | Works for Venus E v1/v2/v3. Venus E v3.0 users may want to raise this to **13%**: the v3.0 firmware has a ~2% hysteresis and in practice won't discharge below ~13% regardless of the software setting. |
+| `input_number.hba_marstek_m{1-6}_discharging_cutoff_capacity` | `13` % on a Venus E 3.0, `12` % otherwise | A Venus E 3.0 stops discharging itself just below **13.0 %** (it checks its reserve — 100 − app DoD, at least 12 % — against a whole-percent SoC). With 12 % HBA kept handing power to a battery that delivered 0 W. Apply defaults picks the value per battery from its device name. With a lower DoD in the Marstek app, set it to that reserve + 1. |
 
 ## Solar Forecast Entity IDs
 

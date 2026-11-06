@@ -5,6 +5,12 @@ input_boolean:
   hba_strategy_timed_has_period_c:
     name: "Enable additional period C"
     icon: mdi:clock-plus
+  hba_strategy_timed_has_period_d:
+    name: "Enable additional period D"
+    icon: mdi:clock-plus
+  hba_strategy_timed_has_period_e:
+    name: "Enable additional period E"
+    icon: mdi:clock-plus
   hba_control_has_power_limit_import:
     name: "Enable import peak shaving"
     icon: mdi:transmission-tower-import
@@ -17,12 +23,50 @@ input_boolean:
   hba_control_onboarding_finished:
     name: "Finish onboarding"
     icon: mdi:check-circle-outline
+  # Shown as "Timed EV charge": the feature uses the battery-assist mechanism, but "battery
+  # assist" is not a term in HBA's UI (it may later also start automatically).
   hba_battery_assist_enabled:
-    name: "Battery assist enabled"
+    name: "Timed EV charge enabled"
     icon: mdi:battery-arrow-up
   hba_notifications_enabled:
     name: "Notifications enabled"
     icon: mdi:bell
+  # Planned strategy: strategies the planner may NOT use (off = allowed, so a new
+  # install allows everything). Self-consumption, Charge PV and Full stop are always allowed.
+  # Planned: put the car in the plan (EV project: sensor.ev_car_info + Follow assisted on).
+  hba_strategy_planned_car:
+    name: "Planned: plan the car"
+    icon: mdi:car-clock
+  # On: the car is planned and shown, but nothing is applied (sensor.hba_planned_car_preview).
+  hba_strategy_planned_car_preview:
+    name: "Planned: car preview only"
+    icon: mdi:car-search
+  # Off: the grid only fills the car up to Minimum.
+  hba_strategy_planned_car_grid:
+    name: "Planned: allow grid charging for the car"
+    icon: mdi:transmission-tower-import
+  # On: an evening question whether Normal may charge the coming night (hba_notifications.yaml).
+  hba_strategy_planned_car_ask_normal:
+    name: "Planned: ask before Normal"
+    icon: mdi:car-clock
+  # On: the car may take solar in an hour the plan exports it (Full stop / Sell / Zero import with
+  # the sun above the house). Off: that solar is exported (binary_sensor.hba_ev_solar_allowed).
+  hba_strategy_planned_car_solar_export:
+    name: "Planned: car takes solar the plan would export"
+    icon: mdi:solar-power-variant
+  hba_strategy_planned_skip_charge:
+    name: "Planned: never charge from the grid"
+    icon: mdi:transmission-tower-off
+  hba_strategy_planned_skip_sell:
+    name: "Planned: never sell"
+    icon: mdi:cash-remove
+  hba_strategy_planned_skip_zero_import:
+    name: "Planned: never Zero import"
+    icon: mdi:home-off-outline
+  # Keeps a recorded copy of every new plan in sensor.hba_planned_strategy_debug (off = no data)
+  hba_strategy_planned_debug:
+    name: "Planned: keep a copy of each plan (debug)"
+    icon: mdi:bug-outline
 
 input_datetime:
   hba_strategy_timed_period_a1:
@@ -49,21 +93,21 @@ input_datetime:
     name: "Period C stop"
     has_date: false
     has_time: true
-  hba_strategy_dynamic_cheapest_start:
-    name: "Cheap period start"
-    has_date: true
+  hba_strategy_timed_period_d1:
+    name: "Period D start"
+    has_date: false
     has_time: true
-  hba_strategy_dynamic_cheapest_end:
-    name: "Cheap period end"
-    has_date: true
+  hba_strategy_timed_period_d2:
+    name: "Period D stop"
+    has_date: false
     has_time: true
-  hba_strategy_dynamic_expensive_start:
-    name: "Expensive period start"
-    has_date: true
+  hba_strategy_timed_period_e1:
+    name: "Period E start"
+    has_date: false
     has_time: true
-  hba_strategy_dynamic_expensive_end:
-    name: "Expensive period end"
-    has_date: true
+  hba_strategy_timed_period_e2:
+    name: "Period E stop"
+    has_date: false
     has_time: true
   hba_last_active_m1:
     name: "Battery M1 last active"
@@ -105,7 +149,9 @@ input_number:
     min: 1
     max: 6
     step: 1
-    mode: slider
+    # box, not slider: a slider on a phone was easy to drag by accident (prod 2026-10-25), and a
+    # wrong count drops or adds batteries from control at once
+    mode: box
     icon: mdi:counter
   hba_control_prioritize_battery:
     name: "Priority battery"
@@ -132,6 +178,20 @@ input_number:
     mode: box
     unit_of_measurement: W
     icon: mdi:arrow-expand-horizontal
+  # An EXTRA battery (one that is not running yet, while another already takes power)
+  # only starts when its share is at least this much; the first battery always may.
+  # Below ~200 W a Marstek mostly covers its own fixed ~20-25 W (prod 2026-10-24,
+  # discharge efficiency ~74 % at 100-200 W, ~87 % at 200-300 W), and a few-watt share
+  # only toggled its inverter Standby <-> Charge. A battery already running may ramp
+  # down to 0 smoothly. 0 = off.
+  hba_control_min_start_power:
+    name: "Minimum power to start an extra battery"
+    min: 0
+    max: 1000
+    step: 10
+    mode: box
+    unit_of_measurement: W
+    icon: mdi:power-plug-battery-outline
   hba_control_idle_time:
     name: "Idle timeout"
     min: 0
@@ -195,38 +255,43 @@ input_number:
     icon: mdi:waves-arrow-right
 
   # --- PID internal state (written by controller script) ---
+  # Range ±100 kW. HBC's ±15 kW (error/output) and ±10 kW (terms) are display-only in
+  # Node-RED, but here these helpers ARE the controller state: a value outside the range
+  # makes input_number.set_value fail and aborts the whole control cycle. A 3 x 25 A
+  # connection already allows ~17 kW, and the I-term reaches 15 kW with six batteries.
+  # The controller also clamps every write to this range (hba_strategy_self_consumption).
   hba_control_error_signal:
     name: "PID error signal"
-    min: -15000
-    max: 15000
+    min: -100000
+    max: 100000
     step: 1
     unit_of_measurement: W
     icon: mdi:sine-wave
   hba_control_pid_output:
     name: "PID output"
-    min: -15000
-    max: 15000
+    min: -100000
+    max: 100000
     step: 1
     unit_of_measurement: W
     icon: mdi:gauge
   hba_control_p_term:
     name: "PID P term"
-    min: -10000
-    max: 10000
+    min: -100000
+    max: 100000
     step: 1
     unit_of_measurement: W
     icon: mdi:alpha-p-circle
   hba_control_i_term:
     name: "PID I term"
-    min: -10000
-    max: 10000
+    min: -100000
+    max: 100000
     step: 1
     unit_of_measurement: W
     icon: mdi:alpha-i-circle
   hba_control_d_term:
     name: "PID D term"
-    min: -10000
-    max: 10000
+    min: -100000
+    max: 100000
     step: 1
     unit_of_measurement: W
     icon: mdi:alpha-d-circle
@@ -347,33 +412,19 @@ input_number:
     unit_of_measurement: "%"
     icon: mdi:battery-20
 
-  # --- Dynamic pricing windows ---
-  hba_strategy_dynamic_cheapest_hrs:
-    name: "Cheapest period hours"
-    min: 0
-    max: 8
-    step: 1
-    mode: box
-    unit_of_measurement: h
-    icon: mdi:clock-fast
-  hba_strategy_dynamic_expensive_hrs:
-    name: "Expensive period hours"
-    min: 0
-    max: 23
-    step: 1
-    mode: box
-    unit_of_measurement: h
-    icon: mdi:clock-alert
-  hba_strategy_dynamic_v2_max_cheap_hours_per_day:
-    name: "Dynamic v2 Max cheap hours/day"
+  # --- Dynamic pricing (Extreme-Pair Matching) ---
+  # Were hba_strategy_dynamic_v2_* until r22; renamed when v1 was removed. Values do
+  # not carry over -- binary_sensor.hba_dynamic_migration_needed tells the user.
+  hba_strategy_dynamic_max_cheap_hours_per_day:
+    name: "Dynamic max cheap hours/day"
     min: 0
     max: 24
     step: 0.25
     unit_of_measurement: h
     mode: box
     icon: mdi:clock-minus-outline
-  hba_strategy_dynamic_v2_max_expensive_hours_per_day:
-    name: "Dynamic v2 Max expensive hours/day"
+  hba_strategy_dynamic_max_expensive_hours_per_day:
+    name: "Dynamic max expensive hours/day"
     min: 0
     max: 24
     step: 0.25
@@ -396,41 +447,120 @@ input_number:
     mode: box
     unit_of_measurement: W
     icon: mdi:home-lightning-bolt-outline
-  hba_strategy_dynamic_threshold_cheapest_period:
-    name: "Cheap period max tariff"
+  # ── Planned strategy (hba_strategy_planned.yaml) ──────────────────────────────
+  # Each minimum is a sensible default, so a new install works before Apply defaults.
+  # The average house load is shared with Solar-aware (hba_strategy_solar_aware_house_load).
+  hba_strategy_planned_efficiency:
+    name: "Planned: round-trip efficiency (0 = measured)"
     min: 0
-    max: 30
-    step: 0.5
+    max: 100
+    step: 1
     mode: box
-    unit_of_measurement: ct/kWh
-    icon: mdi:currency-eur
+    unit_of_measurement: "%"
+    icon: mdi:battery-sync-outline
+  hba_strategy_planned_wear_cost:
+    name: "Planned: wear cost per kWh cycled"
+    min: 0
+    max: 0.5
+    step: 0.005
+    mode: box
+    unit_of_measurement: "EUR/kWh"
+    icon: mdi:battery-heart-variant
+  # Plan-only floor: energy below it counts as worth nothing, so the plan never uses it -- and
+  # never buys it either. Zero import / Self-consumption still discharge down to the cutoff.
+  # (Entity id keeps "reserve"; it was named "reserve for unexpected loads" at first.)
+  hba_strategy_planned_reserve:
+    name: "Planned: never plan below"
+    min: 0
+    max: 50
+    step: 0.1
+    mode: box
+    unit_of_measurement: kWh
+    icon: mdi:battery-lock
+  # Plans with this much more house use, so a battery-covered hour still has energy left when
+  # the house uses more than usual. What is left stays stored for the next hour.
+  hba_strategy_planned_house_margin:
+    name: "Planned: house use margin"
+    min: 0
+    max: 100
+    step: 5
+    mode: box
+    unit_of_measurement: "%"
+    icon: mdi:home-plus-outline
+  hba_strategy_planned_sell_deduction:
+    name: "Planned: sell price deduction"
+    min: 0
+    max: 0.5
+    step: 0.001
+    mode: box
+    unit_of_measurement: "EUR/kWh"
+    icon: mdi:cash-minus
+  # Only sell from the battery when it beats keeping the energy (house use until the next
+  # recharge, or a later sale) by at least this much per kWh -- compared with "Better by per kWh"
+  # in Insights, NOT with what the energy cost. An extra cost per kWh the BATTERY sends to the grid
+  # (not directly exported sun, not the house share of a Sell slot); not counted as real money.
+  # (Entity id keeps "min_sell_profit"; it was named "minimum profit for selling" at first.)
+  hba_strategy_planned_min_sell_profit:
+    name: "Planned: minimum advantage of selling"
+    min: 0
+    max: 0.5
+    step: 0.005
+    mode: box
+    unit_of_measurement: "EUR/kWh"
+    icon: mdi:cash-check
+  # Planned: the car's levels, same for every car. Minimum = must be there by departure, at any
+  # price. Normal = from the grid below the max price, with Allow grid charging. Leftover = as
+  # far as solar may fill it.
+  hba_strategy_planned_car_minimum:
+    name: "Planned: car minimum"
+    min: 0
+    max: 100
+    step: 5
+    mode: box
+    unit_of_measurement: "%"
+    icon: mdi:battery-low
+  hba_strategy_planned_car_normal:
+    name: "Planned: car normal"
+    min: 0
+    max: 100
+    step: 5
+    mode: box
+    unit_of_measurement: "%"
+    icon: mdi:battery-70
+  hba_strategy_planned_car_leftover:
+    name: "Planned: car leftover"
+    min: 0
+    max: 100
+    step: 5
+    mode: box
+    unit_of_measurement: "%"
+    icon: mdi:battery-high
+  # Planned: the energy levels the plan works with (and the steps of a partial Charge / Sell
+  # target). 0 = auto: usable energy / 20 (17.8 kWh -> 0.89 kWh). Smaller = more precise targets,
+  # longer calculation: ~0.5 s at auto, ~1 s at usable / 40 (48 hourly slots; 15-minute prices x4) --
+  # it blocks HA (and the control loop) that long. Never finer than usable / 40.
+  hba_strategy_planned_energy_step:
+    name: "Planned: energy step"
+    min: 0
+    max: 2
+    step: 0.05
+    mode: box
+    unit_of_measurement: kWh
+    icon: mdi:stairs
+  hba_strategy_planned_replan_drift:
+    name: "Planned: re-plan when off by more than"
+    min: 0.5
+    max: 10
+    step: 0.1
+    mode: box
+    unit_of_measurement: kWh
+    icon: mdi:chart-timeline-variant-shimmer
   hba_strategy_dynamic_threshold_delta:
-    name: "Expensive period min delta"
+    name: "Dynamic min price difference"
     min: 0
     max: 20
     step: 0.5
     mode: box
-    unit_of_measurement: ct/kWh
-    icon: mdi:delta
-  hba_strategy_dynamic_cheapest_avg_tariff:
-    name: "Cheap period avg tariff"
-    min: -1000
-    max: 1000
-    step: 0.01
-    unit_of_measurement: ct/kWh
-    icon: mdi:currency-eur
-  hba_strategy_dynamic_expensive_avg_tariff:
-    name: "Expensive period avg tariff"
-    min: -1000
-    max: 1000
-    step: 0.01
-    unit_of_measurement: ct/kWh
-    icon: mdi:currency-eur
-  hba_strategy_dynamic_expensive_avg_delta:
-    name: "Expensive period avg delta"
-    min: 0
-    max: 1000
-    step: 0.01
     unit_of_measurement: ct/kWh
     icon: mdi:delta
 
@@ -548,6 +678,185 @@ input_number:
     unit_of_measurement: "W"
     icon: mdi:lightning-bolt-circle
 
+  # --- Charge alongside EV (input_select.hba_control_strategy_during_ev_charge) ---
+  # Below this much usable energy in the batteries (sensor.hba_charge_available_energy)
+  # they get priority over the car; above it the car does. 0 = the car always first.
+  hba_ev_battery_priority_energy:
+    name: "Battery priority below (EV charging)"
+    min: 0
+    max: 100
+    step: 0.5
+    mode: box
+    unit_of_measurement: kWh
+    icon: mdi:battery-arrow-up
+  # Car first: the batteries keep each phase below this current, so the charger's own
+  # load balancing never has to slow the car down. Set it just below the charger's
+  # threshold (Peblar on prod: starts throttling at ~22.5 A per phase).
+  # Main fuse protection per phase, in every strategy: the batteries on a phase charge
+  # (import) or discharge (export) only as far as that phase stays below this current.
+  # E.g. 24 A for a 25 A main fuse. 0 = off. Needs sensor.p1_meter_power_lX for the
+  # phases the batteries are on (hba_config.yaml). Software limit — not protection by
+  # itself; the installation must be safe without it.
+  hba_phase_current_limit:
+    name: "Main fuse limit per phase"
+    min: 0
+    max: 80
+    step: 0.5
+    mode: box
+    unit_of_measurement: A
+    icon: mdi:fuse-alert
+  # Car first: the car's max current per phase (e.g. 16 A for 11 kW). HBA keeps that
+  # room free for the car on the phases it charges on, so a car that the charger's load
+  # balancing throttled can go straight back up. 0 = do not reserve (needs the charger's
+  # power: sensor.ev_charger_power_l1..l3 or sensor.ev_charger_power, hba_config.yaml).
+  hba_ev_max_current:
+    name: "EV max current per phase"
+    min: 0
+    max: 32
+    step: 1
+    mode: box
+    unit_of_measurement: A
+    icon: mdi:ev-station
+  hba_ev_phase_current_limit:
+    name: "Phase current limit (EV charging)"
+    min: 6
+    max: 63
+    step: 0.5
+    mode: box
+    unit_of_measurement: A
+    icon: mdi:current-ac
+  # --- Power groups (batteries sharing one breaker) ---
+  # Per battery its own max charge / max discharge power while it is in a power group.
+  # In "Own" these limits ARE the battery's registers (44002/44003, set on the dashboard);
+  # in a group HBA writes those registers to keep the group within its max power, so the
+  # user's own limits move here and the group is an extra limit on top. 0 = not set: a
+  # group with a member at 0 stays inactive (banner) — HBA never guesses a battery's limit
+  # (an 800 W plug-in battery must not be raised to 2500 W). Prefilled from the registers
+  # when a battery joins a group.
+  hba_marstek_m1_max_charge_power:
+    name: "M1 max charge power"
+    min: 0
+    max: 2500
+    step: 50
+    mode: box
+    unit_of_measurement: "W"
+    icon: mdi:flash-triangle-outline
+  hba_marstek_m1_max_discharge_power:
+    name: "M1 max discharge power"
+    min: 0
+    max: 2500
+    step: 50
+    mode: box
+    unit_of_measurement: "W"
+    icon: mdi:flash-triangle-outline
+  hba_marstek_m2_max_charge_power:
+    name: "M2 max charge power"
+    min: 0
+    max: 2500
+    step: 50
+    mode: box
+    unit_of_measurement: "W"
+    icon: mdi:flash-triangle-outline
+  hba_marstek_m2_max_discharge_power:
+    name: "M2 max discharge power"
+    min: 0
+    max: 2500
+    step: 50
+    mode: box
+    unit_of_measurement: "W"
+    icon: mdi:flash-triangle-outline
+  hba_marstek_m3_max_charge_power:
+    name: "M3 max charge power"
+    min: 0
+    max: 2500
+    step: 50
+    mode: box
+    unit_of_measurement: "W"
+    icon: mdi:flash-triangle-outline
+  hba_marstek_m3_max_discharge_power:
+    name: "M3 max discharge power"
+    min: 0
+    max: 2500
+    step: 50
+    mode: box
+    unit_of_measurement: "W"
+    icon: mdi:flash-triangle-outline
+  hba_marstek_m4_max_charge_power:
+    name: "M4 max charge power"
+    min: 0
+    max: 2500
+    step: 50
+    mode: box
+    unit_of_measurement: "W"
+    icon: mdi:flash-triangle-outline
+  hba_marstek_m4_max_discharge_power:
+    name: "M4 max discharge power"
+    min: 0
+    max: 2500
+    step: 50
+    mode: box
+    unit_of_measurement: "W"
+    icon: mdi:flash-triangle-outline
+  hba_marstek_m5_max_charge_power:
+    name: "M5 max charge power"
+    min: 0
+    max: 2500
+    step: 50
+    mode: box
+    unit_of_measurement: "W"
+    icon: mdi:flash-triangle-outline
+  hba_marstek_m5_max_discharge_power:
+    name: "M5 max discharge power"
+    min: 0
+    max: 2500
+    step: 50
+    mode: box
+    unit_of_measurement: "W"
+    icon: mdi:flash-triangle-outline
+  hba_marstek_m6_max_charge_power:
+    name: "M6 max charge power"
+    min: 0
+    max: 2500
+    step: 50
+    mode: box
+    unit_of_measurement: "W"
+    icon: mdi:flash-triangle-outline
+  hba_marstek_m6_max_discharge_power:
+    name: "M6 max discharge power"
+    min: 0
+    max: 2500
+    step: 50
+    mode: box
+    unit_of_measurement: "W"
+    icon: mdi:flash-triangle-outline
+  # Per group the most its batteries may charge or discharge together — the breaker
+  # they share (16 A ≈ 3680 W; leave some margin). One value for both directions: the
+  # breaker limits current, not direction. 0 = not set (group inactive, banner).
+  hba_power_group_a_max_power:
+    name: "Power group A max power"
+    min: 0
+    max: 11000
+    step: 50
+    mode: box
+    unit_of_measurement: "W"
+    icon: mdi:fuse
+  hba_power_group_b_max_power:
+    name: "Power group B max power"
+    min: 0
+    max: 11000
+    step: 50
+    mode: box
+    unit_of_measurement: "W"
+    icon: mdi:fuse
+  hba_power_group_c_max_power:
+    name: "Power group C max power"
+    min: 0
+    max: 11000
+    step: 50
+    mode: box
+    unit_of_measurement: "W"
+    icon: mdi:fuse
+
 input_text:
   hba_strategy_active_flow:
     name: "Active strategy flow"
@@ -626,6 +935,44 @@ input_text:
     name: "Solar-aware detailed forecast (entity_id)"
     max: 100
     icon: mdi:sun-clock
+  # Planned strategy: price sensor for SELLING (prices attribute like Frank, e.g.
+  # sensor.frank_energie_prices_current_electricity_market_price from 2027). Empty = the
+  # buy price (input_text.hba_strategy_dynamic_frank_sensor_entity_id), as under net metering.
+  hba_strategy_planned_sell_price_entity_id:
+    name: "Planned: sell price sensor (entity_id)"
+    max: 100
+    icon: mdi:cash-plus
+  # Days the car is usually home in daytime, e.g. "Sat,Sun". Empty = Sat,Sun, none = never.
+  hba_strategy_planned_car_home_days:
+    name: "Planned: car home in daytime on"
+    max: 60
+    icon: mdi:calendar-week
+  # Solar production in W (positive = producing), up to two inverters (e.g. SolarEdge +
+  # Enphase), summed. Only used for the house-load profile (sensor.hba_house_load_profile):
+  # house = grid + battery + solar - EV. Same idea as the EV project's ev_solar_power_entity_1/2.
+  hba_solar_power_entity_1:
+    name: "Solar power sensor 1 (entity_id, W)"
+    max: 100
+    icon: mdi:solar-power
+  hba_solar_power_entity_2:
+    name: "Solar power sensor 2 (entity_id, W)"
+    max: 100
+    icon: mdi:solar-power
+  # EV charger power in W for the house-load profile (the car is a separate, planned load and is
+  # subtracted). Must have long-term statistics: sensor.ev_charger_power (Charge alongside EV) is
+  # recorder-excluded, so point this at the charger's own sensor (prod: sensor.peblar_ev_charger_power).
+  # Empty = sensor.ev_charger_power.
+  hba_ev_charger_power_entity_id:
+    name: "EV charger power sensor (entity_id, W)"
+    max: 100
+    icon: mdi:ev-station
+  # EV charger energy meter in kWh (a counter that only goes up, e.g. the Peblar's lifetime energy,
+  # sensor.peblar_ev_charger_lifetime_energy). Planned stops a car hour once the planned kWh are in
+  # (sensor.hba_ev_hour_energy). Empty = a car hour runs until the car's limit or the end of the hour.
+  hba_ev_charger_energy_entity_id:
+    name: "EV charger energy meter (entity_id, kWh)"
+    max: 100
+    icon: mdi:meter-electric-outline
   hba_notify_entity_id:
     name: "Notify entity_id"
     max: 100
@@ -650,7 +997,7 @@ input_select:
       - "Self-consumption"
       - "Timed"
       - "Dynamic"
-      - "Dynamic v2"
+      - "Planned"
       - "Charge"
       - "Charge PV"
       - "Sell"
@@ -674,15 +1021,27 @@ input_select:
   #                          charger without battery awareness would see its
   #                          surplus shrink and back off — pick Full stop or
   #                          Standby with such a setup.
+  #   Charge alongside EV  — the normal strategy keeps running (it decides WHETHER the
+  #                          batteries charge, e.g. a cheap hour), but never discharges
+  #                          into the car. Who gets priority on the connection depends on
+  #                          the energy in the batteries: below
+  #                          input_number.hba_ev_battery_priority_energy the batteries
+  #                          charge at full power and an EV charger with its own load
+  #                          balancing (CT clamps at the grid connection) slows the car
+  #                          down; above it the batteries only take what is left under
+  #                          input_number.hba_ev_phase_current_limit per phase, so the
+  #                          car keeps its speed. Needs the phase of each battery.
   hba_control_strategy_during_ev_charge:
     name: "Strategy during EV charge"
     options:
       - "Full stop"
       - "Standby / peak shave"
       - "Charge PV"
+      - "Charge alongside EV"
     icon: mdi:car-electric-outline
   # PID presets. The four everyday presets use Kp 0.35 / Kd 0.1 / damping 20-10 and
-  # differ ONLY in Ki. "Low peak (grid limit)" is the exception -- see below.
+  # differ ONLY in Ki: Very safe 0.15 / Safe 0.22 / Regular 0.30 / Responsive 0.40.
+  # "Low peak (grid limit)" is the exception -- see below.
   #
   # Kp 0.35 is the MEASURED optimum, bracketed on both sides against a real 2250 W
   # load on production (Ki held at 0.22): cost per disturbance 0.74 / 0.61 / 0.71 ct
@@ -766,17 +1125,63 @@ input_select:
       - "Zero import"
       - "Standby / peak shave"
     icon: mdi:clock-end
+  hba_strategy_timed_strat_d:
+    name: "Timed strategy period D"
+    options:
+      - "Full stop"
+      - "Self-consumption"
+      - "Charge"
+      - "Charge PV"
+      - "Sell"
+      - "Zero import"
+      - "Standby / peak shave"
+    icon: mdi:clock-end
+  hba_strategy_timed_strat_e:
+    name: "Timed strategy period E"
+    options:
+      - "Full stop"
+      - "Self-consumption"
+      - "Charge"
+      - "Charge PV"
+      - "Sell"
+      - "Zero import"
+      - "Standby / peak shave"
+    icon: mdi:clock-end
+  # History for the house-load profile. Whole weeks keep weekdays and weekend in the same
+  # mix; the default comes first so a new install starts on it.
+  # Override for the next day; back to Auto at 08:00
+  hba_strategy_planned_car_tomorrow:
+    name: "Planned: car tomorrow"
+    options:
+      - "Auto"
+      - "Home"
+      - "Away"
+    icon: mdi:car-clock
+  # Normal skipped by the evening question or by hand. Minimum always stays. Back to Auto at
+  # departure; "until home day" at the departure of the next day the car is home.
+  hba_strategy_planned_car_normal_tonight:
+    name: "Planned: car Normal coming night"
+    options:
+      - "Auto"
+      - "Skip tonight"
+      - "Skip until home day"
+    icon: mdi:car-clock
+
+  hba_house_load_window:
+    name: "House load history"
+    options:
+      - "2 weeks"
+      - "1 week"
+      - "3 weeks"
+      - "4 weeks"
+    icon: mdi:calendar-range
   hba_strategy_dynamic_data_source:
     name: "Dynamic pricing source"
+    # Only Frank Energie until other providers are added to
+    # sensor.hba_energy_prices_data (they were only supported by the removed v1
+    # strategy, through the Cheapest Energy Hours HACS macro). On HBA's to-do.
     options:
-      - "Zonneplan"
-      - "Tibber"
-      - "Nordpool"
-      - "PVPC"
-      - "Octopus Energy"
-      - "Energi Data Service"
       - "Frank Energie"
-      - "ENTSOE"
     icon: mdi:chart-line
   hba_strategy_dynamic_default:
     name: "Dynamic fallback strategy"
@@ -824,6 +1229,7 @@ input_select:
       - "Full stop"
       - "Self-consumption"
       - "Charge PV"
+      - "Charge PV — use battery if the sun refills it"
       - "Sell"
       - "Zero import"
       - "Standby / peak shave"
@@ -843,18 +1249,100 @@ input_select:
   hba_control_priority_change_interval:
     name: "Priority battery change interval"
     options:
+      # HBA-only: order by SoC every 30 min (sensor.hba_battery_order). First, so a
+      # fresh install starts with it (HBA default; HBC's is the plain rotation below).
+      - "Auto balance (SoC)"
       - "Auto balance"
       - "Weekly"
       - "Daily"
       - "Never"
     icon: mdi:rotate-right
+  # Phase each battery is connected to (single-phase inverters). Used by "Charge
+  # alongside EV" to keep each phase under the limit; "Not set" counts a battery
+  # against every phase (safe, but it gets the least room).
+  hba_marstek_m1_phase:
+    name: "M1 phase"
+    options: ["Not set", "L1", "L2", "L3"]
+    icon: mdi:sine-wave
+  hba_marstek_m2_phase:
+    name: "M2 phase"
+    options: ["Not set", "L1", "L2", "L3"]
+    icon: mdi:sine-wave
+  hba_marstek_m3_phase:
+    name: "M3 phase"
+    options: ["Not set", "L1", "L2", "L3"]
+    icon: mdi:sine-wave
+  hba_marstek_m4_phase:
+    name: "M4 phase"
+    options: ["Not set", "L1", "L2", "L3"]
+    icon: mdi:sine-wave
+  hba_marstek_m5_phase:
+    name: "M5 phase"
+    options: ["Not set", "L1", "L2", "L3"]
+    icon: mdi:sine-wave
+  hba_marstek_m6_phase:
+    name: "M6 phase"
+    options: ["Not set", "L1", "L2", "L3"]
+    icon: mdi:sine-wave
+  # Power group per battery. "Own" (first option = what a new install gets) leaves the
+  # battery's limit registers alone — exactly the behaviour before power groups.
+  hba_marstek_m1_power_group:
+    name: "M1 power group"
+    options: ["Own", "A", "B", "C"]
+    icon: mdi:fuse
+  hba_marstek_m2_power_group:
+    name: "M2 power group"
+    options: ["Own", "A", "B", "C"]
+    icon: mdi:fuse
+  hba_marstek_m3_power_group:
+    name: "M3 power group"
+    options: ["Own", "A", "B", "C"]
+    icon: mdi:fuse
+  hba_marstek_m4_power_group:
+    name: "M4 power group"
+    options: ["Own", "A", "B", "C"]
+    icon: mdi:fuse
+  hba_marstek_m5_power_group:
+    name: "M5 power group"
+    options: ["Own", "A", "B", "C"]
+    icon: mdi:fuse
+  hba_marstek_m6_power_group:
+    name: "M6 power group"
+    options: ["Own", "A", "B", "C"]
+    icon: mdi:fuse
+  # How a group shares its max power over its batteries:
+  #   Follow battery order — (default) the group's battery that HBA uses first right now
+  #                  (Auto balance (SoC) order, else the priority rotation) gets as much
+  #                  as it can, the others the rest. HBA fills batteries one by one, so
+  #                  this lets one battery run up to its max before a second one starts:
+  #                  each running battery costs a fixed ~20-25 W (prod 2026-10-24:
+  #                  discharge efficiency ~58-74 % below 200 W, 87-90 % at 200-500 W,
+  #                  93-94 % from 500 W up to 2500 W). It hands over to the next first
+  #                  battery only when that one is 5 SoC points further along (or the
+  #                  leader is full / empty) — fewer EEPROM rewrites of the limits
+  #   Equal        — the same share each (never above a battery's own max power); a
+  #                  full (charging) or empty (discharging) battery hands its share on
+  #   One at a time — one battery gets as much as it can, the others the rest; it keeps
+  #                  that until it is full / empty
+  hba_power_group_a_policy:
+    name: "Power group A spread policy"
+    options: ["Follow battery order", "Equal", "One at a time"]
+    icon: mdi:call-split
+  hba_power_group_b_policy:
+    name: "Power group B spread policy"
+    options: ["Follow battery order", "Equal", "One at a time"]
+    icon: mdi:call-split
+  hba_power_group_c_policy:
+    name: "Power group C spread policy"
+    options: ["Follow battery order", "Equal", "One at a time"]
+    icon: mdi:call-split
 
 template:
   - sensor:
       - name: "HBA Version"
         unique_id: hba_version
         icon: mdi:tag
-        state: "v4.10.1-r21"
+        state: "v4.10.1-r23"
 
       - name: "HBA Active strategy"
         unique_id: hba_active_strategy
@@ -904,16 +1392,21 @@ template:
       - name: "HBA Time Remaining"
         unique_id: hba_time_remaining
         icon: mdi:timer
+        # Discharging: time until the batteries reach their cutoffs; charging: time until full;
+        # otherwise Idle. It said "Charging" whenever the batteries were not discharging, also
+        # while idle (dashboard review 2026-10-25). sensor.hba_total_battery_power: + = discharge.
         state: >
-          {% set power = [states('sensor.hba_total_battery_power') | float(0), 0] | max %}
-          {% set capacity_kwh = states('sensor.hba_charge_available_energy') | float(0) %}
-          {% if power > 0 and capacity_kwh > 0 %}
-            {% set time_hrs = (capacity_kwh * 1000) / power %}
-            {% set hrs = time_hrs | int %}
-            {% set minutes = ((time_hrs - hrs) * 60) | int %}
-            {{ '{:02}:{:02}'.format(hrs, minutes) }} hours ({{ capacity_kwh | round(2) }} kWh)
+          {% set power = states('sensor.hba_total_battery_power') | float(0) %}
+          {% set avail = states('sensor.hba_charge_available_energy') | float(0) %}
+          {% set usable = states('sensor.hba_usable_battery_energy') | float(0) %}
+          {% if power > 50 and avail > 0 %}
+            {% set t = (avail * 1000) / power %}
+            {{ '{:d}:{:02d}'.format(t | int, ((t - (t | int)) * 60) | int) }} h to empty ({{ avail | round(1) }} kWh)
+          {% elif power < -50 and usable > avail %}
+            {% set t = ((usable - avail) * 1000) / (-power) %}
+            {{ '{:d}:{:02d}'.format(t | int, ((t - (t | int)) * 60) | int) }} h to full ({{ avail | round(1) }} kWh)
           {% else %}
-            Charging ({{ capacity_kwh | round(2) }} kWh)
+            Idle ({{ avail | round(1) }} kWh)
           {% endif %}
 
       - name: "HBA Charge Remaining Energy"
@@ -975,9 +1468,16 @@ template:
         state: >
           {% set count = states('input_number.hba_battery_count') | int(1) %}
           {% set ns = namespace(total=0) %}
+          {#- A read-back of 0 after a battery restart: use its last known limit -#}
+          {% set lk = state_attr('sensor.hba_power_limits', 'last_known_charge') %}
+          {% set lk = lk if lk is mapping else {} %}
           {% for i in range(1, count + 1) %}
             {% set pw = states('number.marstek_m' ~ i ~ '_max_charge_power') | float(0) %}
-            {% set ns.total = ns.total + (pw if pw > 50 else 2500) %}
+            {% set pw = pw if pw > 50 else (lk[i | string] if (i | string) in lk else 2500) %}
+            {#- capped at what the BMS allows now (see hba_set_batteries) -#}
+            {% set bms_a = states('sensor.marstek_m' ~ i ~ '_battery_charge_current_limit') | float(-1) %}
+            {% set volt = states('sensor.marstek_m' ~ i ~ '_battery_voltage') | float(0) %}
+            {% set ns.total = ns.total + ([pw, (bms_a * volt) | int] | min if bms_a >= 0 and volt > 40 else pw) %}
           {% endfor %}
           {{ ns.total | int }}
 
@@ -990,9 +1490,12 @@ template:
         state: >
           {% set count = states('input_number.hba_battery_count') | int(1) %}
           {% set ns = namespace(total=0) %}
+          {#- A read-back of 0 after a battery restart: use its last known limit -#}
+          {% set lk = state_attr('sensor.hba_power_limits', 'last_known_discharge') %}
+          {% set lk = lk if lk is mapping else {} %}
           {% for i in range(1, count + 1) %}
             {% set pw = states('number.marstek_m' ~ i ~ '_max_discharge_power') | float(0) %}
-            {% set ns.total = ns.total + (pw if pw > 50 else 2500) %}
+            {% set ns.total = ns.total + (pw if pw > 50 else (lk[i | string] if (i | string) in lk else 2500)) %}
           {% endfor %}
           {{ ns.total | int }}
 
@@ -1009,15 +1512,6 @@ template:
             {% set ns.total = ns.total + states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') | float(0) %}
           {% endfor %}
           {{ (ns.total / count) | round(1) }}
-
-      - name: "HBA Estimated Profit per kWh"
-        unique_id: hba_estimated_profit_per_kwh
-        unit_of_measurement: "ct/kWh"
-        icon: mdi:currency-eur
-        state: >
-          {% set delta = states('input_number.hba_strategy_dynamic_expensive_avg_delta') | float(0) %}
-          {% set threshold = states('input_number.hba_strategy_dynamic_threshold_delta') | float(0) %}
-          {{ [delta - threshold, 0] | max | round(2) }}
 
       # ── Solar forecast distribution sensors (used by Charge → solar forecast goal cards)
       - name: "HBA Solar Forecast Today"
@@ -1040,6 +1534,20 @@ template:
           {% set e = states('input_text.hba_strategy_solar_forecast_tomorrow_entity_id') | trim %}
           {{ states(e) | float(0) if e not in ['', 'unknown', 'unavailable'] else 0 }}
 
+      # Single source for today's solar surplus (charge target, distribution card,
+      # "covers battery" and the Charge script all read it).
+      #
+      # The house reserve is a WHOLE-DAY amount but the charge goal uses the REMAINING
+      # forecast, so it is scaled by the share of today's sun still to come:
+      #   reserve_now = reserve x remaining / whole_day
+      # Subtracting the full reserve from a shrinking remaining forecast made the target
+      # run away during the day (prod 2026-10-01: 12.0 -> 18.0 kWh while the sun filled
+      # the battery 9.4 -> 13.1 kWh) until any cheap afternoon slot charged from grid.
+      # Scaled, target and available move together (shortfall 2.6 / 2.3 / 3.3 kWh at
+      # 07 / 12 / 15 h that day). Before sunrise remaining == whole day, so nothing
+      # changes then. Whole-day figure: the Solar-aware forecast entity (needs
+      # ..._forecast_today); unset or identical to the remaining entity -> ratio 1, i.e.
+      # the previous behaviour.
       - name: "HBA Solar Forecast Surplus Today"
         unique_id: hba_solar_forecast_surplus_today
         unit_of_measurement: kWh
@@ -1048,9 +1556,26 @@ template:
         icon: mdi:solar-power-variant
         state: >
           {% set e = states('input_text.hba_strategy_solar_forecast_entity_id') | trim %}
-          {% set forecast = states(e) | float(0) if e not in ['', 'unknown', 'unavailable'] else 0 %}
-          {% set reserved = states('input_number.hba_solar_reserved_for_house') | float(5) %}
-          {{ [forecast - reserved, 0] | max | round(2) }}
+          {% set remaining = states(e) | float(0) if e not in ['', 'unknown', 'unavailable'] else 0 %}
+          {% set w = states('input_text.hba_strategy_solar_aware_forecast_entity_id') | trim %}
+          {% set whole = states(w) | float(0) if w not in ['', 'unknown', 'unavailable', e] else 0 %}
+          {% set ratio = ([remaining / whole, 1] | min) if whole > 0 else 1 %}
+          {% set reserved = states('input_number.hba_solar_reserved_for_house') | float(5) * ratio %}
+          {{ [remaining - reserved, 0] | max | round(2) }}
+        attributes:
+          house_reserve_remaining: >
+            {% set e = states('input_text.hba_strategy_solar_forecast_entity_id') | trim %}
+            {% set remaining = states(e) | float(0) if e not in ['', 'unknown', 'unavailable'] else 0 %}
+            {% set w = states('input_text.hba_strategy_solar_aware_forecast_entity_id') | trim %}
+            {% set whole = states(w) | float(0) if w not in ['', 'unknown', 'unavailable', e] else 0 %}
+            {% set ratio = ([remaining / whole, 1] | min) if whole > 0 else 1 %}
+            {{ (states('input_number.hba_solar_reserved_for_house') | float(5) * ratio) | round(2) }}
+          remaining_share: >
+            {% set e = states('input_text.hba_strategy_solar_forecast_entity_id') | trim %}
+            {% set remaining = states(e) | float(0) if e not in ['', 'unknown', 'unavailable'] else 0 %}
+            {% set w = states('input_text.hba_strategy_solar_aware_forecast_entity_id') | trim %}
+            {% set whole = states(w) | float(0) if w not in ['', 'unknown', 'unavailable', e] else 0 %}
+            {{ (([remaining / whole, 1] | min) if whole > 0 else 1) | round(3) }}
 
       - name: "HBA Solar Forecast Surplus Tomorrow"
         unique_id: hba_solar_forecast_surplus_tomorrow
@@ -1064,12 +1589,14 @@ template:
           {% set reserved = states('input_number.hba_solar_reserved_for_house') | float(5) %}
           {{ [forecast - reserved, 0] | max | round(2) }}
 
-      - name: "HBA Charge Target Energy"
-        unique_id: hba_charge_target_energy
+      # Usable capacity between the per-battery cutoffs -- single source for the charge
+      # target, the distribution card and "surplus covers battery".
+      - name: "HBA Usable Battery Energy"
+        unique_id: hba_usable_battery_energy
         unit_of_measurement: kWh
         device_class: energy_storage
         state_class: measurement
-        icon: mdi:battery-arrow-up
+        icon: mdi:battery-high
         state: >
           {% set count = states('input_number.hba_battery_count') | int(1) %}
           {% set ns = namespace(energy_max=0) %}
@@ -1079,11 +1606,48 @@ template:
             {% set soc_min = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) %}
             {% set ns.energy_max = ns.energy_max + (soc_max - soc_min) / 100 * cap %}
           {% endfor %}
+          {{ ns.energy_max | round(2) }}
+
+      # Solar-forecast charge goal: the energy the batteries should hold now (the grid
+      # tops up the difference). Read by the Charge script, binary_sensor.hba_charge_goal_reached
+      # and the Charge/Sell view.
+      # Once today's sun is done (remaining forecast ~0) the next sun is TOMORROW's, so the
+      # target switches to tomorrow's surplus. Today's alone made it "fill completely"
+      # from sunset to midnight (prod 2026-10-01/02: 18 kWh with 29-32 kWh of sun
+      # forecast for the next day) and then drop to 0 when Solcast rolled over -- a cheap
+      # evening slot would have bought ~10 kWh the sun replaces anyway. After midnight
+      # "today" is that same day again, so the evening now matches the night.
+      # Only switches when both forecast entities are set; otherwise today, as before.
+      # Afternoon only: a dark day's ~0 forecast must not switch in the morning.
+      - name: "HBA Charge Target Energy"
+        unique_id: hba_charge_target_energy
+        unit_of_measurement: kWh
+        device_class: energy_storage
+        state_class: measurement
+        icon: mdi:battery-arrow-up
+        state: >
           {% set e = states('input_text.hba_strategy_solar_forecast_entity_id') | trim %}
-          {% set forecast = states(e) | float(0) if e not in ['', 'unknown', 'unavailable'] else 0 %}
-          {% set threshold = states('input_number.hba_solar_reserved_for_house') | float(5) %}
-          {% set solar_surplus = [forecast - threshold, 0] | max %}
-          {{ [ns.energy_max - solar_surplus, 0] | max | round(2) }}
+          {% set t = states('input_text.hba_strategy_solar_forecast_tomorrow_entity_id') | trim %}
+          {% set sun_done = e not in ['', 'unknown', 'unavailable'] and t not in ['', 'unknown', 'unavailable']
+                            and states(e) | float(-1) >= 0 and states(e) | float(-1) < 0.1 and now().hour >= 12 %}
+          {% set usable = states('sensor.hba_usable_battery_energy') | float(0) %}
+          {% set surplus = states('sensor.hba_solar_forecast_surplus_' ~ ('tomorrow' if sun_done else 'today')) | float(0) %}
+          {{ [usable - surplus, 0] | max | round(2) }}
+        attributes:
+          # 'today' or 'tomorrow': whose sun the target counts on.
+          forecast_day: >
+            {% set e = states('input_text.hba_strategy_solar_forecast_entity_id') | trim %}
+            {% set t = states('input_text.hba_strategy_solar_forecast_tomorrow_entity_id') | trim %}
+            {% set sun_done = e not in ['', 'unknown', 'unavailable'] and t not in ['', 'unknown', 'unavailable']
+                              and states(e) | float(-1) >= 0 and states(e) | float(-1) < 0.1 and now().hour >= 12 %}
+            {{ 'tomorrow' if sun_done else 'today' }}
+          # The solar surplus behind the target (kWh).
+          solar_surplus: >
+            {% set e = states('input_text.hba_strategy_solar_forecast_entity_id') | trim %}
+            {% set t = states('input_text.hba_strategy_solar_forecast_tomorrow_entity_id') | trim %}
+            {% set sun_done = e not in ['', 'unknown', 'unavailable'] and t not in ['', 'unknown', 'unavailable']
+                              and states(e) | float(-1) >= 0 and states(e) | float(-1) < 0.1 and now().hour >= 12 %}
+            {{ states('sensor.hba_solar_forecast_surplus_' ~ ('tomorrow' if sun_done else 'today')) | float(0) }}
 
       - name: "HBA Charge Grid Energy Portion"
         unique_id: hba_charge_grid_energy_portion
@@ -1092,21 +1656,9 @@ template:
         state_class: measurement
         icon: mdi:transmission-tower
         state: >
-          {% set count = states('input_number.hba_battery_count') | int(1) %}
-          {% set ns = namespace(energy_max=0) %}
-          {% for i in range(1, count + 1) %}
-            {% set cap = states('sensor.marstek_m' ~ i ~ '_battery_total_energy') | float(0) %}
-            {% set soc_max = states('input_number.hba_marstek_m' ~ i ~ '_charging_cutoff_capacity') | float(100) %}
-            {% set soc_min = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) %}
-            {% set ns.energy_max = ns.energy_max + (soc_max - soc_min) / 100 * cap %}
-          {% endfor %}
-          {% set e = states('input_text.hba_strategy_solar_forecast_entity_id') | trim %}
-          {% set forecast = states(e) | float(0) if e not in ['', 'unknown', 'unavailable'] else 0 %}
-          {% set threshold = states('input_number.hba_solar_reserved_for_house') | float(5) %}
-          {% set solar_surplus = [forecast - threshold, 0] | max %}
-          {% set energy_desired = [ns.energy_max - solar_surplus, 0] | max %}
+          {% set target = states('sensor.hba_charge_target_energy') | float(0) %}
           {% set available = states('sensor.hba_charge_available_energy') | float(0) %}
-          {{ [energy_desired - available, 0] | max | round(2) }}
+          {{ [target - available, 0] | max | round(2) }}
 
       - name: "HBA Charge Solar Energy Portion"
         unique_id: hba_charge_solar_energy_portion
@@ -1115,22 +1667,11 @@ template:
         state_class: measurement
         icon: mdi:solar-power
         state: >
-          {% set count = states('input_number.hba_battery_count') | int(1) %}
-          {% set ns = namespace(energy_max=0) %}
-          {% for i in range(1, count + 1) %}
-            {% set cap = states('sensor.marstek_m' ~ i ~ '_battery_total_energy') | float(0) %}
-            {% set soc_max = states('input_number.hba_marstek_m' ~ i ~ '_charging_cutoff_capacity') | float(100) %}
-            {% set soc_min = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) %}
-            {% set ns.energy_max = ns.energy_max + (soc_max - soc_min) / 100 * cap %}
-          {% endfor %}
-          {% set e = states('input_text.hba_strategy_solar_forecast_entity_id') | trim %}
-          {% set forecast = states(e) | float(0) if e not in ['', 'unknown', 'unavailable'] else 0 %}
-          {% set threshold = states('input_number.hba_solar_reserved_for_house') | float(5) %}
-          {% set solar_surplus = [forecast - threshold, 0] | max %}
-          {% set charge_target = [ns.energy_max - solar_surplus, 0] | max %}
+          {% set usable = states('sensor.hba_usable_battery_energy') | float(0) %}
+          {% set target = states('sensor.hba_charge_target_energy') | float(0) %}
           {% set available = states('sensor.hba_charge_available_energy') | float(0) %}
-          {% set filled = [charge_target, available] | max %}
-          {{ [ns.energy_max - filled, 0] | max | round(2) if ns.energy_max > 0 else 0 }}
+          {% set filled = [target, available] | max %}
+          {{ [usable - filled, 0] | max | round(2) if usable > 0 else 0 }}
 
   - binary_sensor:
       - name: "HBA EV Is Active"
@@ -1139,20 +1680,6 @@ template:
         state: >
           {% set e = states('input_text.hba_strategy_ev_sensor_entity_id') | trim %}
           {{ states(e) == 'on' if e not in ['', 'unknown', 'unavailable'] else false }}
-      - name: "HBA Dynamic Cheap Threshold Met"
-        unique_id: hba_dynamic_cheap_threshold_met
-        icon: mdi:check-circle
-        state: >
-          {% set avg = states('input_number.hba_strategy_dynamic_cheapest_avg_tariff') | float(999) %}
-          {% set threshold = states('input_number.hba_strategy_dynamic_threshold_cheapest_period') | float(0) %}
-          {{ avg <= threshold }}
-      - name: "HBA Dynamic Expensive Threshold Met"
-        unique_id: hba_dynamic_expensive_threshold_met
-        icon: mdi:check-circle
-        state: >
-          {% set delta = states('input_number.hba_strategy_dynamic_expensive_avg_delta') | float(0) %}
-          {% set threshold = states('input_number.hba_strategy_dynamic_threshold_delta') | float(0) %}
-          {{ delta >= threshold }}
       - name: "HBA Is Charging"
         unique_id: hba_is_charging
         device_class: battery_charging
@@ -1162,36 +1689,14 @@ template:
         unique_id: hba_solar_surplus_covers_battery_capacity
         icon: mdi:solar-power
         state: >
-          {% set count = states('input_number.hba_battery_count') | int(1) %}
-          {% set ns = namespace(energy_max=0) %}
-          {% for i in range(1, count + 1) %}
-            {% set cap = states('sensor.marstek_m' ~ i ~ '_battery_total_energy') | float(0) %}
-            {% set soc_max = states('input_number.hba_marstek_m' ~ i ~ '_charging_cutoff_capacity') | float(100) %}
-            {% set soc_min = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) %}
-            {% set ns.energy_max = ns.energy_max + (soc_max - soc_min) / 100 * cap %}
-          {% endfor %}
-          {% set e = states('input_text.hba_strategy_solar_forecast_entity_id') | trim %}
-          {% set forecast = states(e) | float(0) if e not in ['', 'unknown', 'unavailable'] else 0 %}
-          {% set threshold = states('input_number.hba_solar_reserved_for_house') | float(5) %}
-          {% set solar_surplus = [forecast - threshold, 0] | max %}
-          {{ solar_surplus >= ns.energy_max }}
+          {{ states('sensor.hba_solar_forecast_surplus_today') | float(0)
+             >= states('sensor.hba_usable_battery_energy') | float(0) }}
       - name: "HBA Solar Surplus Covers Battery Capacity Tomorrow"
         unique_id: hba_solar_surplus_covers_battery_capacity_tomorrow
         icon: mdi:solar-power
         state: >
-          {% set count = states('input_number.hba_battery_count') | int(1) %}
-          {% set ns = namespace(energy_max=0) %}
-          {% for i in range(1, count + 1) %}
-            {% set cap = states('sensor.marstek_m' ~ i ~ '_battery_total_energy') | float(0) %}
-            {% set soc_max = states('input_number.hba_marstek_m' ~ i ~ '_charging_cutoff_capacity') | float(100) %}
-            {% set soc_min = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) %}
-            {% set ns.energy_max = ns.energy_max + (soc_max - soc_min) / 100 * cap %}
-          {% endfor %}
-          {% set e = states('input_text.hba_strategy_solar_forecast_tomorrow_entity_id') | trim %}
-          {% set forecast = states(e) | float(0) if e not in ['', 'unknown', 'unavailable'] else 0 %}
-          {% set threshold = states('input_number.hba_solar_reserved_for_house') | float(5) %}
-          {% set solar_surplus = [forecast - threshold, 0] | max %}
-          {{ solar_surplus >= ns.energy_max }}
+          {{ states('sensor.hba_solar_forecast_surplus_tomorrow') | float(0)
+             >= states('sensor.hba_usable_battery_energy') | float(0) }}
       - name: "HBA Charge Goal Reached"
         unique_id: hba_charge_goal_reached
         icon: mdi:battery-check
@@ -1218,23 +1723,86 @@ template:
             {% elif goal == 'energy reserve' %}
               {{ states('sensor.hba_charge_available_energy') | float(0) >= states('input_number.hba_strategy_charge_target_energy') | float(5) }}
             {% elif goal == 'solar forecast' %}
-              {% set ns2 = namespace(energy_max=0) %}
-              {% for i in range(1, count + 1) %}
-                {% set cap = states('sensor.marstek_m' ~ i ~ '_battery_total_energy') | float(0) %}
-                {% set soc_max = states('input_number.hba_marstek_m' ~ i ~ '_charging_cutoff_capacity') | float(100) %}
-                {% set soc_min = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) %}
-                {% set ns2.energy_max = ns2.energy_max + (soc_max - soc_min) / 100 * cap %}
-              {% endfor %}
-              {% set e_today = states('input_text.hba_strategy_solar_forecast_entity_id') | trim %}
-              {% set forecast_kwh = states(e_today) | float(0) if e_today not in ['', 'unknown', 'unavailable'] else 0 %}
-              {% set threshold = states('input_number.hba_solar_reserved_for_house') | float(5) %}
-              {% set solar_surplus = [forecast_kwh - threshold, 0] | max %}
-              {% set energy_desired = [ns2.energy_max - solar_surplus, 0] | max %}
-              {{ states('sensor.hba_charge_available_energy') | float(0) >= energy_desired }}
+              {{ states('sensor.hba_charge_available_energy') | float(0)
+                 >= states('sensor.hba_charge_target_energy') | float(0) }}
             {% else %}
               false
             {% endif %}
           {% endif %}
+      # Charge or Sell chosen by hand is done — for the reminder notifications
+      # (hba_notify_manual_strategy_*). Charge with the solar-forecast goal is only done when
+      # every battery is full: its goal moves every 5 min and reaching it hands over to the
+      # "When done charging" plan (e.g. Charge PV), which is still part of the job. Other goals
+      # are fixed; 10 min delay so a goal touched for a moment does not notify.
+      - name: "HBA Manual Strategy Done"
+        unique_id: hba_manual_strategy_done
+        icon: mdi:flag-checkered
+        delay_on: "00:10:00"
+        state: >-
+          {%- set st = states('input_select.hba_strategy') -%}
+          {%- set n = states('input_number.hba_battery_count') | int(1) -%}
+          {%- set full = state_attr('sensor.hba_power_limits', 'full') or [] -%}
+          {%- set empty = state_attr('sensor.hba_power_limits', 'empty') or [] -%}
+          {%- set all_full = range(1, n + 1) | select('in', full | map('int') | list) | list | length == n -%}
+          {%- set all_empty = range(1, n + 1) | select('in', empty | map('int') | list) | list | length == n -%}
+          {%- if st == 'Charge' -%}
+            {%- if is_state('input_select.hba_strategy_charge_goal', 'solar forecast') -%}
+              {{ all_full }}
+            {%- else -%}
+              {{ all_full or is_state('binary_sensor.hba_charge_goal_reached', 'on') }}
+            {%- endif -%}
+          {%- elif st == 'Sell' -%}
+            {%- set goal = states('input_select.hba_strategy_sell_goal') -%}
+            {%- set reached = (goal == 'state of charge' and states('sensor.hba_average_battery_soc') | float(100)
+                                 <= states('input_number.hba_strategy_sell_target_soc') | float(20))
+                              or (goal == 'energy reserve' and states('sensor.hba_charge_available_energy') | float(100)
+                                 <= states('input_number.hba_strategy_sell_target_energy') | float(2)) -%}
+            {{ all_empty or reached }}
+          {%- else -%}
+            false
+          {%- endif -%}
+
+      # Charge or Sell has been selected for an hour or more (Overview reminder banner),
+      # counted from sensor.hba_manual_strategy_since so an HA restart does not reset it.
+      - name: "HBA Manual Strategy Long"
+        unique_id: hba_manual_strategy_long
+        icon: mdi:timer-alert-outline
+        state: >-
+          {%- set s = as_datetime(states('sensor.hba_manual_strategy_since')) -%}
+          {{ states('input_select.hba_strategy') in ['Charge', 'Sell'] and s is not none
+             and (now() - s).total_seconds() >= 3600 }}
+
+      # Watchdog: in Full control the control loop starts a cycle on every P1 update (~1 s).
+      # No new cycle for 90 s = stalled: either one cycle hangs (a battery whose Modbus link
+      # dropped mid-write — the loop waits until that hub reconnects, up to ~10 min, prod
+      # 2026-10-02 and 2026-10-25) or the P1 meter stopped updating. The batteries keep their
+      # last command meanwhile. Watch only — changes nothing in the control loop. now()
+      # re-renders this once a minute, so it turns on 90–150 s into a stall.
+      - name: "HBA Control Loop Stalled"
+        unique_id: hba_control_loop_stalled
+        device_class: problem
+        icon: mdi:timer-sand-paused
+        state: >-
+          {#- Full control for 90 s too: right after switching to it, or after an HA start, the
+              loop's last cycle can be old although nothing is wrong. -#}
+          {%- set lt = state_attr('automation.hba_control_loop_p1_meter_triggered', 'last_triggered') -%}
+          {%- set mm = states.input_select.hba_marstek_master_battery_mode -%}
+          {{ mm is not none and mm.state == 'Full control'
+             and (now() - mm.last_changed).total_seconds() > 90
+             and lt is not none and (now() - lt).total_seconds() > 90 }}
+        attributes:
+          seconds_since_cycle: >-
+            {%- set lt = state_attr('automation.hba_control_loop_p1_meter_triggered', 'last_triggered') -%}
+            {{ ((now() - lt).total_seconds()) | int if lt is not none else none }}
+          p1_updating: >-
+            {%- set p = states.sensor.p1_meter_power -%}
+            {{ p is not none and (now() - p.last_reported).total_seconds() < 60 }}
+
+      # A battery is offline when Modbus lost it (inverter_state unavailable) OR its link
+      # hangs: battery_power (polled every 10 s) has not reported for 30+ s. A hung link
+      # (prod 2026-10-02, M3 cable) stays "available" for ~10 min while HA waits on it;
+      # HBA already skips such a battery (hba_write_battery). now() re-renders this each
+      # minute; the notification adds its own 3 minutes.
       - name: "HBA Any Battery Offline"
         unique_id: hba_any_battery_offline
         icon: mdi:battery-alert
@@ -1243,11 +1811,213 @@ template:
           {% set ns = namespace(offline=false) %}
           {% for i in range(1, count + 1) %}
             {% set inv = states('sensor.marstek_m' ~ i ~ '_inverter_state') %}
-            {% if inv in ['unavailable', 'unknown', ''] %}
+            {% set hb = states.sensor['marstek_m' ~ i ~ '_battery_power'] %}
+            {% set silent = hb is none or hb.state in ['unavailable', 'unknown']
+                            or (now() - hb.last_reported).total_seconds() > 30 %}
+            {% if inv in ['unavailable', 'unknown', ''] or silent %}
               {% set ns.offline = true %}
             {% endif %}
           {% endfor %}
           {{ ns.offline }}
+        attributes:
+          # e.g. "M3" -- read by the banners and the notification.
+          batteries: >
+            {% set count = states('input_number.hba_battery_count') | int(1) %}
+            {% set ns = namespace(off=[]) %}
+            {% for i in range(1, count + 1) %}
+              {% set inv = states('sensor.marstek_m' ~ i ~ '_inverter_state') %}
+              {% set hb = states.sensor['marstek_m' ~ i ~ '_battery_power'] %}
+              {% set silent = hb is none or hb.state in ['unavailable', 'unknown']
+                              or (now() - hb.last_reported).total_seconds() > 30 %}
+              {% if inv in ['unavailable', 'unknown', ''] or silent %}
+                {% set ns.off = ns.off + ['M' ~ i] %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.off | join(', ') }}
+
+      # A battery's limit registers still read 0 after a restart although HBA should have
+      # written them back: in a power group (HBA never writes below 100 W there) or in
+      # "Own" with both registers 0 and an earlier value known. Overview banner +
+      # notification (5 min, the restore needs one poll cycle). Not in "Disabled" mode,
+      # where HBA deliberately writes nothing. Same logic twice (state + attribute), as
+      # in HBA Any Battery Offline: a state reading its own attribute lags one update.
+      - name: "HBA Power Limits Not Restored"
+        unique_id: hba_power_limits_not_restored
+        device_class: problem
+        icon: mdi:fuse-alert
+        state: >-
+          {%- set ns = namespace(out=[]) -%}
+          {%- if not is_state('input_select.hba_marstek_master_battery_mode', 'Disabled') -%}
+            {%- set count = states('input_number.hba_battery_count') | int(1) -%}
+            {%- set want = state_attr('sensor.hba_power_limits', 'charge') -%}
+            {%- set want = want if want is mapping and is_state('sensor.hba_power_limits', 'Active') else {} -%}
+            {%- set lc = state_attr('sensor.hba_power_limits', 'last_known_charge') -%}
+            {%- set lc = lc if lc is mapping else {} -%}
+            {%- set ld = state_attr('sensor.hba_power_limits', 'last_known_discharge') -%}
+            {%- set ld = ld if ld is mapping else {} -%}
+            {%- for i in range(1, count + 1) -%}
+              {%- set k = i | string -%}
+              {%- set rc = states('sensor.marstek_m' ~ i ~ '_max_charge_power_number') | float(-1) -%}
+              {%- set rd = states('sensor.marstek_m' ~ i ~ '_max_discharge_power_number') | float(-1) -%}
+              {%- if (k in want and ((0 <= rc <= 50) or (0 <= rd <= 50)))
+                    or (k not in want and rc == 0 and rd == 0 and (k in lc or k in ld)) -%}
+                {%- set ns.out = ns.out + ['M' ~ i] -%}
+              {%- endif -%}
+            {%- endfor -%}
+          {%- endif -%}
+          {{ ns.out | length > 0 }}
+        attributes:
+          # e.g. "M3" -- read by the banner and the notification.
+          batteries: >-
+            {%- set ns = namespace(out=[]) -%}
+            {%- if not is_state('input_select.hba_marstek_master_battery_mode', 'Disabled') -%}
+              {%- set count = states('input_number.hba_battery_count') | int(1) -%}
+              {%- set want = state_attr('sensor.hba_power_limits', 'charge') -%}
+              {%- set want = want if want is mapping and is_state('sensor.hba_power_limits', 'Active') else {} -%}
+              {%- set lc = state_attr('sensor.hba_power_limits', 'last_known_charge') -%}
+              {%- set lc = lc if lc is mapping else {} -%}
+              {%- set ld = state_attr('sensor.hba_power_limits', 'last_known_discharge') -%}
+              {%- set ld = ld if ld is mapping else {} -%}
+              {%- for i in range(1, count + 1) -%}
+                {%- set k = i | string -%}
+                {%- set rc = states('sensor.marstek_m' ~ i ~ '_max_charge_power_number') | float(-1) -%}
+                {%- set rd = states('sensor.marstek_m' ~ i ~ '_max_discharge_power_number') | float(-1) -%}
+                {%- if (k in want and ((0 <= rc <= 50) or (0 <= rd <= 50)))
+                      or (k not in want and rc == 0 and rd == 0 and (k in lc or k in ld)) -%}
+                  {%- set ns.out = ns.out + ['M' ~ i] -%}
+                {%- endif -%}
+              {%- endfor -%}
+            {%- endif -%}
+            {{ ns.out | join(', ') }}
+
+      # Charge goal "solar forecast" followed by a strategy that does not store PV. The goal
+      # only buys what the sun will not fill (usable capacity minus the remaining forecast
+      # surplus), so after it the batteries must take the PV: Self-consumption, Charge PV
+      # (either variant) or Solar-aware. With Full stop, Sell, Zero import (charging
+      # disabled) or Standby (idle) the PV is exported instead; the remaining forecast then
+      # drops, the target rises, and Charge buys it back from the grid in short bursts
+      # (prod 2026-10-28 12:00-13:35, Timed period B: Charge <-> Full stop every 5 min,
+      # ~5 kW import, ~2 kW export in between). A settings mismatch, so it warns whatever
+      # strategy is active -- before a Charge period runs into it. Banner + notification.
+      - name: "HBA Charge Goal Conflict"
+        unique_id: hba_charge_goal_conflict
+        device_class: problem
+        icon: mdi:solar-power-variant-outline
+        state: >-
+          {{ is_state('input_select.hba_strategy_charge_goal', 'solar forecast')
+             and states('input_select.hba_strategy_charge_goal_reached') in ['Full stop', 'Sell', 'Zero import', 'Standby / peak shave'] }}
+        attributes:
+          next_strategy: "{{ states('input_select.hba_strategy_charge_goal_reached') }}"
+
+      # HBA can keep the phases within the limits while the batteries charge alongside the car:
+      # it sees the car charge (EV charging entity) and the phases the batteries are on
+      # (sensor.p1_meter_power_lX, see sensor.hba_phase_room). Then Planned charges alongside
+      # the car whatever input_select.hba_control_strategy_during_ev_charge says (user
+      # 2026-11-05: that setting predates the plan): the plan may Charge in a car hour, capped by
+      # the phase room (car first, main fuse). missing = what is not set up, for the Car section.
+      - name: "HBA EV Alongside Ready"
+        unique_id: hba_ev_alongside_ready
+        icon: mdi:car-battery
+        state: >-
+          {%- set e = states('input_text.hba_strategy_ev_sensor_entity_id') | trim -%}
+          {{ e not in ['', 'unknown', 'unavailable'] and states(e) in ['on', 'off']
+             and state_attr('sensor.hba_phase_room', 'missing_sensors') == '' }}
+        attributes:
+          missing: >-
+            {%- set e = states('input_text.hba_strategy_ev_sensor_entity_id') | trim -%}
+            {%- set m = state_attr('sensor.hba_phase_room', 'missing_sensors') -%}
+            {%- set l = [] if e not in ['', 'unknown', 'unavailable'] and states(e) in ['on', 'off'] else ['the EV charging entity'] -%}
+            {%- set l = l + ([] if m == '' else ['per-phase grid power ' ~ (m if m else 'sensors (sensor.p1_meter_power_l1..l3)')]) -%}
+            {{ l | join(' and ') }}
+
+      # "Charge alongside EV" is in effect: the car charges (EV stop trigger entity on),
+      # the policy is Charge alongside EV (or Planned with binary_sensor.hba_ev_alongside_ready),
+      # no manual Full stop and no Timed EV charge
+      # (that one discharges into the car on purpose). While on, hba_set_batteries never
+      # discharges and self-consumption runs with discharge disabled. Attributes:
+      #   mode       "Batteries first" below input_number.hba_ev_battery_priority_energy
+      #              of usable energy, else "EV first"; always "EV first" in a Planned car
+      #              hour (ev_mode force: the plan counts on the car's full power)
+      # The room per phase lives in sensor.hba_phase_room (recorder-excluded: it changes on
+      # every P1 update; this sensor's history stays useful).
+      - name: "HBA EV Charge Alongside"
+        unique_id: hba_ev_charge_alongside
+        icon: mdi:car-battery
+        state: >-
+          {%- set e = states('input_text.hba_strategy_ev_sensor_entity_id') | trim -%}
+          {%- set ev = e not in ['', 'unknown', 'unavailable'] and states(e) == 'on' -%}
+          {%- set assist = is_state('binary_sensor.hba_battery_assist_active', 'on')
+                           and not is_state('binary_sensor.hba_battery_assist_waiting', 'on') -%}
+          {{ ev and not assist
+             and (is_state('input_select.hba_control_strategy_during_ev_charge', 'Charge alongside EV')
+                  or (is_state('input_select.hba_strategy', 'Planned') and is_state('binary_sensor.hba_ev_alongside_ready', 'on')))
+             and not is_state('input_select.hba_strategy', 'Full stop') }}
+        attributes:
+          # Batteries first below the reserve, EV first again only 0.2 kWh above it: with the
+          # car taking the surplus the energy hovers at the reserve and flipped the priority.
+          # While a battery's SoC is not read yet (HA start, battery offline) the usable energy
+          # reads too low: keep the previous priority instead of jumping to Batteries first.
+          mode: >-
+            {%- set e = states('sensor.hba_charge_available_energy') | float(0) -%}
+            {%- set r = states('input_number.hba_ev_battery_priority_energy') | float(0) -%}
+            {%- set was = is_state_attr('binary_sensor.hba_ev_charge_alongside', 'mode', 'Batteries first') -%}
+            {%- set n = states('input_number.hba_battery_count') | int(1) -%}
+            {%- set q = namespace(ok=true) -%}
+            {%- for i in range(1, n + 1) if not is_number(states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge')) -%}{%- set q.ok = false -%}{%- endfor -%}
+            {%- set ok = q.ok -%}
+            {%- if is_state('binary_sensor.hba_ev_assist', 'on') and is_state_attr('binary_sensor.hba_ev_assist', 'ev_mode', 'force') -%}
+            EV first
+            {%- elif not ok and state_attr('binary_sensor.hba_ev_charge_alongside', 'mode') in ['Batteries first', 'EV first'] -%}
+            {{ state_attr('binary_sensor.hba_ev_charge_alongside', 'mode') }}
+            {%- else -%}
+            {{ 'Batteries first' if e < r or (was and r > 0 and e < r + 0.2) else 'EV first' }}
+            {%- endif -%}
+
+      # For an EV charging controller (ha-smart-ev-charging: ev_home_battery_priority_entity):
+      # on while Charge alongside EV would put the batteries first — usable energy below the
+      # kWh reserve. Unlike hba_ev_charge_alongside it does not wait for the car to charge, so
+      # a solar-surplus EV controller can leave the surplus to the batteries before it starts
+      # the car (otherwise: car starts → flag on → car stops → flag off → car starts …).
+      - name: "HBA Batteries Before EV"
+        unique_id: hba_batteries_before_ev
+        icon: mdi:home-battery
+        # On below the reserve, off again only 0.2 kWh above it (see mode above): each flip
+        # would switch an EV controller's surplus on / off.
+        # (and keeps its state while a battery's SoC is not read yet — HA start, offline).
+        state: >-
+          {%- set e = states('sensor.hba_charge_available_energy') | float(0) -%}
+          {%- set r = states('input_number.hba_ev_battery_priority_energy') | float(0) -%}
+          {%- set was = is_state('binary_sensor.hba_batteries_before_ev', 'on') -%}
+          {%- set n = states('input_number.hba_battery_count') | int(1) -%}
+          {%- set q = namespace(ok=true) -%}
+          {%- for i in range(1, n + 1) if not is_number(states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge')) -%}{%- set q.ok = false -%}{%- endfor -%}
+          {%- set ok = q.ok -%}
+          {%- if not ok and states('binary_sensor.hba_batteries_before_ev') in ['on', 'off'] -%}
+          {{ was }}
+          {%- else -%}
+          {#- Planned in charge of the car (ev_mode solar / wait): the plan decides, not the kWh setting --
+              batteries first until they have what they need (hba_ev_solar_allowed), or while the
+              plan exports the sun (then the car takes only what the batteries leave). -#}
+          {%- set ea = 'binary_sensor.hba_ev_assist' -%}
+          {%- set planned = is_state(ea, 'on') and state_attr(ea, 'ev_mode') in ['solar', 'wait'] -%}
+          {{ (is_state('input_select.hba_control_strategy_during_ev_charge', 'Charge alongside EV')
+              or (is_state('input_select.hba_strategy', 'Planned') and is_state('binary_sensor.hba_ev_alongside_ready', 'on')))
+             and not is_state('input_select.hba_strategy', 'Full stop')
+             and ((state_attr('binary_sensor.hba_ev_solar_allowed', 'reason') not in ['target', 'export']) if planned
+                  else (e < r or (was and r > 0 and e < r + 0.2))) }}
+          {%- endif -%}
+
+      # Setup hint (banner only): a per-phase limit is in use — Charge alongside EV, or the
+      # main fuse limit per phase — but per-phase grid power sensors it needs are missing
+      # (sensor.p1_meter_power_lX, hba_config.yaml). Names them via sensor.hba_phase_room.
+      - name: "HBA Phase Sensors Missing"
+        unique_id: hba_phase_sensors_missing
+        device_class: problem
+        icon: mdi:sine-wave
+        state: >-
+          {{ (is_state('input_select.hba_control_strategy_during_ev_charge', 'Charge alongside EV')
+              or states('input_number.hba_phase_current_limit') | float(0) > 0)
+             and state_attr('sensor.hba_phase_room', 'missing_sensors') not in [none, ''] }}
 
       - name: "HBA Battery Assist Active"
         unique_id: hba_battery_assist_active
@@ -1266,7 +2036,7 @@ template:
           {% set car_ok    = car_e in ['', 'unknown', 'unavailable'] or is_state(car_e, 'on') %}
           {# At least one battery must be individually dischargeable — same
              eligibility as the hba_set_batteries discharge branch (per-battery
-             cutoff + 0.5 buffer, inverter not faulted). The average-SoC check
+             cutoff, inverter not faulted). The average-SoC check
              alone can stay true while every battery is at its own cutoff
              (unbalanced pack, or min_soc <= cutoffs): assist then keeps the EV
              in battery_assist mode charging from grid with 0 W coming from the
@@ -1278,7 +2048,7 @@ template:
             {% set b_soc = states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') | float(0) %}
             {% set b_cut = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) %}
             {% set inv   = states('sensor.marstek_m' ~ i ~ '_inverter_state') %}
-            {% if b_soc > b_cut + 0.5 and inv not in ['Fault', 'unknown', 'unavailable'] %}
+            {% if b_soc > b_cut and inv not in ['Fault', 'unknown', 'unavailable'] and i not in (state_attr('sensor.hba_power_limits', 'latched') or []) %}
               {% set ns.dischargeable = true %}
             {% endif %}
           {% endfor %}
@@ -1287,8 +2057,12 @@ template:
              model above cannot see (e.g. V3 firmware refuses below ~13%
              regardless of the configured cutoff). 'not on' so an unknown
              sensor at startup does not block assist. #}
+          {# A manual Full stop overrides the assist push (hba_run_strategy checks
+             it first), so assist must not stay armed either — the EV would sit in
+             battery_assist mode charging from grid with no battery behind it. #}
           {{ enabled and soc > min_soc and ns.dischargeable and in_window and car_ok
-             and not is_state('binary_sensor.hba_battery_assist_stalled', 'on') }}
+             and not is_state('binary_sensor.hba_battery_assist_stalled', 'on')
+             and not is_state('input_select.hba_strategy', 'Full stop') }}
 
       # Stall watchdog for the Timed EV charge push: ON when assist is actively
       # commanding discharge ("Discharge to EV" is written by exactly one
@@ -1666,7 +2440,8 @@ template:
 
       # ── RS485 mode mismatch ───────────────────────────────────────────────────
       # Turns on (delay_on 30 s) when HBA master mode is Full control but any
-      # configured battery has RS485 control != enable. The battery silently ignores
+      # configured battery has RS485 control != enable (hba_master_mode_periodic_reapply
+      # fixes it within ~10 s of the change, so usually it never turns on). The battery silently ignores
       # all Modbus writes in this state — HBA appears to operate but has no effect.
       # Notification: see hba_notify_rs485_mode_mismatch in hba_strategies_core.yaml.
       - name: "HBA RS485 Mode Mismatch"
@@ -1681,7 +2456,9 @@ template:
             {% set count = states('input_number.hba_battery_count') | int(1) %}
             {% set ns = namespace(mismatch=false) %}
             {% for i in range(1, count + 1) %}
-              {% if states('select.marstek_m' ~ i ~ '_rs485_control_mode') != 'enable' %}
+              {# unknown / unavailable = not read (battery offline): the offline banner covers
+                 that, it is not a mismatch (prod 2026-10-25: M2 power cycle raised both) #}
+              {% if states('select.marstek_m' ~ i ~ '_rs485_control_mode') not in ['enable', 'unknown', 'unavailable'] %}
                 {% set ns.mismatch = true %}
               {% endif %}
             {% endfor %}
@@ -1692,7 +2469,7 @@ template:
             {% set count = states('input_number.hba_battery_count') | int(1) %}
             {% set ns = namespace(result=[]) %}
             {% for i in range(1, count + 1) %}
-              {% if states('select.marstek_m' ~ i ~ '_rs485_control_mode') != 'enable' %}
+              {% if states('select.marstek_m' ~ i ~ '_rs485_control_mode') not in ['enable', 'unknown', 'unavailable'] %}
                 {% set mode = states('select.marstek_m' ~ i ~ '_rs485_control_mode') %}
                 {% set ns.result = ns.result + ['M' ~ i ~ ' (' ~ mode ~ ')'] %}
               {% endif %}
@@ -1705,6 +2482,78 @@ template:
       # newer version: the entity registry keeps the old entity_id (derived from the
       # previous name) and code references the new expected entity_id, causing silent
       # failures. Fix by going to Settings → Entities and renaming the listed entities.
+      # ── Dynamic migration check (r22) ───────────────────────────────────────────
+      # r22 removed Dynamic v1 and renamed Dynamic v2's entities to plain "dynamic".
+      # On an existing install that leaves orphans in the entity registry (shown as
+      # unavailable), and a manual install can keep the old hba_strategy_dynamic_v2.yaml
+      # loading next to the new file. `expand()` returns any entity HA still knows,
+      # orphan or not -- has_value() would hide orphans, since they are unavailable.
+      # The Overview shows a migration banner while this is on.
+      - name: "HBA Dynamic Migration Needed"
+        unique_id: hba_dynamic_migration_needed
+        device_class: problem
+        icon: mdi:swap-horizontal-bold
+        state: >
+          {% set old = [
+            'script.hba_strategy_dynamic_v2',
+            'input_number.hba_strategy_dynamic_v2_max_cheap_hours_per_day',
+            'input_number.hba_strategy_dynamic_v2_max_expensive_hours_per_day',
+            'automation.hba_dynamic_period_calculation',
+            'input_datetime.hba_strategy_dynamic_cheapest_start',
+            'input_datetime.hba_strategy_dynamic_cheapest_end',
+            'input_datetime.hba_strategy_dynamic_expensive_start',
+            'input_datetime.hba_strategy_dynamic_expensive_end',
+            'input_number.hba_strategy_dynamic_cheapest_hrs',
+            'input_number.hba_strategy_dynamic_expensive_hrs',
+            'input_number.hba_strategy_dynamic_threshold_cheapest_period',
+            'input_number.hba_strategy_dynamic_cheapest_avg_tariff',
+            'input_number.hba_strategy_dynamic_expensive_avg_tariff',
+            'input_number.hba_strategy_dynamic_expensive_avg_delta',
+            'sensor.hba_estimated_profit_per_kwh',
+            'binary_sensor.hba_dynamic_cheap_threshold_met',
+            'binary_sensor.hba_dynamic_expensive_threshold_met',
+          ] %}
+          {% set new = [
+            'script.hba_strategy_dynamic',
+            'input_number.hba_strategy_dynamic_max_cheap_hours_per_day',
+            'input_number.hba_strategy_dynamic_max_expensive_hours_per_day',
+          ] %}
+          {{ (expand(old) | count) > 0 or (new | reject('has_value') | list | count) > 0 }}
+        attributes:
+          leftover_entity_ids: >
+            {% set old = [
+              'script.hba_strategy_dynamic_v2',
+              'input_number.hba_strategy_dynamic_v2_max_cheap_hours_per_day',
+              'input_number.hba_strategy_dynamic_v2_max_expensive_hours_per_day',
+              'automation.hba_dynamic_period_calculation',
+              'input_datetime.hba_strategy_dynamic_cheapest_start',
+              'input_datetime.hba_strategy_dynamic_cheapest_end',
+              'input_datetime.hba_strategy_dynamic_expensive_start',
+              'input_datetime.hba_strategy_dynamic_expensive_end',
+              'input_number.hba_strategy_dynamic_cheapest_hrs',
+              'input_number.hba_strategy_dynamic_expensive_hrs',
+              'input_number.hba_strategy_dynamic_threshold_cheapest_period',
+              'input_number.hba_strategy_dynamic_cheapest_avg_tariff',
+              'input_number.hba_strategy_dynamic_expensive_avg_tariff',
+              'input_number.hba_strategy_dynamic_expensive_avg_delta',
+              'sensor.hba_estimated_profit_per_kwh',
+              'binary_sensor.hba_dynamic_cheap_threshold_met',
+              'binary_sensor.hba_dynamic_expensive_threshold_met',
+            ] %}
+            {{ expand(old) | map(attribute='entity_id') | sort | join(', ') }}
+          old_file_still_loaded: >
+            {{ has_value('script.hba_strategy_dynamic_v2')
+               or has_value('input_number.hba_strategy_dynamic_v2_max_cheap_hours_per_day') }}
+          missing_entity_ids: >
+            {% set new = [
+              'script.hba_strategy_dynamic',
+              'input_number.hba_strategy_dynamic_max_cheap_hours_per_day',
+              'input_number.hba_strategy_dynamic_max_expensive_hours_per_day',
+            ] %}
+            {{ new | reject('has_value') | join(', ') }}
+
+      # Core sensors the control loop and the strategies read. Not sensor.hba_total_battery_power:
+      # it goes unavailable with any offline battery, which the not-responding check reports.
       - name: "HBA Entity Health"
         unique_id: hba_entity_health
         device_class: problem
@@ -1714,13 +2563,23 @@ template:
             'sensor.hba_active_strategy',
             'binary_sensor.hba_is_charging',
             'binary_sensor.hba_charge_goal_reached',
-            'sensor.hba_estimated_profit_per_kwh',
             'binary_sensor.hba_marstek_m1_not_responding',
             'binary_sensor.hba_marstek_m2_not_responding',
             'binary_sensor.hba_marstek_m3_not_responding',
             'binary_sensor.hba_marstek_m4_not_responding',
             'binary_sensor.hba_marstek_m5_not_responding',
             'binary_sensor.hba_marstek_m6_not_responding',
+            'sensor.hba_power_limits',
+            'sensor.hba_total_commanded_power',
+            'sensor.hba_total_max_charge_power',
+            'sensor.hba_total_max_discharge_power',
+            'sensor.hba_average_battery_soc',
+            'sensor.hba_charge_remaining_energy',
+            'sensor.hba_charge_available_energy',
+            'sensor.hba_usable_battery_energy',
+            'binary_sensor.hba_any_battery_offline',
+            'binary_sensor.hba_rs485_mode_mismatch',
+            'binary_sensor.hba_control_loop_stalled',
           ] %}
           {{ expected | reject('has_value') | list | length > 0 }}
         attributes:
@@ -1729,19 +2588,802 @@ template:
               'sensor.hba_active_strategy',
               'binary_sensor.hba_is_charging',
               'binary_sensor.hba_charge_goal_reached',
-              'sensor.hba_estimated_profit_per_kwh',
               'binary_sensor.hba_marstek_m1_not_responding',
               'binary_sensor.hba_marstek_m2_not_responding',
               'binary_sensor.hba_marstek_m3_not_responding',
               'binary_sensor.hba_marstek_m4_not_responding',
               'binary_sensor.hba_marstek_m5_not_responding',
               'binary_sensor.hba_marstek_m6_not_responding',
+              'sensor.hba_power_limits',
+              'sensor.hba_total_commanded_power',
+              'sensor.hba_total_max_charge_power',
+              'sensor.hba_total_max_discharge_power',
+              'sensor.hba_average_battery_soc',
+              'sensor.hba_charge_remaining_energy',
+              'sensor.hba_charge_available_energy',
+              'sensor.hba_usable_battery_energy',
+              'binary_sensor.hba_any_battery_offline',
+              'binary_sensor.hba_rs485_mode_mismatch',
+              'binary_sensor.hba_control_loop_stalled',
             ] %}
             {% set ns = namespace(missing=[]) %}
             {% for e in expected %}
               {% if not has_value(e) %}{% set ns.missing = ns.missing + [e] %}{% endif %}
             {% endfor %}
             {{ ns.missing | join(', ') if ns.missing else '' }}
+
+  # ── Battery order for "Auto balance (SoC)" ────────────────────────────────────
+  # HBA-only priority mode. "Auto balance" (as in HBC) rotates the priority every 30 min
+  # regardless of SoC, so batteries that differ in power drift apart: on prod (2026-10-02)
+  # the 800 W M4 gave far less per turn in the evening peak and stayed ~50 % above the
+  # others all night. This decides the order from SoC instead, frozen for 30 min so a
+  # running charge or discharge is never reshuffled:
+  #   discharge_order: most energy above the discharge cutoff first
+  #   charge_order:    most room below the charge cutoff first
+  # The distribution (hba_set_batteries) fills batteries in that order, each up to its
+  # max, so a load above one battery's max goes to the next-fullest battery and solar
+  # above it to the next-emptiest. A battery only overtakes the one ahead of it by more
+  # than 3 SoC points, so near-equal batteries keep their place instead of swapping
+  # every tick. Battery with unknown SoC goes last.
+  - triggers:
+      - trigger: time_pattern
+        minutes: "/30"
+      - trigger: homeassistant
+        event: start
+      - trigger: event
+        event_type: event_template_reloaded
+      - trigger: state
+        entity_id:
+          - input_select.hba_control_priority_change_interval
+          - input_number.hba_battery_count
+    actions:
+      - variables:
+          orders: >-
+            {%- set count = states('input_number.hba_battery_count') | int(1) -%}
+            {%- set ns = namespace(dis={}, chg={}) -%}
+            {%- for i in range(1, count + 1) -%}
+              {%- set soc = states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') | float(-1) -%}
+              {%- set lo = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) -%}
+              {%- set hi = states('input_number.hba_marstek_m' ~ i ~ '_charging_cutoff_capacity') | float(100) -%}
+              {%- set ns.dis = ns.dis | combine({i | string: (soc - lo) if soc >= 0 else -999}) -%}
+              {%- set ns.chg = ns.chg | combine({i | string: (hi - soc) if soc >= 0 else -999}) -%}
+            {%- endfor -%}
+            {%- set ns2 = namespace(out={}) -%}
+            {%- for key, val in [('discharge_order', ns.dis), ('charge_order', ns.chg)] -%}
+              {#- Previous order from the state machine. `this` is not usable in a trigger
+                  template's actions: it came back empty, so the order was re-seeded 1..n
+                  every tick and, within 3 points, the LOWEST battery number went first
+                  even when it had the least SoC (prod 2026-10-04 02:00-07:00: M1 first at
+                  27 % with M3 at 31 %). -#}
+              {%- set prev = state_attr('sensor.hba_battery_order', key) or [] -%}
+              {%- set prev = (prev if prev is sequence and prev is not string else []) | map('int') | list -%}
+              {%- set o = namespace(l=[]) -%}
+              {%- for b in prev if 1 <= b <= count and b not in o.l -%}{%- set o.l = o.l + [b] -%}{%- endfor -%}
+              {%- for b in range(1, count + 1) if b not in o.l -%}{%- set o.l = o.l + [b] -%}{%- endfor -%}
+              {#- Bubble sort that only swaps neighbours more than 3 points apart. -#}
+              {%- for _ in range(count) -%}
+                {%- for k in range(count - 1) -%}
+                  {%- if val[o.l[k + 1] | string] > val[o.l[k] | string] + 3 -%}
+                    {%- set o.l = o.l[:k] + [o.l[k + 1], o.l[k]] + o.l[k + 2:] -%}
+                  {%- endif -%}
+                {%- endfor -%}
+              {%- endfor -%}
+              {%- set ns2.out = ns2.out | combine({key: o.l}) -%}
+            {%- endfor -%}
+            {{ ns2.out | tojson }}
+    sensor:
+      - name: "HBA Battery Order"
+        unique_id: hba_battery_order
+        icon: mdi:sort-descending
+        # The battery that discharges first (also synced to the priority battery).
+        state: "{{ (orders | from_json if orders is string else orders).discharge_order[0] }}"
+        attributes:
+          discharge_order: "{{ (orders | from_json if orders is string else orders).discharge_order }}"
+          charge_order: "{{ (orders | from_json if orders is string else orders).charge_order }}"
+          decided_at: "{{ now().isoformat() }}"
+
+  # ── Power groups: intended limit registers ────────────────────────────────────
+  # Batteries that share one breaker go into the same power group (A/B/C). HBA then
+  # manages their max charge (44002) and max discharge (44003) registers so that, per
+  # direction, the registers of a group never add up to more than the group's max power.
+  # The limits live IN the battery, so the breaker stays protected even when HA is down
+  # or a battery runs on its own (Marstek app, anti-feed) — HBA's distribution alone
+  # could not promise that. Batteries in "Own" are left alone.
+  #
+  # This sensor only decides; automation hba_power_limits_apply writes (lowering first,
+  # raising only into room the read-back registers leave). Per group and direction:
+  #   - a battery that cannot be reached keeps what it has (it may still be running on
+  #     its last limit, so its share is never handed out)
+  #   - every reachable battery keeps at least 100 W (never 0: both registers reading 0
+  #     is how a battery restart is recognised, see hba_notify_battery_restarted)
+  #   - Equal: the rest is split evenly over the batteries that can use it, never above
+  #     a battery's own max power; what they cannot take goes to the full/empty ones
+  #   - One at a time: the leader gets as much as it can until it is full (charging) or
+  #     empty (discharging); then the fullest (charging) / emptiest (discharging) next
+  #   - Follow battery order: the leader is the group's first eligible battery in the
+  #     order hba_set_batteries uses (sensor.hba_battery_order with Auto balance (SoC),
+  #     else cyclic from the priority battery) — it moves with that order (frozen 30 min),
+  #     but only once the new first battery is 5 SoC points further along than the
+  #     current leader (or the leader is full / empty): fewer EEPROM rewrites
+  # Full/empty latch with hysteresis so a battery at its cutoff does not flip the split:
+  # full at charge cutoff − 1 %, not full again below cutoff − 4 %; empty at discharge
+  # cutoff + 1 %, not empty again above cutoff + 4 %: a Venus E 3.0 stops itself just
+  # below 13.0 % (whole-percent reserve check, see hba_apply_defaults), so with its 13 %
+  # cutoff empty is ≤ 14 %, with an old 12 % cutoff ≤ 13 %, both reached before it stalls. Charge and
+  # discharge are split separately: a full battery still gets its share for discharging.
+  # Low-SoC latch (attribute latched, Venus E 3.0): once a battery reached its floor the firmware
+  # refuses to discharge until reserve + 5 % (~17 %; prod 2026-10-30: 15.4 % no, 18.8 % yes), also when
+  # HBA sees it above the cutoff. The reserve is not readable, so this assumes app DoD 88 (floor
+  # SoC < 13.0): set below 13.0, cleared at 18.0. Any other reserve: never set, as before. Separate
+  # from empty because empty follows the HBA cutoff; a latched battery stays empty so it cannot
+  # take a group's high discharge limit.
+  #
+  # Firmware facts this rests on (Venus E v3 = D code, static RE by sphings79):
+  # 44002/44003 go to the inverter, an external I²C EEPROM (0x202/0x204, change guard:
+  # an unchanged value costs no cycle) and a RAM shadow that Modbus reads back. After a
+  # battery restart that shadow reads 0 until written, while the battery still limits at
+  # its EEPROM value — hence last_known_*: the last non-zero read-back per battery.
+  # State and attributes are read back via state_attr (`this` is empty in a trigger
+  # template's actions, see HBA Battery Order).
+  - triggers:
+      - trigger: time_pattern
+        minutes: "/1"
+      - trigger: homeassistant
+        event: start
+      - trigger: event
+        event_type: event_template_reloaded
+      - trigger: state
+        entity_id:
+          - input_number.hba_battery_count
+          - input_select.hba_marstek_m1_power_group
+          - input_select.hba_marstek_m2_power_group
+          - input_select.hba_marstek_m3_power_group
+          - input_select.hba_marstek_m4_power_group
+          - input_select.hba_marstek_m5_power_group
+          - input_select.hba_marstek_m6_power_group
+          - input_number.hba_marstek_m1_max_charge_power
+          - input_number.hba_marstek_m1_max_discharge_power
+          - input_number.hba_marstek_m2_max_charge_power
+          - input_number.hba_marstek_m2_max_discharge_power
+          - input_number.hba_marstek_m3_max_charge_power
+          - input_number.hba_marstek_m3_max_discharge_power
+          - input_number.hba_marstek_m4_max_charge_power
+          - input_number.hba_marstek_m4_max_discharge_power
+          - input_number.hba_marstek_m5_max_charge_power
+          - input_number.hba_marstek_m5_max_discharge_power
+          - input_number.hba_marstek_m6_max_charge_power
+          - input_number.hba_marstek_m6_max_discharge_power
+          - input_number.hba_power_group_a_max_power
+          - input_number.hba_power_group_b_max_power
+          - input_number.hba_power_group_c_max_power
+          - input_select.hba_power_group_a_policy
+          - input_select.hba_power_group_b_policy
+          - input_select.hba_power_group_c_policy
+          # "Follow battery order" moves with the order
+          - sensor.hba_battery_order
+          - input_number.hba_control_prioritize_battery
+          - input_select.hba_control_priority_change_interval
+    actions:
+      - variables:
+          plan: >-
+            {%- set S = 'sensor.hba_power_limits' -%}
+            {%- set count = states('input_number.hba_battery_count') | int(1) -%}
+            {%- set p = namespace(full=[], empty=[], latched=[], lkc={}, lkd={}, c={}, d={}, lead={}) -%}
+            {%- set v = state_attr(S, 'full') -%}{%- set p.full = v if v is sequence and v is not string else [] -%}
+            {%- set v = state_attr(S, 'empty') -%}{%- set p.empty = v if v is sequence and v is not string else [] -%}
+            {%- set v = state_attr(S, 'latched') -%}{%- set p.latched = v if v is sequence and v is not string else [] -%}
+            {%- set v = state_attr(S, 'last_known_charge') -%}{%- set p.lkc = v if v is mapping else {} -%}
+            {%- set v = state_attr(S, 'last_known_discharge') -%}{%- set p.lkd = v if v is mapping else {} -%}
+            {%- set v = state_attr(S, 'charge') -%}{%- set p.c = v if v is mapping else {} -%}
+            {%- set v = state_attr(S, 'discharge') -%}{%- set p.d = v if v is mapping else {} -%}
+            {%- set v = state_attr(S, 'leaders') -%}{%- set p.lead = v if v is mapping else {} -%}
+            {#- 1. Per battery: reachability, read-back, last known limits, full/empty latch -#}
+            {%- set ns = namespace(bats=[], lkc={}, lkd={}) -%}
+            {%- for i in range(1, count + 1) -%}
+              {%- set k = i | string -%}
+              {%- set soc = states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') | float(-1) -%}
+              {%- set hi = states('input_number.hba_marstek_m' ~ i ~ '_charging_cutoff_capacity') | float(100) -%}
+              {%- set lo = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) -%}
+              {%- set inv = states('sensor.marstek_m' ~ i ~ '_inverter_state') -%}
+              {%- set hb = states.sensor['marstek_m' ~ i ~ '_battery_power'] -%}
+              {%- set live = hb is not none and hb.state not in ['unavailable', 'unknown']
+                             and (now() - hb.last_reported).total_seconds() <= 30
+                             and inv not in ['unavailable', 'unknown', ''] -%}
+              {%- set rbc = states('sensor.marstek_m' ~ i ~ '_max_charge_power_number') | float(-1) -%}
+              {%- set rbd = states('sensor.marstek_m' ~ i ~ '_max_discharge_power_number') | float(-1) -%}
+              {%- set lkc = rbc if rbc > 50 else (p.lkc[k] if k in p.lkc else 0) -%}
+              {%- set lkd = rbd if rbd > 50 else (p.lkd[k] if k in p.lkd else 0) -%}
+              {%- if lkc > 0 -%}{%- set ns.lkc = ns.lkc | combine({k: lkc | int}) -%}{%- endif -%}
+              {%- if lkd > 0 -%}{%- set ns.lkd = ns.lkd | combine({k: lkd | int}) -%}{%- endif -%}
+              {#- The BMS reporting 0 A charge limit is an exact "full" (Venus E 3.0 at 100 %) -#}
+              {%- set bms_a = states('sensor.marstek_m' ~ i ~ '_battery_charge_current_limit') | float(-1) -%}
+              {%- if soc < 0 -%}{%- set full = i in p.full -%}
+              {%- elif soc >= hi - 1 or (bms_a == 0 and soc >= 90) -%}{%- set full = true -%}
+              {%- elif soc < hi - 4 -%}{%- set full = false -%}
+              {%- else -%}{%- set full = i in p.full -%}{%- endif -%}
+              {%- if soc < 0 -%}{%- set latched = i in p.latched -%}
+              {%- elif soc < 13 and states('sensor.marstek_m' ~ i ~ '_device_name') | trim is match('VNSE3') -%}{%- set latched = true -%}
+              {%- elif soc >= 18 -%}{%- set latched = false -%}
+              {%- else -%}{%- set latched = i in p.latched -%}{%- endif -%}
+              {%- if soc < 0 -%}{%- set empty = i in p.empty -%}
+              {%- elif soc <= lo + 1 or latched -%}{%- set empty = true -%}
+              {%- elif soc > lo + 4 -%}{%- set empty = false -%}
+              {%- else -%}{%- set empty = i in p.empty -%}{%- endif -%}
+              {%- set ns.bats = ns.bats + [{
+                    'i': i, 'g': states('input_select.hba_marstek_m' ~ i ~ '_power_group'),
+                    'capc': states('input_number.hba_marstek_m' ~ i ~ '_max_charge_power') | float(0) | int,
+                    'capd': states('input_number.hba_marstek_m' ~ i ~ '_max_discharge_power') | float(0) | int,
+                    'soc': soc, 'hi': hi, 'lo': lo, 'live': live, 'full': full, 'empty': empty, 'latched': latched,
+                    'lkc': lkc | int, 'lkd': lkd | int}] -%}
+            {%- endfor -%}
+            {#- The order hba_set_batteries fills batteries in, per direction (for
+                "Follow battery order"): Auto balance (SoC) order first, then cyclic from
+                the priority battery. -#}
+            {%- set pr = states('input_number.hba_control_prioritize_battery') | int(1) -%}
+            {%- set pr = pr if 1 <= pr <= count else 1 -%}
+            {%- set ordr = namespace(d={}) -%}
+            {%- for dd in ['charge', 'discharge'] -%}
+              {%- set o = namespace(l=[]) -%}
+              {%- if is_state('input_select.hba_control_priority_change_interval', 'Auto balance (SoC)') -%}
+                {%- set so = state_attr('sensor.hba_battery_order', dd ~ '_order') -%}
+                {%- for b in (so if so is sequence and so is not string else []) | map('int') if 1 <= b <= count and b not in o.l -%}
+                  {%- set o.l = o.l + [b] -%}
+                {%- endfor -%}
+              {%- endif -%}
+              {%- for k in range(count) -%}
+                {%- set b = ((pr - 1 + k) % count) + 1 -%}
+                {%- if b not in o.l -%}{%- set o.l = o.l + [b] -%}{%- endif -%}
+              {%- endfor -%}
+              {%- set ordr.d = ordr.d | combine({dd: o.l}) -%}
+            {%- endfor -%}
+            {#- 2. Per group and direction: the intended limits -#}
+            {%- set gs = namespace(c={}, d={}, lead={}, groups={}, problems=[]) -%}
+            {%- for G in ['A', 'B', 'C'] -%}
+              {%- set members = ns.bats | selectattr('g', 'eq', G) | list -%}
+              {%- if members | length > 0 -%}
+                {%- set budget = states('input_number.hba_power_group_' ~ (G | lower) ~ '_max_power') | float(0) | int -%}
+                {%- set policy = states('input_select.hba_power_group_' ~ (G | lower) ~ '_policy') -%}
+                {%- set bad = namespace(p=[]) -%}
+                {%- for m in members if m.capc <= 0 or m.capd <= 0 -%}
+                  {%- set bad.p = bad.p + ['M' ~ m.i ~ ' (group ' ~ G ~ '): set its max '
+                        ~ ('charge and discharge' if m.capc <= 0 and m.capd <= 0 else ('charge' if m.capc <= 0 else 'discharge'))
+                        ~ ' power'] -%}
+                {%- endfor -%}
+                {%- if budget <= 0 -%}
+                  {%- set bad.p = bad.p + ['Group ' ~ G ~ ': set its max power'] -%}
+                {%- elif budget < 100 * (members | length) -%}
+                  {%- set bad.p = bad.p + ['Group ' ~ G ~ ': max power below 100 W per battery'] -%}
+                {%- endif -%}
+                {%- if bad.p -%}
+                  {%- set gs.problems = gs.problems + bad.p -%}
+                {%- else -%}
+                  {%- set gs.groups = gs.groups | combine({G: {'max_power': budget, 'policy': policy,
+                        'members': members | map(attribute='i') | list}}) -%}
+                  {%- for d in ['charge', 'discharge'] -%}
+                    {%- set latch = 'full' if d == 'charge' else 'empty' -%}
+                    {%- set lk = 'lkc' if d == 'charge' else 'lkd' -%}
+                    {%- set prev = p.c if d == 'charge' else p.d -%}
+                    {%- set cap = 'capc' if d == 'charge' else 'capd' -%}
+                    {%- set w = namespace(R=budget, out={}, add={}, elig=[]) -%}
+                    {#- Unreachable: keep what it has, its share is not ours to hand out -#}
+                    {%- for m in members | rejectattr('live') -%}
+                      {%- set keep = m[lk] if m[lk] > 0 else (prev[m.i | string] if (m.i | string) in prev else m[cap]) -%}
+                      {%- set w.out = w.out | combine({m.i | string: keep | int}) -%}
+                      {%- set w.R = w.R - keep -%}
+                    {%- endfor -%}
+                    {%- set active = members | selectattr('live') | list -%}
+                    {%- set w.R = [w.R - 100 * (active | length), 0] | max -%}
+                    {%- set w.elig = active | rejectattr(latch) | list -%}
+                    {%- set rest = active | selectattr(latch) | list -%}
+                    {#- Follow battery order also when no battery can go this way (all full /
+                        all empty): the first in the order keeps the high ceiling, so nothing
+                        flips back and forth when they become eligible again. -#}
+                    {%- set follow_pool = w.elig if w.elig else rest -%}
+                    {%- if (policy == 'One at a time' and w.elig) or (policy == 'Follow battery order' and follow_pool) -%}
+                      {%- set key = G ~ '_' ~ d -%}
+                      {%- if policy == 'Follow battery order' -%}
+                        {%- set ids = follow_pool | map(attribute='i') | list -%}
+                        {%- set first = ordr.d[d] | select('in', ids) | list -%}
+                        {%- set cand = follow_pool | selectattr('i', 'eq', first[0] if first else 0) | list or follow_pool -%}
+                        {#- Hand over only when the new first battery is 5 SoC points further
+                            along than the current leader (charging: more room below its charge
+                            cutoff; discharging: more above its discharge cutoff). Each handover
+                            rewrites 44002/44003 (EEPROM) on the group's batteries; without this a
+                            sunny day swaps at almost every 30-min order update. A leader that
+                            is full / empty is not in the pool and hands over at once. -#}
+                        {%- set cur = follow_pool | selectattr('i', 'eq', p.lead[key] if key in p.lead else 0) | list -%}
+                        {%- if cur and cur[0].i != cand[0].i and cur[0].soc >= 0 and cand[0].soc >= 0 -%}
+                          {%- set sc_new = (cand[0].hi - cand[0].soc) if d == 'charge' else (cand[0].soc - cand[0].lo) -%}
+                          {%- set sc_cur = (cur[0].hi - cur[0].soc) if d == 'charge' else (cur[0].soc - cur[0].lo) -%}
+                          {%- if sc_new < sc_cur + 5 -%}
+                            {%- set cand = cur -%}
+                          {%- endif -%}
+                        {%- endif -%}
+                      {%- else -%}
+                        {%- set cand = w.elig | selectattr('i', 'eq', p.lead[key] if key in p.lead else 0) | list -%}
+                        {%- if not cand -%}
+                          {#- charging: fullest first (fills soonest); discharging: emptiest first -#}
+                          {%- set cand = w.elig | sort(attribute='soc', reverse=(d == 'charge')) | list -%}
+                        {%- endif -%}
+                      {%- endif -%}
+                      {%- set L = cand[0] -%}
+                      {%- set gs.lead = gs.lead | combine({key: L.i}) -%}
+                      {%- set give = [[L[cap] - 100, 0] | max, w.R] | min -%}
+                      {%- set w.add = w.add | combine({L.i | string: give}) -%}
+                      {%- set w.R = w.R - give -%}
+                      {%- set w.elig = w.elig | rejectattr('i', 'eq', L.i) | list -%}
+                      {%- set rest = rest | rejectattr('i', 'eq', L.i) | list -%}
+                    {%- endif -%}
+                    {#- Water-fill: equal shares, capped per battery, smallest cap first -#}
+                    {%- for pool in [w.elig, rest] -%}
+                      {%- set srt = pool | sort(attribute=cap) | list -%}
+                      {%- for m in srt -%}
+                        {%- set give = [[m[cap] - 100, 0] | max, (w.R / ((srt | length) - loop.index0)) | int] | min -%}
+                        {%- set w.add = w.add | combine({m.i | string: give}) -%}
+                        {%- set w.R = w.R - give -%}
+                      {%- endfor -%}
+                    {%- endfor -%}
+                    {%- for m in active -%}
+                      {%- set k = m.i | string -%}
+                      {%- set w.out = w.out | combine({k: 100 + (w.add[k] if k in w.add else 0)}) -%}
+                    {%- endfor -%}
+                    {%- if d == 'charge' -%}{%- set gs.c = gs.c | combine(w.out) -%}
+                    {%- else -%}{%- set gs.d = gs.d | combine(w.out) -%}{%- endif -%}
+                  {%- endfor -%}
+                {%- endif -%}
+              {%- endif -%}
+            {%- endfor -%}
+            {{ {'charge': gs.c, 'discharge': gs.d, 'leaders': gs.lead, 'groups': gs.groups,
+                'problems': gs.problems,
+                'full': ns.bats | selectattr('full') | map(attribute='i') | list,
+                'empty': ns.bats | selectattr('empty') | map(attribute='i') | list,
+                'latched': ns.bats | selectattr('latched') | map(attribute='i') | list,
+                'last_known_charge': ns.lkc, 'last_known_discharge': ns.lkd} | tojson }}
+    sensor:
+      - name: "HBA Power Limits"
+        unique_id: hba_power_limits
+        icon: mdi:fuse
+        # Not used / Check settings (a group lacks a max power) / Active
+        state: >-
+          {%- set x = plan | from_json if plan is string else plan -%}
+          {{ 'Check settings' if x.problems else ('Active' if x.groups else 'Not used') }}
+        attributes:
+          # Intended register values per battery number ("1": 1650), managed batteries only
+          charge: "{{ (plan | from_json if plan is string else plan).charge }}"
+          discharge: "{{ (plan | from_json if plan is string else plan).discharge }}"
+          groups: "{{ (plan | from_json if plan is string else plan).groups }}"
+          problems: "{{ (plan | from_json if plan is string else plan).problems }}"
+          leaders: "{{ (plan | from_json if plan is string else plan).leaders }}"
+          full: "{{ (plan | from_json if plan is string else plan).full }}"
+          empty: "{{ (plan | from_json if plan is string else plan).empty }}"
+          latched: "{{ (plan | from_json if plan is string else plan).latched }}"
+          last_known_charge: "{{ (plan | from_json if plan is string else plan).last_known_charge }}"
+          last_known_discharge: "{{ (plan | from_json if plan is string else plan).last_known_discharge }}"
+
+  # ── Room per phase: main fuse limit and Charge alongside EV ───────────────────
+  # What the batteries on each phase may still charge / discharge in total (W), used by
+  # hba_set_batteries:
+  #   fuse_charge_w / fuse_discharge_w — input_number.hba_phase_current_limit (main fuse,
+  #     every strategy, 0 = off): the limit minus everything else on the phase, for import
+  #     (charging) and export (discharging, e.g. Sell plus solar on the same phase)
+  #   ev_room_w — Charge alongside EV, car first: input_number.hba_ev_phase_current_limit
+  #     minus everything else, minus the room the car still needs to reach
+  #     input_number.hba_ev_max_current (ev_reserve_w; the car's power from the user-defined
+  #     sensor.ev_charger_power_lX or sensor.ev_charger_power, ev_source). Without that
+  #     reservation the batteries filled the room the car wanted after the charger's load
+  #     balancing throttled it (prod 2026-10-24: 5.3 instead of 10.5 kW for minutes).
+  #   missing_sensors — sensor.p1_meter_power_lX needed for the batteries' phases but absent
+  # Phase power from the user-defined sensor.p1_meter_power_lX (W, + = import) and
+  # optional sensor.p1_meter_voltage_lX (else 230 V); no reading = no room on that phase.
+  # Every limit only ever lowers what the batteries may do. Trigger-based so it is computed
+  # once per update (it was three copies of the same template). Recorder-excluded.
+  - triggers:
+      - trigger: state
+        entity_id:
+          - sensor.p1_meter_power_l1
+          - sensor.p1_meter_power_l2
+          - sensor.p1_meter_power_l3
+          - sensor.p1_meter_voltage_l1
+          - sensor.p1_meter_voltage_l2
+          - sensor.p1_meter_voltage_l3
+          - sensor.ev_charger_power
+          - sensor.ev_charger_power_l1
+          - sensor.ev_charger_power_l2
+          - sensor.ev_charger_power_l3
+          - sensor.marstek_m1_ac_power
+          - sensor.marstek_m2_ac_power
+          - sensor.marstek_m3_ac_power
+          - sensor.marstek_m4_ac_power
+          - sensor.marstek_m5_ac_power
+          - sensor.marstek_m6_ac_power
+          - input_select.hba_marstek_m1_phase
+          - input_select.hba_marstek_m2_phase
+          - input_select.hba_marstek_m3_phase
+          - input_select.hba_marstek_m4_phase
+          - input_select.hba_marstek_m5_phase
+          - input_select.hba_marstek_m6_phase
+          - binary_sensor.hba_ev_charge_alongside
+          - input_number.hba_ev_phase_current_limit
+          - input_number.hba_ev_max_current
+          - input_number.hba_phase_current_limit
+          - input_number.hba_battery_count
+          - input_select.hba_control_strategy_during_ev_charge
+      - trigger: homeassistant
+        event: start
+      - trigger: event
+        event_type: event_template_reloaded
+      - trigger: time_pattern
+        seconds: "/30"
+    actions:
+      - variables:
+          room: >-
+            {%- set count = states('input_number.hba_battery_count') | int(1) -%}
+            {%- set evlim = states('input_number.hba_ev_phase_current_limit') | float(22) -%}
+            {%- set fuse = states('input_number.hba_phase_current_limit') | float(0) -%}
+            {%- set bat = namespace(c={'L1': 0, 'L2': 0, 'L3': 0}, d={'L1': 0, 'L2': 0, 'L3': 0}, need=[]) -%}
+            {%- for i in range(1, count + 1) -%}
+              {%- set ph = states('input_select.hba_marstek_m' ~ i ~ '_phase') -%}
+              {%- set ac = states('sensor.marstek_m' ~ i ~ '_ac_power') | float(0) -%}
+              {%- set bat.need = bat.need + ([ph] if ph in ['L1', 'L2', 'L3'] else ['L1', 'L2', 'L3']) -%}
+              {%- if ph in ['L1', 'L2', 'L3'] -%}
+                {#- ac_power: negative = charging, positive = discharging -#}
+                {%- set bat.c = bat.c | combine({ph: bat.c[ph] + ([-ac, 0] | max)}) -%}
+                {%- set bat.d = bat.d | combine({ph: bat.d[ph] + ([ac, 0] | max)}) -%}
+              {%- endif -%}
+            {%- endfor -%}
+            {#- The car's power per GRID phase (per-phase sensors win over the total) -#}
+            {%- set evmax = states('input_number.hba_ev_max_current') | float(0) -%}
+            {%- set charging = is_state('binary_sensor.hba_ev_charge_alongside', 'on') -%}
+            {%- set per = ['l1', 'l2', 'l3'] | map('regex_replace', '^', 'sensor.ev_charger_power_') | select('has_value') | list -%}
+            {%- set src = 'per phase' if per else ('total' if has_value('sensor.ev_charger_power') else 'none') -%}
+            {%- set evw = namespace(d={'L1': 0, 'L2': 0, 'L3': 0}) -%}
+            {%- for ph in ['L1', 'L2', 'L3'] -%}
+              {%- if src == 'per phase' -%}
+                {%- set evw.d = evw.d | combine({ph: [states('sensor.ev_charger_power_' ~ (ph | lower)) | float(0), 0] | max}) -%}
+              {%- elif src == 'total' -%}
+                {%- set evw.d = evw.d | combine({ph: ([states('sensor.ev_charger_power') | float(0), 0] | max) / 3}) -%}
+              {%- endif -%}
+            {%- endfor -%}
+            {%- set used = evw.d.items() | selectattr(1, 'gt', 230) | map(attribute=0) | list -%}
+            {%- set used = used if (src == 'per phase' and used) else ['L1', 'L2', 'L3'] -%}
+            {%- set out = namespace(ev={}, res={}, fc={}, fd={}) -%}
+            {%- for ph in ['L1', 'L2', 'L3'] -%}
+              {%- set n = ph | lower -%}
+              {%- set v = states('sensor.p1_meter_voltage_' ~ n) | float(0) -%}
+              {%- set v = v if v > 100 else 230 -%}
+              {%- set r = ([evmax * v - evw.d[ph], 0] | max) if (charging and evmax > 0 and src != 'none' and ph in used) else 0 -%}
+              {%- set out.res = out.res | combine({ph: r | round(0) | int}) -%}
+              {%- if has_value('sensor.p1_meter_power_' ~ n) -%}
+                {%- set net = states('sensor.p1_meter_power_' ~ n) | float(0) -%}
+                {#- everything else on the phase = measured minus the batteries' own share -#}
+                {%- set other_imp = net - bat.c[ph] + bat.d[ph] -%}
+                {%- set out.ev = out.ev | combine({ph: [evlim * v - other_imp - r, 0] | max | round(0) | int}) -%}
+                {%- set out.fc = out.fc | combine({ph: [fuse * v - other_imp, 0] | max | round(0) | int}) -%}
+                {%- set out.fd = out.fd | combine({ph: [fuse * v + other_imp, 0] | max | round(0) | int}) -%}
+              {%- else -%}
+                {%- set out.ev = out.ev | combine({ph: 0}) -%}
+                {%- set out.fc = out.fc | combine({ph: 0}) -%}
+                {%- set out.fd = out.fd | combine({ph: 0}) -%}
+              {%- endif -%}
+            {%- endfor -%}
+            {%- set miss = bat.need | unique | sort | map('lower') | map('regex_replace', '^', 'sensor.p1_meter_power_') | reject('has_value') | list -%}
+            {{ {'ev': out.ev, 'res': out.res, 'src': src, 'fc': out.fc if fuse > 0 else {},
+                 'fd': out.fd if fuse > 0 else {}, 'miss': miss | join(', ')} | tojson }}
+    sensor:
+      - name: "HBA Phase Room"
+        unique_id: hba_phase_room
+        icon: mdi:sine-wave
+        unit_of_measurement: W
+        # The tightest charging room that applies now (fuse, and car first while the car
+        # charges); 0 when no per-phase limit is in use.
+        state: >-
+          {%- set x = room | from_json if room is string else room -%}
+          {%- set vals = (x.fc.values() | list) + ((x.ev.values() | list) if is_state('binary_sensor.hba_ev_charge_alongside', 'on') else []) -%}
+          {{ (vals | min) if vals else 0 }}
+        attributes:
+          ev_room_w: "{{ (room | from_json if room is string else room).ev }}"
+          ev_reserve_w: "{{ (room | from_json if room is string else room).res }}"
+          ev_source: "{{ (room | from_json if room is string else room).src }}"
+          fuse_charge_w: "{{ (room | from_json if room is string else room).fc }}"
+          fuse_discharge_w: "{{ (room | from_json if room is string else room).fd }}"
+          missing_sensors: "{{ (room | from_json if room is string else room).miss }}"
+
+  # ── What limits charging / discharging right now (like the Peblar's limit source) ──
+  # The hba_set_batteries waterfall replayed at full request: per battery the most it could
+  # take now and the tightest limit — register limit (power group / own limit / set in the
+  # battery), BMS charge current, slow charge, the per-phase room (main fuse, car first) shared
+  # in battery order, or not available at all (full / empty / offline / fault / never
+  # discharging while charging alongside the EV). The Limit Source sensors name the limit
+  # costing the most watts below 2500 W per battery ("Not limited" when none). Only reports;
+  # what the strategy asks for is not a limit here. Every 5 s: the phase room moves with every
+  # P1 update. sensor.hba_limits_now (per battery) is recorder-excluded; the two Limit Source
+  # sensors are recorded and only write a row when the reason changes.
+  - triggers:
+      - trigger: time_pattern
+        seconds: "/5"
+      - trigger: state
+        entity_id:
+          - sensor.hba_power_limits
+          - binary_sensor.hba_ev_charge_alongside
+          - input_number.hba_battery_count
+      - trigger: homeassistant
+        event: start
+      - trigger: event
+        event_type: event_template_reloaded
+    actions:
+      - variables:
+          lim: >-
+            {%- set count = states('input_number.hba_battery_count') | int(1) -%}
+            {%- set nominal = 2500 -%}
+            {%- set along = is_state('binary_sensor.hba_ev_charge_alongside', 'on') -%}
+            {%- set evfirst = along and is_state_attr('binary_sensor.hba_ev_charge_alongside', 'mode', 'EV first') -%}
+            {%- set fc = state_attr('sensor.hba_phase_room', 'fuse_charge_w') -%}
+            {%- set fc = fc if fc is mapping else {} -%}
+            {%- set fd = state_attr('sensor.hba_phase_room', 'fuse_discharge_w') -%}
+            {%- set fd = fd if fd is mapping else {} -%}
+            {%- set er = state_attr('sensor.hba_phase_room', 'ev_room_w') if evfirst else {} -%}
+            {%- set er = er if er is mapping else {} -%}
+            {#- Room per phase as [W, reason]: the tighter of main fuse and car first -#}
+            {%- set rc = namespace(d={}) -%}
+            {%- set rd = namespace(d={}) -%}
+            {%- for ph in ['L1', 'L2', 'L3'] -%}
+              {%- if ph in fc and ph in er -%}
+                {%- set rc.d = rc.d | combine({ph: ([fc[ph], 'Main fuse ' ~ ph] if fc[ph] <= er[ph] else [er[ph], 'Car first ' ~ ph])}) -%}
+              {%- elif ph in fc -%}
+                {%- set rc.d = rc.d | combine({ph: [fc[ph], 'Main fuse ' ~ ph]}) -%}
+              {%- elif ph in er -%}
+                {%- set rc.d = rc.d | combine({ph: [er[ph], 'Car first ' ~ ph]}) -%}
+              {%- endif -%}
+              {%- if ph in fd -%}
+                {%- set rd.d = rd.d | combine({ph: [fd[ph], 'Main fuse ' ~ ph]}) -%}
+              {%- endif -%}
+            {%- endfor -%}
+            {%- set sc_thr1 = states('input_number.hba_control_slow_charge_soc_threshold_1') | float(95) -%}
+            {%- set sc_lim1 = states('input_number.hba_control_slow_charge_power_limit_1') | float(1500) | int -%}
+            {%- set sc_thr2 = states('input_number.hba_control_slow_charge_soc_threshold_2') | float(99) -%}
+            {%- set sc_lim2 = states('input_number.hba_control_slow_charge_power_limit_2') | float(1000) | int -%}
+            {%- set p = states('input_number.hba_control_prioritize_battery') | int(1) -%}
+            {%- set p = p if (1 <= p and p <= count) else 1 -%}
+            {%- set auto = states('input_select.hba_control_priority_change_interval') == 'Auto balance (SoC)' -%}
+            {%- set out = namespace(c={}, d={}, cl={}, dl={}, ct=0, dt=0, co=[], do=[]) -%}
+            {%- for dir in ['charge', 'discharge'] -%}
+              {#- Same order as hba_set_batteries -#}
+              {%- set o = namespace(l=[]) -%}
+              {%- set so = state_attr('sensor.hba_battery_order', dir ~ '_order') -%}
+              {%- if auto and so is sequence and so is not string -%}
+                {%- for b in so | map('int') if 1 <= b <= count and b not in o.l -%}
+                  {%- set o.l = o.l + [b] -%}
+                {%- endfor -%}
+              {%- endif -%}
+              {%- for k in range(count) -%}
+                {%- set b = ((p - 1 + k) % count) + 1 -%}
+                {%- if b not in o.l -%}{%- set o.l = o.l + [b] -%}{%- endif -%}
+              {%- endfor -%}
+              {#- Power group leader first, as in hba_set_batteries -#}
+              {%- set plg = state_attr('sensor.hba_power_limits', 'groups') -%}
+              {%- set pll = state_attr('sensor.hba_power_limits', 'leaders') -%}
+              {%- if plg is mapping and pll is mapping -%}
+                {%- for G, x in plg.items() if (G ~ '_' ~ dir) in pll -%}
+                  {%- set L = pll[G ~ '_' ~ dir] | int -%}
+                  {%- set fm = o.l | select('in', x.members | map('int') | list) | list -%}
+                  {%- if fm and fm[0] != L and L in o.l -%}
+                    {%- set sw = namespace(l=[]) -%}
+                    {%- for b in o.l -%}{%- set sw.l = sw.l + [L if b == fm[0] else (fm[0] if b == L else b)] -%}{%- endfor -%}
+                    {%- set o.l = sw.l -%}
+                  {%- endif -%}
+                {%- endfor -%}
+              {%- endif -%}
+              {%- if dir == 'charge' -%}{%- set out.co = o.l -%}{%- else -%}{%- set out.do = o.l -%}{%- endif -%}
+              {%- set room = namespace(d=(rc.d if dir == 'charge' else rd.d)) -%}
+              {%- set lk = state_attr('sensor.hba_power_limits', 'last_known_' ~ dir) -%}
+              {%- set lk = lk if lk is mapping else {} -%}
+              {%- for bat in o.l -%}
+                {%- set k = bat | string -%}
+                {%- set soc = states('sensor.marstek_m' ~ bat ~ '_battery_state_of_charge') | float(0) -%}
+                {%- set inv = states('sensor.marstek_m' ~ bat ~ '_inverter_state') -%}
+                {%- set hb = states.sensor['marstek_m' ~ bat ~ '_battery_power'] -%}
+                {%- set live = hb is not none and hb.state not in ['unavailable', 'unknown']
+                               and (now() - hb.last_reported).total_seconds() <= 30 -%}
+                {%- set rbc = states('number.marstek_m' ~ bat ~ '_max_charge_power') | float(2500) -%}
+                {%- set rbd = states('number.marstek_m' ~ bat ~ '_max_discharge_power') | float(2500) -%}
+                {%- set rb = rbc if dir == 'charge' else rbd -%}
+                {%- set reg = ((lk[k] if k in lk else 2500) if rbc == 0 and rbd == 0 else rb) | int -%}
+                {%- set own = states('input_number.hba_marstek_m' ~ bat ~ '_max_' ~ dir ~ '_power') | float(0) -%}
+                {%- set grp = states('input_select.hba_marstek_m' ~ bat ~ '_power_group') -%}
+                {%- set reg_r = ('Power group ' ~ grp) if grp in ['A', 'B', 'C'] and (own <= 0 or reg < own - 1)
+                                else ('Own limit' if own > 0 else 'Battery setting') -%}
+                {%- set best = namespace(w=nominal, r='None') -%}
+                {%- if not live -%}
+                  {%- set best.w = 0 -%}{%- set best.r = 'Offline' -%}
+                {%- elif inv in ['unknown', 'unavailable'] -%}
+                  {%- set best.w = 0 -%}{%- set best.r = 'Offline' -%}
+                {%- elif inv == 'Fault' -%}
+                  {%- set best.w = 0 -%}{%- set best.r = 'Fault' -%}
+                {%- elif dir == 'charge' and soc >= states('input_number.hba_marstek_m' ~ bat ~ '_charging_cutoff_capacity') | float(100) -%}
+                  {%- set best.w = 0 -%}{%- set best.r = 'Full' -%}
+                {%- elif dir == 'discharge' and along -%}
+                  {%- set best.w = 0 -%}{%- set best.r = 'Charge alongside EV' -%}
+                {%- elif dir == 'discharge' and soc <= states('input_number.hba_marstek_m' ~ bat ~ '_discharging_cutoff_capacity') | float(13) -%}
+                  {%- set best.w = 0 -%}{%- set best.r = 'Empty' -%}
+                {%- else -%}
+                  {%- set cands = [[reg, reg_r]] -%}
+                  {%- if dir == 'charge' -%}
+                    {%- set bms_a = states('sensor.marstek_m' ~ bat ~ '_battery_charge_current_limit') | float(-1) -%}
+                    {%- set volt = states('sensor.marstek_m' ~ bat ~ '_battery_voltage') | float(0) -%}
+                    {%- if bms_a >= 0 and volt > 40 -%}
+                      {%- set cands = cands + [[(bms_a * volt) | int, 'BMS']] -%}
+                    {%- endif -%}
+                    {%- if sc_lim2 > 0 and soc >= sc_thr2 -%}
+                      {%- set cands = cands + [[sc_lim2, 'Slow charge']] -%}
+                    {%- elif sc_lim1 > 0 and soc >= sc_thr1 -%}
+                      {%- set cands = cands + [[sc_lim1, 'Slow charge']] -%}
+                    {%- endif -%}
+                  {%- endif -%}
+                  {%- set ph = states('input_select.hba_marstek_m' ~ bat ~ '_phase') -%}
+                  {%- if room.d -%}
+                    {%- if ph in room.d -%}
+                      {%- set cands = cands + [room.d[ph]] -%}
+                    {%- else -%}
+                      {#- No phase set: counts against every phase, so the tightest one -#}
+                      {%- set t = namespace(x=none) -%}
+                      {%- for x in room.d.values() if t.x is none or x[0] < t.x[0] -%}{%- set t.x = x -%}{%- endfor -%}
+                      {%- set cands = cands + [t.x] -%}
+                    {%- endif -%}
+                  {%- endif -%}
+                  {%- for w, r in cands if w < best.w -%}
+                    {%- set best.w = [w, 0] | max | int -%}{%- set best.r = r -%}
+                  {%- endfor -%}
+                  {%- if room.d and ph in room.d -%}
+                    {%- set room.d = room.d | combine({ph: [room.d[ph][0] - best.w, room.d[ph][1]]}) -%}
+                  {%- elif room.d -%}
+                    {%- set nd = namespace(d={}) -%}
+                    {%- for q, x in room.d.items() -%}{%- set nd.d = nd.d | combine({q: [x[0] - best.w, x[1]]}) -%}{%- endfor -%}
+                    {%- set room.d = nd.d -%}
+                  {%- endif -%}
+                {%- endif -%}
+                {%- set item = {k: {'w': best.w, 'reason': best.r}} -%}
+                {%- if dir == 'charge' -%}
+                  {%- set out.c = out.c | combine(item) -%}
+                  {%- set out.ct = out.ct + best.w -%}
+                  {%- if best.r != 'None' -%}
+                    {%- set out.cl = out.cl | combine({best.r: out.cl.get(best.r, 0) + nominal - best.w}) -%}
+                  {%- endif -%}
+                {%- else -%}
+                  {%- set out.d = out.d | combine(item) -%}
+                  {%- set out.dt = out.dt + best.w -%}
+                  {%- if best.r != 'None' -%}
+                    {%- set out.dl = out.dl | combine({best.r: out.dl.get(best.r, 0) + nominal - best.w}) -%}
+                  {%- endif -%}
+                {%- endif -%}
+              {%- endfor -%}
+            {%- endfor -%}
+            {#- The limit costing the most wins, but the current reason only gives way when it is
+                gone, when the new one costs 1000 W more, or when the new one has been on top for
+                60 s (remembered in sensor.hba_limits_now *_pending). A 300 W margin was not enough:
+                with the car first, L1 and L3 swing by more than that and the state flipped ~50
+                times an hour (prod 2026-10-25), a recorder row each time. -#}
+            {#- The Limit Source states name the KIND of limit (Car first, Main fuse, ...), not the
+                phase: with the car first the phase that costs most changed constantly (36 changes
+                an hour even with the 60 s rule, prod 2026-10-25). Per battery (and so the phases)
+                stays in sensor.hba_limits_now and the Overview line. -#}
+            {%- set kinds = namespace(c={}, d={}) -%}
+            {%- for r, w in out.cl.items() -%}
+              {%- set k = r[:-3] if (r.startswith('Car first ') or r.startswith('Main fuse ')) else r -%}
+              {%- set kinds.c = kinds.c | combine({k: kinds.c.get(k, 0) + w}) -%}
+            {%- endfor -%}
+            {%- for r, w in out.dl.items() -%}
+              {%- set k = r[:-3] if (r.startswith('Car first ') or r.startswith('Main fuse ')) else r -%}
+              {%- set kinds.d = kinds.d | combine({k: kinds.d.get(k, 0) + w}) -%}
+            {%- endfor -%}
+            {%- set nowts = as_timestamp(now()) | int -%}
+            {%- set sel = namespace(cs='Not limited', ds='Not limited', cp={}, dp={}) -%}
+            {%- for dir, lost, cur, pend in [('c', kinds.c, states('sensor.hba_charge_limit_source'), state_attr('sensor.hba_limits_now', 'charge_pending')),
+                                            ('d', kinds.d, states('sensor.hba_discharge_limit_source'), state_attr('sensor.hba_limits_now', 'discharge_pending'))] -%}
+              {%- set pend = pend if pend is mapping else {} -%}
+              {%- set top = (lost.items() | sort(attribute='1', reverse=true) | first) if lost else none -%}
+              {%- set res = namespace(r='Not limited', p={}) -%}
+              {%- if top is none -%}
+              {%- elif cur == top[0] or cur not in lost or top[1] >= lost[cur] + 1000 -%}
+                {%- set res.r = top[0] -%}
+              {%- elif pend.get('r') == top[0] and nowts - (pend.get('s') | int(nowts)) >= 60 -%}
+                {%- set res.r = top[0] -%}
+              {%- else -%}
+                {%- set res.r = cur -%}
+                {%- set res.p = pend if pend.get('r') == top[0] else {'r': top[0], 's': nowts} -%}
+              {%- endif -%}
+              {%- if dir == 'c' -%}{%- set sel.cs = res.r -%}{%- set sel.cp = res.p -%}
+              {%- else -%}{%- set sel.ds = res.r -%}{%- set sel.dp = res.p -%}{%- endif -%}
+            {%- endfor -%}
+            {{ {'c': out.c, 'd': out.d, 'cl': out.cl, 'dl': out.dl, 'ct': out.ct, 'dt': out.dt,
+                'cs': sel.cs, 'ds': sel.ds, 'co': out.co, 'do': out.do, 'cp': sel.cp, 'dp': sel.dp} | tojson }}
+    sensor:
+      - name: "HBA Charge Limit Source"
+        unique_id: hba_charge_limit_source
+        icon: mdi:battery-arrow-up-outline
+        state: "{{ (lim | from_json if lim is string else lim).cs }}"
+      - name: "HBA Discharge Limit Source"
+        unique_id: hba_discharge_limit_source
+        icon: mdi:battery-arrow-down-outline
+        state: "{{ (lim | from_json if lim is string else lim).ds }}"
+      # Per battery {w, reason}; *_lost_w = watts below 2500 W per battery,
+      # by reason. State = what all batteries could charge together right now.
+      - name: "HBA Limits Now"
+        unique_id: hba_limits_now
+        icon: mdi:speedometer-medium
+        unit_of_measurement: W
+        state: "{{ (lim | from_json if lim is string else lim).ct }}"
+        attributes:
+          charge: "{{ (lim | from_json if lim is string else lim).c }}"
+          discharge: "{{ (lim | from_json if lim is string else lim).d }}"
+          charge_lost_w: "{{ (lim | from_json if lim is string else lim).cl }}"
+          discharge_lost_w: "{{ (lim | from_json if lim is string else lim).dl }}"
+          discharge_max_w: "{{ (lim | from_json if lim is string else lim).dt }}"
+          # The order the batteries are used in (power group leaders first in their group)
+          charge_order: "{{ (lim | from_json if lim is string else lim).co }}"
+          discharge_order: "{{ (lim | from_json if lim is string else lim).do }}"
+          # A new limit source waiting to take over (reason + since), see the selection above
+          charge_pending: "{{ (lim | from_json if lim is string else lim).cp }}"
+          discharge_pending: "{{ (lim | from_json if lim is string else lim).dp }}"
+    binary_sensor:
+      # Overview hint: the batteries run at what a limit worth knowing about allows — main
+      # fuse, car first or the BMS (charging), main fuse (discharging). Power groups, full /
+      # empty and offline are left out (always there with groups, normal, or own banners).
+      # On within 150 W of the max, off again below 400 W under it, 30 s / 60 s delay.
+      - name: "HBA Battery Power Limited"
+        unique_id: hba_battery_power_limited
+        icon: mdi:speedometer-slow
+        # The room per phase moves with every P1 update: without a delay the Overview line
+        # switched ~50 times an hour while the car charged (prod 2026-10-25).
+        delay_on: "00:00:30"
+        delay_off: "00:01:00"
+        state: >-
+          {%- set x = lim | from_json if lim is string else lim -%}
+          {%- set p = states('sensor.hba_total_battery_power') | float(0) -%}
+          {%- set m = 400 if is_state('binary_sensor.hba_battery_power_limited', 'on') else 150 -%}
+          {%- set c = (x.cs.startswith('Main fuse') or x.cs.startswith('Car first') or x.cs == 'BMS')
+                      and p < -50 and -p >= x.ct - m -%}
+          {%- set d = x.ds.startswith('Main fuse') and p > 50 and p >= x.dt - m -%}
+          {{ c or d }}
+        attributes:
+          direction: >-
+            {{ 'charge' if states('sensor.hba_total_battery_power') | float(0) < 0 else 'discharge' }}
+          reason: >-
+            {%- set x = lim | from_json if lim is string else lim -%}
+            {{ x.cs if states('sensor.hba_total_battery_power') | float(0) < 0 else x.ds }}
+          max_w: >-
+            {%- set x = lim | from_json if lim is string else lim -%}
+            {{ x.ct if states('sensor.hba_total_battery_power') | float(0) < 0 else x.dt }}
+
+  # When Charge or Sell was chosen (for the reminders). Trigger-based so HA restores it after a
+  # restart — input_select last_changed restarts with HA, which reset the 1/2/4 h reminders.
+  # Empty while another strategy is selected. At start only filled in when still empty (first
+  # install while Charge / Sell is already selected: best guess = the select's last change).
+  - triggers:
+      - trigger: state
+        entity_id: input_select.hba_strategy
+        to: ~
+      - trigger: homeassistant
+        event: start
+    sensor:
+      - name: "HBA Manual Strategy Since"
+        unique_id: hba_manual_strategy_since
+        icon: mdi:clock-start
+        device_class: timestamp
+        state: >-
+          {%- set st = states('input_select.hba_strategy') -%}
+          {%- set cur = states('sensor.hba_manual_strategy_since') -%}
+          {%- set has = cur not in ['unknown', 'unavailable', 'none', ''] -%}
+          {%- if st not in ['Charge', 'Sell'] -%}
+            {{ none }}
+          {%- elif trigger.platform == 'state' and trigger.from_state is not none
+                and trigger.from_state.state not in ['unknown', 'unavailable']
+                and trigger.from_state.state != st -%}
+            {{ now().isoformat() }}
+          {%- elif has -%}
+            {{ cur }}
+          {%- else -%}
+            {{ states.input_select.hba_strategy.last_changed.isoformat() }}
+          {%- endif -%}
 
 ######################################################################################################
 # RECORDER
@@ -1752,6 +3394,14 @@ recorder:
     entity_globs:
       # All HBA scripts — run at ~1 Hz, generate on/off per execution, history is not useful
       - script.hba_*
+      # Labs presence: someone on a floor right now — follows every room-tracker flip
+      # (thousands a day); the recorded history is sensor.hba_labs_floor_*_occupancy
+      - binary_sensor.hba_labs_floor_*_present
+      - sensor.hba_labs_presence_trackers
+      # Savings: the 15 s accumulator; the recorded total is sensor.hba_savings
+      - sensor.hba_savings_accumulator
+      - input_text.hba_savings_store
+      - automation.hba_savings_store
       # Forcible power setpoints — continuous numeric value, changes every ~1 s
       - number.marstek_m*_forcible_charge_power
       - number.marstek_m*_forcible_discharge_power
@@ -1773,7 +3423,24 @@ recorder:
       - sensor.marstek_m*_battery_cell_*_voltage
       # Raw Modbus register backing sensor.marstek_m*_inverter_state — updates every poll
       - sensor.marstek_m*_inverter_state_number
+      # Per-phase grid power / voltage for Charge alongside EV (user-defined in
+      # hba_config.yaml) — ~1 update/s each, derived from meter sensors that are recorded
+      - sensor.p1_meter_power_l*
+      - sensor.p1_meter_voltage_l*
+      - sensor.ev_charger_power_l*
     entities:
+      # Planned strategy: plan + 24 h history as attributes (well over the recorder's 16 kB
+      # attribute limit); the sensor keeps its own executed history. Its compact copy,
+      # sensor.hba_planned_strategy_debug, stays recorded (only with the debug switch on).
+      - sensor.hba_planned_strategy
+      - sensor.hba_planned_car_preview
+      # Room per phase (main fuse limit, Charge alongside EV) — recalculated on every P1 update
+      - sensor.hba_phase_room
+      # Per-battery limits now — recalculated every 5 s (the Limit Source sensors stay recorded)
+      - sensor.hba_limits_now
+      # EV charger total power for Charge alongside EV (user-defined in hba_config.yaml) —
+      # a copy of the charger's own power sensor, which its integration already records
+      - sensor.ev_charger_power
       # Control loop automation — triggers every ~1 s, history is not useful
       - automation.hba_control_loop_p1_meter_triggered
       # Flow trace helpers — updated every control cycle

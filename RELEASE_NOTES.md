@@ -1,13 +1,777 @@
 # HBA Release Notes
 
 HBA version numbers follow the pattern **`{HBC-version}-r{N}`**. The HBC version indicates
-which upstream release HBA is aligned with; the revision suffix (`r1`, `r2`, …) tracks
-HBA-specific changes within that alignment. When a new HBC version is released and HBA
-is updated to match, the revision resets to `r1`.
+which upstream release HBA is aligned with; the revision `r{N}` is the HBA build number and
+**always increases** — it does not reset when HBA aligns with a newer HBC version (e.g.
+`v4.10.1-r21` → `v4.15.1-r22`, never `v4.15.1-r1`).
 
 For upstream changes in each HBC version, see the
 [HBC Release Notes](https://github.com/gitcodebob/marstek-venus-rs485-node-red/blob/main/RELEASE_NOTES.md).
 This document covers HBA-specific changes only.
+
+---
+
+## v4.10.1-r23 — November 2026
+
+First release on `main` since r21 (dev builds reported r22 and r23; r22 was never released on its
+own). Includes ports of HBC v4.11.0 – v4.15.1 changes that apply to HBA. HBA is not yet fully
+aligned with v4.15.1 (the peak-shaving latch and multi-provider Dynamic are still open), so the
+version prefix stays at 4.10.1 for now.
+
+### Upgrading from r21 — read this first
+
+- **Breaking: Dynamic v1 is removed and Dynamic v2 is now "Dynamic"** — entity IDs drop the `_v2`
+  (`script.hba_strategy_dynamic`, `input_number.hba_strategy_dynamic_max_cheap/expensive_hours_per_day`).
+  Update your own dashboards and automations that use the old names. A notification lists leftovers
+  of the old files until they are gone. Details under *Removed — breaking*.
+- **Changes for every install, no setting needed:**
+  - Batteries stop exactly at their SoC cutoff (Venus E 3.0 stopped 0.5 % early before).
+  - Charging follows each battery's BMS limit, and what one battery cannot take goes to the next.
+  - After the priority battery, power goes to the next battery in line (cyclic), not always to
+    battery 1, so the batteries level out.
+  - Venus E 3.0: a battery held at its floor by the firmware (until ~17 %) gets no discharge share.
+- **Only with *Apply defaults* (existing settings are kept):** discharge cutoff 13 % on a Venus E 3.0,
+  slow charge off when all batteries are E 3.0, PID presets one Ki step higher (*Regular* = 0.30).
+- **Opt-in, nothing changes until you switch it on:** power groups (every battery starts in *Own*),
+  Charge alongside EV, the Planned strategy and car planning, Labs, the preview dashboard. The
+  Savings sensors run for everyone but only read.
+
+### Added
+
+- **Savings** (new `packages/hba/hba_savings.yaml`, new *Savings* view on the preview dashboard,
+  today and this month also on Home). `sensor.hba_savings` is a running total in EUR of what the batteries saved
+  compared with no batteries, measured every 15 s from the P1 meter, the battery power and the
+  price of the moment (buy price; sell price and deduction from the Planned price settings).
+  Energy still in the batteries counts at what it cost, so a charging day is not a loss; wear is
+  not subtracted. `sensor.hba_savings_vs_self_consumption` compares with a simulated
+  Self-consumption battery of the same size: what the strategy added on top. Both are long-term
+  statistics, so the dashboard shows today, last 3 / 7 days, this month, this year and bars per
+  day and per month. Works with every strategy. Survives restarts through a hidden copy
+  (`input_text.hba_savings_store`).
+- **Labs: presence per floor** (new `packages/hba/hba_labs_presence.yaml`, new *Labs* view on the
+  preview dashboard, off by default). Records how much of every hour each HA floor is occupied, as
+  long-term statistics (`sensor.hba_labs_floor_1..4_occupancy`, `sensor.hba_labs_home_occupancy`), to
+  predict heating (one AC per floor) and house use later. Sources: room trackers whose state is an
+  area name (e.g. Bermuda), binary sensors, and optionally every motion / occupancy / presence sensor
+  on the floor; a room tracker counts on a floor after 2 min there (short jumps to the floor above or
+  below are ignored); a floor stays occupied 10 min after the last source left. Only collects data:
+  nothing controls the batteries and Planned does not read it.
+- **Planned can plan the car** — with *Plan the car* on and the EV project following (*Follow assisted*),
+  Planned picks the car's cheapest hours before departure: *Minimum* at any price, *Normal* only with
+  *Allow grid charging* and below the max price. It tells the EV project through
+  `binary_sensor.hba_ev_assist` (`ev_mode`, `ev_limit`). In those hours the batteries get what room is
+  left and do not discharge. A day the car is home in the sun leaves room for it (weekdays setting +
+  *Car tomorrow* override). The EV Charge view has a Car section with the settings, instructions, the car hours and a check that shows whether all settings are OK. Minimum above the max
+  price: the EV project asks Charge or Skip. Without the EV project nothing changes.
+- **Sun into the car by price** — with Plan the car, the plan sends exported sun to the car where
+  selling pays less than a kWh in the car is worth (the dearest grid hour it saves, else the max price),
+  and buys that much less from the grid for Normal. The batteries still get the sun first where storing
+  pays more. Shown as *☀️ 🚗 Car X kWh sun* in the plan and in the Car hours (with the price
+  comparison per sunny hour). The live solar rule (`binary_sensor.hba_ev_solar_allowed`) applies the
+  same price check: new reason `price` when exporting pays more.
+- **Ask before Normal** — an optional evening question: skip Normal tonight, or until the next day the car is home (wait for the weekend's solar). It shows that day's expected spare solar and speaks up when solar looks too low; no answer means it charges, Minimum always stays. Solcast gives up to 7 days; the Car check warns when those sensors are off.
+- **Preview the car** — *Preview only* plans the car and shows what it would do to the batteries, but
+  applies nothing: the batteries run the plan without the car and the EV project follows its own rules,
+  with a banner on top. It costs a second plan calculation, only while it is on.
+- **Warning when the EV project does not listen** — banner, notification and resolved message when Plan
+  the car or Timed EV charge is on but the EV project is missing, too old, or Follow assisted is off.
+  `binary_sensor.hba_battery_assist_active` stays; the EV project now reads `binary_sensor.hba_ev_assist`,
+  so update both projects together and turn on Follow assisted for Timed EV charge.
+- **Planned decides the solar for the car** — with Plan the car, the batteries get the sun first until they
+  have what the plan uses before the next charge; after that the car gets it for the rest of the day (sun the
+  batteries would not use goes straight into the car, without the battery losses). Before that the car only
+  gets sun while the batteries charge at their maximum (from 3 minutes, back off after 5 minutes below it).
+  In an hour the plan exports the sun, the car takes it only with the new setting *Solar the plan would
+  export* (off by default). New `binary_sensor.hba_ev_solar_allowed` (reason, target); under Planned
+  `binary_sensor.hba_batteries_before_ev` follows it instead of the kWh setting. `binary_sensor.hba_ev_assist`
+  `ev_mode` is now `force`, `battery`, `solar` or `wait`, and **`wait` now means no solar either**: update
+  the EV project together with HBA.
+- **Plan table shows what runs after Charge / Sell** — when a Charge or a small Sell is expected to be done
+  at least 10 minutes before the end of the hour, the row shows the strategy HBA runs for the rest of it,
+  e.g. *Charge → Charge PV from ~14:35*.
+- **Plan table: Sun column, what really ran, Cost out where it matters** — a Sun column with the forecast
+  kWh per slot (a morning the plan expected the sun to cover showed only "Zero import · empty"). Executed
+  hours list every strategy their plans had (*Charge → Full stop*) instead of only the last re-plan's.
+  Cost out only on the running slot and on rows where energy leaves the battery.
+  *for / keep for HH:MM* names the first hour the stored energy drops below what was there before
+  (a Charge on top of enough energy for the morning now says when its own energy is used).
+  Car hours get their own line with the car's expected charge level after that hour: *🚗 Car 1.5 kWh →
+  ~62 %* (from its SoC now, never above the limit); the Car hours table shows the same, plus the limit.
+- **Planned: finer energy steps, with the real step and a time estimate** — the step can now go down
+  to usable ÷ 100 (was ÷ 40, so 0.45 kWh was the finest step for 18 kWh). Settings show the step the
+  plan really uses and the expected calculation time, now and with tomorrow's prices, from the last
+  plan's measured time (it grows with the square of the number of steps).
+- **Planned: debug copy of each plan** — switch *Keep a copy of each plan (debug)* (default off) stores
+  every new plan in `sensor.hba_planned_strategy_debug` as compact rows (sun, house, runner-up per slot)
+  that the recorder keeps, to look back at what a plan expected.
+- **Planned: the car no longer takes the sun the plan stores before a grid Charge** — *EV Solar
+  Allowed* ended its window at the next grid Charge; with the plan's highest point just before it,
+  the batteries' target became 0 and the car got the morning sun (batteries near empty). A grid Charge
+  only tops up, so the window now runs to the next morning's sun.
+- **Planned: car hours count the sun and charge the batteries alongside** — in a car hour the car takes
+  the sun first (it pulls more than the sun gives, so there is nothing for Charge PV to store); the
+  batteries only get the sun above the car's kWh (was: the plan stored the sun next to an 11 kW car).
+  Grid Charge alongside the car only when HBA can keep the phases within the limits — new
+  `binary_sensor.hba_ev_alongside_ready`: the EV charging entity and per-phase grid power sensors are
+  set up. Then Planned charges alongside whatever *Strategy during EV charge* says (that setting stays
+  for the other strategies), capped by the room the car leaves, car first (*EV first* in a car hour).
+  Not ready: only the leftover sun, or nothing, per that setting, with a line in the Car section saying
+  what is missing. The plan table marks a Charge car hour with *+ 🚗 Car …*; a car hour in which the
+  batteries get nothing says *Full stop* (not Charge PV), and never Zero import / Self-consumption.
+  The sun the car takes counts at the export price in the car's cost.
+- **Planned: a car hour stops at its planned kWh** — new setting *EV charger energy meter* (a kWh
+  counter, Peblar: `sensor.peblar_ev_charger_lifetime_energy`). `sensor.hba_ev_hour_energy` counts what
+  the car got in the running slot; once the plan's kWh for that slot are in, `ev_mode` goes from force
+  to wait, so the rest waits for the cheaper hour the plan chose (was: full power until the car's limit,
+  11 kWh at 00:00 where the plan wanted 5.5). Overshoot ~0.2–0.3 kWh (meter every 60 s + stop delay).
+  Empty = as before. The Car hours card shows "This hour: X of Y kWh". A re-plan inside the hour counts
+  what the car got before it plus its own kWh for the rest of the hour (first prod night: re-plans
+  stopped the car at 2.5 of 5.5 and 6.1 of 11 kWh).
+- **Planned: house use margin** (default 15 % via Apply defaults, 0 until set) — the plan counts on that
+  much more house use, so an hour the battery covers still has energy left when the house uses more
+  than usual. What is left stays stored for the next plan. *Reserve for unexpected loads* is renamed
+  *Never plan below*: it never was a buffer (the plan never buys it).
+- **Planned: sun per half hour** — what the battery must cover and what it may store are added up per
+  half hour of the Solcast forecast, so sun late in an hour no longer covers the house earlier in it
+  (2026-11-04: 0.7 kWh forecast at 08:00, battery empty at 07:47). The plan table stays hourly; such an
+  hour gets a second line *↳ ☀️ late sun: X kWh needed before, Y over*.
+
+### Fixed
+
+- **Entity health checks the core sensors** — `binary_sensor.hba_entity_health` now also warns when
+  total commanded / max charge / max discharge power, average SoC, remaining / available / usable
+  energy, battery offline, RS485 mode mismatch or the control-loop watchdog is missing. Before, it
+  watched only a few entities, so a broken core sensor went unnoticed.
+- **Strategy label no longer flips at SoC minimum** — Zero import and Full stop overwrote each
+  other every control cycle, which wrote thousands of recorder rows. Label only.
+- **Venus E 3.0 low-SoC latch** — a battery that reached its floor refuses to discharge until
+  about 17 %, while HBA still counted it as available (prod 2026-10-30: two batteries commanded at
+  1100 W stayed at 0 W around 15 %, and the PID wound up to −2275 W). HBA now tracks this
+  (`sensor.hba_power_limits` attribute `latched`, set below 13.0 %, cleared at 18.0 %, assumes app DoD
+  88 %) and gives the power to the next battery. The PID limit, battery assist and Zero import's
+  "all empty" check follow it. The discharge cutoff stays at 13 %.
+- **Planned: small Charge targets no longer wake every battery** — Charge runs at the power the
+  hour needs, rounded up to whole batteries, instead of always at full power. A small charge ends
+  well above the latch's release point on fewer batteries.
+- **Planned: no false re-plans during a spread-out Sell** — the "off by" check assumed full power.
+- **Power groups: capped batteries run after every group's leader** — with several groups, a
+  capped battery could run before the next group's leader (order 1, 4, 2, 3 with leader 4). This
+  applies to all strategies, for charging and discharging.
+- **Warning when the Charge goal "solar forecast" is followed by a strategy that does not store
+  PV** — the goal only buys what the sun will not fill, so after it the batteries must take the
+  PV. With *When done charging* = Full stop, Sell, Zero import or Standby the PV was exported;
+  as the remaining forecast dropped the target rose, and Charge bought the energy back from the
+  grid in ~3-minute bursts at full power every 5 minutes (prod 2026-10-28 12:00–13:35, Timed
+  period B). New `binary_sensor.hba_charge_goal_conflict` warns as soon as the settings
+  combine this way, whatever strategy is active: an alert in Master Battery Control (Overview)
+  and at the top of the Charge / Sell view, on both dashboards, plus a
+  notification + resolved.
+
+- **Number of batteries is a number box, not a slider** — easy to drag by accident on a phone,
+  and a wrong count drops batteries from control at once.
+
+- **No false *RS485 control mismatch* for an offline battery** — a battery that cannot be read
+  shows its RS485 mode as *unknown*, which counted as a mismatch (prod 2026-10-25, M2 power
+  cycle: mismatch notification on top of the offline one). The offline banner covers that.
+
+- **Installer: commit lookup failed on large commits** — with `pipefail`, `grep -m1` stopping
+  early on a 100+ KB GitHub API response (a merge commit with a big diff) broke the pipe and
+  the installer fell back to "latest commit unknown". grep now reads a here-string.
+
+- **Prices one hour off on the DST change** — day boundaries were "midnight + 86400 s" and the
+  price table counted rows as hours since midnight. A DST day lasts 25 (October) or 23 (March)
+  hours, so on 2026-10-25 every slot after the repeated 02:00 showed one row too late (the
+  cheapest 02:00 CET appeared at 03:00), Dynamic did not mark tomorrow's last hour (it fell
+  outside "tomorrow"), and Solar-aware's end of today was an hour off. Day boundaries now come
+  from local midnights (`timedelta(days=1)`), the price table labels rows by local time (the
+  second 02:00 gets a row "02:00²", a skipped one shows "-") and the slot counters use the real
+  day length (24/25 when the source delivers only 24 hourly prices for a 25-hour day).
+
+- **A restarted battery was skipped by HBA until its limits were set again** — after a
+  restart a Marstek reports max charge / max discharge power (44002/44003) as 0 until they
+  are written, while the battery itself keeps limiting at its stored value (firmware: the
+  Modbus read comes from a RAM copy that a restart clears). HBA's distribution used that 0 as
+  the battery's maximum and gave it no power. Both registers reading 0 now counts as a
+  restart: HBA uses the last known limit and writes it back. A deliberate 0 W on one
+  direction still counts as 0 W.
+- **Large grid connections or six batteries could stop battery control** — the PID helpers
+  had HBC's ranges (error and output ±15 kW, P/I/D terms ±10 kW). In HBC those are display
+  values; in HBA they *are* the controller state, so a value outside the range made the write
+  fail and aborted the control cycle. A 3 × 25 A connection already allows ~17 kW, and the
+  I-term reaches 15 kW with six batteries. The ranges are now ±100 kW and every write is
+  clamped to that range.
+- **One battery with a hung network link froze control of all batteries** — when a battery's
+  Modbus TCP connection hangs (prod: a touched cable), HA keeps it "available" for minutes
+  while it waits (timeout 20 s + retries). The next write to it blocked the control loop:
+  10.5 minutes without PID updates or writes to *any* battery. HBA now treats a battery whose
+  battery power has not reported for 30 s (3 polls) as offline: it skips writes to it, gives
+  its share to the other batteries, and re-sends the command as soon as it reports again. The
+  "Battery offline" banner, notification and persistent notification now also cover a silent
+  battery (3+ minutes), naming it from the new `batteries` attribute of
+  `binary_sensor.hba_any_battery_offline`.
+- **Solar-forecast charge target jumped to "fill completely" every evening** — the target
+  only counted *today's* remaining sun, so after sunset it became the full usable capacity
+  (18 kWh on prod while ~30 kWh of sun was forecast for the next day) until Solcast rolled
+  over at midnight and it fell back to 0. A cheap evening slot would have bought ~10 kWh from
+  the grid that the next morning's sun replaces anyway. Once today's sun is done (remaining
+  forecast < 0.1 kWh, afternoon) the target now counts on tomorrow's surplus — the same
+  figure it uses after midnight. The Charge/Sell view shows which day the target counts on;
+  "use battery if the sun refills it" follows the same surplus.
+- **"Batteries are exporting to the grid" blamed the batteries for solar export** — it showed the
+  full grid export (e.g. 4,400 W, mostly solar) as battery export, and after switching away
+  from Sell it lingered ~30 s although the batteries had already stopped (the sustained sensor
+  holds 30 s). The banner now also requires the batteries to be discharging > 500 W right now,
+  and banner + notification show the battery share of the export (≈ min(discharge, export))
+  separately from the solar part.
+- **Solar-aware switched from Zero import far too late when the cheap slots fall short** —
+  the switch deadline was "start of the *last* cheap slot minus deficit ÷ max charge power",
+  e.g. 14:35 with cheap hours 12:00–16:00 and a 4 kWh shortfall, so it exported all morning
+  and the shortfall was never stored. The solar *inside* the cheap slots is already counted,
+  so the shortfall has to be stored *before the first* cheap slot, at the rate the morning sun
+  actually delivers: the deadline now walks the Solcast half-hour forecast backwards from the
+  first cheap slot (net of house load, capped at charge power) — ~10:36 for that example. Not
+  enough morning sun at all → store from now on. The Insights card shows the title first and,
+  once the deadline has passed, "Self-consumption — storing solar since …" instead of a stale
+  "Zero import until …".
+- **Notifications were lost when the push target is invalid** — the "Notify action invalid"
+  notice promises a fallback to persistent notifications, but the dispatch only checked
+  whether the target was *empty*; an invalid one was still called and failed with "Action …
+  not found", dropping the alert. It now falls back as promised. Missing priority / tag /
+  colour also default properly (they were sent empty).
+- **"When done charging / selling → Solar-aware" fell back to Full stop** — the option was in
+  both selects but neither script had a branch for it. Both now run Solar-aware.
+- **Master mode periodic reapply no longer fights the battery** — the first version also forced
+  work mode *manual* in Full control. A Marstek with RS485 control enabled reports *anti-feed*,
+  and writing *manual* takes it out of RS485 control, so every 5 minutes the automation fixed
+  one setting and the battery undid the other: alternating pairs of batteries ignored HBA
+  (seen on production after deploying this dev build). In Full control it now re-applies RS485
+  only, exactly like HBC. It also re-applies right away (10 s settle) when a battery's mode
+  changes, not only every 5 minutes: a restarted Venus E 3.0 comes back with RS485 control off
+  (prod 2026-10-25: M4 ignored HBA for 2 minutes until the next tick).
+- **Overtemperature: Overview banner + working "resolved"** — a banner now lists every battery
+  above 60 °C with its temperature (the notification already existed). The "resolved"
+  notification could never fire: its condition checked that the reading *before* cooling below
+  55 °C was ≥ 60 °C, which a `below: 55` trigger never sees — so the persistent notification
+  also stayed forever. It now fires when an overtemperature alert was raised since it last ran.
+- **`script.hba_apply_defaults` aborted on installs without the coexistence package** — its
+  last step wrote the Node-RED add-on slug to a helper that only exists with
+  `hba_hbc_coexistence.yaml`. That step is now skipped when the helper is absent.
+
+### Removed — breaking
+
+- **Dynamic v1 is gone; "Dynamic v2" is now just "Dynamic"** (as HBC v4.11.0). The
+  contiguous "cheapest N hours" window strategy (`hba_strategy_dynamic.yaml`, which needed
+  the HACS Cheapest Energy Hours macro) is removed. HBA no longer depends on Cheapest Energy
+  Hours at all.
+  Dynamic v2's entities drop the `_v2` too: `hba_strategy_dynamic_v2.yaml` →
+  `hba_strategy_dynamic.yaml`, `script.hba_strategy_dynamic_v2` → `script.hba_strategy_dynamic`,
+  `input_number.hba_strategy_dynamic_v2_max_cheap/expensive_hours_per_day` →
+  `input_number.hba_strategy_dynamic_max_cheap/expensive_hours_per_day`.
+  **After updating (restart Home Assistant):**
+  - `input_select.hba_strategy` cannot restore `Dynamic v2` (the option no longer exists)
+    and falls back to **Full stop** — select **Dynamic** again. Anyone who ran v1 "Dynamic"
+    now gets the Extreme-Pair Matching strategy; check its settings.
+  - **Re-enter max cheap / expensive hours** — the renamed helpers start at 0 (no cap);
+    values cannot carry over to a new entity_id.
+  - A **migration banner** on the Overview (`binary_sensor.hba_dynamic_migration_needed`)
+    lists exactly which leftovers your install still has, whether the old `_v2` file is
+    still loaded, and whether any new Dynamic entity is missing — with the steps to fix
+    each. It disappears once everything is cleaned up.
+  **Price sources:** Dynamic currently reads **Frank Energie** only. The other providers
+  were only supported through v1; they are on the to-do. The pricing-source select now
+  offers just Frank Energie.
+  **`install.sh` overwrites `packages/hba/hba_strategy_dynamic.yaml` with the new Dynamic and
+  deletes the old `hba_strategy_dynamic_v2.yaml`** — if you install manually, do both
+  yourself, or `sensor.hba_energy_prices_data` is defined twice.
+  **Orphaned entities to delete** — quickest way: **Developer Tools → States**, filter entities
+  on `hba` and state on `unavailable`, then for each one click the ⓘ icon, the cog, **Delete**
+  (or select several at once in **Settings → Entities** and delete them together). The full list: `automation.hba_dynamic_period_calculation`,
+  `script.hba_strategy_dynamic`, `input_datetime.hba_strategy_dynamic_cheapest_start` /
+  `_cheapest_end` / `_expensive_start` / `_expensive_end`,
+  `input_number.hba_strategy_dynamic_cheapest_hrs` / `_expensive_hrs` /
+  `_threshold_cheapest_period` / `_cheapest_avg_tariff` / `_expensive_avg_tariff` /
+  `_expensive_avg_delta`, `sensor.hba_estimated_profit_per_kwh`,
+  `binary_sensor.hba_dynamic_cheap_threshold_met` / `_expensive_threshold_met`,
+  `script.hba_strategy_dynamic_v2`, `input_number.hba_strategy_dynamic_v2_max_cheap_hours_per_day`
+  / `_v2_max_expensive_hours_per_day`. Which of these exist depends on the install — the
+  banner shows yours.
+- **Lab features dashboard view** — Dynamic's settings, price table and chart moved into the
+  Dynamic view (see Changed: Timed and Dynamic have their own views).
+
+### Added
+
+- **Planned strategy** (new `packages/hba/hba_strategy_planned.yaml`) — plans per price slot over
+  all known prices (today, and tomorrow once published) in time order: charge in cheap hours for a
+  later, dearer hour, sell at the peaks, and in between Self-consumption, Charge PV, Zero import or
+  Full stop, whichever costs least. Unlike Dynamic (HBC-identical, pairs hours by price rank) it
+  can plan "sell tonight → charge at night → sell tomorrow morning", and knows a battery must be
+  charged before it can sell.
+  - Simulates the battery (stored energy, max charge/discharge power incl. power groups, round-trip
+    efficiency — measured by default), the house (average load, shared with Solar-aware) and the
+    sun (Solcast per half hour). Optional wear cost per kWh cycled (default 0), reserve for
+    unexpected loads, a separate sell-price sensor + deduction (for 2027, when exporting earns the
+    market price), and switches to leave out grid charging, Sell or Zero import.
+  - `sensor.hba_planned_strategy`: the strategy for the running slot; attributes `plan` (per slot:
+    buy/sell price, strategy, stored energy, cost of a kWh out of the battery, reason code) and
+    `history` (the last 24 h as executed, with the measured stored energy). Re-plans at every new
+    slot, on new prices or a new solar forecast, on a setting change, and when the stored energy is
+    more than a set amount off the plan (checked every 5 min). ~0.5 s per plan for 48 hourly slots;
+    15-minute prices work the same way.
+  - Always calculated; controls the batteries only when *Choose strategy* is **Planned**. Charge
+    and Sell run to the stored energy the plan expects at the end of the slot, then hold.
+  - Charge and Sell can be partial: the plan may sell down to (or charge up to) any level in between,
+    not only everything at max power. E.g. it keeps enough for the hour after the peak when buying
+    then costs more than selling now earns, instead of selling everything and buying it back.
+    The preview dashboard shows the target: "Sell · down to 1.8 kWh", "Charge · up to 4.5 kWh, for 07:00"
+    (Planned view) and "Sell → 1.8 kWh" (Insights → Planned — decisions).
+  - A spread-out Sell never imports while there is energy above the target: when the house uses more than the
+    power still to be sold (an oven), the battery covers the whole house and sells less for the rest of the
+    hour. When Sell reaches its target early, it covers the house for the rest of the hour
+    (Self-consumption) unless the energy kept above the target is worth more later: the first later slot
+    in which the stored energy goes down buys dearer (or sells higher) than buying now. Otherwise it holds.
+    The spread-out Sell takes the batteries' share from the commanded power, not the measured one: the
+    Marstek power sensors update only every ~10 s, which made the grid target swing and the batteries
+    oscillate between ~1.3 and 3.3 kW every ~30 s (prod 2026-10-29). Now the PID steers straight to the
+    power to sell (settles in ~15 s, no overshoot in a simulation with the prod gains).
+    A spread-out Sell never runs below the minimum start power (`input_number.hba_control_min_start_power`,
+    200 W): a small remainder is sold at that power and reaches the target early, instead of ~80 W for the
+    whole hour (a Marstek feeds mostly its own overhead below ~200 W).
+  - New setting **Planned: energy step** (`input_number.hba_strategy_planned_energy_step`, 0 = auto = usable
+    energy / 20, e.g. 0.89 kWh): the energy levels the plan works with, so also the steps of a partial
+    Charge / Sell target. Finest usable / 40 (~1 s per plan instead of ~0.5 s). The Planned view explains the
+    step and its cost, and shows the last plan's size and calculation time (`summary`: `slots`, `levels`,
+    `step_kwh`, `calc_s`).
+  - Sunny hours in which the plan keeps the energy (the sun covers the house): Self-consumption instead of
+    Charge PV when a short peak (a Quooker, a kettle) from the battery, refilled by sun that would otherwise
+    be exported, is cheaper than importing it: buy price > sell price ÷ round-trip efficiency + wear. Under net
+    metering (sell ≈ buy − 0.031) that is not the case, so Charge PV stays; after net metering it switches
+    automatically.
+  - New **Planned** view in the preview dashboard: the plan table at the top (executed hours greyed, now in
+    bold, "Profit €/kWh" for hours where energy leaves the battery = sell price or saved buy price − what that
+    kWh cost, "Stored" = kWh at the end of the slot, "House" = kWh assumed), the settings below it. The cost of a
+    kWh from the battery ("Cost out") is shown in Insights. Instead of reason codes
+    the strategy carries a short hint where it is not obvious: Charge "for 07:00" / holding "keep for
+    17:00" (the first later hour in which the battery delivers again), "empty", "full".
+  - **Insights → Planned — decisions:** per slot the runner-up strategy, how much more it would
+    cost for the whole hour (incl. its effect on later hours) and per kWh ("tie" when the options do
+    the same), the assumed sun and house use, the assumptions in one line, and the expected cost of
+    the plan versus Self-consumption only.
+  - **House use per hour of the day** (`sensor.hba_house_load_profile`, attribute `profile` = 24 values
+    in W): calculated every night at 03:15 (at a restart only when the profile is missing or older than 20 h) from the recorder's hourly statistics
+    (`recorder.get_statistics`) — grid (P1) + batteries + solar (new settings: up to two solar power
+    sensors) − EV charger (`sensor.ev_charger_power` if it exists) — over the last 1–4 weeks (setting,
+    default 2). Days below 60 % of the median day (absent, e.g. a holiday) and incomplete days are
+    skipped. The planner uses the profile per slot instead of one average (prod: ~0.4 kW at night,
+    ~1 kW at midday, ~1.3 kW at 17:00); without a profile the average setting stays the fallback.
+    The EV charger power sensor is a setting too: `sensor.ev_charger_power` is recorder-excluded, so it
+    has no statistics and car charging counted as house use (prod: 1.7 kW at 03:00, 5 kW at 13:00).
+    Sensors without statistics are listed in the profile (`no_statistics`) with a warning. Shown as a
+    24-row table with bars in the Planned view; the plan table has a House column (kWh assumed).
+  - **Sell spread over the hour:** a Sell slot no longer sells out at full power and then imports for the
+    rest of the hour. Per cycle it takes the power needed to reach the planned target at the end of the
+    slot; at or above max power (e.g. the first sell hour from full batteries) it sells at full power,
+    below it Self-consumption with an export target = that power − expected house use, so the house
+    stays covered on top of a steady export. Executed slots keep the planned target (`pe1`) next to the
+    measured result, to check that a spread-out Sell sold what was planned.
+  - **Max power for later hours = the set limits,** not what the batteries allow at this moment: near full the
+    BMS limits charging (prod 2026-10-29: 2.5 kW / 0) and a power-group leader handover dips the registers for a
+    few seconds. The plan used that momentary value for every future hour, thought midday could only recharge at
+    2.5 kW and moved the morning sell from 07:00 to 08:00. Now only the running slot uses the momentary limit;
+    later slots use the power-group targets / last known limits.
+  - **Clearer labels:** an empty battery (at the reserve) shows as Self-consumption instead of Full stop / Zero
+    import (all do the same then); the "keep for HH:MM" hint only where the battery really holds — not while
+    the sun is filling it. Explanation text under the prices no longer renders "~" as strikethrough.
+  - **Energy left when the price data ends** is valued at the lowest buy price of the last 12 h of the plan ×
+    efficiency (what it will most likely save: the night after), not the average of all buy prices. The average
+    included the peaks, so the last evening of the plan kept the battery full at Full stop while the house bought
+    from the grid (seen in a 2027 simulation with sell = market price). Mostly replaced anyway once the next
+    day's prices arrive.
+  - **Minimum advantage of selling** (`input_number.hba_strategy_planned_min_sell_profit`, default 0): the plan
+    only sells from the battery when that beats keeping the energy (for the house until the next recharge, or a
+    later sale) by at least this much per kWh — the margin shown as "Better by per kWh" in Insights, not the
+    profit against what the energy cost.
+    Counted as an extra cost per kWh the battery exports (not directly exported sun, not the house share), not
+    as real money in the expected result. Unlike the sell price deduction it does not lower the value of
+    exporting sun.
+  - **What the stored energy cost comes from a ledger:** every 5 min the energy that actually went into the
+    battery, priced at the buy price while charging from the grid and at the sell price otherwise (sun). Started
+    by replaying the executed history. Before, each plan estimated it (average of the remaining buy prices) and
+    passed that on, which showed night-charged energy (€0.41) as €0.65 per kWh out and the morning sell as a loss.
+    Feeds "Cost out" (Insights) and "Profit €/kWh" (plan table); decisions unchanged.
+  - Insights "Expected" line in words ("with the plan you earn €14.21 · with Self-consumption only you earn
+    €10.83 → the plan is €3.38 better") instead of negative numbers.
+  - **House in executed (grey) rows = the profile value for the whole hour,** not the plan row's value, which
+    only covered what was left of the hour at the last re-plan (showed 0.0 after a late re-plan). The legend says
+    it is always the average for that hour over the last weeks, not the measured use.
+  - **Spread-out Sell with the sun covering the house:** the grid target is now the measured net house use
+    (P1 + battery power) minus the power the battery should deliver, instead of an export target based on the
+    expected house use. With sun on the house the old export target became 0 W and the battery delivered nothing
+    (2026-10-29, a user's prod). Very small remainders (below the 200 W minimum start power) still don't start a
+    battery — on purpose.
+  - **No flapping near the target:** once Charge or Sell reached its target in a slot it only resumes when
+    the stored energy is 0.3 kWh (~1.5 % SoC) on the wrong side, and Charge stops as soon as every battery
+    is at its charge cutoff (prod 2026-10-29 04:32–04:44: Charge ↔ Charge PV every ~30 s near full,
+    because the SoC readings jump 98.9 → 100 → 99.0 there).
+  - Re-plan on drift: the expected stored energy follows full power for Charge and Sell (they finish
+    early in the hour) and a straight line for the other strategies, so a Sell that is on schedule
+    no longer counts as "off".
+  - Ties (e.g. a full battery) are labelled by what a stored kWh is worth (slope of the plan's value
+    table, so the power limit counts: extra energy at 16:00 is sold in the last sell hour, not at the
+    peak): hold without discharging when it is worth more later, store the sun only when that beats
+    exporting it now; holding without sun shows as Full stop.
+
+- **Preview dashboard** — `lovelace/battery_assistant_preview.yaml`, downloaded by the installer,
+  shown once registered (README "Preview dashboard"). HBA's own dashboard improvements land there
+  first; the existing dashboard stays close to HBC's for users switching over.
+  So far there: per-phase table and power-group text tidied, Advanced settings reordered (short
+  sections first, long explanations collapsible, short labels), one name per concept — *Control
+  mode*, *Controller sensitivity*, *Timed EV charge* (no "battery assist" wording),
+  *Car-first limit per phase* vs *Main fuse per phase* with a cross-reference both ways, the
+  RS485 banner in plain language ("A battery is ignoring HBA"); its links stay in the preview.
+- `input_boolean.hba_battery_assist_enabled` is now named *Timed EV charge enabled* (entity ID
+  unchanged).
+
+- **Watchdog: control stalled** — `binary_sensor.hba_control_loop_stalled` turns on when HBA has
+  not run a control cycle for 90 s in Full control (normally one per P1 update, ~1 s). Overview
+  banner, notification and *resolved*. The message tells the two causes apart: the P1 meter
+  stopped updating, or a cycle hangs — a battery whose network link dropped while HBA wrote to
+  it holds the loop until that battery is reachable again (prod 2026-10-02 and 2026-10-25, ~10
+  minutes; the batteries keep their last command meanwhile). Watch only: the control loop itself
+  is unchanged (a fix for the hang is designed but parked — it would touch the loop timing the PID
+  is tuned on).
+
+- **Reminder when Charge or Sell is chosen by hand** — so a one-off Charge or Sell is not
+  forgotten (Dynamic's evening Sell does not run while Charge is selected). A notification when
+  it is done (*Charging done* / *Selling done*: every battery full / empty, or a fixed goal held
+  for 10 minutes — with the solar-forecast goal only "every battery full" counts, because that
+  goal moves every 5 minutes and reaching it hands over to the "When done charging" plan), a
+  reminder after 1, 2 and 4 hours, an Overview banner from 1 hour, and a *resolved* message when
+  the strategy changes. Counted from when Charge / Sell was chosen, also across an HA restart.
+  New: `binary_sensor.hba_manual_strategy_done`, `binary_sensor.hba_manual_strategy_long`,
+  `sensor.hba_manual_strategy_since`.
+
+- **What limits charging / discharging now** — `sensor.hba_charge_limit_source` and
+  `sensor.hba_discharge_limit_source` (like the Peblar's limit source): *Not limited*, *Power
+  group A/B/C*, *Own limit*, *Battery setting*, *BMS*, *Slow charge*, *Main fuse*, *Car
+  first*, *Full*, *Empty*, *Offline* (also: not read yet), *Fault* (the inverter reports a
+  fault) or *Charge alongside EV* — the kind of limit costing
+  the most watts below 2500 W per battery. `sensor.hba_limits_now` has the most each battery
+  could charge / discharge right now and why (the battery distribution replayed at full
+  request, a phase limit shared in battery order); Insights shows it as a table. Only reports;
+  what the strategy asks for is not a limit. The two Limit Source sensors are recorded (a row
+  only when the reason changes); `sensor.hba_limits_now` is recorder-excluded (every 5 s).
+  The Overview shows an info line ("Charging limited to 2821 W in total: the car comes first on
+  L1 and L3" — the total of all batteries, with every phase where that limit applies)
+  while the batteries actually run at a limit worth knowing about — main fuse, car first or BMS
+  — via `binary_sensor.hba_battery_power_limited` (on within 150 W of the max, off 400 W below
+  it, 30 s on / 60 s off delay); power groups, full / empty and offline are left out. A Limit
+  Source changes only when the old reason is gone, the new one costs 1000 W more, or the new
+  one has been on top for a minute, and it names the kind of limit without the phase (the
+  phases are per battery in `sensor.hba_limits_now` and in the Overview line) — with the car
+  first, L1 and L3 otherwise took turns 50–70 times an hour.
+
+- **Main fuse limit per phase** (`input_number.hba_phase_current_limit`, Advanced settings →
+  Power groups, 0 = off) — in every strategy, the batteries on a phase charge (import) or
+  discharge (export, e.g. Sell plus solar on the same phase) only as far as that phase stays
+  below this current, e.g. 24 A for a 25 A main fuse. Prod 2026-10-25 02:01: L1 at 24 A from
+  ~10 A house load plus two batteries charging 3.3 kW on L1, with the limit only active while
+  the car charged. Needs `sensor.p1_meter_power_l1/l2/l3` and each battery's phase; combines with
+  *car first* (the tighter limit applies per phase). A software limit — the installation must be
+  safe without it.
+  The room per phase is now one trigger-based `sensor.hba_phase_room` (attributes
+  `fuse_charge_w`, `fuse_discharge_w`, `ev_room_w`, `ev_reserve_w`, `ev_source`,
+  `missing_sensors`), replacing `sensor.hba_ev_phase_room`; the setup banner sensor is now
+  `binary_sensor.hba_phase_sensors_missing` (was `binary_sensor.hba_ev_phase_sensors_missing`).
+  Remove the two old entities in Settings → Entities if they show as unavailable.
+
+- **Minimum power to start an extra battery** (`input_number.hba_control_min_start_power`,
+  default 200 W, 0 = off) — an extra battery (one not running yet while another already takes
+  power) only starts when its share is at least this much; the first battery always may, so a
+  low night base load is still covered. Below ~200 W a Marstek mostly covers its own fixed
+  ~20–25 W (prod: discharge efficiency ~74 % at 100–200 W, ~87 % at 200–300 W), and a
+  few-watt share — e.g. the last bit of a phase's room while the car charges — only toggled its
+  inverter Standby ↔ Charge. A battery already running still ramps down to 0 smoothly.
+  Advanced settings → next to *Stop after idle for*.
+
+- **`hba_config.yaml.example`** — your own `hba_config.yaml` is never overwritten on updates, so
+  new examples (like the ADVANCED per-phase sensors) never reached it. The installer now writes
+  the latest template next to it as `packages/hba/hba_config.yaml.example` on every install /
+  update. HA only loads `*.yaml`, so it is never loaded — copy what you need into your
+  `hba_config.yaml`.
+
+- **Power groups — a combined power limit for several batteries** (HBA-only) — e.g. batteries
+  on one breaker, a limit per phase, or plug-in batteries that together keep to the 800 W
+  guideline. Put them in group A, B or C (per battery in Advanced settings; default *Own* = unchanged).
+  Per group you set a **max power** (the breaker, e.g. 3500 W for 16 A) and a **spread
+  policy**. Each battery keeps its own **max charge / max discharge power** — in a group
+  they move from the battery's registers to `input_number.hba_marstek_mX_max_charge_power` /
+  `…_max_discharge_power` (same Max Power tiles on the dashboard), because HBA now writes
+  the registers; the group is an extra limit on top.
+  HBA then writes the batteries' **max charge / max discharge power registers** so that, per
+  direction, a group never adds up to more than its max power. Because the limits sit *in*
+  the batteries, the breaker stays protected when HA is down or a battery runs on its own
+  (Marstek app, anti-feed) — HBA's own distribution keeps working inside those limits.
+  - *Follow battery order* (default) gives the group's battery that HBA uses first right now
+    (Auto balance (SoC) order, else the priority rotation) as much as it can and the others
+    the rest, so one battery runs up to its max before a second one starts — each running
+    battery costs a fixed ~20–25 W (prod: discharge efficiency ~58–74 % below 200 W,
+    87–90 % at 200–500 W, 93–94 % from 500 W up to 2500 W). The ceilings move with that order
+    (frozen 30 min) but hand over only when the new first battery is 5 SoC points further
+    along than the current leader, or the leader is full / empty — each handover rewrites
+    the limit registers (EEPROM), and without this a sunny day would swap at almost every
+    30-min order update (prod: ~6 order changes a day in October). The battery distribution
+    puts a group's leader first in its group's place in the order (also for *One at a time*),
+    so the battery with the high ceiling always runs before a capped one — otherwise
+    800–3300 W would run two batteries (extra fixed loss and relay cycles) — also while every battery in the group is
+    full or empty, so nothing flips back when they become usable again. *Equal* splits the max power evenly, never
+    above a battery's own max. *One at a time* keeps one battery first until it is full or
+    empty.
+  - A full battery hands its **charge** share to the others, an empty one its **discharge**
+    share — charging and discharging are split separately, so a full battery still
+    discharges at its full share in the evening. *Full* = within 1 % of the charge cutoff
+    (again below cutoff − 4 %); *empty* = within 1 % of the discharge cutoff (again above
+    cutoff + 4 %).
+  - **Safe swap:** HBA lowers a battery first and raises the other only into room that the
+    batteries' *read-back* registers leave, i.e. after the lower has landed. A battery that
+    cannot be reached keeps its share reserved — it may still be running on its old limit.
+  - Writing an unchanged limit costs no EEPROM cycle (Marstek firmware change guard), and
+    limits only change on full/empty/settings changes — a few writes per day.
+  - Joining a group starts the battery's own limits from its registers, so an 800 W
+    plug-in battery is never raised without you saying so.
+    Leaving a group (back to *Own*) writes the battery's own limits back into its registers,
+    so no group share (e.g. 800 W charge because it was full) stays behind as its limit. A group with a missing max
+    power stays inactive and says so (Overview + Advanced settings banner).
+  - **Use at your own risk:** this is a software limit, not electrical protection — a firmware
+    bug, a battery reset, an app setting or a configuration mistake can exceed it. Always have
+    an electrician check the installation; it must be safe without HBA.
+  - New: `sensor.hba_power_limits` (state *Not used* / *Check settings* / *Active*;
+    intended limits, groups, full/empty, last known limits as attributes),
+    `automation.hba_power_groups_apply_limit_registers`, a *Power groups* section in
+    Advanced settings; the register tiles per battery only show while it is in *Own*.
+- **Strategy during EV charge: "Charge alongside EV"** (HBA-only) — while the car charges,
+  the normal strategy keeps running instead of being replaced: it alone decides *whether*
+  the batteries charge (e.g. a cheap hour), but they never discharge into the car (*Timed EV
+  charge* still does, on purpose). Who gets the connection depends on the energy in the
+  batteries:
+  - below **Batteries first below** (`input_number.hba_ev_battery_priority_energy`, kWh of
+    usable energy — e.g. what the house needs at night) the batteries charge at full power
+    and the charger's own load balancing slows the car;
+  - above it the car keeps its speed: the batteries only use what keeps each phase under
+    **Phase limit** (`input_number.hba_ev_phase_current_limit`, default 22 A — just below a
+    Peblar's ~22.5 A load-balancing threshold), computed every cycle from the per-phase grid
+    power. **Define `sensor.p1_meter_power_l1/_l2/_l3`** (W, positive = import; optional
+    `sensor.p1_meter_voltage_l1/_l2/_l3`, else 230 V) in `hba_config.yaml`, like
+    `sensor.p1_meter_power` — see EXAMPLE 3 there. Only the phases with batteries are needed;
+    missing ones are named in a banner (`binary_sensor.hba_phase_sensors_missing`) and get
+    no room. Existing installs keep their `hba_config.yaml`: copy the example from the repo.
+  - **Car max current** (`input_number.hba_ev_max_current`, default 16 A): with the charger's
+    power defined (`sensor.ev_charger_power`, or `sensor.ev_charger_power_l1/_l2/_l3` per grid
+    phase — EXAMPLE 4/5 in `hba_config.yaml`), *car first* keeps the room the car still needs
+    to reach that current free. Without it the batteries filled the room the car wanted after
+    the charger's load balancing throttled it, and the car stayed slow (prod: 5.3 instead of
+    10.5 kW for 2.5 minutes). The reservation only ever lowers the batteries' room; without a
+    charger sensor HBA works as before. Insights shows what is held for the car per phase.
+  - Needs the phase of each battery (`input_select.hba_marstek_mX_phase`, Advanced settings;
+    *Not set* counts against every phase) and an EV charger whose load balancing measures the
+    whole connection (CT clamps at the grid connection). The per-phase cap goes into the
+    1-second commands, not the EEPROM limit registers.
+  - New: `binary_sensor.hba_ev_charge_alongside` (attribute `mode` — *Batteries first* /
+    *EV first*), `binary_sensor.hba_batteries_before_ev` (on while the batteries come first,
+    whether or not the car charges — for a solar-surplus EV controller such as
+    ha-smart-ev-charging's *Home battery priority entity*; both switch back to *EV first* only
+    0.2 kWh above the reserve, so a car taking the surplus at the reserve does not flip them, and
+    keep their state while a battery's SoC is not read yet, e.g. right after an HA restart) and `sensor.hba_phase_room` (room per phase, recorder-excluded like
+    `sensor.p1_meter_power_l*` / `sensor.p1_meter_voltage_l*` / `sensor.ev_charger_power` / `sensor.ev_charger_power_l*`:
+    they change on every update and copy sensors that are recorded anyway;
+    recorder exclusions take effect after a full HA restart).
+
+- **Battery restart: notification + limits written back** — a restarted battery is
+  recognised by its limit registers coming back as 0 after it was unreachable (see Fixed).
+  HBA writes the last known values back and sends *Battery Mx restarted*. If the limits still
+  read 0 five minutes later, `binary_sensor.hba_power_limits_not_restored` raises an
+  Overview banner, a notification and a persistent notification (resolved when fixed).
+  A restart is also recognised in Full control by RS485 control coming back as *disabled*
+  after the battery was unreachable — a power cycle can keep the limit registers (prod
+  2026-10-25: M4 came back reading 2500 / 800, no 0). The message asks to check settings HBA
+  cannot read over Modbus, such as an output limit set in the Marstek app.
+
+- **Timed: periods D and E** (HBC v4.12) — up to five periods (A–E), each with its own start,
+  stop and strategy; add/remove them with the + / − tiles as before. New
+  `sensor.hba_timed_active_period` shows which period applies now (A–E or Default; HBC's
+  "Current period"); the Timed view shows it with a clock while Timed is the strategy.
+  Apply defaults sets D/E off and their strategy to Self-consumption.
+
+- **Priority battery change interval: "Auto balance (SoC)"** (HBA-only) — "Auto balance" (as
+  in HBC) rotates the priority every 30 minutes regardless of SoC. With batteries of different
+  power that does not balance: on prod the 800 W battery gave far less per turn in the evening
+  peak and stayed ~50 % above the others all night. The new option decides the order from SoC
+  every 30 minutes — fullest battery discharges first, emptiest charges first, and a load or
+  solar surplus above one battery's max flows to the next in line — and keeps it until the
+  next half hour, so a running charge or discharge is never reshuffled. A battery only moves
+  up when its SoC differs by more than 3 points. New `sensor.hba_battery_order` (state = the
+  battery that discharges first, also mirrored to the priority battery; attributes
+  `discharge_order` / `charge_order`); the order is shown under the setting in Advanced
+  Settings. "Auto balance", "Daily", "Weekly" and "Never" are unchanged. **It is the new
+  default** (apply defaults and fresh installs); existing installs keep their current setting
+  until you select it.
+
+- **New "When done charging" option: *Charge PV — use battery if the sun refills it***
+  — with the *solar forecast* charge goal, it holds the battery (Charge PV) only when energy
+  had to come from the grid; when the forecast surplus covers the whole usable capacity
+  (charge target 0 kWh) it continues with Self-consumption. A cheap night hour on a sunny day
+  then no longer leaves the battery idle while the house buys grid power the sun replaces
+  anyway; on a cloudy day the grid-charged energy is still kept for the expensive hours.
+  Target 0 stays 0 however far the battery discharges, so it cannot flip back to grid
+  charging. With other charge goals the option behaves exactly like Charge PV.
+  It is the new default set by `script.hba_apply_defaults` (was *Full stop*); existing
+  installs keep their setting until defaults are applied.
+- **Dynamic migration: notification** (`automation.hba_notify_dynamic_migration` / `_resolved`)
+  — after the r22 update, a push and persistent notification point to the Overview banner and
+  list the two steps every upgrade needs (re-select Dynamic, re-enter max hours).
+- **Entity health: notification** (`automation.hba_notify_entity_health` / `_resolved`) — when a
+  critical HBA entity is missing or registered under a different entity ID for 5+ minutes, a
+  push and persistent notification now list them (previously only the Overview banner).
+- **Battery offline: notification** (`automation.hba_notify_battery_offline` / `_resolved`) — a
+  configured battery that is unreachable over Modbus for 3+ minutes now sends a push and a
+  persistent notification naming it (previously only the Overview banner showed this), and a
+  "back online" message afterwards.
+- **Master mode periodic reapply** (`automation.hba_master_mode_periodic_reapply`, from HBC
+  v4.11.0) — every 5 minutes HBA checks each configured battery's RS485 control mode and
+  work mode against the active master mode and corrects any that drifted (firmware update,
+  Marstek app, BMS reset). A battery with RS485 off silently ignores every forcible command.
+  Unlike HBC it only writes a select that is actually wrong, so a healthy install costs no
+  Modbus traffic. `Disabled` is left alone (soft kill-switch). The RS485-mismatch
+  notification still fires after 30 s and now says HBA will correct it; the "resolved"
+  notification follows once it has.
+- **Grid cycle profit** (`sensor.hba_dynamic_cycle_spread`, from HBC v4.11.0) — average gross
+  price spread per complete cheap→expensive cycle across the marked Dynamic v2 slots (today
+  and tomorrow), in ct/kWh — HBC's `gross_spread`, same calculation. Shown in the Dynamic v2
+  section as "Grid cycle profit today".
+
+### Changed
+
+- **Planned: strategy names say what the battery does** — where nothing goes in or out of the battery
+  the plan says *Full stop*, or *Charge PV* while the sun is up (sunrise–sunset from `sun.sun`, not the
+  forecast amount) and storing is worth it. No more Charge PV at night, no Zero import / Self-consumption
+  on an empty battery (was: empty = Self-consumption). The running slot keeps its strategy after running
+  empty (e.g. *Zero import*, which stops by itself); the table shows *until empty* / *empty*.
+  While the sun is up and a stored kWh is worth less than buying one, such an hour runs *Zero import*
+  (or *Self-consumption* instead of *Charge PV*): the battery covers what the forecast missed (a cloud,
+  a kettle) instead of the grid, and costs nothing when the sun does cover the house.
+- **Planned: after an early Charge / Sell, the plan decides the rest of the slot** — HBA re-plans once
+  when the target is reached and runs what that plan says (Full stop, Zero import, Self-consumption or
+  Charge PV), instead of always Charge PV after Charge and a fixed rule after Sell. The plan table's
+  second line (*↳ … from ~HH:MM*) shows that choice in advance.
+- **Batteries stop exactly at their SoC cutoff** — HBA allowed discharging only above
+  cutoff + 0.5 % and charging only below cutoff − 0.5 %. With a whole-percent SoC that meant
+  "stop at the cutoff", but batteries that report tenths (Venus E 3.0) stopped 0.5 % early:
+  with a 13 % cutoff at 13.5 % (prod), leaving ~25 Wh per battery unused per cycle, and a
+  100 % charge cutoff counted as full at 99.5 %. The offset was not a hysteresis (it did not
+  prevent restarting either) and its stated reason, a relay that chatters, does not exist on a
+  Venus E. All checks — distribution, PID anti-windup, Charge / Charge PV / Zero import end
+  conditions, Timed EV charge — now compare against the cutoff itself, as HBC does.
+  Whole-percent batteries behave as before.
+
+- **Charging follows the battery's own limit** — near full (and when cold) the BMS lowers its
+  charge current, and the battery caps every charge setpoint at voltage × that limit, also
+  HBA's forced charge. HBA asked for more, the difference was simply lost, and the next
+  battery did not get it. The distribution now caps each battery at what its BMS allows right
+  now (`sensor.marstek_mX_battery_charge_current_limit` × battery voltage), so the rest goes
+  to the other batteries straight away. Venus E 1/2: ~1270 W from 90 %, ~500 W from 95 %;
+  Venus E 3.0: 100/80/50 A (above the 2500 W inverter max) and 0 A when full.
+  `sensor.hba_total_max_charge_power` uses the same cap; a power group treats 0 A (at ≥ 90 %)
+  as full.
+- **Slow charge off by default when every battery is a Venus E 3.0** — its BMS allows
+  ≥ 2500 W up to full, so HBC's fixed 95 % → 1500 W / 99 % → 1000 W only slowed it down.
+  *Apply defaults* now sets both limits to 0 (off) for an all-E 3.0 setup and keeps 1500 /
+  1000 W otherwise. Existing installs keep their values.
+
+- **Discharge cutoff default 13 % on a Venus E 3.0** — the battery stops discharging on its
+  own just below 13.0 % (its reserve, 100 − app DoD and at least 12 %, is checked against a
+  whole-percent SoC — firmware analysis + prod, where every final stop of four E 3.0s was at
+  12.9–13.1 % while HBA still commanded discharge). With the old 12 % HBA kept giving a share
+  to a battery that delivered 0 W, often for hours. *Apply defaults* now sets 13 % for
+  batteries reporting `VNSE3`, 12 % for others; existing installs keep their value — set it
+  by hand (Advanced settings → per battery).
+
+- **PID presets shifted up one Ki step; `Regular` is now Ki 0.30** — **Very safe / Safe /
+  Regular / Responsive** are now Ki **0.15 / 0.22 / 0.30 / 0.40** (was 0.10 / 0.15 / 0.22 /
+  0.30). Measured on production against the 2.25 kW night load on four batteries: residual
+  8 s after the step **410 → 137 W**, cost per pulse 0.77 → 0.72 ct, worst brief undershoot
+  −188 W. `Safe` is the previous `Regular`. `Responsive` (0.40), measured a night and a day:
+  cheaper per step (0.64 ct) but overshoots on large steps (worst −795 W) and oscillates around
+  solar balance (~4.5 s swing, hundreds of charge↔discharge switches per hour) — trade-off
+  table in DEFAULTS.md, which now also explains what to expect with a slower P1 meter.
+  `Low peak (grid limit)` keeps its measured Ki 0.22 (now: Safe without output damping).
+  `script.hba_apply_defaults` sets Ki 0.15 to match `Very safe`. Existing installs keep their
+  current values until a preset is selected again.
+- **Timed and Dynamic have their own views** (HBA layout; HBC keeps one combined view) — the
+  "Timed / Dynamic" view is split into **Timed** (`/home-battery-assistant/timed`) and
+  **Dynamic** (`/home-battery-assistant/dynamic`). Cards are unchanged; links and the Dynamic
+  migration banner point to the new Dynamic view.
+- **Timed periods can run past midnight** — a stop time earlier than the start (e.g.
+  22:00 → 06:00) now wraps, as in HBC; before, such a period never matched. A period now runs
+  up to (not including) its stop time, so back-to-back periods no longer overlap by a second.
+
+- **Batteries now level out: after the priority battery, power goes to the next battery in
+  line, not always to battery 1** — HBA (like HBC) filled/emptied the priority battery and then
+  batteries 1, 2, 3 … in number order, so the overflow always went to the lowest-numbered
+  battery and the highest one lagged, however the priority rotated (production, 4 batteries:
+  SoC spread up to 55–68 %; with priority 3, batteries 3+4 almost never shared the load). The
+  order is now cyclic from the priority battery (priority 3 → 3, 4, 1, 2), for charging and
+  discharging, so each battery is second in line equally often as the priority rotates.
+- **Solar-forecast charge goal: the house reserve now shrinks with the remaining day** —
+  *Solar reserved for house* is a whole-day amount, but it was subtracted from the
+  *remaining* forecast, so the charge target ran away during the day (production, 1 Oct: 12.0
+  → 18.0 kWh while the sun filled the battery 9.4 → 13.1 kWh) until a cheap afternoon slot
+  charged from the grid. The reserve is now scaled by the share of today's sun still to come
+  (remaining ÷ whole-day forecast); target and available then move together (shortfall 2.6 /
+  2.3 / 3.3 kWh at 07 / 12 / 15 h that day instead of 2.6 → 6.0). Before sunrise nothing
+  changes. Uses the Solar-aware forecast entity (`…_forecast_today`) as the whole-day figure;
+  if that is unset or the same entity, behaviour is unchanged. New
+  `sensor.hba_usable_battery_energy`; `sensor.hba_solar_forecast_surplus_today` shows
+  `house_reserve_remaining` and `remaining_share`. The charge target, distribution card,
+  goal-reached and "covers battery" sensors and the Charge script now all read these instead of
+  six separate copies of the calculation.
+- **Installer shows the commit for non-release installs, and uses the target's own file list**
+  — `HBA_BRANCH=dev` (or the `main` fallback) now prints `branch : dev @ <hash> (<date>)` plus
+  the commit subject, repeats it on the Done screen, and downloads every file from that exact
+  commit (fetching by branch name could mix commits within one run). The installer also hands
+  over to the `install.sh` of the version being installed, so its file list always matches:
+  `main`'s r21 installer aborted half-way on current `dev` (it still listed the renamed
+  `hba_strategy_dynamic_v2.yaml`). Installers from r21 and older lack the hand-off — to install
+  `dev` with them, fetch `dev`'s `install.sh`.
+- **Persistent notifications go through `script.hba_notify_dispatch`** — alerts pass
+  `persistent_id` (optional `persistent_title` / `persistent_message`) and their "resolved"
+  counterparts pass `resolve_id`, instead of each automation creating and dismissing its own.
+  Behaviour is unchanged (persistent notifications are still created even with HBA push
+  notifications switched off), except: without a push target an alert no longer appears in the
+  bell twice, and a "resolved" message no longer leaves a bell entry of its own. The HBC
+  conflict alert now has a persistent notification too; *Take control* and *Yield to HBC* both
+  dismiss it.
+- **Unexpected grid export: Overview banner, persistent notification and "resolved"** — the
+  alert was push-only; it now also shows as a banner (same conditions: batteries discharging
+  while > 1 kW goes to the grid, outside Sell and Timed EV charge), creates a persistent
+  notification, and sends a "stopped" message afterwards, like the other alerts. Its text said
+  "over 2 minutes"; the sensor turns on after 1 minute.
+- **RS485 mode mismatch: Overview banner** — names the battery that has RS485 control
+  disabled while HBA is in Full control (previously notification-only; Insights had a row).
+- **Battery-not-responding notification explains max-power mismatches** — when a battery
+  sits at ~800 W while HBA commands more than 900 W discharge, the notification now says it
+  is almost certainly Marstek's **800 W output limit** (the default until unlocked in the
+  Marstek app) and names the HBA entity to set to 800. Every not-responding alert also lists
+  "HBA's max power higher than the Marstek app allows" as a cause, next to the SoC/BMS ones.
+  Text corrected from "30+ s" to the actual 60 s delay. The same information now also shows
+  as a **banner on the Overview** while any battery is not responding (per battery:
+  commanded vs delivered power and the likely cause), like the other HBA alerts.
+- **HBA ↔ HBC handoff section hides when the coexistence package is not installed** —
+  Advanced settings showed "Entity not found" cards on installs without
+  `hba_hbc_coexistence.yaml`; it now shows a one-line note on how to add it instead.
+- **A manual Full stop now beats the EV stop trigger and Timed EV charge** (from HBC v4.13.0)
+  — previously an active EV override ran its configured strategy (Standby / Charge PV) or
+  the assist push even with Full stop selected. Full stop is now checked first, and
+  `binary_sensor.hba_battery_assist_active` turns off under Full stop so the EV side leaves
+  `battery_assist` instead of charging from the grid.
 
 ---
 

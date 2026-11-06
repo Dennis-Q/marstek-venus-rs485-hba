@@ -9,6 +9,9 @@
 #
 # To install from a branch (e.g. dev):
 #   HBA_BRANCH=dev bash <(curl -fsSL https://raw.githubusercontent.com/Dennis-Q/marstek-venus-rs485-hba/main/install.sh)
+# The script hands over to the install.sh of the version/branch being installed, so
+# its file list always matches. (Installers from r21 and older lack this — to install
+# dev with them, fetch dev's install.sh instead of main's.)
 #
 # Tip: use the SSH add-on (community) to get a terminal on your HA instance.
 
@@ -43,11 +46,26 @@ fi
 
 # ── Version / branch resolution ───────────────────────────────────────────────
 
+# Resolve a branch to its latest commit: sets COMMIT_SHA, COMMIT_DATE, COMMIT_MSG.
+# Plain curl/grep/sed (no jq or python on a stock HA SSH add-on). Returns non-zero
+# when the GitHub API is unreachable or rate-limited. grep reads a here-string, not a
+# pipe: with pipefail, grep -m1 stopping early on a large response (a merge commit
+# with a big diff, 100+ KB) gave printf SIGPIPE and failed the whole lookup.
+resolve_commit() {
+    local json
+    json=$(curl -fsSL -H "Accept: application/vnd.github+json" \
+           "https://api.github.com/repos/${REPO}/commits/$1" 2>/dev/null) || return 1
+    COMMIT_SHA=$(grep -m1 -o '"sha": *"[0-9a-f]\{40\}"' <<<"$json" \
+                 | grep -o '[0-9a-f]\{40\}') || return 1
+    COMMIT_DATE=$(grep -m1 -o '"date": *"[^"]*"' <<<"$json" | cut -d'"' -f4 | cut -c1-10)
+    COMMIT_MSG=$(grep -m1 -o '"message": *"\([^"\\]\|\\.\)*"' <<<"$json" \
+                 | sed -e 's/^"message": *"//' -e 's/"$//' -e 's/\\n.*//' -e 's/\\"/"/g')
+    [ -n "$COMMIT_SHA" ]
+}
+
+COMMIT_LINE=""
 if [ -n "$BRANCH" ]; then
-    BASE_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}"
-    DISPLAY_REF="branch : ${BRANCH}"
-    warn "Installing from branch '${BRANCH}' — this may be unstable."
-    echo ""
+    REF_NAME="$BRANCH"
 else
     if [ -z "$VERSION" ]; then
         LATEST=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
@@ -60,8 +78,50 @@ else
             echo ""
         fi
     fi
+    REF_NAME="$VERSION"
+fi
+
+# Only a release tag (v<hbc-version>-r<n>) identifies a build by itself. Anything
+# else -- HBA_BRANCH, HBA_VERSION=dev / main / a commit hash, or the main fallback --
+# is resolved to the commit it points at.
+if [ -z "$BRANCH" ] && [[ "$VERSION" =~ ^v[0-9] ]]; then
     BASE_URL="https://raw.githubusercontent.com/${REPO}/${VERSION}"
     DISPLAY_REF="version : ${VERSION}"
+elif resolve_commit "$REF_NAME"; then
+    # Not a release: show which commit this is, and download every file from that
+    # exact commit. Fetching by branch name can mix commits within one run, because
+    # raw.githubusercontent.com caches each branch file for a few minutes.
+    BASE_URL="https://raw.githubusercontent.com/${REPO}/${COMMIT_SHA}"
+    DISPLAY_REF="branch  : ${REF_NAME} @ ${COMMIT_SHA:0:7} (${COMMIT_DATE})"
+    COMMIT_LINE="commit  : ${COMMIT_MSG}"
+else
+    BASE_URL="https://raw.githubusercontent.com/${REPO}/${REF_NAME}"
+    DISPLAY_REF="branch  : ${REF_NAME} (latest commit unknown — offline, API rate limit or unknown branch)"
+fi
+
+# ── Run the installer that belongs to the target ──────────────────────────────
+# The usage line always fetches install.sh from main, but the file list must match
+# the version being installed: main's r21 installer aborted half-way on dev because
+# it still listed hba_strategy_dynamic_v2.yaml, which dev had renamed. So fetch
+# install.sh from the exact commit/tag being installed and run that instead.
+# HBA_INSTALLER_SELF stops the hand-off from repeating; targets older than this
+# change simply run their own script.
+if [ -z "${HBA_INSTALLER_SELF:-}" ]; then
+    _self=$(mktemp)
+    if curl -fsSL "${BASE_URL}/install.sh" -o "$_self" 2>/dev/null; then
+        export HBA_INSTALLER_SELF=1
+        [ -n "$BRANCH" ] && export HBA_BRANCH="$BRANCH"
+        [ -z "$BRANCH" ] && export HBA_VERSION="$VERSION"
+        exec bash "$_self"
+    fi
+    rm -f "$_self"
+    warn "Could not fetch the installer of ${REF_NAME}; continuing with this one."
+    echo ""
+fi
+
+if [ -n "$BRANCH" ] || ! [[ "$VERSION" =~ ^v[0-9] ]]; then
+    warn "Installing '${REF_NAME}', not a release — this may be unstable."
+    echo ""
 fi
 
 # ── Download helper ───────────────────────────────────────────────────────────
@@ -77,6 +137,7 @@ echo ""
 hr
 echo "  Home Battery Assistant — installer"
 echo "  ${DISPLAY_REF}"
+[ -n "$COMMIT_LINE" ] && echo "  ${COMMIT_LINE}"
 echo "  Target  : ${CONFIG_DIR}"
 hr
 echo ""
@@ -137,17 +198,41 @@ CORE_FILES=(
     packages/hba/hba_strategy_charge_pv.yaml
     packages/hba/hba_strategy_charge_sell.yaml
     packages/hba/hba_strategy_dynamic.yaml
-    packages/hba/hba_strategy_dynamic_v2.yaml
+    packages/hba/hba_strategy_planned.yaml
     packages/hba/hba_strategy_others.yaml
     packages/hba/hba_strategy_self_consumption.yaml
     packages/hba/hba_strategy_timed.yaml
     packages/hba/hba_notifications.yaml
+    packages/hba/hba_labs_presence.yaml
+    packages/hba/hba_savings.yaml
     lovelace/battery_assistant.yaml
 )
 
 for f in "${CORE_FILES[@]}"; do
     download "$f" "${CONFIG_DIR}/${f}"
     ok "$f"
+done
+
+# Preview of the new HBA dashboard (optional — only shown once registered in configuration.yaml,
+# see README "Preview dashboard"). Downloaded on every install so it stays in step.
+download "lovelace/battery_assistant_preview.yaml" "${CONFIG_DIR}/lovelace/battery_assistant_preview.yaml"
+ok "lovelace/battery_assistant_preview.yaml  (preview dashboard, optional)"
+
+# ── Obsolete files — removed on update ───────────────────────────────────────
+# Files a previous HBA version shipped that no longer exist. Left on disk they
+# would keep loading. hba_strategy_dynamic_v2.yaml (renamed to
+# hba_strategy_dynamic.yaml in r22, which also replaced the old Dynamic v1 file
+# of that name) would define sensor.hba_energy_prices_data a second time.
+
+OBSOLETE_FILES=(
+    packages/hba/hba_strategy_dynamic_v2.yaml
+)
+
+for f in "${OBSOLETE_FILES[@]}"; do
+    if [ -f "${CONFIG_DIR}/${f}" ]; then
+        rm -f "${CONFIG_DIR}/${f}"
+        ok "$f (obsolete — removed)"
+    fi
 done
 
 echo ""
@@ -181,6 +266,15 @@ else
     say "packages/hba/hba_config.yaml already exists — skipped (your config is preserved)."
     echo ""
 fi
+
+# ── hba_config.yaml.example — always refreshed ───────────────────────────────
+# The user's hba_config.yaml is never overwritten, so it never gets new examples
+# (e.g. the ADVANCED per-phase sensors). Keep the latest template next to it as
+# .example: HA only loads *.yaml from packages/, so this file is never loaded.
+
+download "$CONFIG_PKG" "${CONFIG_DIR}/${CONFIG_PKG}.example"
+ok "${CONFIG_PKG}.example (latest examples to copy from — not loaded by HA)"
+echo ""
 
 # ── Marstek battery files — ask if none found ─────────────────────────────────
 # If the user already has marstek files (with their IPs set), skip entirely.
@@ -263,6 +357,8 @@ fi
 # ── Done ──────────────────────────────────────────────────────────────────────
 
 hr
+echo "  Installed ${DISPLAY_REF#* : }"
+echo ""
 echo "  Done! Next steps:"
 echo ""
 if [ "$NEEDS_ACTION" = true ]; then
@@ -273,6 +369,7 @@ echo "  4. Restart Home Assistant"
 echo "  5. Open the Home Battery Assistant dashboard and run onboarding"
 else
 echo "  1. Edit packages/hba/hba_config.yaml if you changed your P1 sensor setup"
+echo "     (new examples, e.g. for advanced features: packages/hba/hba_config.yaml.example)"
 echo "  2. Restart Home Assistant (or reload YAML)"
 echo "  3. Check Advanced Settings on the dashboard — new features added in this"
 echo "     release have individual 'Apply section defaults' buttons to initialize"

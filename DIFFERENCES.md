@@ -69,8 +69,8 @@ cooldown after a slow cycle); HBA runs the PID on **every** P1 update, subject o
 dramatically more aggressive in HBA. The former "Regular (original HBC)" preset has been
 removed for this reason.
 
-HBA ships **Very safe / Safe / Regular / Responsive**, differing only in Ki (0.10 / 0.15 /
-0.22 / 0.30) at a fixed Kp 0.35, plus **Low peak (grid limit)** — Regular with output damping
+HBA ships **Very safe / Safe / Regular / Responsive**, differing only in Ki (0.15 / 0.22 /
+0.30 / 0.40) at a fixed Kp 0.35, plus **Low peak (grid limit)** — Safe with output damping
 removed, for installs bounded by an instantaneous fuse or connection limit. Regular is the
 validated default. Full rationale and the measured numbers are in [DEFAULTS.md](DEFAULTS.md).
 
@@ -80,7 +80,6 @@ validated default. Full rationale and the measured numbers are in [DEFAULTS.md](
 |---|---|---|
 | Derivative term | On measurement: `Kd × -(P1 − P1_last)` | On error: `Kd × (err − prev_err)` — mathematically equivalent for a constant setpoint |
 | Direction-flip guard when triggered | Locks to previous direction at full PID magnitude | Same: mirrors magnitude into previous direction (`\|output\| × prev_sign`) |
-| SoC cutoff boundary | Exact: `soc >= soc_max` | ±0.5% buffer to prevent relay chatter at the exact boundary |
 
 ---
 
@@ -104,15 +103,35 @@ These are features HBA has that are not in HBC:
 | **Peak shaving — all strategies** | HBC applies peak shaving only in the partials flow (Charge PV, Zero import, Standby). HBA integrates it into `self_consumption`, so Timed and Dynamic also inherit it automatically |
 | **"Disabled" master mode** | HBA adds a fourth option to the Master Battery Mode dropdown alongside the three HBC carries (Manual / Marstek / Full): **Disabled**. Picking it turns off `automation.hba_control_loop_p1_meter_triggered` entirely — no more P1-triggered control loop firing (no ~1 Hz trigger overhead, no dispatch attempts). It also sends a one-shot stop to every reachable battery first (zero force-power + select `stop`, while RS485 is still enabled) so nothing keeps charging/discharging at the last commanded level. Deliberately does NOT change `user_work_mode` or `rs485_control_mode` — it's a pure soft kill-switch; whatever state the previous mode left the batteries in stays. Re-selecting any other mode flips the control loop automation back on. Useful for staging instances, troubleshooting, or any time you want HBA "off" without renaming Modbus YAML files |
 | **Battery Assisted EV Charging** | Forcibly discharges batteries during a configured time window to direct that capacity to an EV charger — useful when you have excess battery reserves and want to maximize EV charge before the car is needed. Controlled via `input_boolean.hba_battery_assist_enabled`, a start/end time window, and a minimum SoC floor. `binary_sensor.hba_battery_assist_active` is the live gate used by the strategy dispatcher and can be used in an external automation to start/stop EV charging. An overflow guard (`binary_sensor.hba_grid_exporting_sustained`) detects sustained high export (>1 kW for 2+ min with batteries discharging) and temporarily falls back to self-consumption to prevent unnecessary grid feed-in. HBC has no equivalent feature. |
-| **Solar-aware strategy** | New strategy (`hba_strategy_solar_aware`) that decides each control cycle whether to export solar to the grid (Zero import) or absorb it locally (Self-consumption). Decision is driven by `sensor.hba_solar_charge_outlook`, which computes net solar energy expected during today's remaining cheap slots (Solcast `detailedForecast` × slot overlap, minus configurable house load). Six-step decision tree: (1) no cheap slots remain → Self-consumption; (2) Solcast unavailable → Zero import (fallback); (3) total solar forecast below threshold → Self-consumption (not a solar day); (4) solar covers the full charge need → Zero import; (5) current time before `self_consume_deadline` (the latest point to switch to avoid under-charging) → Zero import; (6) else → Self-consumption. Designed as the Dynamic v2 default sub-strategy for households that charge during cheap/negative hours and want to maximize export revenue during the pre-cheap solar window. HBC has no equivalent. |
+| **Charge goal reached: "Charge PV — use battery if the sun refills it"** | Extra option for *When done charging, switch to*. With the *solar forecast* goal it only holds the battery (Charge PV) when grid energy was needed; when the solar surplus covers the whole usable capacity (charge target 0 kWh) it continues with Self-consumption, so a cheap night hour on a sunny day does not leave the battery idle while the house buys from the grid. HBC has no equivalent. |
+| **Battery distribution order** | HBC fills/empties the priority battery first and then the others in number order (1, 2, 3 …), so the lowest-numbered battery always takes the overflow and SoC levels drift apart. HBA continues in order *from* the priority battery (priority 3 → 3, 4, 1, 2), so with the priority rotation every battery is second in line equally often. |
+| **Auto balance (SoC)** | Extra *Priority battery change interval* option. HBC's "Auto balance" rotates the priority every 30 min regardless of SoC, so batteries with different power limits drift apart (e.g. an 800 W battery next to 2500 W ones). This option decides the order from SoC every 30 min instead — fullest battery discharges first, emptiest charges first, overflow to the next in line — and freezes it until the next half hour so a running charge or discharge is never reshuffled. A battery only moves up when it differs by more than 3 SoC points. Order shown in Advanced Settings; `sensor.hba_battery_order`. HBA's default (HBC's default is "Auto balance"). |
+| **Silent-battery guard** | A battery whose Modbus link hangs (no battery-power report for 30 s) is skipped and its share goes to the others, so one hung connection cannot stall the control loop for every battery. HBC has no equivalent. |
+| **Charging follows the BMS limit** | The battery caps every charge setpoint at voltage × its BMS charge-current limit anyway (near full, when cold). HBA's distribution caps each battery at that too, so the shortfall of a tapering battery goes to the next battery instead of being lost. Slow charge defaults to off for an all-Venus-E-3.0 setup, whose BMS allows ≥ 2500 W up to full. HBC asks every battery for its full share. |
+| **Battery restart: limits restored** | After a Marstek restart its max charge / discharge registers read 0 until written (firmware quirk) while the battery keeps its limits. HBA recognises that, uses the last known limits in its distribution, writes them back and notifies; a banner if that fails. HBC treats the 0 as the battery's maximum and gives it no power. |
+| **Discharge cutoff 13 % on a Venus E 3.0** | An E 3.0 stops discharging itself just below 13.0 % (whole-percent reserve check), so *Apply defaults* sets 13 % for batteries reporting `VNSE3` (12 % otherwise); with 12 % the distribution kept handing power to a battery that delivered nothing. |
+| **Charge alongside EV** | Extra *Strategy during EV charge* option: the normal strategy keeps deciding whether the batteries charge while the car charges (never discharging into it); below a battery-priority energy (kWh) they charge at full power and the charger's own load balancing slows the car, above it they only use the room under a per-phase current limit computed from the P1 per-phase power. HBC replaces the strategy while the EV charges. |
+| **Power groups (combined power limit)** | Batteries that must stay within one limit together (shared breaker, one phase, plug-in 800 W guideline) go in a group with a max power. Software limit — use at own risk, have an electrician check the installation. HBA writes their max charge / max discharge registers so a group never exceeds it — the limits live in the batteries, so the breaker is protected even when HA is down. *Follow battery order* (default), *Equal* or *One at a time* spread; a full (charging) or empty (discharging) battery hands its share on; lower-first, raise only into read-back room. Also restores the limit registers after a battery restart (they read 0 until written) and notifies. HBC has no equivalent. |
+| **Solar-aware strategy** | New strategy (`hba_strategy_solar_aware`) that decides each control cycle whether to export solar to the grid (Zero import) or absorb it locally (Self-consumption). Decision is driven by `sensor.hba_solar_charge_outlook`, which computes net solar energy expected during today's remaining cheap slots (Solcast `detailedForecast` × slot overlap, minus configurable house load). Six-step decision tree: (1) no cheap slots remain → Self-consumption; (2) Solcast unavailable → Zero import (fallback); (3) total solar forecast below threshold → Self-consumption (not a solar day); (4) solar covers the full charge need → Zero import; (5) current time before `self_consume_deadline` (the latest point to switch to avoid under-charging) → Zero import; (6) else → Self-consumption. Designed as the Dynamic default sub-strategy for households that charge during cheap/negative hours and want to maximize export revenue during the pre-cheap solar window. HBC has no equivalent. |
+| **Planned strategy** | New strategy (`hba_strategy_planned.yaml`, preview): dynamic programming over all known price slots × stored energy, in time order — charges before it sells, handles several cycles per day, holds energy for a later peak. Simulates batteries (measured efficiency, power limits), house use per hour of the day (`sensor.hba_house_load_profile`, from recorder statistics) and Solcast. Charge/Sell run to the planned end-of-slot energy, also partial targets (configurable energy step); Sell spreads over the hour, covers the whole house and never runs below the minimum start power. Separate buy/sell price sources for after net metering. HBC has no equivalent (its Dynamic pairs hours by price rank). |
+| **Savings** | `sensor.hba_savings`: running total in EUR of what the batteries saved compared with no batteries, measured every 15 s from P1, battery power and the price of the moment; stored energy counted at what it cost. `sensor.hba_savings_vs_self_consumption`: the same against a simulated Self-consumption battery. Long-term statistics, own Savings view. HBC has no equivalent. |
+| **Labs: presence per floor** | Off by default. Hourly occupancy per HA floor as long-term statistics, from room trackers (e.g. Bermuda), binary sensors and optionally motion sensors, to predict heating and house use later. Only collects data. HBC has no equivalent. |
+| **Charge goal conflict warning** | `binary_sensor.hba_charge_goal_conflict`: Charge goal *solar forecast* followed by Full stop / Sell / Zero import / Standby exports the PV and buys it back; banner + notification. |
 
 ---
 
 ## Dynamic pricing
 
-Both Dynamic v1 and v2 are direct ports of HBC's algorithms — logic, marks format, and
-sub-strategy dispatch are identical. The differences are in implementation and a small
-number of HBA-specific additions.
+Dynamic (Extreme-Pair Matching) is a direct port of HBC's algorithm — logic, marks format,
+and sub-strategy dispatch are identical. HBC's former contiguous-window v1 was removed in
+HBC v4.11.0 and in HBA r22. The differences are in implementation and a small number of
+HBA-specific additions.
+
+### Price sources: Frank Energie only (for now)
+
+HBC fetches prices for every provider through the HACS Cheapest Energy Hours macro. HBA
+computes the marks natively in `sensor.hba_energy_prices_data` and currently reads only the
+Frank Energie `prices` attribute — no HACS dependency. Other providers are on the to-do.
 
 ### Configurable Frank Energie entity ID
 
@@ -124,8 +143,6 @@ If your integration uses English entity names or you prefer market price over al
 update the entity ID there — for example:
 - `sensor.frank_energie_prices_average_electricity_price_all_hours_all_in` (English, all-in)
 - `sensor.frank_energie_prices_current_electricity_market_price` (English, market price ex taxes)
-
-This applies to both v1 and v2.
 
 ### PT15M resolution (Frank Energie)
 
@@ -172,21 +189,31 @@ HBC's. The cards on it:
 All of the above update at P1 frequency. Debug-only cards are gated behind
 `input_boolean.hba_control_is_debug_mode` to avoid history bloat at ~1 Hz.
 
-### Dynamic v2 price marks table — vertical layout
+### Dynamic price marks table — vertical layout
 
 HBC's price marks table uses a horizontal layout (one column per hour). HBA uses a
 vertical layout — one row per hour, today and tomorrow side by side:
 
-![Dynamic v2 price marks table](docs/screenshots/dynamic_v2_price_marks_table.png)
+![Dynamic price marks table](docs/screenshots/dynamic_v2_price_marks_table.png)
 
 This scales better for 24+ rows and avoids horizontal scrolling. The data shown is
 identical; the layout is intentionally different.
 
-### Lab features view
+### Separate Timed and Dynamic views
 
-HBA's Lab features view (Dynamic v2 price marks table + 48-hour ApexCharts bar chart)
-is always navigable from the dashboard. HBC gates it on the presence of the
-`update.cheapest_energy_hours_update` entity, which is not available in all setups.
+HBC (up to v4.15.1) shows Timed and Dynamic in one combined "Timed/Dynamic" view. HBA splits
+it into a **Timed** view and a **Dynamic** view — with the price marks table, the 48-hour
+chart and five timed periods the combined view became very long. The cards themselves are
+the same as HBC's: Dynamic settings, price marks table and the 48-hour ApexCharts bar chart in
+Dynamic (the separate Lab features view is gone, as in HBC v4.11.0); default strategy,
+periods A–E and the "Current period" row in Timed.
+
+### Timed periods past midnight
+
+HBC's time-range switch lets a period run past midnight (stop earlier than start, e.g.
+22:00 → 06:00). HBA's Timed used a plain "start ≤ now ≤ stop" check, so such a period never
+matched; it now wraps the same way. A period runs from its start up to (not including) its
+stop, so back-to-back periods (A until 06:00, B from 06:00) don't overlap.
 
 ---
 

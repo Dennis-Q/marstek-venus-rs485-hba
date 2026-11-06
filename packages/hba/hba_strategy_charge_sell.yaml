@@ -59,13 +59,25 @@ script:
           target_energy: "{{ states('input_number.hba_strategy_charge_target_energy') | float(5) }}"
           available_energy: "{{ states('sensor.hba_charge_available_energy') | float(0) }}"
           avg_soc: "{{ states('sensor.hba_average_battery_soc') | float(0) }}"
+          # Solar-forecast goal only: how much must still come from the grid
+          # (sensor.hba_charge_target_energy -- the single source the dashboard shows too;
+          # its house reserve scales with the remaining day). 0 means the forecast surplus
+          # fills the whole usable capacity -- nothing needs buying, and it stays 0 however
+          # far the batteries discharge (see the goal-reached option
+          # "Charge PV — use battery if the sun refills it").
+          solar_energy_desired: >
+            {% if goal == 'solar forecast' %}
+              {{ states('sensor.hba_charge_target_energy') | float(0) }}
+            {% else %}
+              -1
+            {% endif %}
           goal_reached: >
             {% if goal == 'batteries are full' %}
               {% set ns = namespace(full=true) %}
               {% for i in range(1, count + 1) %}
                 {% set soc = states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') | float(0) %}
                 {% set cutoff = states('input_number.hba_marstek_m' ~ i ~ '_charging_cutoff_capacity') | float(100) %}
-                {% if soc < cutoff - 0.5 %}{% set ns.full = false %}{% endif %}
+                {% if soc < cutoff %}{% set ns.full = false %}{% endif %}
               {% endfor %}
               {{ ns.full }}
             {% elif goal == 'state of charge' %}
@@ -73,19 +85,7 @@ script:
             {% elif goal == 'energy reserve' %}
               {{ available_energy >= target_energy }}
             {% elif goal == 'solar forecast' %}
-              {% set ns2 = namespace(energy_max=0) %}
-              {% for i in range(1, count + 1) %}
-                {% set cap = states('sensor.marstek_m' ~ i ~ '_battery_total_energy') | float(0) %}
-                {% set soc_max = states('input_number.hba_marstek_m' ~ i ~ '_charging_cutoff_capacity') | float(100) %}
-                {% set soc_min = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) %}
-                {% set ns2.energy_max = ns2.energy_max + (soc_max - soc_min) / 100 * cap %}
-              {% endfor %}
-              {% set e_today = states('input_text.hba_strategy_solar_forecast_entity_id') | trim %}
-              {% set forecast_kwh = states(e_today) | float(0) if e_today not in ['', 'unknown', 'unavailable'] else 0 %}
-              {% set threshold = states('input_number.hba_solar_reserved_for_house') | float(5) %}
-              {% set solar_surplus = [forecast_kwh - threshold, 0] | max %}
-              {% set energy_desired = [ns2.energy_max - solar_surplus, 0] | max %}
-              {{ available_energy >= energy_desired }}
+              {{ available_energy >= solar_energy_desired | float(0) }}
             {% else %}
               false
             {% endif %}
@@ -94,8 +94,29 @@ script:
             sequence:
               - variables:
                   next: "{{ states('input_select.hba_strategy_charge_goal_reached') }}"
+                  # Nothing had to come from the grid: the solar forecast fills the whole
+                  # usable capacity. Holding the battery (Charge PV) then only makes the
+                  # house buy grid power the sun will replace anyway -- e.g. a cheap night
+                  # hour on a sunny day. With grid energy bought (target > 0, cloudy day)
+                  # holding is right, so it stays Charge PV. Target 0 cannot flap: it stays
+                  # 0 however far the batteries discharge.
+                  # Also require real capacity and a real surplus: right after a restart the
+                  # capacity sensors can be unknown (usable 0 -> target 0), which must not
+                  # read as "the sun refills the battery" -- nor may a missing forecast.
+                  # The surplus is the one behind the target: tomorrow's after sunset.
+                  solar_fills_battery: >-
+                    {{ goal == 'solar forecast' and solar_energy_desired | float(-1) == 0
+                       and states('sensor.hba_usable_battery_energy') | float(0) > 0
+                       and state_attr('sensor.hba_charge_target_energy', 'solar_surplus') | float(0) > 0 }}
               - choose:
-                  - conditions: "{{ next == 'Charge PV' }}"
+                  - conditions: "{{ next == 'Charge PV — use battery if the sun refills it' and solar_fills_battery }}"
+                    sequence:
+                      - action: input_text.set_value
+                        target: { entity_id: input_text.hba_strategy_active_flow }
+                        data: { value: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Charge → Self-consumption (sun refills battery)" }
+                      - action: script.hba_strategy_self_consumption
+                        data: { skip_label: true }
+                  - conditions: "{{ next in ['Charge PV', 'Charge PV — use battery if the sun refills it'] }}"
                     sequence:
                       - action: script.hba_strategy_charge_pv
                         data: { flow_prefix: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Charge →" }
@@ -108,11 +129,8 @@ script:
                         data: { skip_label: true }
                   - conditions: "{{ next == 'Zero import' }}"
                     sequence:
-                      - action: input_text.set_value
-                        target: { entity_id: input_text.hba_strategy_active_flow }
-                        data: { value: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Charge → Zero import" }
                       - action: script.hba_strategy_zero_import
-                        data: { skip_label: true }
+                        data: { flow_prefix: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Charge →" }
                   - conditions: "{{ next == 'Sell' }}"
                     sequence:
                       - action: input_text.set_value
@@ -127,6 +145,12 @@ script:
                         data: { value: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Charge → Standby / peak shave" }
                       - action: script.hba_strategy_standby
                         data: { skip_label: true }
+                  # Offered by the select, but had no branch: choosing it fell through to
+                  # Full stop.
+                  - conditions: "{{ next == 'Solar-aware' }}"
+                    sequence:
+                      - action: script.hba_strategy_solar_aware
+                        data: { flow_prefix: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Charge" }
                 default:
                   - action: input_text.set_value
                     target: { entity_id: input_text.hba_strategy_active_flow }
@@ -194,11 +218,8 @@ script:
                         data: { skip_label: true }
                   - conditions: "{{ next == 'Zero import' }}"
                     sequence:
-                      - action: input_text.set_value
-                        target: { entity_id: input_text.hba_strategy_active_flow }
-                        data: { value: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Sell → Zero import" }
                       - action: script.hba_strategy_zero_import
-                        data: { skip_label: true }
+                        data: { flow_prefix: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Sell →" }
                   - conditions: "{{ next == 'Charge' }}"
                     sequence:
                       - action: script.hba_strategy_charge
@@ -210,6 +231,12 @@ script:
                         data: { value: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Sell → Standby / peak shave" }
                       - action: script.hba_strategy_standby
                         data: { skip_label: true }
+                  # Offered by the select, but had no branch: choosing it fell through to
+                  # Full stop.
+                  - conditions: "{{ next == 'Solar-aware' }}"
+                    sequence:
+                      - action: script.hba_strategy_solar_aware
+                        data: { flow_prefix: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Sell" }
                 default:
                   - action: input_text.set_value
                     target: { entity_id: input_text.hba_strategy_active_flow }

@@ -1,4 +1,4 @@
-# Home Battery Assistant (HBA) — v4.10.1-r21
+# Home Battery Assistant (HBA) — v4.10.1-r23
 
 A native Home Assistant replacement for the Node-RED battery control flows in
 [gitcodebob/marstek-venus-rs485-node-red](https://github.com/gitcodebob/marstek-venus-rs485-node-red).
@@ -94,7 +94,8 @@ I-term. **Start with a lower Ki than you used in HBC** and tune from there.
 
 **P1 update rate matters:** DSMR 5.0 meters update every 1 s; older meters may update
 every 3–10 s. HBA runs at whatever rate the P1 sensor updates — with a slower meter
-the I-term accumulates proportionally slower, so the system is more conservative.
+the I-term accumulates proportionally slower, so the system is more conservative: the presets
+stay stable but settle more slowly (on a 5–10 s meter, start with `Responsive`; see DEFAULTS.md).
 The Ki warning above is most relevant for 1 s meters; at slower rates HBA and HBC
 behave more similarly.
 
@@ -108,10 +109,12 @@ behave more similarly.
 The everyday presets are **Very safe / Safe / Regular / Responsive**. They share Kp 0.35,
 Kd 0.1 and the damping settings, and differ **only in Ki**, because Kp 0.35 is a *measured*
 optimum — swept on production and bracketed on both sides, it is the cheapest per disturbance,
-so there is nothing to gain by varying it. **Regular** is the validated default (measured on
-production: 143 W residual 8 s after a 2.25 kW step, zero setpoint crossings).
+so there is nothing to gain by varying it. **Regular** (Ki 0.30) is the validated default
+(measured on production: 137 W residual 8 s after a 2.25 kW step, against 410 W at Ki 0.22).
+**Responsive** (Ki 0.40) is faster and a little cheaper per load step, but overshoots on large
+steps and jitters around solar balance — see the trade-off in DEFAULTS.md.
 
-A fifth preset, **Low peak (grid limit)**, is Regular with output damping removed: ~−10 % on the
+A fifth preset, **Low peak (grid limit)**, is Safe (Ki 0.22) with output damping removed: ~−10 % on the
 instantaneous peak at no extra cost, for installs with a hard fuse or connection limit. It does
 *not* help with a capacity tariff billed on 15-minute averages — use `power_limit_import`.
 
@@ -150,12 +153,11 @@ For full details see [Running HBA alongside HBC](#running-hba-alongside-hbc) bel
   Tested with Solcast PV Forecast; any integration providing equivalent sensors works.
   Entity IDs are configurable in Advanced Settings. When not configured, forecast is
   treated as 0 kWh and the charge goal charges the full battery capacity from the grid.
-- **Energy price integration + [HACS Cheapest Energy Hours](https://github.com/TheFes/cheapest-energy-hours)**
-  — for the Dynamic pricing strategy. Requires a supported price source (e.g.
-  [Frank Energie](https://github.com/HiDiHo01/home-assistant-frank_energie), Tibber,
-  Nordpool) and the HACS Cheapest Energy Hours integration. See
+- **Energy price integration** — for the Dynamic pricing strategy. Currently
+  **[Frank Energie](https://github.com/HiDiHo01/home-assistant-frank_energie) only**;
+  other providers are planned. No HACS Cheapest Energy Hours needed. See
   **[docs.homebatterycontrol.com/05-setup-dynamic](https://docs.homebatterycontrol.com/05-setup-dynamic)**
-  for supported sources and setup.
+  for how the strategy works.
 
 ---
 
@@ -183,7 +185,7 @@ The script downloads all HBA files, skips files you have already configured (P1 
 
 > **Tip:** The [SSH & Web Terminal add-on](https://github.com/hassio-addons/addon-ssh) gives you a terminal on your HA instance. Run the command above from `/config`.
 
-To install a specific version: `HBA_VERSION=v4.10.1-r21 bash <(curl -fsSL ...)`
+To install a specific version: `HBA_VERSION=v4.10.1-r23 bash <(curl -fsSL ...)`
 
 **Option B — Manual**
 
@@ -205,9 +207,15 @@ homeassistant:
 ### Step 3 — Configure your grid power sensor
 
 Edit `packages/hba/hba_config.yaml` to define `sensor.p1_meter_power` for your setup.
+Your copy is never overwritten on updates; the installer keeps the latest examples next to it
+in `hba_config.yaml.example` to copy from.
 The file ships with commented examples. The sensor must be **positive when importing**
 from the grid and negative when exporting. Entity names depend on your DSMR reader —
 check **Developer Tools → States** to find the correct ones.
+
+Optional: for **Charge alongside EV** with the car first, also define the per-phase grid power
+`sensor.p1_meter_power_l1/_l2/_l3` (and optionally `sensor.p1_meter_voltage_l1/_l2/_l3`) —
+EXAMPLE 3 in the same file. Only the phases your batteries are on are needed.
 
 ### Step 4 — Set battery IPs
 
@@ -263,10 +271,14 @@ no manual helper editing required.
 | File(s) | Purpose | Edit? |
 |---|---|---|
 | `hba_config.yaml` | Grid power sensor (`sensor.p1_meter_power`) | **Yes** — required |
+| `hba_config.yaml.example` | Latest version of the template with all examples (incl. the ADVANCED ones) — refreshed on every install / update, never loaded by HA | No — copy from it |
 | `marstek_m1–6_modbus_tcp.yaml` | Modbus hub + all sensors per battery | IPs only |
 | `hba_helpers.yaml` | All input helpers and aggregate sensors | No |
 | `hba_strategies_core.yaml` | Control loop, PID controller, strategy dispatch | No |
-| `hba_strategy_*.yaml` (7 files) | Individual strategy scripts | No |
+| `hba_strategy_*.yaml` (7 files) | Individual strategy scripts (incl. `hba_strategy_planned.yaml`: the Planned strategy and the house-load profile) | No |
+| `hba_notifications.yaml` | All notifications (each with a dashboard banner and a "resolved" message) | No |
+| `hba_savings.yaml` | Savings sensors (what the batteries saved, in EUR) | No |
+| `hba_labs_presence.yaml` | Labs: presence per floor (off by default) | No |
 | `hba_hbc_coexistence.yaml` | HBC coexistence controls | No — skip on clean install without HBC |
 
 All default values for helpers are documented in [DEFAULTS.md](DEFAULTS.md).
@@ -326,15 +338,85 @@ Configure it in **Advanced Settings → Battery Assisted EV Charging**:
 - Enable the toggle and set a start/end time window
 - Set a minimum SoC floor — assist stops automatically when average battery SoC drops below it
 - `binary_sensor.hba_battery_assist_active` is the live gate: create an automation triggered
-  by it turning **on** (start charging) and **off** (stop charging)
+  by it turning **on** (start charging) and **off** (stop charging). With the EV project,
+  `binary_sensor.hba_ev_assist` does this: set **Follow assisted** on there
 
 The overflow guard (`binary_sensor.hba_grid_exporting_sustained`) watches for sustained
 export >1 kW with batteries discharging. If triggered, assist temporarily falls back to
 self-consumption to prevent unnecessary grid feed-in.
 
+### Charge alongside EV
+
+An option of **Strategy during EV charge** (EV Charge view). While the car charges, your normal
+strategy keeps deciding whether the batteries charge (e.g. a cheap hour) instead of being
+replaced, but they never discharge into the car. Below **Batteries first below** (kWh of usable
+energy, e.g. your night reserve) the batteries charge at full power and the charger's own load
+balancing slows the car; above it the car keeps its speed and the batteries only use the room
+under a per-phase current limit. Needs an EV charger whose load balancing measures the whole
+connection, the phase of each battery (Advanced settings) and the per-phase grid power sensors
+(see Step 3).
+
+Set the phase as your **P1 meter** numbers it — that can differ from the labels in the meter
+cupboard. To check: let one battery charge or discharge at a steady power with the others idle;
+only that phase's `sensor.p1_meter_power_lX` should move by about that amount.
+
+Optionally define the charger's power (`sensor.ev_charger_power`, or per grid phase — EXAMPLE 4/5
+in `hba_config.yaml`): HBA then keeps the room the car needs to reach its max current free, so a
+car that the charger's load balancing throttled goes straight back to full speed.
+
+With an EV controller that charges the car from solar surplus, point it at
+`binary_sensor.hba_batteries_before_ev` (on while the batteries come first, also before the car
+starts). [ha-smart-ev-charging](https://github.com/Dennis-Q/ha-smart-ev-charging) uses it as
+*Home battery priority entity*: the surplus the batteries take then stays with the batteries
+instead of being counted as available for the car.
+
+### Power groups
+
+Batteries whose combined power must stay within one limit — a shared breaker, a limit per phase,
+or plug-in batteries that together keep to the 800 W guideline — go in group A, B or C
+(Advanced settings, per battery). HBA then writes their max charge / max discharge registers so
+a group never adds up to more than its max power; each battery keeps its own limits on top.
+*Follow battery order* (default: the battery HBA uses first gets as much as it can; it hands
+over once another is 5 % further along), *Equal* or
+*One at a time*; a full battery hands its charge share to the others, an empty one its
+discharge share. A **main fuse limit per phase** (same section) keeps each phase below a
+current in every strategy, for charging and discharging (needs the per-phase P1 sensors).
+**Use at your own risk:** it is a software limit, not electrical protection —
+always have an electrician check your installation.
+
+### Preview dashboard
+
+Next to the Home Battery Assistant dashboard (kept close to HBC's, for users switching over) the
+installer also downloads `lovelace/battery_assistant_preview.yaml`: the new HBA dashboard with
+HBA's own improvements, tried out there first. It only appears once registered:
+
+```yaml
+lovelace:
+  dashboards:
+    hba-preview:
+      mode: yaml
+      title: HBA (preview)
+      icon: mdi:home-battery
+      show_in_sidebar: true
+      filename: lovelace/battery_assistant_preview.yaml
+```
+
+(Add the `hba-preview:` entry under your existing `lovelace: dashboards:`; restart Home Assistant.)
+
+### Why is charging limited?
+
+`sensor.hba_charge_limit_source` and `sensor.hba_discharge_limit_source` name what limits the
+batteries right now — a power group, an own limit, the BMS, slow charge, the main fuse or the
+car on a phase, or batteries that are full, empty or offline (*Not limited* when nothing does).
+The Insights view shows the most each battery could charge and discharge now and why
+(`sensor.hba_limits_now`). When the batteries actually run at the main fuse limit, the car's
+room or the BMS limit, the Overview says so in an info line.
+
 ### Dynamic pricing
 
-Two algorithms are available — both are faithful ports of the HBC implementation. See
+One algorithm — Extreme-Pair Matching, a faithful port of HBC's Dynamic strategy (HBC
+removed its contiguous-window v1 in v4.11.0, and so has HBA). Price source: Frank Energie
+only for now. See
 **[docs.homebatterycontrol.com/05-setup-dynamic](https://docs.homebatterycontrol.com/05-setup-dynamic)**
 for a full description of how they work and how to configure them.
 
@@ -345,6 +427,71 @@ If your integration uses English entity names or you prefer a different price ba
 update the entity ID there — for example:
 - `sensor.frank_energie_prices_average_electricity_price_all_hours_all_in` (English, all-in)
 - `sensor.frank_energie_prices_current_electricity_market_price` (English, market price ex taxes)
+
+### Planned strategy
+
+**HBA-only, preview.** *Planned* plans per price slot over all known prices (today, and
+tomorrow once published) in time order: charge in cheap hours for a later, dearer hour, sell at the
+peaks, and in between Self-consumption, Charge PV, Zero import or Full stop — whichever costs least.
+Unlike Dynamic it knows a battery must be charged before it can sell, so it can plan "sell tonight →
+charge at night → sell tomorrow morning".
+
+- It simulates the batteries (stored energy, max power incl. power groups, the measured round-trip
+  efficiency), the house (use per hour of the day, see below) and the sun (Solcast per half hour).
+- Charge and Sell can be partial: the plan may charge up to or sell down to any energy level in between
+  (e.g. keep enough for the hour after the peak when buying then costs more than selling now earns).
+  The levels are the **energy step** setting (0 = auto: usable energy ÷ 20; finest usable ÷ 40, which
+  doubles the calculation time to about 1 s).
+- With the EV project connected (*Car plan input*), the plan picks the car's cheapest hours before departure
+  below its max price, and leaves room for tomorrow's sun on days the car is home.
+- Charge and Sell run to the energy the plan expects at the end of the hour. Charge uses the power the
+  hour needs, rounded up to whole batteries, so a small target runs on one battery. Sell is spread over the
+  hour when full power is not needed, never below the minimum start power (200 W), and always covers the
+  whole house (an oven on during a spread-out Sell is not imported). Once Sell reached its target early,
+  the battery keeps covering the house for the rest of the hour unless the energy left is worth more
+  where the plan uses it next.
+- What the stored energy cost is tracked in a ledger from what actually went in (grid charging at the buy
+  price, sun at the sell price), so the profit per kWh reflects what you really paid.
+- Re-plans every hour, on new prices or a new forecast, on a setting change, and when the stored
+  energy drifts from the plan.
+- Settings: wear cost per kWh (default 0), a reserve for unexpected loads, a separate sell-price
+  sensor + deduction, a minimum advantage of selling (only sell from the battery when it beats keeping
+  the energy by at least this much per kWh), and switches to leave out grid charging, Sell or Zero import.
+- **Prices:** buy = your supplier's all-in price (market + purchase fee + energy tax + VAT). Under net
+  metering (until 31-12-2026, while you import more than you export over the year) leave the sell sensor
+  empty and set the deduction to the supplier's two fees (Frank Energie: about €0.018 + €0.013 = €0.031).
+  From 2027: sell sensor = the market price sensor, deduction = the selling fee (Frank: about €0.013).
+- **House use per hour** (`sensor.hba_house_load_profile`): calculated every night from the recorder's
+  hourly statistics — grid (P1) + batteries + solar − EV charger — over the last 1–4 weeks, skipping
+  absent days. Set your solar power sensor(s) and the EV charger's own power sensor (it must have
+  long-term statistics) in the Planned view.
+- The plan is always calculated; it controls the batteries only when *Choose strategy* is **Planned**.
+  The preview dashboard shows it in the **Planned** view (per hour: buy price, cost of a kWh from the
+  battery, strategy with a short "for 07:00 / keep for 17:00" hint, profit per kWh when energy leaves
+  the battery, stored energy, house use) and in
+  **Insights** (runner-up and margin per hour, assumptions, expected gain vs Self-consumption only, the
+  house profile).
+
+### Savings
+
+`sensor.hba_savings` is a running total in EUR of what the batteries saved compared with no
+batteries: every 15 s the grid cost without the batteries (P1 + battery power) minus the real grid
+cost, at the price of the moment (the buy price sensor of Dynamic / Planned; the sell price sensor and
+deduction of Planned). Energy still in the batteries counts at what it cost, so a charging day is not
+a loss and the round-trip loss ends up in the result; wear is not subtracted.
+`sensor.hba_savings_vs_self_consumption` compares with a simulated Self-consumption battery of the
+same size: what your strategy added on top (buying cheap, selling at the peaks, keeping sun for later).
+Both work with every strategy and keep long-term statistics; the preview dashboard's **Savings** view
+shows today, the last 3 / 7 days, this month, this year and bars per day and month.
+
+### Labs: presence per floor
+
+Off by default (*Collect presence per floor* in the preview dashboard's **Labs** view). Records how
+much of every hour each HA floor is occupied, as long-term statistics, to predict heating and house use
+later. Sources: room trackers whose state is an area name (e.g. Bermuda `sensor.*_ble_area`), binary
+sensors, and optionally every motion / occupancy / presence sensor on the floor. A room tracker counts
+on a floor after 2 min there; a floor stays occupied 10 min after the last source left. It only
+collects data: nothing controls the batteries yet.
 
 ---
 

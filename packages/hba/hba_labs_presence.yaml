@@ -1,0 +1,384 @@
+# =============================================================================
+# HBA Labs — presence per floor (experimental, off by default)
+#
+# Collects how much of each hour every floor is occupied, as long-term
+# statistics, so heating (one AC per floor) and house use can be predicted
+# later. Nothing here controls anything and the Planned strategy does not
+# read it: it only gathers history.
+#
+# Floors are HA floors (Settings → Areas, labels & zones). A floor counts as
+# occupied when one of the presence sources puts someone on it:
+#   - a sensor whose state is an area name or id (a room tracker such as
+#     Bermuda's sensor.<device>_area, ESPresense) → that area's floor, once it
+#     has stayed on that floor for 2 min (sensor.hba_labs_presence_trackers;
+#     short jumps to another floor are ignored)
+#   - a binary_sensor that is on → the floor of its own area
+#   - with input_boolean.hba_labs_presence_motion on: every motion / occupancy
+#     / presence binary_sensor whose area is on the floor
+# binary_sensor.hba_labs_floor_N_present = someone there now; _occupied stays
+# on 10 min after the last source left: room trackers flip between floors
+# stacked above each other (prod 2026-11-04/05: one phone changed area 3,844
+# times in 51 h) and motion sensors only report movement.
+#
+# sensor.hba_labs_floor_N_occupancy (0/100 %, state_class measurement) is what
+# the recorder keeps: its hourly mean = the share of that hour the floor was
+# occupied. Room trackers are text sensors, which get no long-term statistics,
+# and states are kept only a few days. sensor.hba_labs_home_occupancy does the
+# same for "anyone home" (zone.home, or any floor occupied).
+#
+# The history belongs to the slot, not the floor: with the floors list empty the
+# slots follow HA's floor order, so adding a floor later can shift them. Fill in
+# the floor names to fix the order.
+#
+# Slots 1-4 share their templates (YAML anchors); the slot number comes from
+# the entity id. The present sensors follow every tracker flip, so they are
+# kept out of the recorder (hba_helpers.yaml).
+# =============================================================================
+
+input_boolean:
+  hba_labs_presence:
+    name: "HBA Labs Presence"
+    icon: mdi:flask-outline
+  hba_labs_presence_motion:
+    name: "HBA Labs Presence Motion"
+    icon: mdi:motion-sensor
+
+input_text:
+  # Floor names or ids, comma-separated, in slot order. Empty = the first 4 HA floors.
+  hba_labs_presence_floors:
+    name: "HBA Labs Presence Floors"
+    max: 255
+    icon: mdi:home-floor-1
+  # Room trackers and other presence entities, comma-separated
+  hba_labs_presence_sources:
+    name: "HBA Labs Presence Sources"
+    max: 255
+    icon: mdi:account-search-outline
+
+template:
+  - sensor:
+      # The configured floors as floor ids, comma-separated in slot order
+      - name: "HBA Labs Presence Floors Resolved"
+        unique_id: hba_labs_presence_floors_resolved
+        icon: mdi:home-floor-1
+        availability: "{{ is_state('input_boolean.hba_labs_presence', 'on') }}"
+        state: >-
+          {%- set raw = states('input_text.hba_labs_presence_floors') | trim -%}
+          {%- set all = floors() -%}
+          {%- set ns = namespace(ids=[]) -%}
+          {%- if raw in ['', 'unknown', 'unavailable'] -%}
+            {%- set ns.ids = all -%}
+          {%- else -%}
+            {%- for item in raw.split(',') | map('trim') | reject('eq', '') -%}
+              {%- set m = namespace(f=item if item in all else none) -%}
+              {%- for fl in all if m.f is none and (floor_name(fl) or '') | lower == item | lower -%}
+                {%- set m.f = fl -%}
+              {%- endfor -%}
+              {%- if m.f is not none and m.f not in ns.ids -%}{%- set ns.ids = ns.ids + [m.f] -%}{%- endif -%}
+            {%- endfor -%}
+          {%- endif -%}
+          {{ ns.ids[:4] | join(',') }}
+        attributes:
+          # Configured entries that match no floor (shown on the Labs view)
+          not_found: >-
+            {%- set raw = states('input_text.hba_labs_presence_floors') | trim -%}
+            {%- set all = floors() -%}
+            {%- set names = all | map('floor_name') | map('lower') | list -%}
+            {%- set ns = namespace(l=[]) -%}
+            {%- if raw not in ['', 'unknown', 'unavailable'] -%}
+              {%- for item in raw.split(',') | map('trim') | reject('eq', '') -%}
+                {%- if item not in all and item | lower not in names -%}{%- set ns.l = ns.l + [item] -%}{%- endif -%}
+              {%- endfor -%}
+            {%- endif -%}
+            {{ ns.l }}
+
+      # Someone home: a person in zone.home, or any floor occupied (a motion sensor also
+      # catches someone without a tracked phone)
+      - name: "HBA Labs Home Occupancy"
+        unique_id: hba_labs_home_occupancy
+        unit_of_measurement: "%"
+        state_class: measurement
+        icon: mdi:home-account
+        availability: "{{ is_state('input_boolean.hba_labs_presence', 'on') and states('zone.home') | is_number }}"
+        state: >-
+          {{ 100 if states('zone.home') | int(0) > 0
+             or ['binary_sensor.hba_labs_floor_1_occupied', 'binary_sensor.hba_labs_floor_2_occupied',
+                 'binary_sensor.hba_labs_floor_3_occupied', 'binary_sensor.hba_labs_floor_4_occupied']
+                | select('is_state', 'on') | list | count > 0 else 0 }}
+
+      # Recorded share of the time the slot's floor is occupied (0/100 %)
+      - name: "HBA Labs Floor 1 Occupancy"
+        unique_id: hba_labs_floor_1_occupancy
+        unit_of_measurement: "%"
+        state_class: measurement
+        icon: mdi:home-floor-1
+        availability: &occ_avail >-
+          {%- set n = this.entity_id | regex_findall('floor_(\d)_') | first | default(0) | int -%}
+          {{ states('binary_sensor.hba_labs_floor_' ~ n ~ '_occupied') in ['on', 'off'] }}
+        state: &occ_state >-
+          {%- set n = this.entity_id | regex_findall('floor_(\d)_') | first | default(0) | int -%}
+          {{ 100 if is_state('binary_sensor.hba_labs_floor_' ~ n ~ '_occupied', 'on') else 0 }}
+        attributes:
+          floor: &occ_floor >-
+            {%- set n = this.entity_id | regex_findall('floor_(\d)_') | first | default(0) | int -%}
+            {{ state_attr('binary_sensor.hba_labs_floor_' ~ n ~ '_occupied', 'floor') }}
+      - name: "HBA Labs Floor 2 Occupancy"
+        unique_id: hba_labs_floor_2_occupancy
+        unit_of_measurement: "%"
+        state_class: measurement
+        icon: mdi:home-floor-2
+        availability: *occ_avail
+        state: *occ_state
+        attributes:
+          floor: *occ_floor
+      - name: "HBA Labs Floor 3 Occupancy"
+        unique_id: hba_labs_floor_3_occupancy
+        unit_of_measurement: "%"
+        state_class: measurement
+        icon: mdi:home-floor-3
+        availability: *occ_avail
+        state: *occ_state
+        attributes:
+          floor: *occ_floor
+      - name: "HBA Labs Floor 4 Occupancy"
+        unique_id: hba_labs_floor_4_occupancy
+        unit_of_measurement: "%"
+        state_class: measurement
+        icon: mdi:home-floor-l
+        availability: *occ_avail
+        state: *occ_state
+        attributes:
+          floor: *occ_floor
+
+  - binary_sensor:
+      # Someone on the slot's floor right now (no hold); the sources that put
+      # someone there in attribute by
+      - name: "HBA Labs Floor 1 Present"
+        unique_id: hba_labs_floor_1_present
+        device_class: occupancy
+        availability: &pr_avail >-
+          {%- set n = this.entity_id | regex_findall('floor_(\d)_') | first | default(0) | int -%}
+          {%- set ids = states('sensor.hba_labs_presence_floors_resolved').split(',') | reject('eq', '') | list -%}
+          {{ is_state('input_boolean.hba_labs_presence', 'on') and n >= 1 and ids | length >= n }}
+        state: &pr_state >-
+          {%- set n = this.entity_id | regex_findall('floor_(\d)_') | first | default(0) | int -%}
+          {%- set ids = states('sensor.hba_labs_presence_floors_resolved').split(',') | reject('eq', '') | list -%}
+          {%- set fl = ids[n - 1] if n >= 1 and ids | length >= n else none -%}
+          {%- set ns = namespace(by=[]) -%}
+          {%- set tr = state_attr('sensor.hba_labs_presence_trackers', 'trackers') or {} -%}
+          {%- if fl -%}
+            {%- for e in states('input_text.hba_labs_presence_sources').split(',') | map('trim') | reject('eq', '') -%}
+              {%- set st = states(e) -%}
+              {%- if e.startswith('binary_sensor.') -%}
+                {%- if st == 'on' and floor_id(e) == fl -%}{%- set ns.by = ns.by + [e] -%}{%- endif -%}
+              {%- elif (tr.get(e) or {}).get('s') == fl -%}
+                {%- set ns.by = ns.by + [e] -%}
+              {%- endif -%}
+            {%- endfor -%}
+            {%- if is_state('input_boolean.hba_labs_presence_motion', 'on') -%}
+              {%- for s in states.binary_sensor | selectattr('state', 'eq', 'on') | selectattr('attributes.device_class', 'defined')
+                    | selectattr('attributes.device_class', 'in', ['motion', 'occupancy', 'presence'])
+                    | rejectattr('entity_id', 'search', '^binary_sensor\.hba_labs_') -%}
+                {%- if floor_id(s.entity_id) == fl and s.entity_id not in ns.by -%}{%- set ns.by = ns.by + [s.entity_id] -%}{%- endif -%}
+              {%- endfor -%}
+            {%- endif -%}
+          {%- endif -%}
+          {{ ns.by | length > 0 }}
+        attributes:
+          by: &pr_by >-
+            {%- set n = this.entity_id | regex_findall('floor_(\d)_') | first | default(0) | int -%}
+            {%- set ids = states('sensor.hba_labs_presence_floors_resolved').split(',') | reject('eq', '') | list -%}
+            {%- set fl = ids[n - 1] if n >= 1 and ids | length >= n else none -%}
+            {%- set ns = namespace(by=[]) -%}
+            {%- set tr = state_attr('sensor.hba_labs_presence_trackers', 'trackers') or {} -%}
+            {%- if fl -%}
+              {%- for e in states('input_text.hba_labs_presence_sources').split(',') | map('trim') | reject('eq', '') -%}
+                {%- set st = states(e) -%}
+                {%- if e.startswith('binary_sensor.') -%}
+                  {%- if st == 'on' and floor_id(e) == fl -%}{%- set ns.by = ns.by + [e] -%}{%- endif -%}
+                {%- elif (tr.get(e) or {}).get('s') == fl -%}
+                  {%- set ns.by = ns.by + [e] -%}
+                {%- endif -%}
+              {%- endfor -%}
+              {%- if is_state('input_boolean.hba_labs_presence_motion', 'on') -%}
+                {%- for s in states.binary_sensor | selectattr('state', 'eq', 'on') | selectattr('attributes.device_class', 'defined')
+                        | selectattr('attributes.device_class', 'in', ['motion', 'occupancy', 'presence'])
+                        | rejectattr('entity_id', 'search', '^binary_sensor\.hba_labs_') -%}
+                  {%- if floor_id(s.entity_id) == fl and s.entity_id not in ns.by -%}{%- set ns.by = ns.by + [s.entity_id] -%}{%- endif -%}
+                {%- endfor -%}
+              {%- endif -%}
+            {%- endif -%}
+            {{ ns.by }}
+          floor: &pr_floor >-
+            {%- set n = this.entity_id | regex_findall('floor_(\d)_') | first | default(0) | int -%}
+            {%- set ids = states('sensor.hba_labs_presence_floors_resolved').split(',') | reject('eq', '') | list -%}
+            {{ floor_name(ids[n - 1]) if n >= 1 and ids | length >= n else none }}
+      - name: "HBA Labs Floor 2 Present"
+        unique_id: hba_labs_floor_2_present
+        device_class: occupancy
+        availability: *pr_avail
+        state: *pr_state
+        attributes:
+          by: *pr_by
+          floor: *pr_floor
+      - name: "HBA Labs Floor 3 Present"
+        unique_id: hba_labs_floor_3_present
+        device_class: occupancy
+        availability: *pr_avail
+        state: *pr_state
+        attributes:
+          by: *pr_by
+          floor: *pr_floor
+      - name: "HBA Labs Floor 4 Present"
+        unique_id: hba_labs_floor_4_present
+        device_class: occupancy
+        availability: *pr_avail
+        state: *pr_state
+        attributes:
+          by: *pr_by
+          floor: *pr_floor
+
+  # Settled floor per room tracker (non-binary source), sampled every 20 s:
+  # trackers = {source: {f: floor now, t: since when, s: settled floor}}. A
+  # tracker settles on a floor (or on none = away/out of range) after 2 min
+  # there; until then the previous settled floor stays. Prod 2026-11-05: a
+  # phone in the bedroom jumped to the attic for ~5 s, 230-360 times a night;
+  # counting every jump kept the attic occupied all night. A delay per area
+  # instead would drop the bedroom too (every jump restarts it). Lost at a
+  # restart: no settled floor for the first 2 min.
+  - triggers:
+      - trigger: time_pattern
+        seconds: "/20"
+      - trigger: homeassistant
+        event: start
+      - trigger: event
+        event_type: event_template_reloaded
+    sensor:
+      - name: "HBA Labs Presence Trackers"
+        unique_id: hba_labs_presence_trackers
+        icon: mdi:map-marker-path
+        availability: "{{ is_state('input_boolean.hba_labs_presence', 'on') }}"
+        state: >-
+          {{ states('input_text.hba_labs_presence_sources').split(',') | map('trim')
+             | reject('eq', '') | reject('match', 'binary_sensor\.') | list | count }}
+        attributes:
+          trackers: >-
+            {%- set prev = (this.attributes | default({})).get('trackers') or {} -%}
+            {%- set now_ts = as_timestamp(now()) | int -%}
+            {%- set ns = namespace(d={}) -%}
+            {%- for e in states('input_text.hba_labs_presence_sources').split(',') | map('trim')
+                  | reject('eq', '') | reject('match', 'binary_sensor\.') -%}
+              {%- set st = states(e) -%}
+              {%- set f = floor_id(st) if st not in ['unknown', 'unavailable'] else none -%}
+              {%- set p = prev.get(e) or {} -%}
+              {%- set t = p.get('t', now_ts) if 'f' in p and p.get('f') == f else now_ts -%}
+              {%- set s = f if now_ts - t >= 120 else p.get('s') -%}
+              {%- set ns.d = dict(ns.d.items() | list + [(e, {'f': f, 't': t, 's': s})]) -%}
+            {%- endfor -%}
+            {{ ns.d }}
+
+  # Occupied = present, or present in the last 10 min (empty_since). Not delay_off:
+  # HA restarts that timer on every re-render, and the present templates re-render
+  # on every room-tracker change and (motion on) about every minute, so a floor
+  # would hardly ever go empty. Checked every minute and on every present change.
+  # empty_since = none while present, the time the floor became empty after that,
+  # so it changes only at those moments (a time stamp every minute while present
+  # wrote ~100 recorder rows an hour per floor, prod 2026-11-06). It does not
+  # survive a restart ('unknown'): a floor left just before it goes empty at once.
+  - triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_labs_floor_1_present
+      - trigger: time_pattern
+        minutes: "/1"
+      - trigger: homeassistant
+        event: start
+      - trigger: event
+        event_type: event_template_reloaded
+    binary_sensor:
+      - name: "HBA Labs Floor 1 Occupied"
+        unique_id: hba_labs_floor_1_occupied
+        device_class: occupancy
+        availability: &oc_avail >-
+          {%- set n = this.entity_id | regex_findall('floor_(\d)_') | first | default(0) | int -%}
+          {{ states('binary_sensor.hba_labs_floor_' ~ n ~ '_present') in ['on', 'off'] }}
+        state: &oc_state >-
+          {%- set n = this.entity_id | regex_findall('floor_(\d)_') | first | default(0) | int -%}
+          {%- set a = this.attributes | default({}) -%}
+          {#- none = present at the previous render, so it just became empty -#}
+          {%- set es = a.get('empty_since') if 'empty_since' in a else 'unknown' -%}
+          {{ is_state('binary_sensor.hba_labs_floor_' ~ n ~ '_present', 'on')
+             or es is none or as_timestamp(now()) - as_timestamp(es, 0) < 600 }}
+        attributes:
+          empty_since: &oc_empty >-
+            {%- set n = this.entity_id | regex_findall('floor_(\d)_') | first | default(0) | int -%}
+            {%- set a = this.attributes | default({}) -%}
+            {%- if is_state('binary_sensor.hba_labs_floor_' ~ n ~ '_present', 'on') -%}
+              {{ none }}
+            {%- elif 'empty_since' not in a -%}
+              unknown
+            {%- else -%}
+              {{ a.get('empty_since') or now().isoformat() }}
+            {%- endif -%}
+          floor: &oc_floor >-
+            {%- set n = this.entity_id | regex_findall('floor_(\d)_') | first | default(0) | int -%}
+            {{ state_attr('binary_sensor.hba_labs_floor_' ~ n ~ '_present', 'floor') }}
+          by: &oc_by >-
+            {%- set n = this.entity_id | regex_findall('floor_(\d)_') | first | default(0) | int -%}
+            {{ state_attr('binary_sensor.hba_labs_floor_' ~ n ~ '_present', 'by') or [] }}
+  - triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_labs_floor_2_present
+      - trigger: time_pattern
+        minutes: "/1"
+      - trigger: homeassistant
+        event: start
+      - trigger: event
+        event_type: event_template_reloaded
+    binary_sensor:
+      - name: "HBA Labs Floor 2 Occupied"
+        unique_id: hba_labs_floor_2_occupied
+        device_class: occupancy
+        availability: *oc_avail
+        state: *oc_state
+        attributes:
+          empty_since: *oc_empty
+          floor: *oc_floor
+          by: *oc_by
+  - triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_labs_floor_3_present
+      - trigger: time_pattern
+        minutes: "/1"
+      - trigger: homeassistant
+        event: start
+      - trigger: event
+        event_type: event_template_reloaded
+    binary_sensor:
+      - name: "HBA Labs Floor 3 Occupied"
+        unique_id: hba_labs_floor_3_occupied
+        device_class: occupancy
+        availability: *oc_avail
+        state: *oc_state
+        attributes:
+          empty_since: *oc_empty
+          floor: *oc_floor
+          by: *oc_by
+  - triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_labs_floor_4_present
+      - trigger: time_pattern
+        minutes: "/1"
+      - trigger: homeassistant
+        event: start
+      - trigger: event
+        event_type: event_template_reloaded
+    binary_sensor:
+      - name: "HBA Labs Floor 4 Occupied"
+        unique_id: hba_labs_floor_4_occupied
+        device_class: occupancy
+        availability: *oc_avail
+        state: *oc_state
+        attributes:
+          empty_since: *oc_empty
+          floor: *oc_floor
+          by: *oc_by

@@ -68,7 +68,7 @@ template:
           {%- elif marks | length == 0 -%}No price data
           {%- else -%}
             {%- set now_ts = as_timestamp(now()) | int -%}
-            {%- set today_end_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0)) | int + 86400 -%}
+            {%- set today_end_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)) | int -%}
             {%- set house_kw = states('input_number.hba_strategy_solar_aware_house_load') | float(300) / 1000 -%}
             {%- set ns_slots = namespace(slots=[]) -%}
             {%- for m in marks -%}
@@ -102,7 +102,7 @@ template:
             {%- if not (detailed is sequence) or marks | length == 0 -%}0
             {%- else -%}
               {%- set now_ts = as_timestamp(now()) | int -%}
-              {%- set today_end_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0)) | int + 86400 -%}
+              {%- set today_end_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)) | int -%}
               {%- set house_kw = states('input_number.hba_strategy_solar_aware_house_load') | float(300) / 1000 -%}
               {%- set ns_slots = namespace(slots=[]) -%}
               {%- for m in marks -%}
@@ -131,7 +131,7 @@ template:
             {%- if not (detailed is sequence) or marks | length == 0 -%}false
             {%- else -%}
               {%- set now_ts = as_timestamp(now()) | int -%}
-              {%- set today_end_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0)) | int + 86400 -%}
+              {%- set today_end_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)) | int -%}
               {%- set house_kw = states('input_number.hba_strategy_solar_aware_house_load') | float(300) / 1000 -%}
               {%- set ns_slots = namespace(slots=[]) -%}
               {%- for m in marks -%}
@@ -154,7 +154,7 @@ template:
             {%- set marks_raw = state_attr('sensor.hba_energy_prices_data', 'marks') -%}
             {%- set marks = (marks_raw | from_json) if marks_raw is string and (marks_raw | trim)[:1] == '[' else (marks_raw if marks_raw is sequence else []) -%}
             {%- set now_ts = as_timestamp(now()) | int -%}
-            {%- set today_end_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0)) | int + 86400 -%}
+            {%- set today_end_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)) | int -%}
             {%- set ns = namespace(count=0) -%}
             {%- for m in marks -%}
               {%- if m.mark | default('') == 'low' and as_timestamp(m.end) | int > now_ts and as_timestamp(m.start) | int < today_end_ts -%}
@@ -166,7 +166,7 @@ template:
             {%- set marks_raw = state_attr('sensor.hba_energy_prices_data', 'marks') -%}
             {%- set marks = (marks_raw | from_json) if marks_raw is string and (marks_raw | trim)[:1] == '[' else (marks_raw if marks_raw is sequence else []) -%}
             {%- set now_ts = as_timestamp(now()) | int -%}
-            {%- set today_end_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0)) | int + 86400 -%}
+            {%- set today_end_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)) | int -%}
             {%- set ns = namespace(last=0) -%}
             {%- for m in marks -%}
               {%- if m.mark | default('') == 'low' and as_timestamp(m.end) | int > now_ts and as_timestamp(m.start) | int < today_end_ts -%}
@@ -184,7 +184,7 @@ template:
             {%- if not (detailed is sequence) or marks | length == 0 -%}none
             {%- else -%}
               {%- set now_ts = as_timestamp(now()) | int -%}
-              {%- set today_end_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0)) | int + 86400 -%}
+              {%- set today_end_ts = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)) | int -%}
               {%- set house_kw = states('input_number.hba_strategy_solar_aware_house_load') | float(300) / 1000 -%}
               {%- set ns_slots = namespace(slots=[], last_ts=0) -%}
               {%- for m in marks -%}
@@ -209,9 +209,37 @@ template:
                 {%- set deficit = [needed - [ns_solar.kwh, 0] | max, 0] | max -%}
                 {%- if deficit <= 0 -%}none
                 {%- else -%}
-                  {%- set charge_kw = states('sensor.hba_total_max_charge_power') | float(1) / 1000 -%}
-                  {%- set deadline_ts = ns_slots.last_ts - (deficit / charge_kw * 3600) | int -%}
-                  {{ deadline_ts | timestamp_custom('%Y-%m-%dT%H:%M:%SZ', false) }}
+                  {#- The solar INSIDE the cheap slots is already counted, so the deficit
+                      must be stored BEFORE the first upcoming cheap slot (from then on
+                      Dynamic runs its cheap sub-strategy anyway). Walk Solcast's 30-min
+                      periods backwards from that slot, adding net solar (pv - house load,
+                      capped at battery charge power) until the deficit is covered: that
+                      point is the latest moment to stop exporting. Not enough morning sun
+                      at all -> deadline = now (store from now on).
+                      Was: last cheap slot START - deficit / max charge power. Wrong
+                      reference and wrong rate: prod 2026-10-02 (cheap 12-16 h, deficit
+                      4.04 kWh) gave 14:35, so it exported all morning; this gives ~10:36. -#}
+                  {%- set future_starts = ns_slots.slots | map(attribute='start') | select('ge', now_ts) | list -%}
+                  {%- set first_ts = (future_starts | min) if future_starts else (ns_slots.slots | map(attribute='start') | min) -%}
+                  {%- set charge_kw = states('sensor.hba_total_max_charge_power') | float(1000) / 1000 -%}
+                  {%- set ns_d = namespace(acc=0.0, ts=first_ts, done=false) -%}
+                  {%- for period in detailed | sort(attribute='period_start', reverse=true) -%}
+                    {%- set p_start = as_timestamp(period.period_start) | int -%}
+                    {%- set p_end = p_start + 1800 -%}
+                    {%- if not ns_d.done and p_start < first_ts and p_end > now_ts -%}
+                      {%- set seg_start = [p_start, now_ts] | max -%}
+                      {%- set seg_end = [p_end, first_ts] | min -%}
+                      {%- set rate = [[period.pv_estimate | float(0) - house_kw, 0] | max, charge_kw] | min -%}
+                      {%- set seg_kwh = rate * (seg_end - seg_start) / 3600 -%}
+                      {%- if rate > 0 and ns_d.acc + seg_kwh >= deficit -%}
+                        {%- set ns_d.ts = (seg_end - ((deficit - ns_d.acc) / rate * 3600)) | int -%}
+                        {%- set ns_d.done = true -%}
+                      {%- else -%}
+                        {%- set ns_d.acc = ns_d.acc + seg_kwh -%}
+                      {%- endif -%}
+                    {%- endif -%}
+                  {%- endfor -%}
+                  {{ (ns_d.ts if ns_d.done else now_ts) | timestamp_custom('%Y-%m-%dT%H:%M:%SZ', false) }}
                 {%- endif -%}
               {%- endif -%}
             {%- endif -%}
@@ -251,18 +279,20 @@ script:
   #
   # SoC-empty guard: when all batteries reach their discharge cutoff, dispatches to
   # Full stop with a descriptive label so the Insights panel shows the reason.
-  # Uses ±0.5 % buffer consistent with hba_set_batteries.
+  # Exact cutoff, consistent with hba_set_batteries.
   #
-  # skip_label: caller manages the label (e.g. "Timed → Zero import").
+  # flow_prefix: the caller's context (e.g. "Timed →"), as in Charge PV. The label is written here, once
+  # per cycle: a caller writing it first made the flow flip with "→ Full stop" every cycle at SoC minimum
+  # (prod 2026-10-30: sensor.hba_active_strategy changed ~1.7×/s, 3527 recorder rows in 35 min).
   hba_strategy_zero_import:
     alias: "HBA: Strategy - Zero import"
     fields:
-      skip_label:
-        description: "Pass true when the caller manages its own sub-strategy label"
-        default: false
+      flow_prefix:
+        description: "Optional prefix for the flow label, e.g. 'Timed →'"
+        default: ""
     sequence:
       - variables:
-          _skip_label: "{{ skip_label | default(false) }}"
+          _flow_prefix: "{{ flow_prefix | default('') }}"
       - variables:
           count: "{{ states('input_number.hba_battery_count') | int(1) }}"
           all_empty: >
@@ -270,7 +300,7 @@ script:
             {% for i in range(1, count + 1) %}
               {% set soc = states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') | float(0) %}
               {% set cutoff = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) %}
-              {% if soc > cutoff + 0.5 %}{% set ns.empty = false %}{% endif %}
+              {% if soc > cutoff and i not in (state_attr('sensor.hba_power_limits', 'latched') or []) %}{% set ns.empty = false %}{% endif %}
             {% endfor %}
             {{ ns.empty }}
       - choose:
@@ -278,16 +308,13 @@ script:
             sequence:
               - action: input_text.set_value
                 target: { entity_id: input_text.hba_strategy_active_flow }
-                data: { value: "Zero import → Full stop (SoC at minimum)" }
+                data: { value: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Zero import → Full stop (SoC at minimum)" }
               - action: script.hba_strategy_full_stop
                 data: { skip_label: true }
         default:
-          - choose:
-              - conditions: "{{ not _skip_label }}"
-                sequence:
-                  - action: input_text.set_value
-                    target: { entity_id: input_text.hba_strategy_active_flow }
-                    data: { value: "Zero import" }
+          - action: input_text.set_value
+            target: { entity_id: input_text.hba_strategy_active_flow }
+            data: { value: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Zero import" }
           - action: script.hba_strategy_self_consumption
             data:
               skip_label: true
@@ -378,15 +405,17 @@ script:
   #      sensor comment above; "No data" kept for pre-rename compatibility)
   #   3. total solar forecast today < threshold  → Self-consumption (not a solar day)
   #   4. solar in cheap slots covers charge need → Zero import (export surplus)
-  #   5. now < self_consume_deadline             → Zero import (still time to export)
+  #   5. now < self_consume_deadline             → Zero import (still time to export;
+  #      the deadline is the latest moment that still lets morning solar cover the
+  #      deficit before the first cheap slot)
   #   6. else                                    → Self-consumption (switch now)
   #
-  # flow_prefix: caller prefix for active_flow label (e.g. "Dynamic v2 →").
+  # flow_prefix: caller prefix for active_flow label (e.g. "Dynamic →").
   hba_strategy_solar_aware:
     alias: "HBA: Strategy - Solar-aware"
     fields:
       flow_prefix:
-        description: "Caller prefix for active_flow label (e.g. 'Dynamic v2 →')"
+        description: "Caller prefix for active_flow label (e.g. 'Dynamic →')"
         default: ""
     sequence:
       - variables:
@@ -421,12 +450,8 @@ script:
       - choose:
           - conditions: "{{ use_zero_import == 'true' }}"
             sequence:
-              - action: input_text.set_value
-                target: { entity_id: input_text.hba_strategy_active_flow }
-                data:
-                  value: "{{ (_flow_prefix ~ ' → ') if _flow_prefix else '' }}Solar-aware → Zero import"
               - action: script.hba_strategy_zero_import
-                data: { skip_label: true }
+                data: { flow_prefix: "{{ (_flow_prefix ~ ' → ') if _flow_prefix else '' }}Solar-aware →" }
         default:
           - action: input_text.set_value
             target: { entity_id: input_text.hba_strategy_active_flow }

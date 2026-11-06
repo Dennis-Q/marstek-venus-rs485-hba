@@ -7,10 +7,9 @@
 # grid_power goes negative (export). The PID then acts to absorb that surplus into
 # the battery until the batteries are full.
 #
-# All-full guard: if every battery is at or above its charging cutoff (±0.5 % buffer),
-# dispatches to Full stop instead of spinning the PID with no useful output.
-# Uses the same ±0.5 % buffer as hba_set_batteries to prevent relay chattering exactly
-# at the boundary (e.g. 99.5 % SoC with 100 % cutoff = considers full, matching set_batteries).
+# All-full guard: if every battery is at or above its charging cutoff, dispatches to
+# Full stop instead of spinning the PID with no useful output. Exact cutoff, the same
+# comparison as hba_set_batteries (and HBC).
 #
 # flow_prefix field: passed by Timed, Dynamic, or goal-reached dispatchers so the full
 # execution chain appears in the active_flow label, e.g. "Timed → Charge PV → Full stop".
@@ -34,7 +33,7 @@ script:
             {% for i in range(1, count + 1) %}
               {% set soc = states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') | float(0) %}
               {% set cutoff = states('input_number.hba_marstek_m' ~ i ~ '_charging_cutoff_capacity') | float(100) %}
-              {% if soc < cutoff - 0.5 %}{% set ns.full = false %}{% endif %}
+              {% if soc < cutoff %}{% set ns.full = false %}{% endif %}
             {% endfor %}
             {{ ns.full }}
       - choose:

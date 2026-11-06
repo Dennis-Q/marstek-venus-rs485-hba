@@ -8,7 +8,7 @@ views:
     header:
       card:
         type: markdown
-        content: '### Home Battery Assistant *(HBA v4.10.1-r21)*'
+        content: '### Home Battery Assistant *(HBA v4.10.1-r23)*'
         text_only: true
     cards: []
     sections:
@@ -36,6 +36,50 @@ views:
               **How to fix:** go to **Settings → Entities**, search for the entity
               by friendly name, click it, and rename the entity ID to match the
               expected value shown above.
+              </ha-alert>
+
+      # Dynamic migration alert (r22: Dynamic v1 removed, v2 entities renamed) —
+      # only shown while binary_sensor.hba_dynamic_migration_needed is on.
+      - type: grid
+        visibility:
+          - condition: state
+            entity: binary_sensor.hba_dynamic_migration_needed
+            state: 'on'
+        cards:
+          - type: markdown
+            grid_options:
+              columns: full
+            content: |-
+              {%- set s = 'binary_sensor.hba_dynamic_migration_needed' -%}
+              {%- set leftovers = state_attr(s, 'leftover_entity_ids') | default('', true) | trim -%}
+              {%- set missing = state_attr(s, 'missing_entity_ids') | default('', true) | trim -%}
+              {%- set old_file = state_attr(s, 'old_file_still_loaded') | default(false) -%}
+              <ha-alert alert-type="warning" title="Dynamic strategy changed — action needed">
+
+              HBA r22 removed the old Dynamic (v1) strategy and renamed **Dynamic v2** to **Dynamic**, as HBC v4.11.0 did. To finish the update:
+
+              {% if old_file -%}
+              - **Delete `hba_strategy_dynamic_v2.yaml`** from `packages/hba/` — it still loads next to the new file (re-running `install.sh` does this), then restart Home Assistant.
+              {% endif -%}
+              {% if missing -%}
+              - **Missing:** {{ missing }} — install the r22 package files (re-run `install.sh`) and restart.
+              {% endif -%}
+              - **Strategy:** if *Choose strategy* shows **Full stop**, select **Dynamic** again.
+              - **Re-enter** *Max # cheap hrs* and *Max # expensive hrs* in [Dynamic](/home-battery-assistant/dynamic) — they start at 0 (no cap).
+              {% if leftovers -%}
+              - **Delete the leftover entities** — in **Developer Tools → States**, filter entities on `hba` and state on `unavailable`; for each one click the ⓘ icon, then the cog → **Delete**. (To delete several at once: **Settings → Entities**, search `hba`, select them, delete.)
+              {% endif %}
+              {%- if leftovers %}
+              <details><summary>Show {{ leftovers.split(', ') | count }} leftover entities</summary>
+
+              {% for e in leftovers.split(', ') -%}
+              - `{{ e }}`
+              {% endfor %}
+              </details>
+              {%- endif %}
+
+              This banner disappears once nothing is left to clean up.
+
               </ha-alert>
 
       # Timed EV charge waiting alert (only shown while assist is suspended
@@ -73,6 +117,150 @@ views:
               (BMS refusal near its SoC floor, thermal protection, or rejected
               Modbus writes). The EV has been released so it stops charging
               from grid; assist retries automatically in 30 minutes.
+              </ha-alert>
+
+      # Battery not responding alert — mirrors hba_notify_battery_not_responding
+      # (shown while any binary_sensor.hba_marstek_mX_not_responding is on). Same
+      # cause logic: ~800 W plateau under a >900 W discharge command = Marstek's
+      # 800 W output limit; otherwise the general causes incl. a max-power mismatch.
+      - type: grid
+        visibility:
+          - condition: or
+            conditions:
+              - condition: state
+                entity: binary_sensor.hba_marstek_m1_not_responding
+                state: 'on'
+              - condition: state
+                entity: binary_sensor.hba_marstek_m2_not_responding
+                state: 'on'
+              - condition: state
+                entity: binary_sensor.hba_marstek_m3_not_responding
+                state: 'on'
+              - condition: state
+                entity: binary_sensor.hba_marstek_m4_not_responding
+                state: 'on'
+              - condition: state
+                entity: binary_sensor.hba_marstek_m5_not_responding
+                state: 'on'
+              - condition: state
+                entity: binary_sensor.hba_marstek_m6_not_responding
+                state: 'on'
+        cards:
+          - type: markdown
+            grid_options:
+              columns: full
+            content: |-
+              <ha-alert alert-type="warning" title="Battery not responding to HBA">
+
+              {% for i in range(1, 7) if is_state('binary_sensor.hba_marstek_m' ~ i ~ '_not_responding', 'on') -%}
+              {%- set b = 'm' ~ i -%}
+              {%- set dir = states('select.marstek_' ~ b ~ '_forcible_charge_discharge') -%}
+              {%- set actual = states('sensor.marstek_' ~ b ~ '_ac_power') | int(0) -%}
+              {%- set cmd = states('number.marstek_' ~ b ~ '_forcible_discharge_power') | int(0) if dir == 'discharge'
+                 else (-(states('number.marstek_' ~ b ~ '_forcible_charge_power') | int(0)) if dir == 'charge' else 0) -%}
+              {%- set limit = 'number.marstek_' ~ b ~ '_max_' ~ ('discharge' if cmd > 0 else 'charge') ~ '_power' -%}
+              **{{ b | upper }}:** commanded {{ cmd | abs }} W {{ 'discharge' if cmd > 0 else 'charge' }}, delivering {{ actual }} W.
+              {% if cmd > 900 and 650 <= actual <= 850 -%}
+              Looks capped at ~800 W — probably Marstek's **800 W output limit** (default until unlocked in the Marstek app). Unlock it in the app, or set `{{ limit }}` to **800** in HBA.
+              {%- else -%}
+              Check SoC (BMS blocking near the cutoff) and that HBA's max power (`{{ limit }}`) is not higher than the Marstek app allows.
+              {%- endif %}
+
+              {% endfor -%}
+              </ha-alert>
+
+      # Battery overtemperature alert — mirrors hba_notify_battery_overtemperature
+      # (internal temperature ≥ 60 °C; the BMS trips at ~70 °C). Shown immediately,
+      # without the notification's 2-minute confirmation.
+      - type: grid
+        visibility:
+          - condition: or
+            conditions:
+              - condition: numeric_state
+                entity: sensor.marstek_m1_internal_temperature
+                above: 60
+              - condition: numeric_state
+                entity: sensor.marstek_m2_internal_temperature
+                above: 60
+              - condition: numeric_state
+                entity: sensor.marstek_m3_internal_temperature
+                above: 60
+              - condition: numeric_state
+                entity: sensor.marstek_m4_internal_temperature
+                above: 60
+              - condition: numeric_state
+                entity: sensor.marstek_m5_internal_temperature
+                above: 60
+              - condition: numeric_state
+                entity: sensor.marstek_m6_internal_temperature
+                above: 60
+        cards:
+          - type: markdown
+            grid_options:
+              columns: full
+            content: |-
+              <ha-alert alert-type="error" title="Battery overtemperature">
+
+              {% for i in range(1, 7) if states('sensor.marstek_m' ~ i ~ '_internal_temperature') | float(0) > 60 -%}
+              - **M{{ i }}:** {{ states('sensor.marstek_m' ~ i ~ '_internal_temperature') | float(0) | round(1) }} °C
+              {% endfor %}
+              The BMS thermal protection trips at ~70 °C — discharge may be reduced or stopped. Check ventilation around the battery.
+
+              </ha-alert>
+
+      # RS485 mode mismatch alert — mirrors hba_notify_rs485_mode_mismatch (master mode
+      # Full control but a battery has RS485 control disabled, so it ignores HBA).
+      - type: grid
+        visibility:
+          - condition: state
+            entity: binary_sensor.hba_rs485_mode_mismatch
+            state: 'on'
+        cards:
+          - type: markdown
+            grid_options:
+              columns: full
+            content: |-
+              <ha-alert alert-type="error" title="RS485 control disabled on a battery">
+
+              HBA is in **Full control**, but RS485 control is **disabled** on **{{ state_attr('binary_sensor.hba_rs485_mode_mismatch', 'mismatched_batteries') }}** — that battery silently ignores every HBA command.
+
+              HBA re-applies RS485 automatically within 5 minutes. If this keeps coming back, check the Marstek app or a recent firmware update.
+
+              </ha-alert>
+
+      # Unexpected export alert — mirrors hba_unexpected_export_notify: batteries
+      # discharging while > 1 kW goes to the grid, outside Timed EV charge and Sell
+      # (where that is intended).
+      - type: grid
+        visibility:
+          - condition: state
+            entity: binary_sensor.hba_grid_exporting_sustained
+            state: 'on'
+          - condition: state
+            entity: binary_sensor.hba_battery_assist_active
+            state: 'off'
+          - condition: state
+            entity: sensor.hba_active_strategy
+            state_not: Sell
+          # Live check too: the sustained sensor holds 30 s after export stops (delay_off),
+          # so right after leaving Sell the banner showed while the batteries had already
+          # stopped (prod 2026-10-02 10:28).
+          - condition: numeric_state
+            entity: sensor.hba_total_battery_power
+            above: 500
+        cards:
+          - type: markdown
+            grid_options:
+              columns: full
+            content: |-
+              {%- set bat = states('sensor.hba_total_battery_power') | int(0) -%}
+              {%- set exp = [-(states('sensor.p1_meter_power') | int(0)), 0] | max -%}
+              <ha-alert alert-type="warning" title="Batteries are exporting to the grid">
+
+              The batteries are discharging **{{ bat }} W** while {{ exp }} W goes to the grid — about **{{ [bat, exp] | min }} W of that is battery energy**, the rest is solar. Neither Sell nor Timed EV charge is active.
+
+              Check the strategy configuration (active: **{{ states('sensor.hba_active_strategy') }}**).
+
               </ha-alert>
 
       # Onboarding (hidden once dismissed)
@@ -296,10 +484,10 @@ views:
                 conditions:
                   - condition: state
                     entity: sensor.hba_version
-                    state: "v4.10.1-r21"
+                    state: "v4.10.1-r23"
             content: >
               <ha-alert alert-type="error">**HBA version mismatch** — Dashboard is
-              v4.10.1-r21 but loaded packages report
+              v4.10.1-r23 but loaded packages report
               {{ states('sensor.hba_version') }}. Reload YAML to apply the update:
               Developer Tools → YAML → Reload All YAML.</ha-alert>
           - type: markdown
@@ -310,23 +498,148 @@ views:
                 entity: binary_sensor.hba_any_battery_offline
                 state: "on"
             content: >
-              {% set count = states('input_number.hba_battery_count') | int(1) %}
-              {% set ns = namespace(offline=[]) %}
-              {% for i in range(1, count + 1) %}
-                {% set inv = states('sensor.marstek_m' ~ i ~ '_inverter_state') %}
-                {% if inv in ['unavailable', 'unknown', ''] %}
-                  {% set ns.offline = ns.offline + ['M' ~ i] %}
-                {% endif %}
-              {% endfor %}
-              <ha-alert alert-type="error">Battery {{ ns.offline | join(', ') }} offline — check connectivity or reduce battery count in settings.</ha-alert>
+              <ha-alert alert-type="error">Battery {{ state_attr('binary_sensor.hba_any_battery_offline', 'batteries') }} offline — not answering over Modbus, HBA skips it and the other batteries take over. Check its network cable and power, or reduce the battery count in settings.</ha-alert>
+          - type: markdown
+            grid_options:
+              columns: full
+            visibility:
+              - condition: state
+                entity: binary_sensor.hba_control_loop_stalled
+                state: "on"
+            content: >
+              {%- set B = 'binary_sensor.hba_control_loop_stalled' -%}
+              <ha-alert alert-type="error">Control stalled — no control cycle for {{ state_attr(B, 'seconds_since_cycle') }} s; the batteries keep their last command.
+              {%- if state_attr(B, 'p1_updating') %} Usually a battery whose network link dropped while HBA wrote to it; HBA continues once it is reachable again (up to ~10 min).{% else %} The P1 meter has stopped updating.{% endif %}</ha-alert>
+          - type: markdown
+            grid_options:
+              columns: full
+            visibility:
+              - condition: state
+                entity: binary_sensor.hba_power_limits_not_restored
+                state: "on"
+            content: >
+              <ha-alert alert-type="error">Battery {{ state_attr('binary_sensor.hba_power_limits_not_restored', 'batteries') }}: max charge / discharge power still read 0 after a restart and HBA could not write them back. HBA uses the last known limits; check them in Advanced settings.</ha-alert>
+          - type: markdown
+            grid_options:
+              columns: full
+            visibility:
+              - condition: state
+                entity: sensor.hba_power_limits
+                state: Check settings
+            content: >
+              <ha-alert alert-type="warning">Power groups inactive — {{ (state_attr('sensor.hba_power_limits', 'problems') or []) | join('; ') }}. Set them in Advanced settings → Power groups.</ha-alert>
+          - type: markdown
+            grid_options:
+              columns: full
+            visibility:
+              - condition: state
+                entity: binary_sensor.hba_charge_goal_conflict
+                state: "on"
+            content: >
+              <ha-alert alert-type="warning">The Charge goal is "solar forecast", but when done it switches to {{ state_attr('binary_sensor.hba_charge_goal_conflict', 'next_strategy') }}, which does not store solar power — the PV is exported and Charge buys it back from the grid. Set <i>When done charging</i> (Charge / Sell view) to Charge PV, Self-consumption or Solar-aware.</ha-alert>
+          - type: markdown
+            grid_options:
+              columns: full
+            visibility:
+              - condition: state
+                entity: binary_sensor.hba_phase_sensors_missing
+                state: "on"
+            content: >
+              <ha-alert alert-type="warning">Per-phase limits (main fuse limit, Charge alongside EV) are missing per-phase grid power: {{ state_attr('sensor.hba_phase_room', 'missing_sensors') }}. Define them in packages/hba/hba_config.yaml (like sensor.p1_meter_power, positive = import — see hba_config.yaml.example). Until then the batteries do not charge or discharge on those phases while such a limit applies.</ha-alert>
+          # Plan the car or Timed EV charge on, but the EV project does not listen
+          - type: markdown
+            grid_options:
+              columns: full
+            visibility:
+              - condition: state
+                entity: binary_sensor.hba_ev_link_problem
+                state: "on"
+            content: >
+              <ha-alert alert-type="warning">{{ state_attr('binary_sensor.hba_ev_link_problem', 'reason') }} The car is not in the plan and gets no battery energy.</ha-alert>
+          # Plan the car in Preview only: nothing of the car plan is applied
+          - type: markdown
+            grid_options:
+              columns: full
+            visibility:
+              - condition: state
+                entity: input_boolean.hba_strategy_planned_car
+                state: "on"
+              - condition: state
+                entity: input_boolean.hba_strategy_planned_car_preview
+                state: "on"
+            content: >
+              <ha-alert alert-type="info">The car plan is a preview and is not applied. The batteries run the plan without the car, and the EV project follows its own rules.</ha-alert>
+          # Reminder: Charge or Sell chosen by hand for an hour or more
+          - type: markdown
+            grid_options:
+              columns: full
+            visibility:
+              - condition: state
+                entity: binary_sensor.hba_manual_strategy_long
+                state: "on"
+            content: >
+              {%- set st = states('input_select.hba_strategy') -%}
+              {%- set lc = as_datetime(states('sensor.hba_manual_strategy_since')) or now() -%}
+              <ha-alert alert-type="info">{{ st }} selected since {{ as_local(lc).strftime('%H:%M') }}
+              ({{ ((now() - lc).total_seconds() / 3600) | round(1) }} h){{ ' — done' if is_state('binary_sensor.hba_manual_strategy_done', 'on') else '' }}.
+              Remember to switch back to your usual strategy (e.g. Dynamic).</ha-alert>
+          # Info: the batteries run at what the main fuse limit, the car or the BMS allows
+          - type: markdown
+            grid_options:
+              columns: full
+            visibility:
+              - condition: state
+                entity: binary_sensor.hba_battery_power_limited
+                state: "on"
+            content: >
+              {%- set B = 'binary_sensor.hba_battery_power_limited' -%}
+              {%- set r = state_attr(B, 'reason') or '' -%}
+              {%- set dir = state_attr(B, 'direction') -%}
+              {%- set per = state_attr('sensor.hba_limits_now', 'charge' if dir == 'charge' else 'discharge') or {} -%}
+              {%- set kind = 'Main fuse' if r.startswith('Main fuse') else ('Car first' if r.startswith('Car first') else 'BMS') -%}
+              {%- set ns = namespace(ph=[]) -%}
+              {%- for k, v in per.items() if v.reason is string and v.reason.startswith(kind) and v.reason[-2:] not in ns.ph and kind != 'BMS' -%}
+                {%- set ns.ph = ns.ph + [v.reason[-2:]] -%}
+              {%- endfor -%}
+              {%- set phases = (ns.ph | sort | join(' and ')) or 'a phase' -%}
+              {%- set why = ('by the main fuse limit on ' ~ phases ~ ' (' ~ (states('input_number.hba_phase_current_limit') | float(0) | round(0) | int) ~ ' A per phase)') if kind == 'Main fuse'
+                            else (': the car comes first on ' ~ phases if kind == 'Car first'
+                            else 'by the battery management system (cold, or almost full)') -%}
+              <ha-alert alert-type="info">{{ 'Charging' if dir == 'charge' else 'Discharging' }} limited to {{ state_attr(B, 'max_w') }} W in total{{ ' ' if not why.startswith(':') }}{{ why }}. Details in Insights → Limits now.</ha-alert>
           - type: heading
             heading: Master Battery Control
             heading_style: title
             icon: mdi:gamepad-variant-outline
+          # What the batteries do while the EV charges — follows "Strategy during EV charge"
+          # (it used to say Full Stop for every policy).
           - type: markdown
             content: >-
+              {%- set pol = states('input_select.hba_control_strategy_during_ev_charge') -%}
+              {%- set along = is_state('binary_sensor.hba_ev_charge_alongside', 'on') -%}
+              {%- if pol == 'Charge alongside EV' and along -%}
+              {%- if is_state_attr('binary_sensor.hba_ev_charge_alongside', 'mode', 'Batteries first') -%}
+              <ha-alert alert-type="warning">EV is charging — batteries never discharge into
+              the car. They charge only when {{ states('sensor.hba_active_strategy') }} wants to, and then
+              first: until {{ states('input_number.hba_ev_battery_priority_energy') | float(0) | round(1) }} kWh
+              usable (now {{ states('sensor.hba_charge_available_energy') | float(0) | round(1) }} kWh) the
+              charger slows the car.</ha-alert>
+              {%- else -%}
+              <ha-alert alert-type="warning">EV is charging and gets priority — batteries never
+              discharge into the car. They charge only when {{ states('sensor.hba_active_strategy') }} wants
+              to, and then only in the room left under
+              {{ states('input_number.hba_ev_phase_current_limit') | float(22) | round(1) }} A per
+              phase.</ha-alert>
+              {%- endif -%}
+              {%- elif pol == 'Charge PV' -%}
+              <ha-alert alert-type="warning">EV is charging — batteries only charge the solar surplus
+              the car cannot take (Charge PV).</ha-alert>
+              {%- elif pol == 'Standby / peak shave' -%}
+              <ha-alert alert-type="warning">EV is charging — batteries on standby, only reacting to the
+              import / export limits.</ha-alert>
+              {%- else -%}
               <ha-alert alert-type="error">EV is charging — Full Stop strategy
               is active.</ha-alert>
+              {%- endif -%}
             text_only: true
             grid_options:
               columns: full
@@ -376,7 +689,7 @@ views:
                 state: 'on'
           - type: markdown
             content: >-
-              <ha-alert alert-type="warning">HBC (House Battery Control) is in
+              <ha-alert alert-type="warning">HBC (Home Battery Control) is in
               Full Control — it may be managing your batteries. Use the buttons
               below to hand off.</ha-alert>
             text_only: true
@@ -482,20 +795,15 @@ views:
                 state: Full control
           - type: heading
             icon: mdi:alert
-            heading: 'Dynamic/Dynamic v2: configure dynamic strategy first'
+            heading: 'Dynamic: configure dynamic strategy first'
             heading_style: subtitle
             tap_action:
               action: navigate
-              navigation_path: /home-battery-assistant/timed-dynamic
+              navigation_path: /home-battery-assistant/dynamic
             visibility:
-              - condition: or
-                conditions:
-                  - condition: state
-                    entity: input_select.hba_strategy
-                    state: Dynamic
-                  - condition: state
-                    entity: input_select.hba_strategy
-                    state: "Dynamic v2"
+              - condition: state
+                entity: input_select.hba_strategy
+                state: Dynamic
               - condition: state
                 entity: input_select.hba_marstek_master_battery_mode
                 state: Full control
@@ -1015,7 +1323,7 @@ views:
       card:
         type: markdown
         content: >-
-          ### Self-consumption strategy *(HBA v4.10.1-r21)*
+          ### Self-consumption strategy *(HBA v4.10.1-r23)*
 
           The **PID controller** steers your batteries to keep grid usage near
           target, _e.g. 0 Watt_, and is used by:
@@ -1158,7 +1466,7 @@ views:
       card:
         type: markdown
         text_only: true
-        content: '### Charge / Sell *(HBA v4.10.1-r21)*'
+        content: '### Charge / Sell *(HBA v4.10.1-r23)*'
     cards: []
     badges:
       - type: entity
@@ -1183,6 +1491,17 @@ views:
             heading: Charge strategy
             heading_style: title
             icon: mdi:battery-charging-80
+          # Same check as the Overview alert (binary_sensor.hba_charge_goal_conflict). At
+          # the top: with the solar forecast goal this section grows long, and the
+          # "When done charging" setting it is about ends up far below.
+          - type: markdown
+            text_only: true
+            visibility:
+              - condition: state
+                entity: binary_sensor.hba_charge_goal_conflict
+                state: "on"
+            content: >
+              <ha-alert alert-type="warning">With the goal <i>solar forecast</i>, {{ state_attr('binary_sensor.hba_charge_goal_conflict', 'next_strategy') }} after charging does not store solar power: the PV is exported and Charge buys it back from the grid. Set <i>When done charging</i> (below) to Charge PV, Self-consumption or Solar-aware.</ha-alert>
           - type: heading
             icon: mdi:information-slab-circle
             heading: Charge until
@@ -1217,6 +1536,19 @@ views:
                 row:
                   entity: input_number.hba_solar_reserved_for_house
                   name: Solar reserved for house
+              # The reserve shrinks with the share of today's sun still to come
+              # (sensor.hba_solar_forecast_surplus_today); this is the part that counts now.
+              - type: conditional
+                conditions:
+                  - entity: input_select.hba_strategy_charge_goal
+                    state: solar forecast
+                row:
+                  type: attribute
+                  entity: sensor.hba_solar_forecast_surplus_today
+                  attribute: house_reserve_remaining
+                  name: Still reserved for the rest of today
+                  suffix: kWh
+                  icon: mdi:home-clock-outline
               - type: conditional
                 conditions:
                   - entity: input_select.hba_strategy_charge_goal
@@ -1228,6 +1560,17 @@ views:
                   entity: sensor.hba_charge_target_energy
                   type: simple-entity
                   name: Grid charge up to
+              # After sunset the target counts on tomorrow's sun (forecast_day).
+              - type: conditional
+                conditions:
+                  - entity: input_select.hba_strategy_charge_goal
+                    state: solar forecast
+                row:
+                  type: attribute
+                  entity: sensor.hba_charge_target_energy
+                  attribute: forecast_day
+                  name: Target counts on the sun of
+                  icon: mdi:weather-sunset-up
             show_header_toggle: false
             state_color: false
           - type: distribution
@@ -1353,7 +1696,7 @@ views:
           - type: markdown
             content: >-
               <font color=grey>_'Reserve' is usable energy in your batteries
-              (e.g. above 11% SoC)_
+              (above the discharge cutoff, now {{ states('input_number.hba_marstek_m1_discharging_cutoff_capacity') | float(13) | round(0) | int }} % SoC)_
 
               </font>
             text_only: true
@@ -1381,6 +1724,32 @@ views:
           - type: entities
             entities:
               - entity: input_select.hba_strategy_charge_goal_reached
+          # Which way "Charge PV — use battery if the sun refills it" goes right
+          # now: sensor.hba_charge_target_energy is the same solar-goal target the Charge
+          # script checks (0 = solar fills the battery).
+          - type: markdown
+            text_only: true
+            visibility:
+              - condition: state
+                entity: input_select.hba_strategy_charge_goal_reached
+                state: "Charge PV — use battery if the sun refills it"
+            content: |-
+              {%- set goal = states('input_select.hba_strategy_charge_goal') -%}
+              {%- set t = states('sensor.hba_charge_target_energy') | float(-1) -%}
+              {%- set usable = states('sensor.hba_usable_battery_energy') | float(0) -%}
+              {%- set surplus = state_attr('sensor.hba_charge_target_energy', 'solar_surplus') | float(0) -%}
+              {%- set day = state_attr('sensor.hba_charge_target_energy', 'forecast_day') or 'today' -%}
+              {%- if goal != 'solar forecast' -%}
+              <font color=grey><i>With the goal *{{ goal }}* this option behaves like **Charge PV**; the solar check only applies to the *solar forecast* goal.</i></font>
+              {%- elif t < 0 or usable <= 0 -%}
+              <font color=grey><i>Grid charge target not available yet (solar forecast or battery capacity unknown).</i></font>
+              {%- elif t == 0 and surplus > 0 -%}
+              <font color=grey><i>☀️ Solar fills the battery {{ day }} (grid charge target **0 kWh**) → after the goal: **Self-consumption**.</i></font>
+              {%- else -%}
+              <font color=grey><i>🔋 Grid charge needed (target **{{ t | round(1) }} kWh**) → after the goal: **hold (Charge PV)**, so the bought energy is kept for the expensive hours.</i></font>
+              {%- endif %}
+
+              <font color=grey><i>Applies inside a cheap hour once the charge goal is reached. Solar-aware decides the hours *before* the cheap ones (export the sun now, or store it already).</i></font>
           - type: markdown
             content: >-
               <font color=grey><i>Visit the '<ha-icon
@@ -1427,7 +1796,7 @@ views:
           - type: markdown
             content: >-
               <font color=grey>_'Reserve' is usable energy in your batteries
-              (e.g. above 11% SoC)_
+              (above the discharge cutoff, now {{ states('input_number.hba_marstek_m1_discharging_cutoff_capacity') | float(13) | round(0) | int }} % SoC)_
 
               </font>
             text_only: true
@@ -1459,11 +1828,11 @@ views:
               </i></font>
             text_only: true
 
-  # ── VIEW 4: TIMED/DYNAMIC ───────────────────────────────────────────────────
+  # ── VIEW 4a: TIMED ──────────────────────────────────────────────────────────
   - type: sections
     max_columns: 3
-    title: Timed / Dynamic
-    path: timed-dynamic
+    title: Timed
+    path: timed
     icon: mdi:timer-cog-outline
     cards: []
     badges:
@@ -1489,7 +1858,7 @@ views:
       card:
         type: markdown
         text_only: true
-        content: '### Timed / Dynamic *(HBA v4.10.1-r21)*'
+        content: '### Timed *(HBA v4.10.1-r23)*'
     sections:
       - type: grid
         cards:
@@ -1507,13 +1876,20 @@ views:
                 text: >-
                   Opens HBC documentation or video. HBA is closely based on HBC,
                   so most content also applies.
+          # Which period applies now (sensor.hba_timed_active_period, as HBC's
+          # "Current period"); only while Timed is the strategy.
           - type: entities
             entities:
-              - entity: input_select.hba_strategy_timed_strat_0
-                name: Default strategy
+              - entity: sensor.hba_timed_active_period
+                type: simple-entity
+                name: Current period
             grid_options:
               columns: 9
               rows: auto
+            visibility:
+              - condition: state
+                entity: input_select.hba_strategy
+                state: Timed
           - clock_style: digital
             clock_size: small
             show_seconds: false
@@ -1524,6 +1900,17 @@ views:
               rows: 1
             title: Time
             face_style: markers
+            visibility:
+              - condition: state
+                entity: input_select.hba_strategy
+                state: Timed
+          - type: entities
+            entities:
+              - entity: input_select.hba_strategy_timed_strat_0
+                name: Default strategy
+            grid_options:
+              columns: full
+              rows: auto
           - type: entities
             entities:
               - entity: input_datetime.hba_strategy_timed_period_a1
@@ -1605,12 +1992,26 @@ views:
                 entity: input_boolean.hba_strategy_timed_has_period_c
                 state: 'on'
           - type: tile
-            grid_options:
-              columns: full
+            entity: input_boolean.hba_strategy_timed_has_period_d
+            name: Add period
+            icon: mdi:plus
+            color: blue-grey
+            show_entity_picture: false
+            hide_state: true
+            vertical: false
+            tap_action:
+              action: toggle
+            features_position: bottom
             visibility:
-              - condition: state
-                entity: input_boolean.hba_strategy_timed_has_period_c
-                state: 'on'
+              - condition: and
+                conditions:
+                  - condition: state
+                    entity: input_boolean.hba_strategy_timed_has_period_c
+                    state: 'on'
+                  - condition: state
+                    entity: input_boolean.hba_strategy_timed_has_period_d
+                    state: 'off'
+          - type: tile
             entity: input_boolean.hba_strategy_timed_has_period_c
             name: Remove period
             icon: mdi:minus
@@ -1621,6 +2022,133 @@ views:
             tap_action:
               action: toggle
             features_position: bottom
+            visibility:
+              - condition: and
+                conditions:
+                  - condition: state
+                    entity: input_boolean.hba_strategy_timed_has_period_c
+                    state: 'on'
+                  - condition: state
+                    entity: input_boolean.hba_strategy_timed_has_period_d
+                    state: 'off'
+          - type: entities
+            entities:
+              - entity: input_datetime.hba_strategy_timed_period_d1
+              - entity: input_select.hba_strategy_timed_strat_d
+              - entity: input_datetime.hba_strategy_timed_period_d2
+            visibility:
+              - condition: state
+                entity: input_boolean.hba_strategy_timed_has_period_d
+                state: 'on'
+          - type: tile
+            entity: input_boolean.hba_strategy_timed_has_period_e
+            name: Add period
+            icon: mdi:plus
+            color: blue-grey
+            show_entity_picture: false
+            hide_state: true
+            vertical: false
+            tap_action:
+              action: toggle
+            features_position: bottom
+            visibility:
+              - condition: and
+                conditions:
+                  - condition: state
+                    entity: input_boolean.hba_strategy_timed_has_period_d
+                    state: 'on'
+                  - condition: state
+                    entity: input_boolean.hba_strategy_timed_has_period_e
+                    state: 'off'
+          - type: tile
+            entity: input_boolean.hba_strategy_timed_has_period_d
+            name: Remove period
+            icon: mdi:minus
+            color: red
+            show_entity_picture: false
+            hide_state: true
+            vertical: false
+            tap_action:
+              action: toggle
+            features_position: bottom
+            visibility:
+              - condition: and
+                conditions:
+                  - condition: state
+                    entity: input_boolean.hba_strategy_timed_has_period_d
+                    state: 'on'
+                  - condition: state
+                    entity: input_boolean.hba_strategy_timed_has_period_e
+                    state: 'off'
+          - type: entities
+            entities:
+              - entity: input_datetime.hba_strategy_timed_period_e1
+              - entity: input_select.hba_strategy_timed_strat_e
+              - entity: input_datetime.hba_strategy_timed_period_e2
+            visibility:
+              - condition: state
+                entity: input_boolean.hba_strategy_timed_has_period_e
+                state: 'on'
+          - type: tile
+            grid_options:
+              columns: full
+            entity: input_boolean.hba_strategy_timed_has_period_e
+            name: Remove period
+            icon: mdi:minus
+            color: red
+            show_entity_picture: false
+            hide_state: true
+            vertical: false
+            tap_action:
+              action: toggle
+            features_position: bottom
+            visibility:
+              - condition: state
+                entity: input_boolean.hba_strategy_timed_has_period_e
+                state: 'on'
+          - type: markdown
+            text_only: true
+            content: >-
+              <font color=grey><i>Periods are checked A → E; the first one that
+              covers the current time wins, otherwise the default strategy runs. A
+              stop time earlier than the start runs past midnight (e.g. 22:00 → 06:00).
+              </i></font>
+
+  # ── VIEW 4b: DYNAMIC ────────────────────────────────────────────────────────
+  # HBA splits HBC's combined "Timed/Dynamic" view into a Timed and a Dynamic view
+  # (cards unchanged): the combined view got long with the price marks and 5 timed periods.
+  - type: sections
+    max_columns: 3
+    title: Dynamic
+    path: dynamic
+    icon: mdi:chart-timeline-variant-shimmer
+    cards: []
+    badges:
+      - type: entity
+        show_name: true
+        show_state: true
+        show_icon: true
+        entity: input_select.hba_strategy
+        name: Choose strategy
+        tap_action:
+          action: more-info
+      - type: entity
+        show_name: true
+        show_state: true
+        show_icon: true
+        entity: sensor.hba_active_strategy
+        show_entity_picture: false
+        name: Executing
+    header:
+      layout: center
+      badges_position: top
+      badges_wrap: scroll
+      card:
+        type: markdown
+        text_only: true
+        content: '### Dynamic *(HBA v4.10.1-r23)*'
+    sections:
+      # ── Dynamic: config column ────────────────────────────────────────────────────────
       - type: grid
         cards:
           - type: heading
@@ -1633,7 +2161,19 @@ views:
             tap_action:
               action: url
               url_path: >-
-                https://docs.homebatterycontrol.com/05-setup-dynamic.html#use-the-dynamic-strategy
+                https://docs.homebatterycontrol.com/05-setup-dynamic.html
+              confirmation:
+                text: >-
+                  Opens HBC documentation or video. HBA is closely based on HBC,
+                  so most content also applies.
+          - type: heading
+            icon: mdi:information
+            heading_style: subtitle
+            heading: Tips for strategy selection
+            tap_action:
+              action: url
+              url_path: >-
+                https://docs.homebatterycontrol.com/05-setup-dynamic.html#strategy-configuration
               confirmation:
                 text: >-
                   Opens HBC documentation or video. HBA is closely based on HBC,
@@ -1641,6 +2181,9 @@ views:
           - type: entities
             entities:
               - entity: input_select.hba_strategy_dynamic_data_source
+            grid_options:
+              columns: 9
+              rows: auto
           - type: entities
             entities:
               - entity: input_text.hba_strategy_dynamic_frank_sensor_entity_id
@@ -1650,6 +2193,27 @@ views:
               - condition: state
                 entity: input_select.hba_strategy_dynamic_data_source
                 state: "Frank Energie"
+          - clock_style: digital
+            clock_size: small
+            show_seconds: false
+            no_background: true
+            type: clock
+            grid_options:
+              columns: 3
+              rows: 1
+            title: Time
+            face_style: markers
+          - type: entities
+            entities:
+              - entity: input_number.hba_strategy_dynamic_threshold_delta
+                name: Min. price difference
+              - entity: sensor.hba_energy_prices_data
+                type: attribute
+                attribute: mark_now
+                name: Current period
+              - entity: sensor.hba_dynamic_cycle_spread
+                name: Grid cycle profit today
+                icon: mdi:cash-fast
           - type: heading
             icon: mdi:format-align-middle
             heading_style: subtitle
@@ -1675,160 +2239,169 @@ views:
               color: amber
           - type: heading
             icon: mdi:timeline-clock-outline
-            heading: Cheapest period
+            heading: Cheap periods
             heading_style: subtitle
           - type: entities
             entities:
               - entity: input_select.hba_strategy_dynamic_cheapest
                 name: I want to use
-              - entity: input_number.hba_strategy_dynamic_cheapest_hrs
-                name: During the cheapest
-              - type: conditional
-                conditions:
-                  - condition: state
-                    entity: input_select.hba_strategy
-                    state_not: "Dynamic v2"
-                row:
-                  entity: input_number.hba_strategy_dynamic_threshold_cheapest_period
-                  name: If the tariff is below
-                  icon: mdi:download-circle-outline
-              - type: conditional
-                conditions:
-                  - condition: state
-                    entity: input_select.hba_strategy
-                    state_not: "Dynamic v2"
-                row:
-                  entity: input_datetime.hba_strategy_dynamic_cheapest_start
-                  type: simple-entity
-                  name: Start
-              - type: conditional
-                conditions:
-                  - condition: state
-                    entity: input_select.hba_strategy
-                    state_not: "Dynamic v2"
-                row:
-                  entity: input_datetime.hba_strategy_dynamic_cheapest_end
-                  type: simple-entity
-                  name: End
-              - type: conditional
-                conditions:
-                  - condition: state
-                    entity: input_select.hba_strategy
-                    state_not: "Dynamic v2"
-                row:
-                  entity: input_number.hba_strategy_dynamic_cheapest_avg_tariff
-                  name: Today the tariff is
-                  type: simple-entity
-          - type: markdown
-            content: >-
-              <ha-alert title="SKIPPING cheapest period">You have set a price
-              limit for the cheapest period. The cheapest period is too
-              expensive today.</ha-alert>
-            text_only: true
-            visibility:
-              - condition: state
-                entity: binary_sensor.hba_dynamic_cheap_threshold_met
-                state: 'off'
-              - condition: state
-                entity: input_select.hba_strategy
-                state_not: "Dynamic v2"
+              - entity: input_number.hba_strategy_dynamic_max_cheap_hours_per_day
+                name: Max # cheap hrs
           - type: heading
             icon: mdi:timeline-clock-outline
-            heading: Expensive period
+            heading: Expensive periods
             heading_style: subtitle
           - type: entities
             entities:
               - entity: input_select.hba_strategy_dynamic_expensive
                 name: I want to use
-              - entity: input_number.hba_strategy_dynamic_expensive_hrs
-                name: During the most expensive
-              - entity: input_number.hba_strategy_dynamic_threshold_delta
-                name: If the price delta >=
-              - type: conditional
-                conditions:
-                  - condition: state
-                    entity: input_select.hba_strategy
-                    state_not: "Dynamic v2"
-                row:
-                  entity: input_datetime.hba_strategy_dynamic_expensive_start
-                  name: Start
-                  type: simple-entity
-              - type: conditional
-                conditions:
-                  - condition: state
-                    entity: input_select.hba_strategy
-                    state_not: "Dynamic v2"
-                row:
-                  entity: input_datetime.hba_strategy_dynamic_expensive_end
-                  name: End
-                  type: simple-entity
-              - type: conditional
-                conditions:
-                  - condition: state
-                    entity: input_select.hba_strategy
-                    state_not: "Dynamic v2"
-                row:
-                  entity: input_number.hba_strategy_dynamic_expensive_avg_delta
-                  name: Today the price delta is
-                  type: simple-entity
-              - type: conditional
-                conditions:
-                  - condition: state
-                    entity: input_select.hba_strategy_dynamic_expensive
-                    state: "Sell"
-                row:
-                  entity: sensor.hba_estimated_profit_per_kwh
-                  name: Estimated profit per kWh
-                  type: simple-entity
-                  icon: mdi:currency-eur
-          - type: markdown
-            content: >-
-              <ha-alert title="SKIPPING expensive period">You have set a
-              minimum price delta. The price difference between the expensive
-              and cheapest period is too small. Discharging is not
-              economical.</ha-alert>
-            text_only: true
-            visibility:
-              - condition: state
-                entity: binary_sensor.hba_dynamic_expensive_threshold_met
-                state: 'off'
-              - condition: state
-                entity: input_select.hba_strategy
-                state_not: "Dynamic v2"
+              - entity: input_number.hba_strategy_dynamic_max_expensive_hours_per_day
+                name: Max # expensive hrs
+
+      # ── Price marks visualisation ─────────────────────────────────────────────
+      - type: grid
+        cards:
           - type: heading
-            icon: mdi:information
-            heading: Calculated periods and tariffs
-            heading_style: subtitle
-            tap_action:
-              action: url
-              url_path: >-
-                https://docs.homebatterycontrol.com/05-setup-dynamic.html#period-startend-times-read-only
-              confirmation:
-                text: >-
-                  Opens HBC documentation or video. HBA is closely based on HBC,
-                  so most content also applies.
-            visibility:
-              - condition: state
-                entity: input_select.hba_strategy
-                state_not: "Dynamic v2"
-          - show_name: true
-            show_icon: true
-            show_state: true
-            type: glance
-            entities:
-              - entity: input_number.hba_strategy_dynamic_expensive_avg_tariff
-                type: simple-entity
-                name: Expensive period
-              - entity: input_number.hba_strategy_dynamic_cheapest_avg_tariff
-                type: simple-entity
-                name: Charged at
-              - entity: input_number.hba_strategy_dynamic_expensive_avg_delta
-                type: simple-entity
-                name: Price delta
-            visibility:
-              - condition: state
-                entity: input_select.hba_strategy
-                state_not: "Dynamic v2"
+            heading: Price marks
+            heading_style: title
+            icon: mdi:chart-bar
+          - type: markdown
+            content: |-
+              <small><small>
+
+              | Time | Today ¢ | Mark | Trend | · | Tomorrow ¢ | Mark | Trend |
+              |:---:|---:|:---:|:---:|:---:|---:|:---:|:---:|
+              {% set s = 'sensor.hba_energy_prices_data' %}
+              {%- set marks_raw = state_attr(s, 'marks') -%}
+              {%- set marks = (marks_raw | from_json) if marks_raw is string and (marks_raw | trim)[:1] == '[' else (marks_raw if marks_raw is sequence else []) -%}
+              {%- set pph    = state_attr(s, 'datapoints_per_hour') | default(1, true) | int -%}
+              {%- set ppd    = 24 * pph -%}
+              {%- set step   = (60 / pph) | int -%}
+              {%- set step_sec = (3600 / pph) | int -%}
+              {%- set bars   = ['▁','▂','▃','▄','▅','▆','▇','█'] -%}
+              {#- Bucket each slot into its own day by TIMESTAMP, never by list position.
+                  Slicing prices[:24] / prices[24:48] assumed the source always delivers exactly
+                  one complete day followed by another. When the Frank Energie integration
+                  repeated today's prices instead of fetching tomorrow's, that split rendered
+                  00:00-11:00 as "Today" and 12:00-23:00 as "Tomorrow" -- so genuinely cheap
+                  midday hours appeared as cheap night hours. Bucketing by timestamp is correct
+                  for a repeated, partial, missing or shifted day alike. -#}
+              {#- Day boundaries and row labels from LOCAL time, never "midnight + 86400" or
+                  "(ts - midnight) / 3600": a DST day lasts 25 (October) or 23 (March) hours,
+                  and counting hours from midnight put every slot after the repeated 02:00 one
+                  row too late (2026-10-25: the cheapest 02:00 CET showed as 03:00). The second
+                  02:00 gets its own row "02:00²"; a skipped 02:00 shows "-". -#}
+              {%- set m0 = now().replace(hour=0, minute=0, second=0, microsecond=0) -%}
+              {%- set day0 = as_timestamp(m0) | int -%}
+              {%- set day1 = as_timestamp(m0 + timedelta(days=1)) | int -%}
+              {%- set day2 = as_timestamp(m0 + timedelta(days=2)) | int -%}
+              {%- set ns = namespace(t={}, m={}, nowkey='', extra=[]) -%}
+              {%- for e in marks | sort(attribute='start') -%}
+                {%- set ts = as_timestamp(e.start, 0) | int -%}
+                {%- set key = ts | timestamp_custom('%H:%M') -%}
+                {%- if ts >= day0 and ts < day1 -%}
+                  {%- if key in ns.t -%}{%- set key = key ~ '²' -%}{%- set ns.extra = ns.extra + [key] -%}{%- endif -%}
+                  {%- set ns.t = ns.t | combine({ key: e }) -%}
+                  {%- if e.is_now -%}{%- set ns.nowkey = key -%}{%- endif -%}
+                {%- elif ts >= day1 and ts < day2 -%}
+                  {%- if key in ns.m -%}{%- set key = key ~ '²' -%}{%- set ns.extra = ns.extra + [key] -%}{%- endif -%}
+                  {%- set ns.m = ns.m | combine({ key: e }) -%}
+                {%- endif -%}
+              {%- endfor -%}
+              {%- set rows = namespace(l=[]) -%}
+              {%- for r in range(ppd) -%}
+                {%- set base = "%02d"|format((r // pph) | int) ~ ':' ~ "%02d"|format(((r % pph) * step) | int) -%}
+                {%- set rows.l = rows.l + [base] -%}
+                {%- if (base ~ '²') in ns.extra -%}{%- set rows.l = rows.l + [base ~ '²'] -%}{%- endif -%}
+              {%- endfor -%}
+              {%- set t_vals = ns.t.values() | map(attribute='price') | list -%}
+              {%- set m_vals = ns.m.values() | map(attribute='price') | list -%}
+              {%- set t_pmin = (t_vals | min) if t_vals else 0 -%} {%- set t_pmax = (t_vals | max) if t_vals else 0 -%} {%- set t_rng = t_pmax - t_pmin -%}
+              {%- set m_pmin = (m_vals | min) if m_vals else 0 -%} {%- set m_pmax = (m_vals | max) if m_vals else 0 -%} {%- set m_rng = m_pmax - m_pmin -%}
+              {%- if t_vals -%}
+                {%- for key in rows.l -%}
+                  {%- set te = ns.t.get(key) -%}
+                  {%- set me = ns.m.get(key) -%}
+                  {%- set t_price   = te.price if te else none -%}
+                  {%- set tom_price = me.price if me else none -%}
+                  {%- set t_mark    = te.mark if te else none -%}
+                  {%- set tom_mark  = me.mark if me else none -%}
+                  {%- set t_bar     = (bars[((t_price - t_pmin) / t_rng * 7) | round(0) | int] if (t_price is not none and t_rng > 0) else (bars[0] if t_price is not none else '-')) -%}
+                  {%- set tom_bar   = (bars[((tom_price - m_pmin) / m_rng * 7) | round(0) | int] if (tom_price is not none and m_rng > 0) else (bars[0] if tom_price is not none else '-')) -%}
+                  {%- set t_emoji   = '🟠' if t_mark == 'high' else ('🟢' if t_mark == 'low' else ('—' if t_price is not none else '-')) -%}
+                  {%- set tom_emoji = '🟠' if tom_mark == 'high' else ('🟢' if tom_mark == 'low' else ('—' if tom_price is not none else '-')) -%}
+                  | {% if key == ns.nowkey %}<font color="#009ac7">{{ key }}</font>{% else %}{{ key }}{% endif %} | {% if t_price is none %}-{% elif key == ns.nowkey %}<font color="#009ac7">{{ "%0.1f"|format(t_price) }}</font>{% elif t_mark == 'high' %}<font color="orange">{{ "%0.1f"|format(t_price) }}</font>{% elif t_mark == 'low' %}<font color="#4caf50">{{ "%0.1f"|format(t_price) }}</font>{% else %}{{ "%0.1f"|format(t_price) }}{% endif %} | {{ t_emoji }} | {% if key == ns.nowkey %}<font color="#009ac7">{{ t_bar }}</font>{% elif t_mark == 'high' %}<font color="orange">{{ t_bar }}</font>{% elif t_mark == 'low' %}<font color="#4caf50">{{ t_bar }}</font>{% else %}{{ t_bar }}{% endif %} | | {% if tom_price is not none %}{% if tom_mark == 'high' %}<font color="orange">{{ "%0.1f"|format(tom_price) }}</font>{% elif tom_mark == 'low' %}<font color="#4caf50">{{ "%0.1f"|format(tom_price) }}</font>{% else %}{{ "%0.1f"|format(tom_price) }}{% endif %}{% else %}-{% endif %} | {{ tom_emoji }} | {% if tom_mark == 'high' %}<font color="orange">{{ tom_bar }}</font>{% elif tom_mark == 'low' %}<font color="#4caf50">{{ tom_bar }}</font>{% else %}{{ tom_bar }}{% endif %} |
+                {% endfor %}
+              {%- else -%}
+                | - | *Insufficient data available...* | - | - | | - | - | - |
+              {% endif %}
+
+              **Today** {{ t_vals | length }}/{{ ((day1 - day0) / step_sec) | int }} slots · Range: {{ "%0.1f"|format(t_pmin) }} – {{ "%0.1f"|format(t_pmax) }} ¢ Spread: {{ "%0.1f"|format(t_rng) }} ¢
+              {%- if m_vals %}
+              **Tomorrow** {{ m_vals | length }}/{{ ((day2 - day1) / step_sec) | int }} slots · Range: {{ "%0.1f"|format(m_pmin) }} – {{ "%0.1f"|format(m_pmax) }} ¢ Spread: {{ "%0.1f"|format(m_rng) }} ¢
+              {%- else %}
+              **Tomorrow** _not published yet_
+              {%- endif %}
+
+              </small></small>
+
+      # ── Price chart ──────────────────────────────────────────────────────────
+      - type: grid
+        column_span: 2
+        cards:
+          - type: custom:apexcharts-card
+            header:
+              show: true
+              show_states: false
+              title: Price intervals
+            graph_span: 48h
+            span:
+              start: day
+            now:
+              show: true
+              color: '#009ac7'
+              label: Now
+            apex_config:
+              plotOptions:
+                bar:
+                  borderRadius: 2
+                  columnWidth: 90%
+              legend:
+                show: false
+              xaxis:
+                type: datetime
+                labels:
+                  datetimeUTC: false
+                  format: HH:mm
+                  rotate: -45
+                  rotateAlways: true
+              yaxis:
+                decimalsInFloat: 1
+                title:
+                  text: ¢/kWh
+              tooltip:
+                x:
+                  format: ddd dd MMM HH:mm
+            series:
+              - entity: sensor.hba_energy_prices_data
+                name: Price
+                type: column
+                float_precision: 1
+                show:
+                  legend_value: false
+                data_generator: |
+                  const marksRaw = entity.attributes.marks || [];
+                  const marks = typeof marksRaw === 'string' ? JSON.parse(marksRaw) : marksRaw;
+                  const colours = { high: '#ff9800', low: '#4caf50' };
+                  return marks.map(iv => ({
+                    x: new Date(iv.start).getTime(),
+                    y: iv.price,
+                    fillColor: iv.is_now
+                      ? '#009ac7'
+                      : (colours[iv.mark] || '#9e9e9e')
+                  }));
+
+      # ── Timed ─────────────────────────────────────────────────────────────────
 
   # ── VIEW 5: INSIGHTS (DEBUG) ────────────────────────────────────────────────
   - type: sections
@@ -1869,7 +2442,7 @@ views:
         type: markdown
         text_only: true
         content: >-
-          ### Insights *(HBA v4.10.1-r21)*
+          ### Insights *(HBA v4.10.1-r23)*
 
           Need help figuring out what is going on?
 
@@ -1979,6 +2552,22 @@ views:
                 name: Entity health
               - entity: binary_sensor.hba_rs485_mode_mismatch
                 name: RS485 mode mismatch
+              - entity: sensor.hba_power_limits
+                name: Power groups
+              - entity: binary_sensor.hba_power_limits_not_restored
+                name: Limits not restored after restart
+              - entity: binary_sensor.hba_ev_charge_alongside
+                name: Charging alongside EV
+              - type: attribute
+                entity: binary_sensor.hba_ev_charge_alongside
+                attribute: mode
+                name: Alongside EV priority
+              - entity: binary_sensor.hba_batteries_before_ev
+                name: Batteries before EV
+              - entity: sensor.hba_charge_limit_source
+                name: Charge limited by
+              - entity: sensor.hba_discharge_limit_source
+                name: Discharge limited by
             show_header_toggle: false
           - type: heading
             heading: Timed EV Charge
@@ -2012,7 +2601,7 @@ views:
                 {% set b_soc = states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') | float(0) -%}
                 {% set b_cut = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) -%}
                 {% set inv   = states('sensor.marstek_m' ~ i ~ '_inverter_state') -%}
-                {% if b_soc > b_cut + 0.5 and inv not in ['Fault', 'unknown', 'unavailable'] -%}
+                {% if b_soc > b_cut and inv not in ['Fault', 'unknown', 'unavailable'] -%}
                   {% set ns.dischargeable = true -%}
                 {% endif -%}
               {% endfor -%}
@@ -2033,6 +2622,117 @@ views:
               - condition: state
                 entity: input_boolean.hba_battery_assist_enabled
                 state: "on"
+
+          - type: heading
+            heading: Power groups
+            heading_style: title
+            icon: mdi:fuse
+            visibility:
+              - condition: state
+                entity: sensor.hba_power_limits
+                state_not: Not used
+          - type: markdown
+            content: |-
+              {%- set S = 'sensor.hba_power_limits' -%}
+              {%- set g = state_attr(S, 'groups') or {} -%}
+              {%- set c = state_attr(S, 'charge') or {} -%}
+              {%- set d = state_attr(S, 'discharge') or {} -%}
+              {%- set full = state_attr(S, 'full') or [] -%}
+              {%- set empty = state_attr(S, 'empty') or [] -%}
+              {%- set lead = state_attr(S, 'leaders') or {} -%}
+              {%- set pr = state_attr(S, 'problems') or [] -%}
+              **{{ states(S) }}**{{ ' — ' ~ (pr | join('; ')) if pr else '' }}
+              {% for G, x in g.items() %}
+              **Group {{ G }}** — {{ x.policy }}, max {{ x.max_power }} W{{ ' · leader charge M' ~ lead[G ~ '_charge'] if (G ~ '_charge') in lead else '' }}{{ ' · leader discharge M' ~ lead[G ~ '_discharge'] if (G ~ '_discharge') in lead else '' }}
+
+              | | Charge set / read | Discharge set / read | |
+              |---|---|---|---|
+              {% for b in x.members -%}
+              {%- set k = b | string -%}
+              | M{{ b }} | {{ c[k] if k in c else '–' }} / {{ states('sensor.marstek_m' ~ b ~ '_max_charge_power_number') }} | {{ d[k] if k in d else '–' }} / {{ states('sensor.marstek_m' ~ b ~ '_max_discharge_power_number') }} | {{ 'full ' if b in full else '' }}{{ 'empty' if b in empty else '' }} |
+              {% endfor %}
+              {% endfor -%}
+            visibility:
+              - condition: state
+                entity: sensor.hba_power_limits
+                state_not: Not used
+          - type: heading
+            heading: Limits now
+            heading_style: title
+            icon: mdi:speedometer-medium
+          - type: markdown
+            content: |-
+              {%- set S = 'sensor.hba_limits_now' -%}
+              {%- set c = state_attr(S, 'charge') or {} -%}
+              {%- set d = state_attr(S, 'discharge') or {} -%}
+              Charge: up to **{{ states(S) }} W** — limited by **{{ states('sensor.hba_charge_limit_source') }}**
+              Discharge: up to **{{ state_attr(S, 'discharge_max_w') }} W** — limited by **{{ states('sensor.hba_discharge_limit_source') }}**
+              Order used — charge: {% for k in state_attr(S, 'charge_order') or [] %}M{{ k }}{{ ' → ' if not loop.last }}{% endfor %} · discharge: {% for k in state_attr(S, 'discharge_order') or [] %}M{{ k }}{{ ' → ' if not loop.last }}{% endfor %}
+
+              | | Charge max | Why | Discharge max | Why |
+              |---|---|---|---|---|
+              {% for i in range(1, states('input_number.hba_battery_count') | int(1) + 1) -%}
+              {%- set k = i | string -%}
+              | M{{ i }} | {{ (c[k].w ~ '&nbsp;W') if k in c else '–' }} | {{ c[k].reason if k in c and c[k].reason != 'None' else '' }} | {{ (d[k].w ~ '&nbsp;W') if k in d else '–' }} | {{ d[k].reason if k in d and d[k].reason != 'None' else '' }} |
+              {% endfor %}
+              <font color=grey>The most each battery could do now (what the strategy asks for is not counted), in battery order: a phase limit is shared by the batteries on that phase.</font>
+          - type: heading
+            heading: Per-phase limits (fuse / Charge alongside EV)
+            heading_style: title
+            icon: mdi:car-battery
+            visibility:
+              - condition: or
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_control_strategy_during_ev_charge
+                    state: "Charge alongside EV"
+                  - condition: numeric_state
+                    entity: input_number.hba_phase_current_limit
+                    above: 0
+          - type: markdown
+            content: |-
+              {%- set B = 'binary_sensor.hba_ev_charge_alongside' -%}
+              {%- set avail = states('sensor.hba_charge_available_energy') | float(0) -%}
+              {%- set res = states('input_number.hba_ev_battery_priority_energy') | float(0) -%}
+              {%- set lim = states('input_number.hba_ev_phase_current_limit') | float(22) -%}
+              {%- set room = state_attr('sensor.hba_phase_room', 'ev_room_w') or {} -%}
+              {%- set hold = state_attr('sensor.hba_phase_room', 'ev_reserve_w') or {} -%}
+              {%- set fc = state_attr('sensor.hba_phase_room', 'fuse_charge_w') or {} -%}
+              {%- set fd = state_attr('sensor.hba_phase_room', 'fuse_discharge_w') or {} -%}
+              {%- set fuse = states('input_number.hba_phase_current_limit') | float(0) -%}
+              {%- set miss = state_attr('sensor.hba_phase_room', 'missing_sensors') -%}
+              **{{ 'Active' if is_state(B, 'on') else 'Not active (car not charging)' }}** — priority **{{ state_attr(B, 'mode') }}**
+              (usable {{ avail | round(1) }} kWh vs batteries-first below {{ res | round(1) }} kWh)
+              {%- if is_state(B, 'on') %} · never discharging{% endif %}
+
+              Batteries before EV (for EV solar charging): **{{ 'on — the batteries get the surplus first' if is_state('binary_sensor.hba_batteries_before_ev', 'on') else 'off' }}**
+
+              Car's power: **{{ state_attr('sensor.hba_phase_room', 'ev_source') }}** · car max {{ states('input_number.hba_ev_max_current') | float(0) | int }} A per phase
+
+              Main fuse limit: **{{ (fuse | round(1) ~ ' A') if fuse > 0 else 'off' }}**
+
+              | Phase | Grid | Car-first limit | Held for car | Room (car first) | Fuse room charge / discharge | Batteries |
+              |---|---|---|---|---|---|---|
+              {% for n in ['L1', 'L2', 'L3'] -%}
+              {%- set l = n | lower -%}
+              {%- set v = states('sensor.p1_meter_voltage_' ~ l) | float(0) -%}
+              {%- set v = v if v > 100 else 230 -%}
+              {%- set ns = namespace(b=[]) -%}
+              {%- for i in range(1, states('input_number.hba_battery_count') | int(1) + 1) if states('input_select.hba_marstek_m' ~ i ~ '_phase') == n -%}
+                {%- set ns.b = ns.b + ['M' ~ i] -%}
+              {%- endfor -%}
+              | {{ n }} | {{ ((states('sensor.p1_meter_power_' ~ l) | float(0)) / v) | round(1) ~ '&nbsp;A' if has_value('sensor.p1_meter_power_' ~ l) else 'no sensor' }} | {{ lim }}&nbsp;A | {{ hold[n] ~ '&nbsp;W' if n in hold else '–' }} | {{ room[n] ~ '&nbsp;W' if n in room else '–' }} | {{ (fc[n] ~ ' / ' ~ fd[n] ~ '&nbsp;W') if n in fc else '–' }} | {{ ns.b | join(', ') or '–' }} |
+              {% endfor %}
+              {%- if miss %}⚠ Missing: {{ miss }}{% endif %}
+            visibility:
+              - condition: or
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_control_strategy_during_ev_charge
+                    state: "Charge alongside EV"
+                  - condition: numeric_state
+                    entity: input_number.hba_phase_current_limit
+                    above: 0
 
       - type: grid
         cards:
@@ -2241,17 +2941,30 @@ views:
               {%- set idle_s = (as_timestamp(now()) - last_ts) | int if last_ts > 0 else -1 -%}
               {%- set idle_str = (idle_s // 60) ~ 'm ' ~ (idle_s % 60) ~ 's' if idle_s >= 0 else '?' -%}
               {%- set over_idle = idle_s >= idle_cfg_s if idle_s >= 0 else false -%}
+              {#- Effective max as hba_set_batteries uses it: the limit register (last known
+                  value when both read 0 after a restart), for charging also the BMS limit -#}
+              {%- set rbc = states('number.marstek_m' ~ idx ~ '_max_charge_power') | float(2500) -%}
+              {%- set rbd = states('number.marstek_m' ~ idx ~ '_max_discharge_power') | float(2500) -%}
+              {%- set restarted = rbc == 0 and rbd == 0 -%}
+              {%- set lkc = state_attr('sensor.hba_power_limits', 'last_known_charge') or {} -%}
+              {%- set lkd = state_attr('sensor.hba_power_limits', 'last_known_discharge') or {} -%}
+              {%- set bms_a = states('sensor.marstek_m' ~ idx ~ '_battery_charge_current_limit') | float(-1) -%}
+              {%- set volt = states('sensor.marstek_m' ~ idx ~ '_battery_voltage') | float(0) -%}
+              {%- set bms_w = (bms_a * volt) | int if bms_a >= 0 and volt > 40 else none -%}
               {%- if mode == 'charge' -%}
               {%- set power = states('number.marstek_m' ~ idx ~ '_forcible_charge_power') | float(0) | int -%}
-              {%- set hw_max = states('number.marstek_m' ~ idx ~ '_max_charge_power') | float(2500) | int -%}
+              {%- set reg = ((lkc[idx | string] if (idx | string) in lkc else 2500) if restarted else rbc) | int -%}
+              {%- set hw_max = [reg, bms_w] | min if bms_w is not none else reg -%}
               {%- elif mode == 'discharge' -%}
               {%- set power = states('number.marstek_m' ~ idx ~ '_forcible_discharge_power') | float(0) | int -%}
-              {%- set hw_max = states('number.marstek_m' ~ idx ~ '_max_discharge_power') | float(2500) | int -%}
+              {%- set hw_max = ((lkd[idx | string] if (idx | string) in lkd else 2500) if restarted else rbd) | int -%}
               {%- else -%}
               {%- set power = 0 -%}
               {%- set hw_max = 0 -%}
-              {%- endif %}
-              **M{{ idx }}**{{ ' ★' if idx == priority else '' }} | RS485: {{ rs485 }} | idle {{ idle_str }}{{ ' ⏸ resting' if over_idle else '' }}
+              {%- endif -%}
+              {%- set grp = states('input_select.hba_marstek_m' ~ idx ~ '_power_group') -%}
+              {%- set ph = states('input_select.hba_marstek_m' ~ idx ~ '_phase') %}
+              **M{{ idx }}**{{ ' ★' if idx == priority else '' }} | RS485: {{ rs485 }} | idle {{ idle_str }}{{ ' ⏸ resting' if over_idle else '' }}{{ ' | group ' ~ grp if grp not in ['Own', 'unknown', 'unavailable'] else '' }}{{ ' | ' ~ ph if ph in ['L1', 'L2', 'L3'] else '' }}{{ ' | ⚠ restarted, last known limits' if restarted else '' }}{{ ' | BMS ' ~ (bms_a | round(0) | int) ~ ' A ≈ ' ~ bms_w ~ ' W' if bms_w is not none and mode == 'charge' and bms_w < rbc else '' }}
               {{ soc }}% SoC (min: {{ soc_min }}%, max: {{ soc_max }}%)
               {%- if mode == 'stop' %} → **stop**
               {%- else %} → **{{ mode }}** {{ power }}W / {{ hw_max }}W max{% if mode == 'charge' %}{% if lim2 > 0 and soc >= thr2 %} ⚠ slow: {{ lim2 }}W cap{% elif lim1 > 0 and soc >= thr1 %} ⚠ slow: {{ lim1 }}W cap{% endif %}{% endif %}
@@ -2267,19 +2980,15 @@ views:
               {% set cheap_strat = states('input_select.hba_strategy_dynamic_cheapest') -%}
               {% set exp_strat = states('input_select.hba_strategy_dynamic_expensive') -%}
               {% set def_strat = states('input_select.hba_strategy_dynamic_default') -%}
-              {% set cheap_met = is_state('binary_sensor.hba_dynamic_cheap_threshold_met', 'on') -%}
-              {% set exp_met = is_state('binary_sensor.hba_dynamic_expensive_threshold_met', 'on') -%}
-              {% set strategy = states('input_select.hba_strategy') -%}
-              {#- v2: today's marked slots from sensor.hba_energy_prices_data, contiguous
+              {#- Today's marked slots from sensor.hba_energy_prices_data, contiguous
                   slots merged into ranges. Updates immediately when max cheap/expensive
-                  hours or delta threshold change (the sensor triggers on those helpers).
-                  v1: the contiguous CEH window input_datetimes, recalculated hourly and
-                  on v1 helper changes. -#}
+                  hours or delta threshold change (the sensor triggers on those helpers). -#}
               {%- macro v2_ranges(kind) -%}
                 {%- set marks_raw = state_attr('sensor.hba_energy_prices_data', 'marks') -%}
                 {%- set marks = (marks_raw | from_json) if marks_raw is string and (marks_raw | trim)[:1] == '[' else (marks_raw if marks_raw is sequence else []) -%}
-                {%- set day_start = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0)) | int -%}
-                {%- set day_end = day_start + 86400 -%}
+                {%- set m0 = now().replace(hour=0, minute=0, second=0, microsecond=0) -%}
+                {%- set day_start = as_timestamp(m0) | int -%}
+                {%- set day_end = as_timestamp(m0 + timedelta(days=1)) | int -%}
                 {%- set ns = namespace(out=[], cs=-1, ce=-1) -%}
                 {%- for m in marks -%}
                   {%- if m.mark | default('') == kind -%}
@@ -2302,32 +3011,18 @@ views:
                 {%- endif -%}
               {%- endmacro -%}
               **Dynamic pricing — now**
-              Mark: **{{ mark_now }}**{% if strategy == 'Dynamic' %} | Cheap threshold: {{ '✅ met' if cheap_met else '❌ not met (SKIP)' }} | Exp. threshold: {{ '✅ met' if exp_met else '❌ not met (SKIP)' }}{% endif %}
+              Mark: **{{ mark_now }}**
 
-              {% if strategy == 'Dynamic v2' -%}
               🟢 Cheap → **{{ cheap_strat }}** ({{ v2_ranges('low') }})
               🟠 Expensive → **{{ exp_strat }}** ({{ v2_ranges('high') }})
-              {%- else -%}
-              {%- set cheap_s = states('input_datetime.hba_strategy_dynamic_cheapest_start') -%}
-              {%- set cheap_e = states('input_datetime.hba_strategy_dynamic_cheapest_end') -%}
-              {%- set exp_s = states('input_datetime.hba_strategy_dynamic_expensive_start') -%}
-              {%- set exp_e = states('input_datetime.hba_strategy_dynamic_expensive_end') -%}
-              🟢 Cheap → **{{ cheap_strat }}** ({{ cheap_s[11:16] if cheap_s | length > 15 else '?' }} – {{ cheap_e[11:16] if cheap_e | length > 15 else '?' }})
-              🟠 Expensive → **{{ exp_strat }}** ({{ exp_s[11:16] if exp_s | length > 15 else '?' }} – {{ exp_e[11:16] if exp_e | length > 15 else '?' }})
-              {%- endif %}
               — Default → **{{ def_strat }}**
             visibility:
               - condition: state
                 entity: input_boolean.hba_control_is_debug_mode
                 state: "on"
-              - condition: or
-                conditions:
-                  - condition: state
-                    entity: input_select.hba_strategy
-                    state: "Dynamic"
-                  - condition: state
-                    entity: input_select.hba_strategy
-                    state: "Dynamic v2"
+              - condition: state
+                entity: input_select.hba_strategy
+                state: "Dynamic"
           - type: markdown
             content: |-
               {%- set outlook = states('sensor.hba_solar_charge_outlook') -%}
@@ -2343,17 +3038,19 @@ views:
               {%- set detail = state_attr(solar_entity, 'detailedForecast') if solar_ok else none -%}
               {%- set detail_n = detail | length if detail is sequence else 0 -%}
               {%- set threshold = states('input_number.hba_strategy_solar_aware_forecast_threshold_kwh') | float(20) -%}
-              {%- if slots == 0 %}decision: **Self-consumption** (no cheap slots remaining)
+              **Solar-aware — now**
+              {% if slots == 0 %}decision: **Self-consumption** (no cheap slots remaining)
               {%- elif outlook == 'No solar entity' %}decision: **Zero import** (fallback — solar forecast entity not set or unavailable)
               {%- elif outlook == 'No solar detail' %}decision: **Zero import** (fallback — entity has no detailedForecast attribute)
               {%- elif outlook == 'No price data' %}decision: **Zero import** (fallback — no energy price marks)
               {%- elif outlook in ['No data', 'unavailable', 'unknown'] %}decision: **Zero import** (fallback — outlook sensor {{ outlook }})
               {%- elif threshold > 0 and solar_today > 0 and solar_today < threshold %}decision: **Self-consumption** (solar {{ solar_today | round(1) }} kWh below threshold {{ threshold }} kWh)
               {%- elif covers %}decision: **Zero import** (solar covers charge)
-              {%- elif deadline != 'none' %}decision: **Zero import** until {{ deadline | as_timestamp(0) | timestamp_custom('%H:%M') }}, then Self-consumption
+              {%- elif deadline != 'none' and as_timestamp(now()) < deadline | as_timestamp(0) %}decision: **Zero import** until {{ deadline | as_timestamp(0) | timestamp_custom('%H:%M') }}, then Self-consumption
+              {%- elif deadline != 'none' %}decision: **Self-consumption** — storing solar since {{ deadline | as_timestamp(0) | timestamp_custom('%H:%M') }} to cover the shortfall before the first cheap slot
               {%- else %}decision: **Self-consumption**
               {%- endif %}
-              **Solar-aware — now** | outlook: {{ outlook }}
+              Outlook: {{ outlook }}
               Solar entity: {{ solar_entity if solar_entity else '(not set)' }}{{ ' (inherited from Charge goal)' if sa_e in ['', 'unknown', 'unavailable'] and solar_entity }}{{ ' — unavailable ⚠️' if solar_entity and not solar_ok }}
               {%- if solar_ok %} | detail: {{ detail_n }}×30 min{{ ' ⚠️ missing — set the Solar-aware forecast entity to sensor.solcast_pv_forecast_forecast_today + enable the half-hourly detail attribute' if detail_n == 0 }}{% endif %}
               Solar today: {{ solar_today | round(1) }} kWh | in cheap slots (net): {{ solar_kwh | round(2) }} kWh | needed: {{ needed | round(2) }} kWh
@@ -2414,7 +3111,7 @@ views:
       card:
         type: markdown
         text_only: true
-        content: '### Advanced settings *(HBA v4.10.1-r21)*'
+        content: '### Advanced settings *(HBA v4.10.1-r23)*'
     sections:
       # Battery offline warning — full width, hidden when all batteries are online
       - type: grid
@@ -2425,15 +3122,7 @@ views:
         cards:
           - type: markdown
             content: >
-              {% set count = states('input_number.hba_battery_count') | int(1) %}
-              {% set ns = namespace(offline=[]) %}
-              {% for i in range(1, count + 1) %}
-                {% set inv = states('sensor.marstek_m' ~ i ~ '_inverter_state') %}
-                {% if inv in ['unavailable', 'unknown', ''] %}
-                  {% set ns.offline = ns.offline + ['M' ~ i] %}
-                {% endif %}
-              {% endfor %}
-              <ha-alert alert-type="error">Battery {{ ns.offline | join(', ') }} offline — check connectivity or reduce battery count in settings.</ha-alert>
+              <ha-alert alert-type="error">Battery {{ state_attr('binary_sensor.hba_any_battery_offline', 'batteries') }} offline — not answering over Modbus, HBA skips it and the other batteries take over. Check its network cable and power, or reduce the battery count in settings.</ha-alert>
       - type: grid
         cards:
           - type: heading
@@ -2485,6 +3174,24 @@ views:
               - entity: input_select.hba_control_priority_change_interval
             state_color: false
             columns: 3
+          # HBA-only: the frozen 30-min SoC order (sensor.hba_battery_order).
+          - type: markdown
+            text_only: true
+            visibility:
+              - condition: state
+                entity: input_select.hba_control_priority_change_interval
+                state: "Auto balance (SoC)"
+            content: |-
+              {%- set d = state_attr('sensor.hba_battery_order', 'discharge_order') or [] -%}
+              {%- set c = state_attr('sensor.hba_battery_order', 'charge_order') or [] -%}
+              {%- set at = state_attr('sensor.hba_battery_order', 'decided_at') -%}
+              {%- set t30 = (as_datetime(at) + timedelta(minutes=30)) if at else none -%}
+              {%- set nxt = t30.replace(minute=(0 if t30.minute < 30 else 30), second=0, microsecond=0) if t30 else none -%}
+              <font color=grey><i>
+              **Discharge order:** {% for b in d %}M{{ b }}{{ ' → ' if not loop.last }}{% endfor %}<br>
+              **Charge order:** {% for b in c %}M{{ b }}{{ ' → ' if not loop.last }}{% endfor %}<br>
+              Fullest battery discharges first, emptiest charges first; a load or solar surplus above one battery's max flows to the next in line. Decided every 30 minutes{{ (' — next at ' ~ nxt.strftime('%H:%M')) if nxt }}, and kept until then so a running charge or discharge is never reshuffled. A battery only moves up when its SoC differs by more than 3 points.{% if state_attr('sensor.hba_power_limits', 'leaders') %} In a power group the group's leader goes first in its group's place (Insights → Limits now shows the order used).{% endif %}
+              </i></font>
           - type: heading
             icon: mdi:information
             heading: Optimize stop and go behavior
@@ -2501,6 +3208,8 @@ views:
             entities:
               - entity: input_number.hba_control_idle_time
                 name: Stop after Idle for
+              - entity: input_number.hba_control_min_start_power
+                name: Min. power to start an extra battery
               - entity: input_number.hba_control_hysteresis
                 name: 'Hysteresis '
                 secondary_info: none
@@ -2533,8 +3242,14 @@ views:
               mode.</i></font>
             text_only: true
 
+      # Links to settings that live in other views — one section instead of three
+      # heading-only stubs that left loose boxes in the grid.
       - type: grid
         cards:
+          - type: heading
+            icon: mdi:link-variant
+            heading: More settings
+            heading_style: title
           - type: heading
             icon: mdi:bell-outline
             heading: Notifications
@@ -2542,9 +3257,6 @@ views:
             tap_action:
               action: navigate
               navigation_path: /home-battery-assistant/notifications
-
-      - type: grid
-        cards:
           - type: heading
             icon: mdi:power-plug-off
             heading: EV Stop Trigger
@@ -2552,9 +3264,6 @@ views:
             tap_action:
               action: navigate
               navigation_path: /home-battery-assistant/ev-charge
-
-      - type: grid
-        cards:
           - type: heading
             icon: mdi:car-electric
             heading: Timed EV Charge
@@ -2580,7 +3289,7 @@ views:
               to the grid for maximum export revenue. After the cheap window has
               passed (or on a cloudy day), it switches to Self-consumption.
 
-              ⚠️ **Advanced feature** — requires Dynamic v2 prices and a solar
+              ⚠️ **Advanced feature** — requires Dynamic prices and a solar
               forecast entity. Without these it silently falls back to
               Self-consumption.
 
@@ -2604,7 +3313,7 @@ views:
               <ha-alert alert-type="warning">**Solar-aware not fully configured**
               {%- if solar_miss %} — Solar forecast entity is not set or unavailable (set it below, or configure the Charge goal's entity under Charge / Sell settings).{%- endif -%}
               {%- if detail_miss %} — `{{ solar_eid }}` has no `detailedForecast` attribute, so the solar outlook cannot be computed. Point the Solar-aware entity below at `sensor.solcast_pv_forecast_forecast_today` (not `…_remaining_today`) and enable the Solcast half-hourly detail attribute.{%- endif -%}
-              {%- if prices_miss %} — Dynamic v2 prices (`sensor.hba_energy_prices_data`) unavailable; set up Dynamic v2 or wait for first price publish.{%- endif %}
+              {%- if prices_miss %} — Dynamic prices (`sensor.hba_energy_prices_data`) unavailable; set up Dynamic or wait for first price publish.{%- endif %}
               Until resolved, Solar-aware falls back to a fixed choice instead of following the solar outlook.</ha-alert>
             grid_options:
               columns: full
@@ -2780,14 +3489,37 @@ views:
               columns: full
             text_only: true
 
-      # Per-battery settings M1
+      # Per-battery settings M1 (all six blocks are generated identically)
       - type: grid
         cards:
           - type: heading
             icon: mdi:power-plug-battery
             heading: Marstek M1
             heading_style: title
+          - type: tile
+            entity: input_select.hba_marstek_m1_power_group
+            name: Power group
+            icon: mdi:fuse
+            vertical: false
+            hide_state: true
+            features:
+              - type: select-options
+            features_position: inline
+            grid_options:
+              columns: full
+          - type: tile
+            entity: input_select.hba_marstek_m1_phase
+            name: Phase
+            vertical: false
+            hide_state: true
+            features:
+              - type: select-options
+            features_position: inline
+            grid_options:
+              columns: full
           - type: vertical-stack
+            grid_options:
+              columns: full
             cards:
               - type: markdown
                 content: '**<font color="#9b9b9b">Discharging</font>**'
@@ -2801,27 +3533,62 @@ views:
                   - type: numeric-input
                     style: buttons
                 features_position: inline
-              - type: tile
-                entity: number.marstek_m1_max_discharge_power
-                name: Max Power
-                hide_state: true
-                vertical: false
-                features:
-                  - type: numeric-input
-                    style: buttons
-                features_position: inline
-            grid_options:
-              columns: 12
-              rows: auto
+              # Own: the battery's register. In a power group: the battery's own limit
+              # (HBA writes the register from it and the group's max power).
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m1_power_group
+                    state: Own
+                card:
+                  type: tile
+                  entity: number.marstek_m1_max_discharge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m1_power_group
+                    state_not: Own
+                card:
+                  type: tile
+                  entity: input_number.hba_marstek_m1_max_discharge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
+              # In a power group: what the battery is limited to right now (HBA writes it)
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m1_power_group
+                    state_not: Own
+                card:
+                  type: markdown
+                  text_only: true
+                  content: >-
+                    {%- set w = state_attr('sensor.hba_power_limits', 'discharge') or {} -%}
+                    {%- set r = states('number.marstek_m1_max_discharge_power') | int(0) -%}
+                    <font color="#9b9b9b">Actual discharge limit now: **{{ r }} W**
+                    {%- if '1' in w and w['1'] != r %} → {{ w['1'] }} W{% endif %},
+                    set by HBA from power group {{ states('input_select.hba_marstek_m1_power_group') }} (your max power above is
+                    the upper bound).</font>
           - type: vertical-stack
+            grid_options:
+              columns: full
             cards:
               - type: markdown
                 content: '**<font color="#9b9b9b">Charging</font>**'
                 text_only: true
               - type: tile
-                grid_options:
-                  columns: 12
-                  rows: 2
                 entity: input_number.hba_marstek_m1_charging_cutoff_capacity
                 name: Cutoff capacity
                 hide_state: true
@@ -2830,18 +3597,54 @@ views:
                   - type: numeric-input
                     style: buttons
                 features_position: inline
-              - type: tile
-                grid_options:
-                  columns: 12
-                  rows: 2
-                entity: number.marstek_m1_max_charge_power
-                name: 'Max. Power '
-                hide_state: true
-                vertical: false
-                features:
-                  - type: numeric-input
-                    style: buttons
-                features_position: inline
+              # Own: the battery's register. In a power group: the battery's own limit
+              # (HBA writes the register from it and the group's max power).
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m1_power_group
+                    state: Own
+                card:
+                  type: tile
+                  entity: number.marstek_m1_max_charge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m1_power_group
+                    state_not: Own
+                card:
+                  type: tile
+                  entity: input_number.hba_marstek_m1_max_charge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
+              # In a power group: what the battery is limited to right now (HBA writes it)
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m1_power_group
+                    state_not: Own
+                card:
+                  type: markdown
+                  text_only: true
+                  content: >-
+                    {%- set w = state_attr('sensor.hba_power_limits', 'charge') or {} -%}
+                    {%- set r = states('number.marstek_m1_max_charge_power') | int(0) -%}
+                    <font color="#9b9b9b">Actual charge limit now: **{{ r }} W**
+                    {%- if '1' in w and w['1'] != r %} → {{ w['1'] }} W{% endif %},
+                    set by HBA from power group {{ states('input_select.hba_marstek_m1_power_group') }} (your max power above is
+                    the upper bound).</font>
           - type: heading
             icon: mdi:information-slab-circle
             heading: Cutoff capacities
@@ -2855,14 +3658,37 @@ views:
                   Opens HBC documentation or video. HBA is closely based on HBC,
                   so most content also applies.
 
-      # Per-battery settings M2
+      # Per-battery settings M2 (all six blocks are generated identically)
       - type: grid
         cards:
           - type: heading
             icon: mdi:power-plug-battery
             heading: Marstek M2
             heading_style: title
+          - type: tile
+            entity: input_select.hba_marstek_m2_power_group
+            name: Power group
+            icon: mdi:fuse
+            vertical: false
+            hide_state: true
+            features:
+              - type: select-options
+            features_position: inline
+            grid_options:
+              columns: full
+          - type: tile
+            entity: input_select.hba_marstek_m2_phase
+            name: Phase
+            vertical: false
+            hide_state: true
+            features:
+              - type: select-options
+            features_position: inline
+            grid_options:
+              columns: full
           - type: vertical-stack
+            grid_options:
+              columns: full
             cards:
               - type: markdown
                 content: '**<font color="#9b9b9b">Discharging</font>**'
@@ -2876,27 +3702,62 @@ views:
                   - type: numeric-input
                     style: buttons
                 features_position: inline
-              - type: tile
-                entity: number.marstek_m2_max_discharge_power
-                name: Max Power
-                hide_state: true
-                vertical: false
-                features:
-                  - type: numeric-input
-                    style: buttons
-                features_position: inline
-            grid_options:
-              columns: 12
-              rows: auto
+              # Own: the battery's register. In a power group: the battery's own limit
+              # (HBA writes the register from it and the group's max power).
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m2_power_group
+                    state: Own
+                card:
+                  type: tile
+                  entity: number.marstek_m2_max_discharge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m2_power_group
+                    state_not: Own
+                card:
+                  type: tile
+                  entity: input_number.hba_marstek_m2_max_discharge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
+              # In a power group: what the battery is limited to right now (HBA writes it)
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m2_power_group
+                    state_not: Own
+                card:
+                  type: markdown
+                  text_only: true
+                  content: >-
+                    {%- set w = state_attr('sensor.hba_power_limits', 'discharge') or {} -%}
+                    {%- set r = states('number.marstek_m2_max_discharge_power') | int(0) -%}
+                    <font color="#9b9b9b">Actual discharge limit now: **{{ r }} W**
+                    {%- if '2' in w and w['2'] != r %} → {{ w['2'] }} W{% endif %},
+                    set by HBA from power group {{ states('input_select.hba_marstek_m2_power_group') }} (your max power above is
+                    the upper bound).</font>
           - type: vertical-stack
+            grid_options:
+              columns: full
             cards:
               - type: markdown
                 content: '**<font color="#9b9b9b">Charging</font>**'
                 text_only: true
               - type: tile
-                grid_options:
-                  columns: 12
-                  rows: 2
                 entity: input_number.hba_marstek_m2_charging_cutoff_capacity
                 name: Cutoff capacity
                 hide_state: true
@@ -2905,31 +3766,102 @@ views:
                   - type: numeric-input
                     style: buttons
                 features_position: inline
-              - type: tile
-                grid_options:
-                  columns: 12
-                  rows: 2
-                entity: number.marstek_m2_max_charge_power
-                name: 'Max. Power '
-                hide_state: true
-                vertical: false
-                features:
-                  - type: numeric-input
-                    style: buttons
-                features_position: inline
+              # Own: the battery's register. In a power group: the battery's own limit
+              # (HBA writes the register from it and the group's max power).
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m2_power_group
+                    state: Own
+                card:
+                  type: tile
+                  entity: number.marstek_m2_max_charge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m2_power_group
+                    state_not: Own
+                card:
+                  type: tile
+                  entity: input_number.hba_marstek_m2_max_charge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
+              # In a power group: what the battery is limited to right now (HBA writes it)
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m2_power_group
+                    state_not: Own
+                card:
+                  type: markdown
+                  text_only: true
+                  content: >-
+                    {%- set w = state_attr('sensor.hba_power_limits', 'charge') or {} -%}
+                    {%- set r = states('number.marstek_m2_max_charge_power') | int(0) -%}
+                    <font color="#9b9b9b">Actual charge limit now: **{{ r }} W**
+                    {%- if '2' in w and w['2'] != r %} → {{ w['2'] }} W{% endif %},
+                    set by HBA from power group {{ states('input_select.hba_marstek_m2_power_group') }} (your max power above is
+                    the upper bound).</font>
+          - type: heading
+            icon: mdi:information-slab-circle
+            heading: Cutoff capacities
+            heading_style: subtitle
+            tap_action:
+              action: url
+              url_path: >-
+                https://docs.homebatterycontrol.com/06-advanced-features.html#chargingdischarging-limits
+              confirmation:
+                text: >-
+                  Opens HBC documentation or video. HBA is closely based on HBC,
+                  so most content also applies.
         visibility:
           - condition: numeric_state
             entity: input_number.hba_battery_count
             above: 1
 
-      # Per-battery settings M3
+      # Per-battery settings M3 (all six blocks are generated identically)
       - type: grid
         cards:
           - type: heading
             icon: mdi:power-plug-battery
             heading: Marstek M3
             heading_style: title
+          - type: tile
+            entity: input_select.hba_marstek_m3_power_group
+            name: Power group
+            icon: mdi:fuse
+            vertical: false
+            hide_state: true
+            features:
+              - type: select-options
+            features_position: inline
+            grid_options:
+              columns: full
+          - type: tile
+            entity: input_select.hba_marstek_m3_phase
+            name: Phase
+            vertical: false
+            hide_state: true
+            features:
+              - type: select-options
+            features_position: inline
+            grid_options:
+              columns: full
           - type: vertical-stack
+            grid_options:
+              columns: full
             cards:
               - type: markdown
                 content: '**<font color="#9b9b9b">Discharging</font>**'
@@ -2943,27 +3875,62 @@ views:
                   - type: numeric-input
                     style: buttons
                 features_position: inline
-              - type: tile
-                entity: number.marstek_m3_max_discharge_power
-                name: Max Power
-                hide_state: true
-                vertical: false
-                features:
-                  - type: numeric-input
-                    style: buttons
-                features_position: inline
-            grid_options:
-              columns: 12
-              rows: auto
+              # Own: the battery's register. In a power group: the battery's own limit
+              # (HBA writes the register from it and the group's max power).
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m3_power_group
+                    state: Own
+                card:
+                  type: tile
+                  entity: number.marstek_m3_max_discharge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m3_power_group
+                    state_not: Own
+                card:
+                  type: tile
+                  entity: input_number.hba_marstek_m3_max_discharge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
+              # In a power group: what the battery is limited to right now (HBA writes it)
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m3_power_group
+                    state_not: Own
+                card:
+                  type: markdown
+                  text_only: true
+                  content: >-
+                    {%- set w = state_attr('sensor.hba_power_limits', 'discharge') or {} -%}
+                    {%- set r = states('number.marstek_m3_max_discharge_power') | int(0) -%}
+                    <font color="#9b9b9b">Actual discharge limit now: **{{ r }} W**
+                    {%- if '3' in w and w['3'] != r %} → {{ w['3'] }} W{% endif %},
+                    set by HBA from power group {{ states('input_select.hba_marstek_m3_power_group') }} (your max power above is
+                    the upper bound).</font>
           - type: vertical-stack
+            grid_options:
+              columns: full
             cards:
               - type: markdown
                 content: '**<font color="#9b9b9b">Charging</font>**'
                 text_only: true
               - type: tile
-                grid_options:
-                  columns: 12
-                  rows: 2
                 entity: input_number.hba_marstek_m3_charging_cutoff_capacity
                 name: Cutoff capacity
                 hide_state: true
@@ -2972,31 +3939,102 @@ views:
                   - type: numeric-input
                     style: buttons
                 features_position: inline
-              - type: tile
-                grid_options:
-                  columns: 12
-                  rows: 2
-                entity: number.marstek_m3_max_charge_power
-                name: 'Max. Power '
-                hide_state: true
-                vertical: false
-                features:
-                  - type: numeric-input
-                    style: buttons
-                features_position: inline
+              # Own: the battery's register. In a power group: the battery's own limit
+              # (HBA writes the register from it and the group's max power).
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m3_power_group
+                    state: Own
+                card:
+                  type: tile
+                  entity: number.marstek_m3_max_charge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m3_power_group
+                    state_not: Own
+                card:
+                  type: tile
+                  entity: input_number.hba_marstek_m3_max_charge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
+              # In a power group: what the battery is limited to right now (HBA writes it)
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m3_power_group
+                    state_not: Own
+                card:
+                  type: markdown
+                  text_only: true
+                  content: >-
+                    {%- set w = state_attr('sensor.hba_power_limits', 'charge') or {} -%}
+                    {%- set r = states('number.marstek_m3_max_charge_power') | int(0) -%}
+                    <font color="#9b9b9b">Actual charge limit now: **{{ r }} W**
+                    {%- if '3' in w and w['3'] != r %} → {{ w['3'] }} W{% endif %},
+                    set by HBA from power group {{ states('input_select.hba_marstek_m3_power_group') }} (your max power above is
+                    the upper bound).</font>
+          - type: heading
+            icon: mdi:information-slab-circle
+            heading: Cutoff capacities
+            heading_style: subtitle
+            tap_action:
+              action: url
+              url_path: >-
+                https://docs.homebatterycontrol.com/06-advanced-features.html#chargingdischarging-limits
+              confirmation:
+                text: >-
+                  Opens HBC documentation or video. HBA is closely based on HBC,
+                  so most content also applies.
         visibility:
           - condition: numeric_state
             entity: input_number.hba_battery_count
             above: 2
 
-      # Per-battery settings M4
+      # Per-battery settings M4 (all six blocks are generated identically)
       - type: grid
         cards:
           - type: heading
             icon: mdi:power-plug-battery
             heading: Marstek M4
             heading_style: title
+          - type: tile
+            entity: input_select.hba_marstek_m4_power_group
+            name: Power group
+            icon: mdi:fuse
+            vertical: false
+            hide_state: true
+            features:
+              - type: select-options
+            features_position: inline
+            grid_options:
+              columns: full
+          - type: tile
+            entity: input_select.hba_marstek_m4_phase
+            name: Phase
+            vertical: false
+            hide_state: true
+            features:
+              - type: select-options
+            features_position: inline
+            grid_options:
+              columns: full
           - type: vertical-stack
+            grid_options:
+              columns: full
             cards:
               - type: markdown
                 content: '**<font color="#9b9b9b">Discharging</font>**'
@@ -3010,27 +4048,62 @@ views:
                   - type: numeric-input
                     style: buttons
                 features_position: inline
-              - type: tile
-                entity: number.marstek_m4_max_discharge_power
-                name: Max Power
-                hide_state: true
-                vertical: false
-                features:
-                  - type: numeric-input
-                    style: buttons
-                features_position: inline
-            grid_options:
-              columns: 12
-              rows: auto
+              # Own: the battery's register. In a power group: the battery's own limit
+              # (HBA writes the register from it and the group's max power).
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m4_power_group
+                    state: Own
+                card:
+                  type: tile
+                  entity: number.marstek_m4_max_discharge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m4_power_group
+                    state_not: Own
+                card:
+                  type: tile
+                  entity: input_number.hba_marstek_m4_max_discharge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
+              # In a power group: what the battery is limited to right now (HBA writes it)
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m4_power_group
+                    state_not: Own
+                card:
+                  type: markdown
+                  text_only: true
+                  content: >-
+                    {%- set w = state_attr('sensor.hba_power_limits', 'discharge') or {} -%}
+                    {%- set r = states('number.marstek_m4_max_discharge_power') | int(0) -%}
+                    <font color="#9b9b9b">Actual discharge limit now: **{{ r }} W**
+                    {%- if '4' in w and w['4'] != r %} → {{ w['4'] }} W{% endif %},
+                    set by HBA from power group {{ states('input_select.hba_marstek_m4_power_group') }} (your max power above is
+                    the upper bound).</font>
           - type: vertical-stack
+            grid_options:
+              columns: full
             cards:
               - type: markdown
                 content: '**<font color="#9b9b9b">Charging</font>**'
                 text_only: true
               - type: tile
-                grid_options:
-                  columns: 12
-                  rows: 2
                 entity: input_number.hba_marstek_m4_charging_cutoff_capacity
                 name: Cutoff capacity
                 hide_state: true
@@ -3039,18 +4112,54 @@ views:
                   - type: numeric-input
                     style: buttons
                 features_position: inline
-              - type: tile
-                grid_options:
-                  columns: 12
-                  rows: 2
-                entity: number.marstek_m4_max_charge_power
-                name: 'Max. Power '
-                hide_state: true
-                vertical: false
-                features:
-                  - type: numeric-input
-                    style: buttons
-                features_position: inline
+              # Own: the battery's register. In a power group: the battery's own limit
+              # (HBA writes the register from it and the group's max power).
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m4_power_group
+                    state: Own
+                card:
+                  type: tile
+                  entity: number.marstek_m4_max_charge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m4_power_group
+                    state_not: Own
+                card:
+                  type: tile
+                  entity: input_number.hba_marstek_m4_max_charge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
+              # In a power group: what the battery is limited to right now (HBA writes it)
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m4_power_group
+                    state_not: Own
+                card:
+                  type: markdown
+                  text_only: true
+                  content: >-
+                    {%- set w = state_attr('sensor.hba_power_limits', 'charge') or {} -%}
+                    {%- set r = states('number.marstek_m4_max_charge_power') | int(0) -%}
+                    <font color="#9b9b9b">Actual charge limit now: **{{ r }} W**
+                    {%- if '4' in w and w['4'] != r %} → {{ w['4'] }} W{% endif %},
+                    set by HBA from power group {{ states('input_select.hba_marstek_m4_power_group') }} (your max power above is
+                    the upper bound).</font>
           - type: heading
             icon: mdi:information-slab-circle
             heading: Cutoff capacities
@@ -3068,14 +4177,37 @@ views:
             entity: input_number.hba_battery_count
             above: 3
 
-      # Per-battery settings M5
+      # Per-battery settings M5 (all six blocks are generated identically)
       - type: grid
         cards:
           - type: heading
             icon: mdi:power-plug-battery
             heading: Marstek M5
             heading_style: title
+          - type: tile
+            entity: input_select.hba_marstek_m5_power_group
+            name: Power group
+            icon: mdi:fuse
+            vertical: false
+            hide_state: true
+            features:
+              - type: select-options
+            features_position: inline
+            grid_options:
+              columns: full
+          - type: tile
+            entity: input_select.hba_marstek_m5_phase
+            name: Phase
+            vertical: false
+            hide_state: true
+            features:
+              - type: select-options
+            features_position: inline
+            grid_options:
+              columns: full
           - type: vertical-stack
+            grid_options:
+              columns: full
             cards:
               - type: markdown
                 content: '**<font color="#9b9b9b">Discharging</font>**'
@@ -3089,27 +4221,62 @@ views:
                   - type: numeric-input
                     style: buttons
                 features_position: inline
-              - type: tile
-                entity: number.marstek_m5_max_discharge_power
-                name: Max Power
-                hide_state: true
-                vertical: false
-                features:
-                  - type: numeric-input
-                    style: buttons
-                features_position: inline
-            grid_options:
-              columns: 12
-              rows: auto
+              # Own: the battery's register. In a power group: the battery's own limit
+              # (HBA writes the register from it and the group's max power).
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m5_power_group
+                    state: Own
+                card:
+                  type: tile
+                  entity: number.marstek_m5_max_discharge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m5_power_group
+                    state_not: Own
+                card:
+                  type: tile
+                  entity: input_number.hba_marstek_m5_max_discharge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
+              # In a power group: what the battery is limited to right now (HBA writes it)
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m5_power_group
+                    state_not: Own
+                card:
+                  type: markdown
+                  text_only: true
+                  content: >-
+                    {%- set w = state_attr('sensor.hba_power_limits', 'discharge') or {} -%}
+                    {%- set r = states('number.marstek_m5_max_discharge_power') | int(0) -%}
+                    <font color="#9b9b9b">Actual discharge limit now: **{{ r }} W**
+                    {%- if '5' in w and w['5'] != r %} → {{ w['5'] }} W{% endif %},
+                    set by HBA from power group {{ states('input_select.hba_marstek_m5_power_group') }} (your max power above is
+                    the upper bound).</font>
           - type: vertical-stack
+            grid_options:
+              columns: full
             cards:
               - type: markdown
                 content: '**<font color="#9b9b9b">Charging</font>**'
                 text_only: true
               - type: tile
-                grid_options:
-                  columns: 12
-                  rows: 2
                 entity: input_number.hba_marstek_m5_charging_cutoff_capacity
                 name: Cutoff capacity
                 hide_state: true
@@ -3118,18 +4285,54 @@ views:
                   - type: numeric-input
                     style: buttons
                 features_position: inline
-              - type: tile
-                grid_options:
-                  columns: 12
-                  rows: 2
-                entity: number.marstek_m5_max_charge_power
-                name: 'Max. Power '
-                hide_state: true
-                vertical: false
-                features:
-                  - type: numeric-input
-                    style: buttons
-                features_position: inline
+              # Own: the battery's register. In a power group: the battery's own limit
+              # (HBA writes the register from it and the group's max power).
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m5_power_group
+                    state: Own
+                card:
+                  type: tile
+                  entity: number.marstek_m5_max_charge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m5_power_group
+                    state_not: Own
+                card:
+                  type: tile
+                  entity: input_number.hba_marstek_m5_max_charge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
+              # In a power group: what the battery is limited to right now (HBA writes it)
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m5_power_group
+                    state_not: Own
+                card:
+                  type: markdown
+                  text_only: true
+                  content: >-
+                    {%- set w = state_attr('sensor.hba_power_limits', 'charge') or {} -%}
+                    {%- set r = states('number.marstek_m5_max_charge_power') | int(0) -%}
+                    <font color="#9b9b9b">Actual charge limit now: **{{ r }} W**
+                    {%- if '5' in w and w['5'] != r %} → {{ w['5'] }} W{% endif %},
+                    set by HBA from power group {{ states('input_select.hba_marstek_m5_power_group') }} (your max power above is
+                    the upper bound).</font>
           - type: heading
             icon: mdi:information-slab-circle
             heading: Cutoff capacities
@@ -3147,14 +4350,37 @@ views:
             entity: input_number.hba_battery_count
             above: 4
 
-      # Per-battery settings M6
+      # Per-battery settings M6 (all six blocks are generated identically)
       - type: grid
         cards:
           - type: heading
             icon: mdi:power-plug-battery
             heading: Marstek M6
             heading_style: title
+          - type: tile
+            entity: input_select.hba_marstek_m6_power_group
+            name: Power group
+            icon: mdi:fuse
+            vertical: false
+            hide_state: true
+            features:
+              - type: select-options
+            features_position: inline
+            grid_options:
+              columns: full
+          - type: tile
+            entity: input_select.hba_marstek_m6_phase
+            name: Phase
+            vertical: false
+            hide_state: true
+            features:
+              - type: select-options
+            features_position: inline
+            grid_options:
+              columns: full
           - type: vertical-stack
+            grid_options:
+              columns: full
             cards:
               - type: markdown
                 content: '**<font color="#9b9b9b">Discharging</font>**'
@@ -3168,27 +4394,62 @@ views:
                   - type: numeric-input
                     style: buttons
                 features_position: inline
-              - type: tile
-                entity: number.marstek_m6_max_discharge_power
-                name: Max Power
-                hide_state: true
-                vertical: false
-                features:
-                  - type: numeric-input
-                    style: buttons
-                features_position: inline
-            grid_options:
-              columns: 12
-              rows: auto
+              # Own: the battery's register. In a power group: the battery's own limit
+              # (HBA writes the register from it and the group's max power).
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m6_power_group
+                    state: Own
+                card:
+                  type: tile
+                  entity: number.marstek_m6_max_discharge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m6_power_group
+                    state_not: Own
+                card:
+                  type: tile
+                  entity: input_number.hba_marstek_m6_max_discharge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
+              # In a power group: what the battery is limited to right now (HBA writes it)
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m6_power_group
+                    state_not: Own
+                card:
+                  type: markdown
+                  text_only: true
+                  content: >-
+                    {%- set w = state_attr('sensor.hba_power_limits', 'discharge') or {} -%}
+                    {%- set r = states('number.marstek_m6_max_discharge_power') | int(0) -%}
+                    <font color="#9b9b9b">Actual discharge limit now: **{{ r }} W**
+                    {%- if '6' in w and w['6'] != r %} → {{ w['6'] }} W{% endif %},
+                    set by HBA from power group {{ states('input_select.hba_marstek_m6_power_group') }} (your max power above is
+                    the upper bound).</font>
           - type: vertical-stack
+            grid_options:
+              columns: full
             cards:
               - type: markdown
                 content: '**<font color="#9b9b9b">Charging</font>**'
                 text_only: true
               - type: tile
-                grid_options:
-                  columns: 12
-                  rows: 2
                 entity: input_number.hba_marstek_m6_charging_cutoff_capacity
                 name: Cutoff capacity
                 hide_state: true
@@ -3197,18 +4458,54 @@ views:
                   - type: numeric-input
                     style: buttons
                 features_position: inline
-              - type: tile
-                grid_options:
-                  columns: 12
-                  rows: 2
-                entity: number.marstek_m6_max_charge_power
-                name: 'Max. Power '
-                hide_state: true
-                vertical: false
-                features:
-                  - type: numeric-input
-                    style: buttons
-                features_position: inline
+              # Own: the battery's register. In a power group: the battery's own limit
+              # (HBA writes the register from it and the group's max power).
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m6_power_group
+                    state: Own
+                card:
+                  type: tile
+                  entity: number.marstek_m6_max_charge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m6_power_group
+                    state_not: Own
+                card:
+                  type: tile
+                  entity: input_number.hba_marstek_m6_max_charge_power
+                  name: Max power
+                  hide_state: true
+                  vertical: false
+                  features:
+                    - type: numeric-input
+                      style: buttons
+                  features_position: inline
+              # In a power group: what the battery is limited to right now (HBA writes it)
+              - type: conditional
+                conditions:
+                  - condition: state
+                    entity: input_select.hba_marstek_m6_power_group
+                    state_not: Own
+                card:
+                  type: markdown
+                  text_only: true
+                  content: >-
+                    {%- set w = state_attr('sensor.hba_power_limits', 'charge') or {} -%}
+                    {%- set r = states('number.marstek_m6_max_charge_power') | int(0) -%}
+                    <font color="#9b9b9b">Actual charge limit now: **{{ r }} W**
+                    {%- if '6' in w and w['6'] != r %} → {{ w['6'] }} W{% endif %},
+                    set by HBA from power group {{ states('input_select.hba_marstek_m6_power_group') }} (your max power above is
+                    the upper bound).</font>
           - type: heading
             icon: mdi:information-slab-circle
             heading: Cutoff capacities
@@ -3226,6 +4523,242 @@ views:
             entity: input_number.hba_battery_count
             above: 5
 
+      # Power groups — batteries whose combined power must stay within one limit (shared
+      # breaker, one phase, plug-in 800 W guideline). Each battery's group is set in its own
+      # block above; here the group's max power, spread policy and live limits.
+      - type: grid
+        column_span: 3
+        cards:
+          - type: heading
+            heading: Power groups
+            heading_style: title
+            icon: mdi:fuse
+          - type: markdown
+            text_only: true
+            content: |-
+              {%- set pr = state_attr('sensor.hba_power_limits', 'problems') or [] -%}
+              {%- if pr %}
+              <ha-alert alert-type="warning" title="Power groups inactive">
+
+              Set these first — until then HBA leaves the limit registers of that group alone:
+              {% for x in pr %}
+              - {{ x }}
+              {%- endfor %}
+
+              </ha-alert>
+              {% endif -%}
+              A power group keeps the **combined** power of its batteries within one limit,
+              for example batteries that share a breaker, that should stay under a limit on
+              one phase, or plug-in batteries that together keep to the 800 W guideline.
+              Choose a group per battery above. HBA then writes their **max charge** and
+              **max discharge** registers so that, per direction, the group never adds up to
+              more than its max power. The limits sit in the batteries, so they also hold
+              when HA is down or a battery runs on its own. **Follow battery order**
+              (default) gives the battery HBA uses first as much as it can, so one battery runs
+              up to its max before a second starts (each running battery costs ~20–25 W) and
+              hands over once another battery is 5 % further along;
+              **Equal** splits the max power evenly (never above a battery's own max); **One at
+              a time** keeps one battery first until it is full or empty. A full battery hands its *charge*
+              share to the others, an empty one its *discharge* share. HBA lowers a battery
+              first and raises the other only once the battery reports the lower value.
+
+              <ha-alert alert-type="warning" title="Use at your own risk">
+
+              This is a software limit, not electrical protection. A firmware bug, a battery
+              reset, a setting changed in the Marstek app or a configuration mistake can let
+              the batteries draw more than the group's max power. **Always have an
+              electrician check your installation** before relying on it — breakers, cable
+              sizes and the phase load must be right without HBA.
+
+              </ha-alert>
+          # Main fuse limit per phase — every strategy, needs per-phase P1 sensors
+          - type: entities
+            entities:
+              - entity: input_number.hba_phase_current_limit
+                name: Main fuse limit per phase (0 = off)
+          - type: markdown
+            text_only: true
+            content: >-
+              <font color="#9b9b9b">Per phase, the batteries on it charge (import) or discharge
+              (export) only as far as that phase stays below this current — e.g. 24 A for a
+              25 A main fuse. Needs `sensor.p1_meter_power_l1/l2/l3` (hba_config.yaml) and each
+              battery's phase. A software limit: the installation must be safe without it.</font>
+          - type: entities
+            entities:
+              - type: conditional
+                conditions:
+                  - condition: or
+                    conditions:
+                      - condition: state
+                        entity: input_select.hba_marstek_m1_power_group
+                        state: A
+                      - condition: state
+                        entity: input_select.hba_marstek_m2_power_group
+                        state: A
+                      - condition: state
+                        entity: input_select.hba_marstek_m3_power_group
+                        state: A
+                      - condition: state
+                        entity: input_select.hba_marstek_m4_power_group
+                        state: A
+                      - condition: state
+                        entity: input_select.hba_marstek_m5_power_group
+                        state: A
+                      - condition: state
+                        entity: input_select.hba_marstek_m6_power_group
+                        state: A
+                row:
+                  entity: input_number.hba_power_group_a_max_power
+                  name: Group A max power
+              - type: conditional
+                conditions:
+                  - condition: or
+                    conditions:
+                      - condition: state
+                        entity: input_select.hba_marstek_m1_power_group
+                        state: A
+                      - condition: state
+                        entity: input_select.hba_marstek_m2_power_group
+                        state: A
+                      - condition: state
+                        entity: input_select.hba_marstek_m3_power_group
+                        state: A
+                      - condition: state
+                        entity: input_select.hba_marstek_m4_power_group
+                        state: A
+                      - condition: state
+                        entity: input_select.hba_marstek_m5_power_group
+                        state: A
+                      - condition: state
+                        entity: input_select.hba_marstek_m6_power_group
+                        state: A
+                row:
+                  entity: input_select.hba_power_group_a_policy
+                  name: Group A spread
+              - type: conditional
+                conditions:
+                  - condition: or
+                    conditions:
+                      - condition: state
+                        entity: input_select.hba_marstek_m1_power_group
+                        state: B
+                      - condition: state
+                        entity: input_select.hba_marstek_m2_power_group
+                        state: B
+                      - condition: state
+                        entity: input_select.hba_marstek_m3_power_group
+                        state: B
+                      - condition: state
+                        entity: input_select.hba_marstek_m4_power_group
+                        state: B
+                      - condition: state
+                        entity: input_select.hba_marstek_m5_power_group
+                        state: B
+                      - condition: state
+                        entity: input_select.hba_marstek_m6_power_group
+                        state: B
+                row:
+                  entity: input_number.hba_power_group_b_max_power
+                  name: Group B max power
+              - type: conditional
+                conditions:
+                  - condition: or
+                    conditions:
+                      - condition: state
+                        entity: input_select.hba_marstek_m1_power_group
+                        state: B
+                      - condition: state
+                        entity: input_select.hba_marstek_m2_power_group
+                        state: B
+                      - condition: state
+                        entity: input_select.hba_marstek_m3_power_group
+                        state: B
+                      - condition: state
+                        entity: input_select.hba_marstek_m4_power_group
+                        state: B
+                      - condition: state
+                        entity: input_select.hba_marstek_m5_power_group
+                        state: B
+                      - condition: state
+                        entity: input_select.hba_marstek_m6_power_group
+                        state: B
+                row:
+                  entity: input_select.hba_power_group_b_policy
+                  name: Group B spread
+              - type: conditional
+                conditions:
+                  - condition: or
+                    conditions:
+                      - condition: state
+                        entity: input_select.hba_marstek_m1_power_group
+                        state: C
+                      - condition: state
+                        entity: input_select.hba_marstek_m2_power_group
+                        state: C
+                      - condition: state
+                        entity: input_select.hba_marstek_m3_power_group
+                        state: C
+                      - condition: state
+                        entity: input_select.hba_marstek_m4_power_group
+                        state: C
+                      - condition: state
+                        entity: input_select.hba_marstek_m5_power_group
+                        state: C
+                      - condition: state
+                        entity: input_select.hba_marstek_m6_power_group
+                        state: C
+                row:
+                  entity: input_number.hba_power_group_c_max_power
+                  name: Group C max power
+              - type: conditional
+                conditions:
+                  - condition: or
+                    conditions:
+                      - condition: state
+                        entity: input_select.hba_marstek_m1_power_group
+                        state: C
+                      - condition: state
+                        entity: input_select.hba_marstek_m2_power_group
+                        state: C
+                      - condition: state
+                        entity: input_select.hba_marstek_m3_power_group
+                        state: C
+                      - condition: state
+                        entity: input_select.hba_marstek_m4_power_group
+                        state: C
+                      - condition: state
+                        entity: input_select.hba_marstek_m5_power_group
+                        state: C
+                      - condition: state
+                        entity: input_select.hba_marstek_m6_power_group
+                        state: C
+                row:
+                  entity: input_select.hba_power_group_c_policy
+                  name: Group C spread
+            visibility:
+              - condition: state
+                entity: sensor.hba_power_limits
+                state_not: Not used
+          - type: markdown
+            text_only: true
+            content: |-
+              {%- set g = state_attr('sensor.hba_power_limits', 'groups') or {} -%}
+              {%- set full = state_attr('sensor.hba_power_limits', 'full') or [] -%}
+              {%- set empty = state_attr('sensor.hba_power_limits', 'empty') or [] -%}
+              {%- for G, x in g.items() %}
+              **Group {{ G }}** — {{ x.policy }}, max {{ x.max_power }} W
+
+              | | Max charge | Max discharge | SoC |
+              |---|---|---|---|
+              {% for b in x.members -%}
+              | M{{ b }} | {{ states('number.marstek_m' ~ b ~ '_max_charge_power') | int(0) }}&nbsp;W | {{ states('number.marstek_m' ~ b ~ '_max_discharge_power') | int(0) }}&nbsp;W | {{ states('sensor.marstek_m' ~ b ~ '_battery_state_of_charge') | float(0) | round(0) | int }}&nbsp;%{{ ' · full' if b in full else '' }}{{ ' · empty' if b in empty else '' }} |
+              {% endfor %}
+              {% endfor -%}
+            visibility:
+              - condition: state
+                entity: sensor.hba_power_limits
+                state: Active
+
       - type: grid
         cards:
           - type: heading
@@ -3236,6 +4769,10 @@ views:
             heading: HBA ↔ HBC handoff
             heading_style: subtitle
             icon: mdi:transit-connection-variant
+            visibility:
+              - condition: state
+                entity: script.hba_take_control
+                state_not: [unknown, unavailable]
           - type: horizontal-stack
             cards:
               - type: button
@@ -3269,10 +4806,18 @@ views:
                     text: >-
                       HBA will yield: starts Node-RED so HBC can take over,
                       and HBA stops driving the batteries.
+            visibility:
+              - condition: state
+                entity: script.hba_take_control
+                state_not: [unknown, unavailable]
           - type: entities
             entities:
               - entity: input_text.hba_hbc_nodered_addon_slug
                 name: Node-RED addon slug
+            visibility:
+              - condition: state
+                entity: script.hba_take_control
+                state_not: [unknown, unavailable]
           - type: markdown
             content: >-
               <font color=grey><i>Only needed when running HBA alongside HBC. The
@@ -3281,6 +4826,22 @@ views:
               installations — only change it if your Node-RED addon has a different
               slug.</i></font>
             text_only: true
+            visibility:
+              - condition: state
+                entity: script.hba_take_control
+                state_not: [unknown, unavailable]
+          # Shown instead of the handoff controls when hba_hbc_coexistence.yaml is not
+          # installed (missing entity = 'unknown'; removed-but-registered = 'unavailable').
+          - type: markdown
+            content: >-
+              <font color=grey><i>**HBA ↔ HBC handoff** — not installed. Only needed if
+              you run (or ran) Home Battery Control / Node-RED next to HBA: re-run
+              `install.sh` and answer **yes** to the coexistence file, then restart.</i></font>
+            text_only: true
+            visibility:
+              - condition: state
+                entity: script.hba_take_control
+                state: [unknown, unavailable]
           - type: heading
             heading: Frank Energie
             heading_style: subtitle
@@ -3313,269 +4874,7 @@ views:
                       This will reset all HBA parameters to safe starting values.
                       Any values you have configured will be overwritten. Continue?
 
-  # ── VIEW 7: LAB FEATURES ────────────────────────────────────────────────────
-  - type: sections
-    max_columns: 3
-    title: Lab features
-    path: lab-features
-    icon: mdi:flask
-    cards: []
-    badges:
-      - type: entity
-        show_name: true
-        show_state: true
-        show_icon: true
-        entity: input_select.hba_strategy
-        name: Choose strategy
-        tap_action:
-          action: more-info
-      - type: entity
-        show_name: true
-        show_state: true
-        show_icon: true
-        entity: sensor.hba_active_strategy
-        show_entity_picture: false
-        name: Executing
-    header:
-      card:
-        type: markdown
-        text_only: true
-        content: >-
-          ### Lab features *(HBA v4.10.1-r21)*
-
-          These features are experimental. Use at your own discretion.
-      layout: center
-      badges_position: top
-      badges_wrap: scroll
-    sections:
-      # ── Config column ────────────────────────────────────────────────────────
-      - type: grid
-        cards:
-          - type: heading
-            heading: FEAT | Dynamic strategy v2 (multi-peak support)
-            heading_style: title
-          - type: heading
-            icon: mdi:information
-            heading_style: subtitle
-            heading: Tips for strategy selection
-            tap_action:
-              action: url
-              url_path: >-
-                https://docs.homebatterycontrol.com/05-setup-dynamic.html#strategy-configuration
-              confirmation:
-                text: >-
-                  Opens HBC documentation or video. HBA is closely based on HBC,
-                  so most content also applies.
-          - type: entities
-            entities:
-              - entity: input_select.hba_strategy_dynamic_data_source
-            grid_options:
-              columns: 9
-              rows: auto
-          - type: entities
-            entities:
-              - entity: input_text.hba_strategy_dynamic_frank_sensor_entity_id
-                name: Frank Energie prices sensor
-                icon: mdi:lightning-bolt
-            visibility:
-              - condition: state
-                entity: input_select.hba_strategy_dynamic_data_source
-                state: "Frank Energie"
-          - clock_style: digital
-            clock_size: small
-            show_seconds: false
-            no_background: true
-            type: clock
-            grid_options:
-              columns: 3
-              rows: 1
-            title: Time
-            face_style: markers
-          - type: entities
-            entities:
-              - entity: input_number.hba_strategy_dynamic_threshold_delta
-                name: Min. price difference
-              - entity: sensor.hba_energy_prices_data
-                type: attribute
-                attribute: mark_now
-                name: Current period
-          - type: heading
-            icon: mdi:format-align-middle
-            heading_style: subtitle
-            heading: Regular period
-          - type: entities
-            entities:
-              - entity: input_select.hba_strategy_dynamic_default
-                name: Default to
-          - type: conditional
-            conditions:
-              - condition: state
-                entity: input_select.hba_strategy_dynamic_default
-                state: "Solar-aware"
-            card:
-              type: tile
-              entity: input_select.hba_strategy_dynamic_default
-              name: Solar-aware settings →
-              icon: mdi:weather-sunny
-              tap_action:
-                action: navigate
-                navigation_path: /home-battery-assistant/advanced-settings
-              hide_state: true
-              color: amber
-          - type: heading
-            icon: mdi:timeline-clock-outline
-            heading: Cheap periods
-            heading_style: subtitle
-          - type: entities
-            entities:
-              - entity: input_select.hba_strategy_dynamic_cheapest
-                name: I want to use
-              - entity: input_number.hba_strategy_dynamic_v2_max_cheap_hours_per_day
-                name: Max # cheap hrs
-          - type: heading
-            icon: mdi:timeline-clock-outline
-            heading: Expensive periods
-            heading_style: subtitle
-          - type: entities
-            entities:
-              - entity: input_select.hba_strategy_dynamic_expensive
-                name: I want to use
-              - entity: input_number.hba_strategy_dynamic_v2_max_expensive_hours_per_day
-                name: Max # expensive hrs
-
-      # ── Price marks visualisation ─────────────────────────────────────────────
-      - type: grid
-        cards:
-          - type: heading
-            heading: FEAT | Price marks visualisation
-            heading_style: title
-            icon: mdi:chart-bar
-          - type: markdown
-            content: |-
-              <small><small>
-
-              | Time | Today ¢ | Mark | Trend | · | Tomorrow ¢ | Mark | Trend |
-              |:---:|---:|:---:|:---:|:---:|---:|:---:|:---:|
-              {% set s = 'sensor.hba_energy_prices_data' %}
-              {%- set marks_raw = state_attr(s, 'marks') -%}
-              {%- set marks = (marks_raw | from_json) if marks_raw is string and (marks_raw | trim)[:1] == '[' else (marks_raw if marks_raw is sequence else []) -%}
-              {%- set pph    = state_attr(s, 'datapoints_per_hour') | default(1, true) | int -%}
-              {%- set ppd    = 24 * pph -%}
-              {%- set step   = (60 / pph) | int -%}
-              {%- set step_sec = (3600 / pph) | int -%}
-              {%- set bars   = ['▁','▂','▃','▄','▅','▆','▇','█'] -%}
-              {#- Bucket each slot into its own day by TIMESTAMP, never by list position.
-                  Slicing prices[:24] / prices[24:48] assumed the source always delivers exactly
-                  one complete day followed by another. When the Frank Energie integration
-                  repeated today's prices instead of fetching tomorrow's, that split rendered
-                  00:00-11:00 as "Today" and 12:00-23:00 as "Tomorrow" -- so genuinely cheap
-                  midday hours appeared as cheap night hours. Bucketing by timestamp is correct
-                  for a repeated, partial, missing or shifted day alike. -#}
-              {%- set day0 = as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0)) | int -%}
-              {%- set day1 = day0 + 86400 -%}
-              {%- set day2 = day1 + 86400 -%}
-              {%- set ns = namespace(t={}, m={}, nowidx=-1) -%}
-              {%- for e in marks -%}
-                {%- set ts = as_timestamp(e.start, 0) | int -%}
-                {%- if ts >= day0 and ts < day1 -%}
-                  {%- set idx = ((ts - day0) / step_sec) | int -%}
-                  {%- set ns.t = ns.t | combine({ idx | string: e }) -%}
-                  {%- if e.is_now -%}{%- set ns.nowidx = idx -%}{%- endif -%}
-                {%- elif ts >= day1 and ts < day2 -%}
-                  {%- set idx = ((ts - day1) / step_sec) | int -%}
-                  {%- set ns.m = ns.m | combine({ idx | string: e }) -%}
-                {%- endif -%}
-              {%- endfor -%}
-              {%- set t_vals = ns.t.values() | map(attribute='price') | list -%}
-              {%- set m_vals = ns.m.values() | map(attribute='price') | list -%}
-              {%- set t_pmin = (t_vals | min) if t_vals else 0 -%} {%- set t_pmax = (t_vals | max) if t_vals else 0 -%} {%- set t_rng = t_pmax - t_pmin -%}
-              {%- set m_pmin = (m_vals | min) if m_vals else 0 -%} {%- set m_pmax = (m_vals | max) if m_vals else 0 -%} {%- set m_rng = m_pmax - m_pmin -%}
-              {%- if t_vals -%}
-                {%- for i in range(ppd) -%}
-                  {%- set te = ns.t.get(i | string) -%}
-                  {%- set me = ns.m.get(i | string) -%}
-                  {%- set t_price   = te.price if te else none -%}
-                  {%- set tom_price = me.price if me else none -%}
-                  {%- set hour      = (i // pph) | int -%}
-                  {%- set minute    = (i % pph) * step -%}
-                  {%- set t_mark    = te.mark if te else none -%}
-                  {%- set tom_mark  = me.mark if me else none -%}
-                  {%- set t_bar     = (bars[((t_price - t_pmin) / t_rng * 7) | round(0) | int] if (t_price is not none and t_rng > 0) else (bars[0] if t_price is not none else '-')) -%}
-                  {%- set tom_bar   = (bars[((tom_price - m_pmin) / m_rng * 7) | round(0) | int] if (tom_price is not none and m_rng > 0) else (bars[0] if tom_price is not none else '-')) -%}
-                  {%- set t_emoji   = '🟠' if t_mark == 'high' else ('🟢' if t_mark == 'low' else ('—' if t_price is not none else '-')) -%}
-                  {%- set tom_emoji = '🟠' if tom_mark == 'high' else ('🟢' if tom_mark == 'low' else ('—' if tom_price is not none else '-')) -%}
-                  | {% if i == ns.nowidx %}<font color="#009ac7">{{ "%02d"|format(hour) }}:{{ "%02d"|format(minute) }}</font>{% else %}{{ "%02d"|format(hour) }}:{{ "%02d"|format(minute) }}{% endif %} | {% if t_price is none %}-{% elif i == ns.nowidx %}<font color="#009ac7">{{ "%0.1f"|format(t_price) }}</font>{% elif t_mark == 'high' %}<font color="orange">{{ "%0.1f"|format(t_price) }}</font>{% elif t_mark == 'low' %}<font color="#4caf50">{{ "%0.1f"|format(t_price) }}</font>{% else %}{{ "%0.1f"|format(t_price) }}{% endif %} | {{ t_emoji }} | {% if i == ns.nowidx %}<font color="#009ac7">{{ t_bar }}</font>{% elif t_mark == 'high' %}<font color="orange">{{ t_bar }}</font>{% elif t_mark == 'low' %}<font color="#4caf50">{{ t_bar }}</font>{% else %}{{ t_bar }}{% endif %} | | {% if tom_price is not none %}{% if tom_mark == 'high' %}<font color="orange">{{ "%0.1f"|format(tom_price) }}</font>{% elif tom_mark == 'low' %}<font color="#4caf50">{{ "%0.1f"|format(tom_price) }}</font>{% else %}{{ "%0.1f"|format(tom_price) }}{% endif %}{% else %}-{% endif %} | {{ tom_emoji }} | {% if tom_mark == 'high' %}<font color="orange">{{ tom_bar }}</font>{% elif tom_mark == 'low' %}<font color="#4caf50">{{ tom_bar }}</font>{% else %}{{ tom_bar }}{% endif %} |
-                {% endfor %}
-              {%- else -%}
-                | - | *Insufficient data available...* | - | - | | - | - | - |
-              {% endif %}
-
-              **Today** {{ t_vals | length }}/{{ ppd }} slots · Range: {{ "%0.1f"|format(t_pmin) }} – {{ "%0.1f"|format(t_pmax) }} ¢ Spread: {{ "%0.1f"|format(t_rng) }} ¢
-              {%- if m_vals %}
-              **Tomorrow** {{ m_vals | length }}/{{ ppd }} slots · Range: {{ "%0.1f"|format(m_pmin) }} – {{ "%0.1f"|format(m_pmax) }} ¢ Spread: {{ "%0.1f"|format(m_rng) }} ¢
-              {%- else %}
-              **Tomorrow** _not published yet_
-              {%- endif %}
-
-              </small></small>
-
-      # ── Price chart ──────────────────────────────────────────────────────────
-      - type: grid
-        column_span: 2
-        cards:
-          - type: custom:apexcharts-card
-            header:
-              show: true
-              show_states: false
-              title: Price intervals
-            graph_span: 48h
-            span:
-              start: day
-            now:
-              show: true
-              color: '#009ac7'
-              label: Now
-            apex_config:
-              plotOptions:
-                bar:
-                  borderRadius: 2
-                  columnWidth: 90%
-              legend:
-                show: false
-              xaxis:
-                type: datetime
-                labels:
-                  datetimeUTC: false
-                  format: HH:mm
-                  rotate: -45
-                  rotateAlways: true
-              yaxis:
-                decimalsInFloat: 1
-                title:
-                  text: ¢/kWh
-              tooltip:
-                x:
-                  format: ddd dd MMM HH:mm
-            series:
-              - entity: sensor.hba_energy_prices_data
-                name: Price
-                type: column
-                float_precision: 1
-                show:
-                  legend_value: false
-                data_generator: |
-                  const marksRaw = entity.attributes.marks || [];
-                  const marks = typeof marksRaw === 'string' ? JSON.parse(marksRaw) : marksRaw;
-                  const colours = { high: '#ff9800', low: '#4caf50' };
-                  return marks.map(iv => ({
-                    x: new Date(iv.start).getTime(),
-                    y: iv.price,
-                    fillColor: iv.is_now
-                      ? '#009ac7'
-                      : (colours[iv.mark] || '#9e9e9e')
-                  }));
-
-  # ── VIEW 8: EV CHARGE ────────────────────────────────────────────────────────
+  # ── VIEW 7: EV CHARGE ────────────────────────────────────────────────────────
   - type: sections
     max_columns: 3
     title: EV Charge
@@ -3604,7 +4903,7 @@ views:
         type: markdown
         text_only: true
         content: >-
-          ### EV Charge *(HBA v4.10.1-r21)*
+          ### EV Charge *(HBA v4.10.1-r23)*
 
 
           **HBA-specific feature** — not part of HBC. Configures the EV stop
@@ -3669,8 +4968,66 @@ views:
               power limits. **Charge PV** — charge the solar surplus the EV cannot
               take (e.g. between 1-phase max and the 3-phase switch threshold);
               discharge stays disabled, so the batteries never compete with the
-              charger.</font>
+              charger. **Charge alongside EV** — the normal strategy keeps
+              running (it decides whether the batteries charge, e.g. a cheap hour)
+              but never discharges into the car; below the battery-priority energy
+              the batteries charge at full power and the charger's load balancing
+              slows the car, above it the batteries only use what is left under
+              the phase limit.</font>
             text_only: true
+          - type: entities
+            entities:
+              - entity: input_number.hba_ev_battery_priority_energy
+                name: Batteries first below
+              - entity: input_number.hba_ev_phase_current_limit
+                name: Phase limit (car first)
+              - entity: input_number.hba_ev_max_current
+                name: Car max current per phase
+              - entity: binary_sensor.hba_ev_charge_alongside
+                name: Charging alongside now
+                secondary_info: none
+              - type: attribute
+                entity: binary_sensor.hba_ev_charge_alongside
+                attribute: mode
+                name: Priority now
+              - entity: binary_sensor.hba_batteries_before_ev
+                name: Batteries before EV now (for EV solar charging)
+                secondary_info: none
+            visibility:
+              - condition: state
+                entity: input_select.hba_control_strategy_during_ev_charge
+                state: "Charge alongside EV"
+          - type: markdown
+            content: >-
+              <font color=grey>**Batteries first below**: usable energy (kWh above
+              the discharge cutoffs) the batteries may claim before the car, e.g.
+              what the house needs at night; 0 = the car always first.
+              **Phase limit**: per phase, set just below where your charger's load
+              balancing starts slowing the car (a Peblar at ~22.5 A). Set each
+              battery's **phase** in Advanced settings — as your P1 meter numbers
+              the phases, which may differ from the labels in the meter cupboard.
+              **Check it:** let one battery charge or discharge at a steady power
+              with the others idle; only that phase's `sensor.p1_meter_power_lX`
+              should move by about that amount. **Car max current**: with the
+              charger's power defined (`sensor.ev_charger_power` or per phase, see
+              hba_config.yaml) HBA keeps that room free for the car, so after the
+              charger's load balancing throttled it, it goes straight back to full
+              speed. Requires an EV charger with its own load balancing measuring the
+              whole connection.</font>
+            text_only: true
+            visibility:
+              - condition: state
+                entity: input_select.hba_control_strategy_during_ev_charge
+                state: "Charge alongside EV"
+          - type: markdown
+            content: >-
+              <ha-alert alert-type="warning">Per-phase limits (main fuse limit, Charge alongside EV) are missing per-phase grid power: {{ state_attr('sensor.hba_phase_room', 'missing_sensors') }}. Define them in packages/hba/hba_config.yaml (like sensor.p1_meter_power, positive = import — see hba_config.yaml.example). Until then the batteries do not charge or discharge on those phases while such a limit applies.</ha-alert>
+            grid_options:
+              columns: full
+            visibility:
+              - condition: state
+                entity: binary_sensor.hba_phase_sensors_missing
+                state: "on"
           - type: entities
             entities:
               - entity: input_text.hba_strategy_ev_saturated_entity_id
@@ -3784,7 +5141,7 @@ views:
               unnecessary grid feed-in.</font>
             text_only: true
 
-  # ── VIEW 9: NOTIFICATIONS ────────────────────────────────────────────────────
+  # ── VIEW 8: NOTIFICATIONS ────────────────────────────────────────────────────
   - type: sections
     max_columns: 3
     title: Notifications
@@ -3796,7 +5153,7 @@ views:
         type: markdown
         text_only: true
         content: >-
-          ### Notifications *(HBA v4.10.1-r21)*
+          ### Notifications *(HBA v4.10.1-r23)*
 
 
           **HBA-specific feature** — not part of HBC. Configure where HBA

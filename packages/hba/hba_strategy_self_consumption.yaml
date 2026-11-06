@@ -73,7 +73,9 @@ script:
       # Script fields are accessible in `variables:` steps but can fail to resolve
       # inside deeply-nested `choose:` conditions in some HA versions.
       - variables:
-          _discharge_disabled: "{{ discharge_disabled | default(false) }}"
+          # Charge alongside EV: never discharge into the car (and keep the PID from
+          # winding up against a discharge that hba_set_batteries would drop anyway).
+          _discharge_disabled: "{{ discharge_disabled | default(false) or is_state('binary_sensor.hba_ev_charge_alongside', 'on') }}"
           _charge_disabled: "{{ charge_disabled | default(false) }}"
           _setpoint_override: "{{ setpoint_override | default(none) }}"
       - variables:
@@ -126,7 +128,7 @@ script:
             {% for i in range(1, count + 1) %}
               {% set soc = states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') | float(0) %}
               {% set cutoff = states('input_number.hba_marstek_m' ~ i ~ '_charging_cutoff_capacity') | float(100) %}
-              {% if soc < cutoff - 0.5 %}
+              {% if soc < cutoff %}
                 {% set pw = states('number.marstek_m' ~ i ~ '_max_charge_power') | float(0) %}
                 {% set eff_max = pw if pw > 50 else 2500 %}
                 {% if sc_lim2 > 0 and soc >= sc_thr2 %}
@@ -139,8 +141,9 @@ script:
             {% endfor %}
             {{ ns.total | int }}
           # Discharge anti-windup: exclude batteries at/near SoC cutoff and any battery
-          # currently not responding to RS485 commands — when BMS limits or stops discharge
-          # near cutoff the full rated power must not feed the I-term ceiling.
+          # currently not responding to RS485 commands or in the firmware's low-SoC latch — when
+          # BMS limits or stops discharge near cutoff the full rated power must not feed the I-term
+          # ceiling (prod 2026-10-30: PID output −2275 W with both remaining batteries latched at 0 W).
           assignable_discharge: >
             {% set count = states('input_number.hba_battery_count') | int(1) %}
             {% set ns = namespace(total=0) %}
@@ -148,7 +151,7 @@ script:
               {% set soc = states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') | float(0) %}
               {% set cutoff = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) %}
               {% set not_responding = is_state('binary_sensor.hba_marstek_m' ~ i ~ '_not_responding', 'on') %}
-              {% if soc > cutoff + 0.5 and not not_responding %}
+              {% if soc > cutoff and not not_responding and i not in (state_attr('sensor.hba_power_limits', 'latched') or []) %}
                 {% set pw = states('number.marstek_m' ~ i ~ '_max_discharge_power') | float(0) %}
                 {% set ns.total = ns.total + (pw if pw > 50 else 2500) %}
               {% endif %}
@@ -221,21 +224,23 @@ script:
                   - action: input_text.set_value
                     target: { entity_id: input_text.hba_strategy_active_flow }
                     data: { value: "Self-consumption" }
+          # Clamped to the helpers' ±100 kW range: an out-of-range set_value fails and
+          # would abort the cycle (and with it all battery control) on an extreme reading.
           - action: input_number.set_value
             target: { entity_id: input_number.hba_control_error_signal }
-            data: { value: "{{ effective_err | round(1) }}" }
+            data: { value: "{{ [[effective_err, -100000] | max, 100000] | min | round(1) }}" }
           - action: input_number.set_value
             target: { entity_id: input_number.hba_control_p_term }
-            data: { value: "{{ p_term | round(1) }}" }
+            data: { value: "{{ [[p_term, -100000] | max, 100000] | min | round(1) }}" }
           - action: input_number.set_value
             target: { entity_id: input_number.hba_control_i_term }
-            data: { value: "{{ new_i | round(1) }}" }
+            data: { value: "{{ [[new_i, -100000] | max, 100000] | min | round(1) }}" }
           - action: input_number.set_value
             target: { entity_id: input_number.hba_control_d_term }
-            data: { value: "{{ d_term | round(1) }}" }
+            data: { value: "{{ [[d_term, -100000] | max, 100000] | min | round(1) }}" }
           - action: input_number.set_value
             target: { entity_id: input_number.hba_control_pid_output }
-            data: { value: "{{ peak_shaving_output }}" }
+            data: { value: "{{ [[peak_shaving_output | int, -100000] | max, 100000] | min }}" }
           - choose:
               # Output non-zero after guard — send command and mark batteries as active
               - conditions: "{{ peak_shaving_output != 0 }}"

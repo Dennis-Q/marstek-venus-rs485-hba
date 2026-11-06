@@ -1,0 +1,205 @@
+# =============================================================================
+# HBA — savings
+#
+# What the batteries saved, as a running total in EUR. HA keeps it as long-term
+# statistics, so today / last 3 days / this month / any period is the change of
+# sensor.hba_savings over that period (statistic cards on the dashboard).
+#
+# Every 15 s: grid cost without the batteries minus the actual grid cost.
+#   actual grid      G  = sensor.p1_meter_power                 (W, + = import)
+#   without batteries G0 = G + sensor.hba_total_battery_power   (W, + = discharge)
+#   cost(x) = x × buy price when importing, x × sell price when exporting
+# Buy price = the price sensor of the Dynamic/Planned strategies (prices attribute,
+# the running slot); sell price = the Planned sell price sensor (empty = buy price)
+# minus the Planned sell price deduction — the same prices Planned plans with.
+#
+# Charging costs money now and saves later, so the energy in the batteries is
+# counted at what it cost (basis): charging moves money from saved into basis,
+# discharging takes the part of the basis that left the batteries (by stored
+# kWh). Saved = raw + basis, so a charging day does not look like a loss and
+# the round-trip loss ends up in the result. At the very first run the stored
+# energy is valued at Planned's ledger cost per kWh when there is one, else at the
+# buy price of that moment (prod 2026-11-06: deployed at the evening peak, so the
+# first battery-full counted at 0.535 and earned ~0 that evening). Wear is not subtracted.
+# Works with every strategy: it only reads the meter, the batteries and the prices.
+#
+# sensor.hba_savings_vs_self_consumption: the same sum for a simulated
+# Self-consumption battery of the same size (stores only surplus sun, gives only
+# what the house imports, usable energy and max powers from HBA, ~94 % each way),
+# subtracted from the real one = what the strategy added on top of Self-consumption.
+#
+# The accumulator runs every 15 s and is kept out of the recorder. A template
+# sensor does not get its own value back after a restart or template reload
+# (tested on dev 2026-11-06: `this.state` is unknown at the first render), so
+# input_text.hba_savings_store keeps a copy (every minute and at shutdown) and the
+# accumulator continues from it. Starting from scratch only when the store is
+# still empty one tick after the start. sensor.hba_savings is rounded to cents and
+# its attributes change only per price slot, so it writes a row only when a cent changes.
+# =============================================================================
+
+input_text:
+  # Copy of the savings accumulator, restored at every start. Not a setting.
+  hba_savings_store:
+    name: "HBA Savings Store"
+    max: 255
+    icon: mdi:content-save-outline
+
+automation:
+  - id: hba_savings_store
+    alias: "HBA Savings Store"
+    description: "Keeps a copy of the savings accumulator for after a restart or reload."
+    mode: single
+    triggers:
+      - trigger: time_pattern
+        minutes: "/1"
+      - trigger: homeassistant
+        event: shutdown
+    conditions:
+      - condition: template
+        value_template: "{{ states('sensor.hba_savings_accumulator')[:1] == '{' }}"
+    actions:
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.hba_savings_store
+        data:
+          value: "{{ states('sensor.hba_savings_accumulator') }}"
+
+template:
+  - triggers:
+      - trigger: time_pattern
+        seconds: "/15"
+    sensor:
+      - name: "HBA Savings Accumulator"
+        unique_id: hba_savings_accumulator
+        icon: mdi:cash-sync
+        # State = the running values as JSON (state and attributes render separately,
+        # each seeing only the previous state, so everything lives in the state)
+        state: >-
+          {%- set prev = this.state | default('') -%}
+          {%- set store = states('input_text.hba_savings_store') -%}
+          {%- set src = prev if prev is string and prev[:1] == '{' else store -%}
+          {%- set a = (src | from_json) if src[:1] == '{' else {} -%}
+          {%- if a == {} and prev != 'waiting' -%}
+          waiting
+          {%- else -%}
+          {%- set raw = a.get('raw', 0) | float(0) -%}
+          {%- set basis = a.get('basis') -%}
+          {%- set now_ts = as_timestamp(now()) -%}
+          {%- set dt = [now_ts - (a.get('ts', now_ts) | float(now_ts)), 60] | min -%}
+          {%- set p1 = states('sensor.p1_meter_power') -%}
+          {%- set bt = states('sensor.hba_total_battery_power') -%}
+          {%- set ns = namespace(buy=none, sell=none, stored=0, ok=true) -%}
+          {%- set count = states('input_number.hba_battery_count') | int(1) -%}
+          {%- for i in range(1, count + 1) -%}
+            {%- set c = states('sensor.marstek_m' ~ i ~ '_battery_remaining_capacity') -%}
+            {%- if c | is_number -%}{%- set ns.stored = ns.stored + c | float -%}{%- else -%}{%- set ns.ok = false -%}{%- endif -%}
+          {%- endfor -%}
+          {%- set pe = states('input_text.hba_strategy_dynamic_frank_sensor_entity_id') | trim -%}
+          {%- for e in (state_attr(pe, 'prices') or []) if e is mapping and 'from' in e and 'price' in e
+                and as_timestamp(e['from'], 0) <= now_ts and now_ts < as_timestamp(e.get('till', e['from']), 0) + (0 if 'till' in e else 3600) -%}
+            {%- set ns.buy = e['price'] | float(0) -%}
+          {%- endfor -%}
+          {%- set se = states('input_text.hba_strategy_planned_sell_price_entity_id') | trim -%}
+          {%- if se not in ['', 'unknown', 'unavailable'] -%}
+            {%- for e in (state_attr(se, 'prices') or []) if e is mapping and 'from' in e and 'price' in e
+                  and as_timestamp(e['from'], 0) <= now_ts and now_ts < as_timestamp(e.get('till', e['from']), 0) + (0 if 'till' in e else 3600) -%}
+              {%- set ns.sell = e['price'] | float(0) -%}
+            {%- endfor -%}
+          {%- else -%}
+            {%- set ns.sell = ns.buy -%}
+          {%- endif -%}
+          {%- if ns.buy is not none and ns.sell is not none and p1 | is_number and bt | is_number and ns.ok -%}
+            {%- set sell = ns.sell - states('input_number.hba_strategy_planned_sell_deduction') | float(0) -%}
+            {%- set g = p1 | float / 1000 -%}
+            {%- set g0 = g + bt | float / 1000 -%}
+            {%- set c_g = g * (ns.buy if g > 0 else sell) -%}
+            {%- set c_g0 = g0 * (ns.buy if g0 > 0 else sell) -%}
+            {%- set inc = (c_g0 - c_g) * dt / 3600 -%}
+            {%- if basis is none -%}
+              {#- First run: what Planned's ledger says the stored energy cost, else the buy price now -#}
+              {%- set lc = state_attr('sensor.hba_planned_strategy', 'ledger_cost') -%}
+              {%- set basis = ns.stored * (lc | float if lc is number or lc | is_number else ns.buy) -%}
+            {%- else -%}
+              {%- set basis = basis | float(0) -%}
+            {%- endif -%}
+            {%- if bt | float < 0 -%}
+              {%- set basis = basis - inc -%}
+            {%- elif bt | float > 0 -%}
+              {#- DC energy that left: AC out / ~0.94 inverter efficiency -#}
+              {%- set out = bt | float / 1000 * dt / 3600 / 0.94 -%}
+              {%- set basis = basis - basis * ([out / (ns.stored + out), 1] | min if ns.stored + out > 0 else 1) -%}
+            {%- endif -%}
+            {#- Self-consumption with the same batteries (virtual): stores only surplus sun, gives only
+                what the house imports, within the usable energy and the max powers. vs = its stored kWh
+                (same scale as stored), fl = the stored kWh below the discharge cutoffs (set once),
+                vr / vb = its raw and basis. It starts equal to the real batteries. -#}
+            {%- set vr = a.get('vr', raw) | float(0) -%}
+            {%- set vb = a.get('vb', basis) | float(0) -%}
+            {%- set vs = a.get('vs', ns.stored) | float(0) -%}
+            {%- set fl = a.get('fl', ns.stored - states('sensor.hba_charge_available_energy') | float(0)) | float(0) -%}
+            {%- set top = fl + states('sensor.hba_usable_battery_energy') | float(0) -%}
+            {%- set pc = states('sensor.hba_total_max_charge_power') | float(0) / 1000 -%}
+            {%- set pd = states('sensor.hba_total_max_discharge_power') | float(0) / 1000 -%}
+            {%- set h = dt / 3600 -%}
+            {%- set cv = ([-g0, pc, [top - vs, 0] | max / 0.94 / h] | min) if g0 < 0 and h > 0 else 0 -%}
+            {%- set dv = ([g0, pd, [vs - fl, 0] | max * 0.94 / h] | min) if g0 > 0 and h > 0 else 0 -%}
+            {%- set gv = g0 + cv - dv -%}
+            {%- set inc_v = (c_g0 - gv * (ns.buy if gv > 0 else sell)) * h -%}
+            {%- if cv > 0 -%}
+              {%- set vs = vs + cv * h * 0.94 -%}
+              {%- set vb = vb - inc_v -%}
+            {%- elif dv > 0 -%}
+              {%- set out_v = dv * h / 0.94 -%}
+              {%- set vs = vs - out_v -%}
+              {%- set vb = vb - vb * ([out_v / (vs + out_v), 1] | min if vs + out_v > 0 else 1) -%}
+            {%- endif -%}
+            {{ {'raw': (raw + inc) | round(6), 'basis': basis | round(6), 'buy': ns.buy | round(5), 'sell': sell | round(5),
+                'ts': now_ts | int, 'stored': ns.stored | round(2), 'vr': (vr + inc_v) | round(6), 'vb': vb | round(6),
+                'vs': vs | round(5), 'fl': fl | round(2)} | tojson }}
+          {%- else -%}
+            {#- No price or no meter / battery data: nothing counted, the clock moves on -#}
+            {{ dict(a, ts=now_ts | int, buy=none, sell=none) | tojson }}
+          {%- endif -%}
+          {%- endif -%}
+
+  - sensor:
+      # Running total of what the batteries saved (EUR, never reset). Use the change over a
+      # period: today, last 7 days, this month (statistic card, stat_type change).
+      - name: "HBA Savings"
+        unique_id: hba_savings
+        icon: mdi:piggy-bank-outline
+        unit_of_measurement: "EUR"
+        device_class: monetary
+        state_class: total
+        availability: >-
+          {%- set s = states('sensor.hba_savings_accumulator') -%}
+          {{ s[:1] == '{' and (s | from_json).get('raw') is number }}
+        state: >-
+          {%- set a = states('sensor.hba_savings_accumulator') | from_json -%}
+          {{ (a.raw + (a.basis or 0)) | round(2) }}
+        # No battery value attribute: it changes every cent while (dis)charging and made the
+        # recorder write ~2 rows a minute (prod 2026-11-06). It is 'basis' in the accumulator.
+        attributes:
+          buy_price: >-
+            {%- set s = states('sensor.hba_savings_accumulator') -%}
+            {{ (s | from_json).get('buy') if s[:1] == '{' else none }}
+          sell_price: >-
+            {%- set s = states('sensor.hba_savings_accumulator') -%}
+            {{ (s | from_json).get('sell') if s[:1] == '{' else none }}
+
+      # What the strategy added on top of plain Self-consumption with the same batteries: buying
+      # in cheap hours, selling in expensive ones, keeping energy for later (EUR, running total).
+      # Negative = Self-consumption would have done better. Compared with a simulated
+      # Self-consumption battery (see the accumulator), so a few % model error.
+      - name: "HBA Savings vs Self-consumption"
+        unique_id: hba_savings_vs_self_consumption
+        icon: mdi:scale-balance
+        unit_of_measurement: "EUR"
+        device_class: monetary
+        state_class: total
+        availability: >-
+          {%- set s = states('sensor.hba_savings_accumulator') -%}
+          {{ s[:1] == '{' and (s | from_json).get('vr') is number }}
+        state: >-
+          {%- set a = states('sensor.hba_savings_accumulator') | from_json -%}
+          {{ (a.raw + (a.basis or 0) - a.vr - (a.vb or 0)) | round(2) }}
