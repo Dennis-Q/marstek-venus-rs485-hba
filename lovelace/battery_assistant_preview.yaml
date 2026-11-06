@@ -6094,16 +6094,19 @@ views:
               {%- if is_state('input_boolean.hba_labs_presence', 'off') -%}
               Off — switch on *Collect presence per floor* to start.
               {%- else -%}
-              | Floor | Now |
+              | Floor | Now | Sources |
 
-              |---|---|
+              |---|---|---|
 
-              | Home | {{ 'someone home' if is_state('sensor.hba_labs_home_occupancy', '100') else 'nobody home' }} |
+              | Home | {{ 'someone home' if is_state('sensor.hba_labs_home_occupancy', '100') else 'nobody home' }} | {{ states('zone.home') }} in zone home |
 
               {% for n in range(1, 5) -%}
               {%- set b = 'binary_sensor.hba_labs_floor_' ~ n ~ '_occupied' -%}
               {%- if states(b) not in ['unavailable'] -%}
-              | {{ state_attr(b, 'floor') }} | {{ {'on': 'occupied', 'off': 'empty'}.get(states(b), 'starting (10 min)') }} |
+              {%- set ns = namespace(by=[]) -%}
+              {%- for e in state_attr(b, 'by') or [] -%}{%- set ns.by = ns.by + [state_attr(e, 'friendly_name') or e] -%}{%- endfor -%}
+              {%- set seen = state_attr(b, 'last_seen') -%}
+              | {{ state_attr(b, 'floor') }} | {{ {'on': 'occupied', 'off': 'empty'}.get(states(b), 'starting') }} | {{ ns.by | join(', ') if ns.by else ('last ' ~ as_timestamp(seen) | timestamp_custom('%H:%M') if seen else '—') }} |
 
               {% endif -%}
               {%- endfor -%}
