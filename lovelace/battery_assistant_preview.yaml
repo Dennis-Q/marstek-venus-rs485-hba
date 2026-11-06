@@ -6002,3 +6002,128 @@ views:
                       This will reset all HBA parameters to safe starting values.
                       Any values you have configured will be overwritten. Continue?
 
+  # ── VIEW 10: LABS ────────────────────────────────────────────────────────────
+  # Experimental features, off by default. Nothing here controls the batteries.
+  - type: sections
+    max_columns: 3
+    title: Labs
+    path: labs
+    icon: mdi:flask-outline
+    cards: []
+    header:
+      card:
+        type: markdown
+        text_only: true
+        content: >-
+          ### Labs *(HBA v4.10.1-r22)*
+
+
+          Experimental features, off by default. They only collect data or show
+          advice — nothing here controls the batteries or changes the plan.
+      layout: center
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Presence per floor
+            heading_style: title
+            icon: mdi:home-floor-1
+          - type: markdown
+            text_only: true
+            grid_options:
+              columns: full
+            content: >-
+              Records how much of every hour each floor is occupied, as long-term
+              statistics, to predict heating (one AC per floor) and house use later.
+              Floors are the HA floors (Settings → Areas, labels & zones); up to 4.
+
+
+              **Sources:** room trackers whose state is an area name (e.g. Bermuda
+              `sensor.<phone>_area`), or binary sensors (on = someone in that
+              sensor's area). **Motion sensors:** also count every motion /
+              occupancy / presence sensor in an area on the floor. A floor stays
+              occupied 10 min after the last source left.
+          - type: markdown
+            text_only: true
+            grid_options:
+              columns: full
+            content: >-
+              {%- set nf = state_attr('sensor.hba_labs_presence_floors_resolved', 'not_found') or [] -%}
+              {%- if is_state('input_boolean.hba_labs_presence', 'on') and (nf or floors() | length == 0) -%}
+              <ha-alert alert-type="warning"><strong>{{ 'Floor not found' if nf else 'No floors' }}</strong><br>
+              {{ (nf | join(', ') ~ ' — ') if nf }}known floors: {{ floors() | map('floor_name') | join(', ') or '(none — add floors in HA first)' }}</ha-alert>
+              {%- endif -%}
+          - type: tile
+            entity: input_boolean.hba_labs_presence
+            name: Collect presence per floor
+            color: blue
+            vertical: false
+            hide_state: true
+            grid_options:
+              columns: full
+          - type: entities
+            entities:
+              - entity: input_text.hba_labs_presence_floors
+                name: Floors (empty = all, in order)
+              - entity: input_text.hba_labs_presence_sources
+                name: Sources
+              - entity: input_boolean.hba_labs_presence_motion
+                name: Also use motion sensors
+      - type: grid
+        cards:
+          - type: heading
+            heading: Now
+            heading_style: title
+            icon: mdi:account-multiple
+          - type: markdown
+            text_only: true
+            grid_options:
+              columns: full
+            content: >-
+              {%- if is_state('input_boolean.hba_labs_presence', 'off') -%}
+              Off — switch on *Collect presence per floor* to start.
+              {%- else -%}
+              | Floor | Now |
+
+              |---|---|
+
+              | Home | {{ 'someone home' if is_state('sensor.hba_labs_home_occupancy', '100') else 'nobody home' }} |
+
+              {% for n in range(1, 5) -%}
+              {%- set b = 'binary_sensor.hba_labs_floor_' ~ n ~ '_occupied' -%}
+              {%- if states(b) not in ['unavailable'] -%}
+              | {{ state_attr(b, 'floor') }} | {{ {'on': 'occupied', 'off': 'empty'}.get(states(b), 'starting (10 min)') }} |
+
+              {% endif -%}
+              {%- endfor -%}
+              {%- endif -%}
+      - type: grid
+        cards:
+          - type: heading
+            heading: Collected
+            heading_style: title
+            icon: mdi:chart-bar
+          - type: statistics-graph
+            title: Share of each hour occupied
+            chart_type: line
+            period: hour
+            days_to_show: 7
+            stat_types:
+              - mean
+            entities:
+              - entity: sensor.hba_labs_home_occupancy
+                name: Home
+              - entity: sensor.hba_labs_floor_1_occupancy
+                name: Floor 1
+              - entity: sensor.hba_labs_floor_2_occupancy
+                name: Floor 2
+              - entity: sensor.hba_labs_floor_3_occupancy
+                name: Floor 3
+              - entity: sensor.hba_labs_floor_4_occupancy
+                name: Floor 4
+            grid_options:
+              columns: full
+            visibility:
+              - condition: state
+                entity: input_boolean.hba_labs_presence
+                state: "on"

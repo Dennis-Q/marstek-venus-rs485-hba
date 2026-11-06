@@ -19,6 +19,13 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Added
 
+- **Labs: presence per floor** (new `packages/hba/hba_labs_presence.yaml`, new *Labs* view on the
+  preview dashboard, off by default). Records how much of every hour each HA floor is occupied, as
+  long-term statistics (`sensor.hba_labs_floor_1..4_occupancy`, `sensor.hba_labs_home_occupancy`), to
+  predict heating (one AC per floor) and house use later. Sources: room trackers whose state is an
+  area name (e.g. Bermuda), binary sensors, and optionally every motion / occupancy / presence sensor
+  on the floor; a floor stays occupied 10 min after the last source left. Only collects data:
+  nothing controls the batteries and Planned does not read it.
 - **Planned can plan the car** — with *Plan the car* on and the EV project following (*Follow assisted*),
   Planned picks the car's cheapest hours before departure: *Minimum* at any price, *Normal* only with
   *Allow grid charging* and below the max price. It tells the EV project through
