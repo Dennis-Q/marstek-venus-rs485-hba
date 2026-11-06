@@ -204,6 +204,7 @@ CORE_FILES=(
     packages/hba/hba_strategy_timed.yaml
     packages/hba/hba_notifications.yaml
     packages/hba/hba_labs_presence.yaml
+    packages/hba/hba_savings.yaml
     lovelace/battery_assistant.yaml
 )
 

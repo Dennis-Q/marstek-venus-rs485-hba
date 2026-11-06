@@ -19,6 +19,16 @@ open), so the version prefix stays at 4.10.1 for now.
 
 ### Added
 
+- **Savings** (new `packages/hba/hba_savings.yaml`, new *Savings* section on the Home view of the
+  preview dashboard). `sensor.hba_savings` is a running total in EUR of what the batteries saved
+  compared with no batteries, measured every 15 s from the P1 meter, the battery power and the
+  price of the moment (buy price; sell price and deduction from the Planned price settings).
+  Energy still in the batteries counts at what it cost, so a charging day is not a loss; wear is
+  not subtracted. `sensor.hba_savings_vs_self_consumption` compares with a simulated
+  Self-consumption battery of the same size: what the strategy added on top. Both are long-term
+  statistics, so the dashboard shows today, last 3 / 7 days, this month, this year and bars per
+  day and per month. Works with every strategy. Survives restarts through a hidden copy
+  (`input_text.hba_savings_store`).
 - **Labs: presence per floor** (new `packages/hba/hba_labs_presence.yaml`, new *Labs* view on the
   preview dashboard, off by default). Records how much of every hour each HA floor is occupied, as
   long-term statistics (`sensor.hba_labs_floor_1..4_occupancy`, `sensor.hba_labs_home_occupancy`), to

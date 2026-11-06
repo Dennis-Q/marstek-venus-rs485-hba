@@ -1041,6 +1041,137 @@ views:
               action: navigate
               navigation_path: /hba-preview/self-consumption
 
+      # Savings (sensor.hba_savings / _vs_self_consumption are running totals; the cards show the change)
+      - type: grid
+        cards:
+          - type: heading
+            heading: Savings
+            heading_style: title
+            icon: mdi:piggy-bank-outline
+          - type: markdown
+            grid_options:
+              columns: full
+            content: >-
+              What the batteries saved on electricity compared with no batteries, at the prices of
+              the moment (buy price, and the sell price settings of Planned). Energy still in the
+              batteries counts at what it cost
+              ({{ state_attr('sensor.hba_savings', 'battery_value') | float(0) | round(2) }} EUR now),
+              so a charging day is not a loss. Wear is not subtracted.
+          - type: statistic
+            entity: sensor.hba_savings
+            name: Today
+            stat_type: change
+            period:
+              calendar:
+                period: day
+            grid_options:
+              columns: 4
+          - type: statistic
+            entity: sensor.hba_savings
+            name: Last 3 days
+            stat_type: change
+            period:
+              rolling_window:
+                duration:
+                  days: 3
+            grid_options:
+              columns: 4
+          - type: statistic
+            entity: sensor.hba_savings
+            name: Last 7 days
+            stat_type: change
+            period:
+              rolling_window:
+                duration:
+                  days: 7
+            grid_options:
+              columns: 4
+          - type: statistic
+            entity: sensor.hba_savings
+            name: This month
+            stat_type: change
+            period:
+              calendar:
+                period: month
+            grid_options:
+              columns: 6
+          - type: statistic
+            entity: sensor.hba_savings
+            name: This year
+            stat_type: change
+            period:
+              calendar:
+                period: year
+            grid_options:
+              columns: 6
+          - type: heading
+            heading: Compared with Self-consumption
+            heading_style: subtitle
+            icon: mdi:scale-balance
+          - type: markdown
+            grid_options:
+              columns: full
+            content: >-
+              What the strategy added on top of plain Self-consumption with the same batteries:
+              charging in cheap hours, selling in expensive ones, keeping energy for later.
+              Negative = Self-consumption would have done better. Simulated, so a few % off.
+          - type: statistic
+            entity: sensor.hba_savings_vs_self_consumption
+            name: Today
+            stat_type: change
+            period:
+              calendar:
+                period: day
+            grid_options:
+              columns: 4
+          - type: statistic
+            entity: sensor.hba_savings_vs_self_consumption
+            name: Last 7 days
+            stat_type: change
+            period:
+              rolling_window:
+                duration:
+                  days: 7
+            grid_options:
+              columns: 4
+          - type: statistic
+            entity: sensor.hba_savings_vs_self_consumption
+            name: This month
+            stat_type: change
+            period:
+              calendar:
+                period: month
+            grid_options:
+              columns: 4
+          - type: statistics-graph
+            title: Per day
+            entities:
+              - entity: sensor.hba_savings
+                name: Saved
+              - entity: sensor.hba_savings_vs_self_consumption
+                name: vs Self-consumption
+            stat_types:
+              - change
+            period: day
+            days_to_show: 30
+            chart_type: bar
+            grid_options:
+              columns: full
+          - type: statistics-graph
+            title: Per month
+            entities:
+              - entity: sensor.hba_savings
+                name: Saved
+              - entity: sensor.hba_savings_vs_self_consumption
+                name: vs Self-consumption
+            stat_types:
+              - change
+            period: month
+            days_to_show: 365
+            chart_type: bar
+            grid_options:
+              columns: full
+
       # Battery status
       - type: grid
         cards:
