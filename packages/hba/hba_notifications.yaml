@@ -11,7 +11,6 @@
 #   • hba_notify_battery_overtemperature / _resolved — internal temp ≥ 60 °C per battery
 #   • hba_notify_battery_offline / _resolved         — battery unreachable or silent 3+ min
 #   • hba_notify_entity_health / _resolved           — critical HBA entity missing / wrong entity_id
-#   • hba_notify_dynamic_migration / _resolved       — r22 Dynamic v1/v2 leftovers to clean up
 #   • hba_notify_control_loop_stalled / _resolved   — no control cycle for 90+ s (battery link hang or P1 meter)
 #   • hba_notify_manual_strategy_done / _reminder / _resolved — Charge or Sell chosen by hand: done, still on after 1/2/4 h
 #   • hba_notify_battery_restarted                   — a battery restarted (limit registers 0, or RS485 back as disabled); limits restored (event, no banner)
@@ -1049,61 +1048,6 @@ automation:
           tag: hba_entity_health
           color: green
           resolve_id: hba_entity_health
-
-  # ── Dynamic migration (r22) ───────────────────────────────────────────────────
-  # binary_sensor.hba_dynamic_migration_needed: v1 / _v2 leftovers or missing new
-  # Dynamic entities after the r22 update. Mirrors the Overview banner, which lists
-  # the exact entities; this only has to make sure the user goes and looks.
-  - id: hba_notify_dynamic_migration
-    alias: "HBA: Notify dynamic migration"
-    mode: single
-    triggers:
-      - trigger: state
-        entity_id: binary_sensor.hba_dynamic_migration_needed
-        to: "on"
-        for: "00:02:00"
-    actions:
-      - action: script.hba_notify_dispatch
-        data:
-          title: "HBA: Dynamic strategy changed — action needed"
-          message: >-
-            This HBA update removed Dynamic v1 and renamed Dynamic v2 to Dynamic.
-            If the strategy shows Full stop, select Dynamic again; re-enter the max
-            cheap/expensive hours; then delete the leftover entities (Developer Tools →
-            States, filter "hba" + state "unavailable", ⓘ → cog → Delete).
-          tag: hba_dynamic_migration
-          color: orange
-          persistent_id: hba_dynamic_migration
-          persistent_message: |-
-            This HBA update removed **Dynamic v1** and renamed **Dynamic v2** to **Dynamic**.
-
-            - If *Choose strategy* shows **Full stop**, select **Dynamic** again.
-            - Re-enter **max cheap / expensive hours** (Dynamic view).
-            - Delete the leftover entities (listed in the banner on the **HBA Overview**): in
-              **Developer Tools → States**, filter entities on `hba` and state on `unavailable`;
-              for each one click the ⓘ icon, then the cog → **Delete**.
-
-  - id: hba_notify_dynamic_migration_resolved
-    alias: "HBA: Dynamic migration — resolved"
-    mode: single
-    triggers:
-      - trigger: state
-        entity_id: binary_sensor.hba_dynamic_migration_needed
-        to: "off"
-    conditions:
-      - condition: template
-        value_template: >-
-          {% set raised = state_attr('automation.hba_notify_dynamic_migration', 'last_triggered') %}
-          {% set mine = this.attributes.last_triggered if this is defined and this.attributes is defined else none %}
-          {{ raised is not none and (mine is none or raised > mine) }}
-    actions:
-      - action: script.hba_notify_dispatch
-        data:
-          title: "HBA: Dynamic migration complete"
-          message: "No Dynamic v1 / v2 leftovers remain."
-          tag: hba_dynamic_migration
-          color: green
-          resolve_id: hba_dynamic_migration
 
   # ── Planned: skip Normal for the car ─────────────────────────────────────────────
   # Ask before Normal on, car connected, plan in charge, and Normal has hours tonight: asked at

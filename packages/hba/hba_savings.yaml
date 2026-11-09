@@ -128,7 +128,6 @@ template:
             {%- set c_g = g * (ns.buy if g > 0 else sell) -%}
             {%- set c_g0 = g0 * (ns.buy if g0 > 0 else sell) -%}
             {%- set inc = (c_g0 - c_g) * dt / 3600 -%}
-            {%- set old = a.get('v') is none -%}
             {%- if basis is none -%}
               {#- First run: the usable stored energy at what Planned's ledger says it cost, else the buy
                   price now. raw starts at minus that, so all three sensors start at 0. -#}
@@ -137,13 +136,6 @@ template:
               {%- set raw = -basis -%}
             {%- else -%}
               {%- set basis = basis | float(0) -%}
-              {%- if old -%}
-                {#- Accumulator from before r25 (basis over all stored energy): move the share of the
-                    energy below the cutoffs into raw, so the sensor value does not jump -#}
-                {%- set keep = basis * ([ns.above / ns.stored, 1] | min if ns.stored > 0 else 0) -%}
-                {%- set raw = raw + basis - keep -%}
-                {%- set basis = keep -%}
-              {%- endif -%}
             {%- endif -%}
             {%- if bt | float < 0 -%}
               {%- set basis = basis - inc -%}
@@ -163,11 +155,6 @@ template:
             {%- set vb = a.get('vb', basis) | float(0) -%}
             {%- set vs = a.get('vs', ns.stored) | float(0) -%}
             {%- set fl = a.get('fl', ns.stored - states('sensor.hba_charge_available_energy') | float(0)) | float(0) -%}
-            {%- if old and a.get('vb') is not none -%}
-              {%- set keep = vb * ([(vs - fl) / vs, 1] | min if vs > fl else 0) -%}
-              {%- set vr = vr + vb - keep -%}
-              {%- set vb = keep -%}
-            {%- endif -%}
             {%- set top = fl + states('sensor.hba_usable_battery_energy') | float(0) -%}
             {%- set pc = states('sensor.hba_total_max_charge_power') | float(0) / 1000 -%}
             {%- set pd = states('sensor.hba_total_max_discharge_power') | float(0) / 1000 -%}

@@ -147,46 +147,6 @@ echo ""
 mkdir -p "${CONFIG_DIR}/packages/hba"
 mkdir -p "${CONFIG_DIR}/lovelace"
 
-# ── Migration: old-location HBA files ────────────────────────────────────────
-# Before v4.11, HBA files lived directly in packages/. They now live in
-# packages/hba/. If both locations contain files HA loads them twice —
-# duplicate entity definitions cause YAML to silently drop one block.
-
-shopt -s nullglob
-OLD_HBA=(
-    "${CONFIG_DIR}"/packages/hba_*.yaml
-    "${CONFIG_DIR}"/packages/marstek_m*.yaml
-)
-shopt -u nullglob
-
-if [ ${#OLD_HBA[@]} -gt 0 ]; then
-    warn "Old-location HBA files found directly in packages/:"
-    echo ""
-    for _f in "${OLD_HBA[@]}"; do
-        say "  $_f"
-    done
-    echo ""
-    warn "These will clash with packages/hba/ (HA loads both → duplicate entities)."
-    echo ""
-    if ask "Move them to packages/hba/ now?"; then
-        for _f in "${OLD_HBA[@]}"; do
-            _name=$(basename "$_f")
-            _dst="${CONFIG_DIR}/packages/hba/${_name}"
-            if [ -f "$_dst" ]; then
-                rm "$_f"
-                say "  removed old ${_name} (already exists at packages/hba/)"
-            else
-                mv "$_f" "$_dst"
-                say "  moved: ${_name} → packages/hba/"
-            fi
-        done
-        ok "Migration complete."
-    else
-        warn "Skipped — HA will load files from both locations. Re-run to fix."
-    fi
-    echo ""
-fi
-
 # ── Core HBA files — always overwrite ────────────────────────────────────────
 # Safe to overwrite on every update; no user-editable content in these files.
 

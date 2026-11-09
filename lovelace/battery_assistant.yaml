@@ -8,7 +8,7 @@ views:
     header:
       card:
         type: markdown
-        content: '### Home Battery Assistant *(HBA v4.10.1-r25)*'
+        content: '### Home Battery Assistant *(HBA v4.10.1-r26)*'
         text_only: true
     cards: []
     sections:
@@ -36,50 +36,6 @@ views:
               **How to fix:** go to **Settings → Entities**, search for the entity
               by friendly name, click it, and rename the entity ID to match the
               expected value shown above.
-              </ha-alert>
-
-      # Dynamic migration alert (r22: Dynamic v1 removed, v2 entities renamed) —
-      # only shown while binary_sensor.hba_dynamic_migration_needed is on.
-      - type: grid
-        visibility:
-          - condition: state
-            entity: binary_sensor.hba_dynamic_migration_needed
-            state: 'on'
-        cards:
-          - type: markdown
-            grid_options:
-              columns: full
-            content: |-
-              {%- set s = 'binary_sensor.hba_dynamic_migration_needed' -%}
-              {%- set leftovers = state_attr(s, 'leftover_entity_ids') | default('', true) | trim -%}
-              {%- set missing = state_attr(s, 'missing_entity_ids') | default('', true) | trim -%}
-              {%- set old_file = state_attr(s, 'old_file_still_loaded') | default(false) -%}
-              <ha-alert alert-type="warning" title="Dynamic strategy changed — action needed">
-
-              HBA r22 removed the old Dynamic (v1) strategy and renamed **Dynamic v2** to **Dynamic**, as HBC v4.11.0 did. To finish the update:
-
-              {% if old_file -%}
-              - **Delete `hba_strategy_dynamic_v2.yaml`** from `packages/hba/` — it still loads next to the new file (re-running `install.sh` does this), then restart Home Assistant.
-              {% endif -%}
-              {% if missing -%}
-              - **Missing:** {{ missing }} — install the r22 package files (re-run `install.sh`) and restart.
-              {% endif -%}
-              - **Strategy:** if *Choose strategy* shows **Full stop**, select **Dynamic** again.
-              - **Re-enter** *Max # cheap hrs* and *Max # expensive hrs* in [Dynamic](/home-battery-assistant/dynamic) — they start at 0 (no cap).
-              {% if leftovers -%}
-              - **Delete the leftover entities** — in **Developer Tools → States**, filter entities on `hba` and state on `unavailable`; for each one click the ⓘ icon, then the cog → **Delete**. (To delete several at once: **Settings → Entities**, search `hba`, select them, delete.)
-              {% endif %}
-              {%- if leftovers %}
-              <details><summary>Show {{ leftovers.split(', ') | count }} leftover entities</summary>
-
-              {% for e in leftovers.split(', ') -%}
-              - `{{ e }}`
-              {% endfor %}
-              </details>
-              {%- endif %}
-
-              This banner disappears once nothing is left to clean up.
-
               </ha-alert>
 
       # Timed EV charge waiting alert (only shown while assist is suspended
@@ -484,10 +440,10 @@ views:
                 conditions:
                   - condition: state
                     entity: sensor.hba_version
-                    state: "v4.10.1-r25"
+                    state: "v4.10.1-r26"
             content: >
               <ha-alert alert-type="error">**HBA version mismatch** — Dashboard is
-              v4.10.1-r25 but loaded packages report
+              v4.10.1-r26 but loaded packages report
               {{ states('sensor.hba_version') }}. Reload YAML to apply the update:
               Developer Tools → YAML → Reload All YAML.</ha-alert>
           - type: markdown
@@ -1323,7 +1279,7 @@ views:
       card:
         type: markdown
         content: >-
-          ### Self-consumption strategy *(HBA v4.10.1-r25)*
+          ### Self-consumption strategy *(HBA v4.10.1-r26)*
 
           The **PID controller** steers your batteries to keep grid usage near
           target, _e.g. 0 Watt_, and is used by:
@@ -1466,7 +1422,7 @@ views:
       card:
         type: markdown
         text_only: true
-        content: '### Charge / Sell *(HBA v4.10.1-r25)*'
+        content: '### Charge / Sell *(HBA v4.10.1-r26)*'
     cards: []
     badges:
       - type: entity
@@ -1858,7 +1814,7 @@ views:
       card:
         type: markdown
         text_only: true
-        content: '### Timed *(HBA v4.10.1-r25)*'
+        content: '### Timed *(HBA v4.10.1-r26)*'
     sections:
       - type: grid
         cards:
@@ -2146,7 +2102,7 @@ views:
       card:
         type: markdown
         text_only: true
-        content: '### Dynamic *(HBA v4.10.1-r25)*'
+        content: '### Dynamic *(HBA v4.10.1-r26)*'
     sections:
       # ── Dynamic: config column ────────────────────────────────────────────────────────
       - type: grid
@@ -2442,7 +2398,7 @@ views:
         type: markdown
         text_only: true
         content: >-
-          ### Insights *(HBA v4.10.1-r25)*
+          ### Insights *(HBA v4.10.1-r26)*
 
           Need help figuring out what is going on?
 
@@ -3043,7 +2999,7 @@ views:
               {%- elif outlook == 'No solar entity' %}decision: **Zero import** (fallback — solar forecast entity not set or unavailable)
               {%- elif outlook == 'No solar detail' %}decision: **Zero import** (fallback — entity has no detailedForecast attribute)
               {%- elif outlook == 'No price data' %}decision: **Zero import** (fallback — no energy price marks)
-              {%- elif outlook in ['No data', 'unavailable', 'unknown'] %}decision: **Zero import** (fallback — outlook sensor {{ outlook }})
+              {%- elif outlook in ['unavailable', 'unknown'] %}decision: **Zero import** (fallback — outlook sensor {{ outlook }})
               {%- elif threshold > 0 and solar_today > 0 and solar_today < threshold %}decision: **Self-consumption** (solar {{ solar_today | round(1) }} kWh below threshold {{ threshold }} kWh)
               {%- elif covers %}decision: **Zero import** (solar covers charge)
               {%- elif deadline != 'none' and as_timestamp(now()) < deadline | as_timestamp(0) %}decision: **Zero import** until {{ deadline | as_timestamp(0) | timestamp_custom('%H:%M') }}, then Self-consumption
@@ -3111,7 +3067,7 @@ views:
       card:
         type: markdown
         text_only: true
-        content: '### Advanced settings *(HBA v4.10.1-r25)*'
+        content: '### Advanced settings *(HBA v4.10.1-r26)*'
     sections:
       # Battery offline warning — full width, hidden when all batteries are online
       - type: grid
@@ -4903,7 +4859,7 @@ views:
         type: markdown
         text_only: true
         content: >-
-          ### EV Charge *(HBA v4.10.1-r25)*
+          ### EV Charge *(HBA v4.10.1-r26)*
 
 
           **HBA-specific feature** — not part of HBC. Configures the EV stop
@@ -5153,7 +5109,7 @@ views:
         type: markdown
         text_only: true
         content: >-
-          ### Notifications *(HBA v4.10.1-r25)*
+          ### Notifications *(HBA v4.10.1-r26)*
 
 
           **HBA-specific feature** — not part of HBC. Configure where HBA

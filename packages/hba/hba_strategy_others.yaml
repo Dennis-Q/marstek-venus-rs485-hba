@@ -402,7 +402,7 @@ script:
   #   1. no cheap slots remain today             → Self-consumption (strategy expired)
   #   2. outlook in a diagnostic fallback state  → Zero import (safe fallback)
   #      ("No solar entity" / "No solar detail" / "No price data" — see the outlook
-  #      sensor comment above; "No data" kept for pre-rename compatibility)
+  #      sensor comment above)
   #   3. total solar forecast today < threshold  → Self-consumption (not a solar day)
   #   4. solar in cheap slots covers charge need → Zero import (export surplus)
   #   5. now < self_consume_deadline             → Zero import (still time to export;
@@ -441,7 +441,7 @@ script:
       - variables:
           use_zero_import: >-
             {%- if cheap_slots == 0 -%}false
-            {%- elif outlook_state in ['No solar entity', 'No solar detail', 'No price data', 'No data', 'unavailable', 'unknown'] -%}true
+            {%- elif outlook_state in ['No solar entity', 'No solar detail', 'No price data', 'unavailable', 'unknown'] -%}true
             {%- elif threshold > 0 and solar_today > 0 and solar_today < threshold -%}false
             {%- elif solar_covers -%}true
             {%- elif deadline_ts > 0 and now_ts < deadline_ts -%}true

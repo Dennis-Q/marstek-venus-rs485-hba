@@ -11,6 +11,37 @@ This document covers HBA-specific changes only.
 
 ---
 
+## Unreleased (dev builds report v4.10.1-r26)
+
+### Upgrading from r23 — read this first
+
+- Install r25 first if you can: r26 no longer converts the savings running total of r23. Without that
+  step it still works, but *Saved* dips once by the value of the energy below the cutoffs (~€0.35 per
+  battery) the first time the batteries run empty, and the sensor's own value keeps its start offset.
+
+### Changed
+
+- **Less recorder load:** `binary_sensor.hba_control_loop_stalled` has `seconds_since_cycle` only during a
+  stall (it changed at every control cycle: 100–800 rows an hour). Labs floor sensors list the motion
+  sensors as one entry *Motion sensors* (switching between an mmWave's moving and still target wrote
+  ~1300 rows a day).
+
+### Fixed
+
+- **No false alerts after an automation reload:** the control-loop watchdog and the battery offline check
+  ignore delays for 2 minutes after `automation_reloaded` (a reload can freeze HA for a while; new
+  `sensor.hba_last_automation_reload`).
+
+### Removed
+
+- Upgrade code for versions before r25: the savings conversion (r25), the Dynamic v1/v2 migration check,
+  notification and banner (r22), the installer's move of HBA files from the old location directly in
+  `packages/`, and the old solar outlook state *No data*. Their entities stay behind as *unavailable*
+  (`binary_sensor.hba_dynamic_migration_needed`, `automation.hba_notify_dynamic_migration`,
+  `automation.hba_dynamic_migration_resolved`): delete them in **Settings → Entities** if you like.
+
+---
+
 ## v4.10.1-r25 — November 2026
 
 Savings update on top of r23 (dev builds reported r24 and r25; r24 was never released on its own).

@@ -413,8 +413,7 @@ input_number:
     icon: mdi:battery-20
 
   # --- Dynamic pricing (Extreme-Pair Matching) ---
-  # Were hba_strategy_dynamic_v2_* until r22; renamed when v1 was removed. Values do
-  # not carry over -- binary_sensor.hba_dynamic_migration_needed tells the user.
+  # Were hba_strategy_dynamic_v2_* until r22; renamed when v1 was removed.
   hba_strategy_dynamic_max_cheap_hours_per_day:
     name: "Dynamic max cheap hours/day"
     min: 0
@@ -1342,7 +1341,7 @@ template:
       - name: "HBA Version"
         unique_id: hba_version
         icon: mdi:tag
-        state: "v4.10.1-r25"
+        state: "v4.10.1-r26"
 
       - name: "HBA Active strategy"
         unique_id: hba_active_strategy
@@ -1777,7 +1776,9 @@ template:
       # dropped mid-write — the loop waits until that hub reconnects, up to ~10 min, prod
       # 2026-10-02 and 2026-10-25) or the P1 meter stopped updating. The batteries keep their
       # last command meanwhile. Watch only — changes nothing in the control loop. now()
-      # re-renders this once a minute, so it turns on 90–150 s into a stall.
+      # re-renders this once a minute, so it turns on 90–150 s into a stall. Quiet for 2 min
+      # after an automation reload: each reload can freeze HA for a while (prod 2026-11-08:
+      # 11 reloads in 5 min, 94 s without a cycle during a normal Charge).
       - name: "HBA Control Loop Stalled"
         unique_id: hba_control_loop_stalled
         device_class: problem
@@ -1787,13 +1788,18 @@ template:
               loop's last cycle can be old although nothing is wrong. -#}
           {%- set lt = state_attr('automation.hba_control_loop_p1_meter_triggered', 'last_triggered') -%}
           {%- set mm = states.input_select.hba_marstek_master_battery_mode -%}
+          {%- set rl = as_datetime(states('sensor.hba_last_automation_reload')) -%}
           {{ mm is not none and mm.state == 'Full control'
              and (now() - mm.last_changed).total_seconds() > 90
-             and lt is not none and (now() - lt).total_seconds() > 90 }}
+             and lt is not none and (now() - lt).total_seconds() > 90
+             and (rl is none or (now() - rl).total_seconds() > 120) }}
         attributes:
+          # Only in Full control and over 90 s: a value that changed at every control cycle (this
+          # re-renders at each one) wrote 100-800 recorder rows an hour (prod 2026-11-08).
           seconds_since_cycle: >-
             {%- set lt = state_attr('automation.hba_control_loop_p1_meter_triggered', 'last_triggered') -%}
-            {{ ((now() - lt).total_seconds()) | int if lt is not none else none }}
+            {%- set s = ((now() - lt).total_seconds()) | int if lt is not none else none -%}
+            {{ s if s is not none and s > 90 and is_state('input_select.hba_marstek_master_battery_mode', 'Full control') else none }}
           p1_updating: >-
             {%- set p = states.sensor.p1_meter_power -%}
             {{ p is not none and (now() - p.last_reported).total_seconds() < 60 }}
@@ -1802,18 +1808,22 @@ template:
       # hangs: battery_power (polled every 10 s) has not reported for 30+ s. A hung link
       # (prod 2026-10-02, M3 cable) stays "available" for ~10 min while HA waits on it;
       # HBA already skips such a battery (hba_write_battery). now() re-renders this each
-      # minute; the notification adds its own 3 minutes.
+      # minute; the notification adds its own 3 minutes. "Not reported for 30 s" does not
+      # count for 2 min after an automation reload: a reload that freezes HA delays every
+      # battery's update (prod 2026-11-08: changing pairs "offline" for 40 s and 1 min).
       - name: "HBA Any Battery Offline"
         unique_id: hba_any_battery_offline
         icon: mdi:battery-alert
         state: >
           {% set count = states('input_number.hba_battery_count') | int(1) %}
+          {% set rl = as_datetime(states('sensor.hba_last_automation_reload')) %}
+          {% set quiet = rl is none or (now() - rl).total_seconds() > 120 %}
           {% set ns = namespace(offline=false) %}
           {% for i in range(1, count + 1) %}
             {% set inv = states('sensor.marstek_m' ~ i ~ '_inverter_state') %}
             {% set hb = states.sensor['marstek_m' ~ i ~ '_battery_power'] %}
             {% set silent = hb is none or hb.state in ['unavailable', 'unknown']
-                            or (now() - hb.last_reported).total_seconds() > 30 %}
+                            or (quiet and (now() - hb.last_reported).total_seconds() > 30) %}
             {% if inv in ['unavailable', 'unknown', ''] or silent %}
               {% set ns.offline = true %}
             {% endif %}
@@ -1823,12 +1833,14 @@ template:
           # e.g. "M3" -- read by the banners and the notification.
           batteries: >
             {% set count = states('input_number.hba_battery_count') | int(1) %}
+            {% set rl = as_datetime(states('sensor.hba_last_automation_reload')) %}
+            {% set quiet = rl is none or (now() - rl).total_seconds() > 120 %}
             {% set ns = namespace(off=[]) %}
             {% for i in range(1, count + 1) %}
               {% set inv = states('sensor.marstek_m' ~ i ~ '_inverter_state') %}
               {% set hb = states.sensor['marstek_m' ~ i ~ '_battery_power'] %}
               {% set silent = hb is none or hb.state in ['unavailable', 'unknown']
-                              or (now() - hb.last_reported).total_seconds() > 30 %}
+                              or (quiet and (now() - hb.last_reported).total_seconds() > 30) %}
               {% if inv in ['unavailable', 'unknown', ''] or silent %}
                 {% set ns.off = ns.off + ['M' ~ i] %}
               {% endif %}
@@ -2482,76 +2494,6 @@ template:
       # newer version: the entity registry keeps the old entity_id (derived from the
       # previous name) and code references the new expected entity_id, causing silent
       # failures. Fix by going to Settings → Entities and renaming the listed entities.
-      # ── Dynamic migration check (r22) ───────────────────────────────────────────
-      # r22 removed Dynamic v1 and renamed Dynamic v2's entities to plain "dynamic".
-      # On an existing install that leaves orphans in the entity registry (shown as
-      # unavailable), and a manual install can keep the old hba_strategy_dynamic_v2.yaml
-      # loading next to the new file. `expand()` returns any entity HA still knows,
-      # orphan or not -- has_value() would hide orphans, since they are unavailable.
-      # The Overview shows a migration banner while this is on.
-      - name: "HBA Dynamic Migration Needed"
-        unique_id: hba_dynamic_migration_needed
-        device_class: problem
-        icon: mdi:swap-horizontal-bold
-        state: >
-          {% set old = [
-            'script.hba_strategy_dynamic_v2',
-            'input_number.hba_strategy_dynamic_v2_max_cheap_hours_per_day',
-            'input_number.hba_strategy_dynamic_v2_max_expensive_hours_per_day',
-            'automation.hba_dynamic_period_calculation',
-            'input_datetime.hba_strategy_dynamic_cheapest_start',
-            'input_datetime.hba_strategy_dynamic_cheapest_end',
-            'input_datetime.hba_strategy_dynamic_expensive_start',
-            'input_datetime.hba_strategy_dynamic_expensive_end',
-            'input_number.hba_strategy_dynamic_cheapest_hrs',
-            'input_number.hba_strategy_dynamic_expensive_hrs',
-            'input_number.hba_strategy_dynamic_threshold_cheapest_period',
-            'input_number.hba_strategy_dynamic_cheapest_avg_tariff',
-            'input_number.hba_strategy_dynamic_expensive_avg_tariff',
-            'input_number.hba_strategy_dynamic_expensive_avg_delta',
-            'sensor.hba_estimated_profit_per_kwh',
-            'binary_sensor.hba_dynamic_cheap_threshold_met',
-            'binary_sensor.hba_dynamic_expensive_threshold_met',
-          ] %}
-          {% set new = [
-            'script.hba_strategy_dynamic',
-            'input_number.hba_strategy_dynamic_max_cheap_hours_per_day',
-            'input_number.hba_strategy_dynamic_max_expensive_hours_per_day',
-          ] %}
-          {{ (expand(old) | count) > 0 or (new | reject('has_value') | list | count) > 0 }}
-        attributes:
-          leftover_entity_ids: >
-            {% set old = [
-              'script.hba_strategy_dynamic_v2',
-              'input_number.hba_strategy_dynamic_v2_max_cheap_hours_per_day',
-              'input_number.hba_strategy_dynamic_v2_max_expensive_hours_per_day',
-              'automation.hba_dynamic_period_calculation',
-              'input_datetime.hba_strategy_dynamic_cheapest_start',
-              'input_datetime.hba_strategy_dynamic_cheapest_end',
-              'input_datetime.hba_strategy_dynamic_expensive_start',
-              'input_datetime.hba_strategy_dynamic_expensive_end',
-              'input_number.hba_strategy_dynamic_cheapest_hrs',
-              'input_number.hba_strategy_dynamic_expensive_hrs',
-              'input_number.hba_strategy_dynamic_threshold_cheapest_period',
-              'input_number.hba_strategy_dynamic_cheapest_avg_tariff',
-              'input_number.hba_strategy_dynamic_expensive_avg_tariff',
-              'input_number.hba_strategy_dynamic_expensive_avg_delta',
-              'sensor.hba_estimated_profit_per_kwh',
-              'binary_sensor.hba_dynamic_cheap_threshold_met',
-              'binary_sensor.hba_dynamic_expensive_threshold_met',
-            ] %}
-            {{ expand(old) | map(attribute='entity_id') | sort | join(', ') }}
-          old_file_still_loaded: >
-            {{ has_value('script.hba_strategy_dynamic_v2')
-               or has_value('input_number.hba_strategy_dynamic_v2_max_cheap_hours_per_day') }}
-          missing_entity_ids: >
-            {% set new = [
-              'script.hba_strategy_dynamic',
-              'input_number.hba_strategy_dynamic_max_cheap_hours_per_day',
-              'input_number.hba_strategy_dynamic_max_expensive_hours_per_day',
-            ] %}
-            {{ new | reject('has_value') | join(', ') }}
-
       # Core sensors the control loop and the strategies read. Not sensor.hba_total_battery_power:
       # it goes unavailable with any offline battery, which the not-responding check reports.
       - name: "HBA Entity Health"
@@ -3422,6 +3364,18 @@ template:
           {%- elif last | is_number and 50 <= last | float <= 100 -%}{{ last }}
           {%- else -%}83
           {%- endif -%}
+
+  # Time of the last automation reload. A reload can freeze HA for a while; the control-loop
+  # watchdog and the battery offline check stay quiet for 2 min after it.
+  - triggers:
+      - trigger: event
+        event_type: automation_reloaded
+    sensor:
+      - name: "HBA Last Automation Reload"
+        unique_id: hba_last_automation_reload
+        icon: mdi:reload
+        device_class: timestamp
+        state: "{{ now().isoformat() }}"
 
 ######################################################################################################
 # RECORDER

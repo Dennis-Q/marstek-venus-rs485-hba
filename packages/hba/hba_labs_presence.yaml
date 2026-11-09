@@ -200,12 +200,16 @@ template:
                   {%- set ns.by = ns.by + [e] -%}
                 {%- endif -%}
               {%- endfor -%}
+              {#- Motion sensors as one entry: listing each one wrote a recorder row at every switch
+                  between them (an mmWave's moving / still target, prod 2026-11-08: ~1300 rows a day) -#}
               {%- if is_state('input_boolean.hba_labs_presence_motion', 'on') -%}
+                {%- set nm = namespace(on=false) -%}
                 {%- for s in states.binary_sensor | selectattr('state', 'eq', 'on') | selectattr('attributes.device_class', 'defined')
                         | selectattr('attributes.device_class', 'in', ['motion', 'occupancy', 'presence'])
                         | rejectattr('entity_id', 'search', '^binary_sensor\.hba_labs_') -%}
-                  {%- if floor_id(s.entity_id) == fl and s.entity_id not in ns.by -%}{%- set ns.by = ns.by + [s.entity_id] -%}{%- endif -%}
+                  {%- if floor_id(s.entity_id) == fl and s.entity_id not in ns.by -%}{%- set nm.on = true -%}{%- endif -%}
                 {%- endfor -%}
+                {%- if nm.on -%}{%- set ns.by = ns.by + ['Motion sensors'] -%}{%- endif -%}
               {%- endif -%}
             {%- endif -%}
             {{ ns.by }}

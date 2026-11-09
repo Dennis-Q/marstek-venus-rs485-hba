@@ -757,8 +757,7 @@ script:
               - action: script.hba_strategy_timed
                 data: {}
           # Dynamic = Extreme-Pair Matching (formerly "Dynamic v2"; v1 removed, as in
-          # HBC v4.11.0). binary_sensor.hba_dynamic_migration_needed flags installs
-          # still carrying v1 / _v2 leftovers.
+          # HBC v4.11.0).
           - conditions: "{{ strategy == 'Dynamic' }}"
             sequence:
               - action: script.hba_strategy_dynamic
