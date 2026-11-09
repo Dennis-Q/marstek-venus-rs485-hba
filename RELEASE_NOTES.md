@@ -17,8 +17,8 @@ This document covers HBA-specific changes only.
 
 - **Savings:** `sensor.hba_savings_self_consumption`, what plain Self-consumption alone would have saved
   compared with no batteries (the simulated battery the comparison already used). Saved = this + vs
-  Self-consumption, so the two blocks of the Savings view now add up. New tile *Self-consumption alone,
-  this month* and a third bar in the History charts. Its statistics start at the update.
+  Self-consumption, so the Savings view now adds up. New block *Self-consumption alone* with the same
+  four periods, and a third bar in the History charts. Its statistics start at the update.
 
 ### Changed
 

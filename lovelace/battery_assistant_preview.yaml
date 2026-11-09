@@ -4354,16 +4354,57 @@ views:
                 period: year
             grid_options:
               columns: 6
-          # Self-consumption on its own vs no batteries: this + "This month" above = Saved this month
+
+      # Self-consumption alone vs no batteries (the simulated battery): Saved = this + Compared with Self-consumption
+      - type: grid
+        cards:
+          - type: heading
+            heading: Self-consumption alone
+            heading_style: title
+            icon: mdi:home-battery-outline
+          - type: markdown
+            grid_options:
+              columns: full
+            content: >-
+              What plain Self-consumption with the same batteries would have saved compared with no
+              batteries (simulated). Saved = this + Compared with Self-consumption. Counts from HBA r24 on.
           - type: statistic
             entity: sensor.hba_savings_self_consumption
-            name: Self-consumption alone, this month
+            name: Today
+            stat_type: change
+            period:
+              calendar:
+                period: day
+            grid_options:
+              columns: 6
+          - type: statistic
+            entity: sensor.hba_savings_self_consumption
+            name: Last 7 days
+            stat_type: change
+            period:
+              rolling_window:
+                duration:
+                  days: 7
+            grid_options:
+              columns: 6
+          - type: statistic
+            entity: sensor.hba_savings_self_consumption
+            name: This month
             stat_type: change
             period:
               calendar:
                 period: month
             grid_options:
-              columns: 12
+              columns: 6
+          - type: statistic
+            entity: sensor.hba_savings_self_consumption
+            name: This year
+            stat_type: change
+            period:
+              calendar:
+                period: year
+            grid_options:
+              columns: 6
 
       # History
       - type: grid
