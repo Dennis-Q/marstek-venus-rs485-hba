@@ -1,4 +1,4 @@
-# Home Battery Assistant (HBA) — v4.10.1-r23
+# Home Battery Assistant (HBA) — v4.10.1-r25
 
 A native Home Assistant replacement for the Node-RED battery control flows in
 [gitcodebob/marstek-venus-rs485-node-red](https://github.com/gitcodebob/marstek-venus-rs485-node-red).
@@ -185,7 +185,7 @@ The script downloads all HBA files, skips files you have already configured (P1 
 
 > **Tip:** The [SSH & Web Terminal add-on](https://github.com/hassio-addons/addon-ssh) gives you a terminal on your HA instance. Run the command above from `/config`.
 
-To install a specific version: `HBA_VERSION=v4.10.1-r23 bash <(curl -fsSL ...)`
+To install a specific version: `HBA_VERSION=v4.10.1-r25 bash <(curl -fsSL ...)`
 
 **Option B — Manual**
 
@@ -478,12 +478,14 @@ charge at night → sell tomorrow morning".
 batteries: every 15 s the grid cost without the batteries (P1 + battery power) minus the real grid
 cost, at the price of the moment (the buy price sensor of Dynamic / Planned; the sell price sensor and
 deduction of Planned). Energy still in the batteries counts at what it cost, so a charging day is not
-a loss and the round-trip loss ends up in the result; wear is not subtracted.
+a loss and the round-trip loss ends up in the result; the energy below the discharge cutoffs is never
+used and carries no cost. Efficiency = `sensor.hba_round_trip_efficiency` (the batteries' measured
+round trip, 83 % until measured); wear is not subtracted.
 `sensor.hba_savings_vs_self_consumption` compares with a simulated Self-consumption battery of the
 same size: what your strategy added on top (buying cheap, selling at the peaks, keeping sun for later).
 `sensor.hba_savings_self_consumption` is that simulated battery's own result, so Saved = Self-consumption
 alone + vs Self-consumption. All three work with every strategy and keep long-term statistics; the preview dashboard's **Savings** view
-shows today, the last 7 days, this month, this year and bars per day and month.
+shows today, the last 7 days, this month, this year, since the start and bars per day and month.
 
 ### Labs: presence per floor
 

@@ -11,7 +11,16 @@ This document covers HBA-specific changes only.
 
 ---
 
-## Unreleased (dev builds report v4.10.1-r25)
+## v4.10.1-r25 — November 2026
+
+Savings update on top of r23 (dev builds reported r24 and r25; r24 was never released on its own).
+
+### Upgrading from r23 — read this first
+
+- **Nothing to set.** The savings sensors convert their running total once at the first update, without
+  a jump in their values or statistics. Planned keeps using the measured efficiency (setting 0).
+- `sensor.hba_savings_self_consumption` is new; its statistics start at the update.
+- The Savings view on the preview dashboard changed (see *Changed*); the default dashboard is unchanged.
 
 ### Added
 
@@ -31,7 +40,6 @@ This document covers HBA-specific changes only.
   trip (~91 % at 83 %) instead of a fixed 94 %. A new install starts all three sensors at 0 (they started
   at the value of the stored energy). An existing accumulator is converted once, without a jump.
 - **Planned:** efficiency fallback 83 % instead of 85 % when no battery reports a valid value.
-
 - **Savings view:** both blocks show the same periods, two tiles per row: today, last 7 days, this month,
   this year (*Last 3 days* dropped; the per-day chart shows it), plus *Since the start* across the full
   width (everything in the statistics).
