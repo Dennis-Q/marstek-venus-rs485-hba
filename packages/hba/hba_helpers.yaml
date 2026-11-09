@@ -1342,7 +1342,7 @@ template:
       - name: "HBA Version"
         unique_id: hba_version
         icon: mdi:tag
-        state: "v4.10.1-r24"
+        state: "v4.10.1-r25"
 
       - name: "HBA Active strategy"
         unique_id: hba_active_strategy
@@ -1440,6 +1440,24 @@ template:
             {% set ns.total = ns.total + ([((soc - soc_min) / 100) * cap, 0] | max) %}
           {% endfor %}
           {{ ns.total | round(2) }}
+
+      # AC to AC round-trip efficiency of the batteries: the average of their measured lifetime
+      # values (discharged / charged), else 83 % (4 x Venus E 3.0 on prod measured 82.5-83.6 %,
+      # 2026-11-09). Used by Planned (setting 0) and by the savings sensors; per direction = its
+      # square root (83 % -> ~91 %).
+      - name: "HBA Round Trip Efficiency"
+        unique_id: hba_round_trip_efficiency
+        icon: mdi:battery-sync-outline
+        unit_of_measurement: "%"
+        state_class: measurement
+        state: >
+          {% set count = states('input_number.hba_battery_count') | int(1) %}
+          {% set ns = namespace(v=[]) %}
+          {% for i in range(1, count + 1) %}
+            {% set r = states('sensor.marstek_m' ~ i ~ '_lifetime_round_trip_efficiency') | float(0) %}
+            {% if 50 <= r <= 100 %}{% set ns.v = ns.v + [r] %}{% endif %}
+          {% endfor %}
+          {{ ((ns.v | sum / ns.v | length) if ns.v else 83) | round(1) }}
 
       - name: "HBA Battery Assist Reserved Energy"
         unique_id: hba_battery_assist_reserved_energy

@@ -15,17 +15,22 @@
 #
 # Charging costs money now and saves later, so the energy in the batteries is
 # counted at what it cost (basis): charging moves money from saved into basis,
-# discharging takes the part of the basis that left the batteries (by stored
-# kWh). Saved = raw + basis, so a charging day does not look like a loss and
-# the round-trip loss ends up in the result. At the very first run the stored
-# energy is valued at Planned's ledger cost per kWh when there is one, else at the
-# buy price of that moment (prod 2026-11-06: deployed at the evening peak, so the
-# first battery-full counted at 0.535 and earned ~0 that evening). Wear is not subtracted.
+# discharging takes the part of the basis that left the batteries (by the stored
+# kWh above the discharge cutoffs). Saved = raw + basis, so a charging day does not
+# look like a loss and the round-trip loss ends up in the result. The energy below
+# the cutoffs is never used: its cost was paid once and stays out of the basis
+# (r25; before, a start value of 0.57/kWh on it made cheap charges look expensive
+# for days, prod 2026-11-07). At the very first run the usable stored energy is
+# valued at Planned's ledger cost per kWh when there is one, else at the buy price
+# of that moment, and raw starts at minus that, so all sensors start at 0 (before
+# r25 they started at the basis, ~EUR 10 on prod). Efficiency per direction = the
+# square root of sensor.hba_round_trip_efficiency (measured, else 83 %; was a fixed
+# 0.94, measured round trip on prod ~83 %). Wear is not subtracted.
 # Works with every strategy: it only reads the meter, the batteries and the prices.
 #
 # sensor.hba_savings_vs_self_consumption: the same sum for a simulated
 # Self-consumption battery of the same size (stores only surplus sun, gives only
-# what the house imports, usable energy and max powers from HBA, ~94 % each way),
+# what the house imports, usable energy and max powers from HBA, same efficiency),
 # subtracted from the real one = what the strategy added on top of Self-consumption.
 # sensor.hba_savings_self_consumption: that simulated battery's own savings.
 #
@@ -89,12 +94,19 @@ template:
           {%- set dt = [now_ts - (a.get('ts', now_ts) | float(now_ts)), 60] | min -%}
           {%- set p1 = states('sensor.p1_meter_power') -%}
           {%- set bt = states('sensor.hba_total_battery_power') -%}
-          {%- set ns = namespace(buy=none, sell=none, stored=0, ok=true) -%}
+          {%- set ns = namespace(buy=none, sell=none, stored=0, above=0, ok=true) -%}
           {%- set count = states('input_number.hba_battery_count') | int(1) -%}
           {%- for i in range(1, count + 1) -%}
             {%- set c = states('sensor.marstek_m' ~ i ~ '_battery_remaining_capacity') -%}
-            {%- if c | is_number -%}{%- set ns.stored = ns.stored + c | float -%}{%- else -%}{%- set ns.ok = false -%}{%- endif -%}
+            {%- set floor = states('sensor.marstek_m' ~ i ~ '_battery_total_energy') | float(0)
+                  * states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) / 100 -%}
+            {%- if c | is_number -%}
+              {%- set ns.stored = ns.stored + c | float -%}
+              {%- set ns.above = ns.above + [c | float - floor, 0] | max -%}
+            {%- else -%}{%- set ns.ok = false -%}{%- endif -%}
           {%- endfor -%}
+          {#- One-way efficiency: square root of the measured round trip (83 % -> ~0.91) -#}
+          {%- set e1 = (states('sensor.hba_round_trip_efficiency') | float(83) / 100) ** 0.5 -%}
           {%- set pe = states('input_text.hba_strategy_dynamic_frank_sensor_entity_id') | trim -%}
           {%- for e in (state_attr(pe, 'prices') or []) if e is mapping and 'from' in e and 'price' in e
                 and as_timestamp(e['from'], 0) <= now_ts and now_ts < as_timestamp(e.get('till', e['from']), 0) + (0 if 'till' in e else 3600) -%}
@@ -116,19 +128,32 @@ template:
             {%- set c_g = g * (ns.buy if g > 0 else sell) -%}
             {%- set c_g0 = g0 * (ns.buy if g0 > 0 else sell) -%}
             {%- set inc = (c_g0 - c_g) * dt / 3600 -%}
+            {%- set old = a.get('v') is none -%}
             {%- if basis is none -%}
-              {#- First run: what Planned's ledger says the stored energy cost, else the buy price now -#}
+              {#- First run: the usable stored energy at what Planned's ledger says it cost, else the buy
+                  price now. raw starts at minus that, so all three sensors start at 0. -#}
               {%- set lc = state_attr('sensor.hba_planned_strategy', 'ledger_cost') -%}
-              {%- set basis = ns.stored * (lc | float if lc is number or lc | is_number else ns.buy) -%}
+              {%- set basis = ns.above * (lc | float if lc is number or lc | is_number else ns.buy) -%}
+              {%- set raw = -basis -%}
             {%- else -%}
               {%- set basis = basis | float(0) -%}
+              {%- if old -%}
+                {#- Accumulator from before r25 (basis over all stored energy): move the share of the
+                    energy below the cutoffs into raw, so the sensor value does not jump -#}
+                {%- set keep = basis * ([ns.above / ns.stored, 1] | min if ns.stored > 0 else 0) -%}
+                {%- set raw = raw + basis - keep -%}
+                {%- set basis = keep -%}
+              {%- endif -%}
             {%- endif -%}
             {%- if bt | float < 0 -%}
               {%- set basis = basis - inc -%}
             {%- elif bt | float > 0 -%}
-              {#- DC energy that left: AC out / ~0.94 inverter efficiency -#}
-              {%- set out = bt | float / 1000 * dt / 3600 / 0.94 -%}
-              {%- set basis = basis - basis * ([out / (ns.stored + out), 1] | min if ns.stored + out > 0 else 1) -%}
+              {#- DC energy that left: AC out / one-way efficiency. The basis covers only the energy
+                  above the cutoffs: what is below is never used, so its cost was paid once and does
+                  not belong in the cost of each new charge. A top-up below a cutoff is counted at
+                  the next discharge. -#}
+              {%- set out = bt | float / 1000 * dt / 3600 / e1 -%}
+              {%- set basis = basis - basis * ([out / (ns.above + out), 1] | min if ns.above + out > 0 else 1) -%}
             {%- endif -%}
             {#- Self-consumption with the same batteries (virtual): stores only surplus sun, gives only
                 what the house imports, within the usable energy and the max powers. vs = its stored kWh
@@ -138,23 +163,28 @@ template:
             {%- set vb = a.get('vb', basis) | float(0) -%}
             {%- set vs = a.get('vs', ns.stored) | float(0) -%}
             {%- set fl = a.get('fl', ns.stored - states('sensor.hba_charge_available_energy') | float(0)) | float(0) -%}
+            {%- if old and a.get('vb') is not none -%}
+              {%- set keep = vb * ([(vs - fl) / vs, 1] | min if vs > fl else 0) -%}
+              {%- set vr = vr + vb - keep -%}
+              {%- set vb = keep -%}
+            {%- endif -%}
             {%- set top = fl + states('sensor.hba_usable_battery_energy') | float(0) -%}
             {%- set pc = states('sensor.hba_total_max_charge_power') | float(0) / 1000 -%}
             {%- set pd = states('sensor.hba_total_max_discharge_power') | float(0) / 1000 -%}
             {%- set h = dt / 3600 -%}
-            {%- set cv = ([-g0, pc, [top - vs, 0] | max / 0.94 / h] | min) if g0 < 0 and h > 0 else 0 -%}
-            {%- set dv = ([g0, pd, [vs - fl, 0] | max * 0.94 / h] | min) if g0 > 0 and h > 0 else 0 -%}
+            {%- set cv = ([-g0, pc, [top - vs, 0] | max / e1 / h] | min) if g0 < 0 and h > 0 else 0 -%}
+            {%- set dv = ([g0, pd, [vs - fl, 0] | max * e1 / h] | min) if g0 > 0 and h > 0 else 0 -%}
             {%- set gv = g0 + cv - dv -%}
             {%- set inc_v = (c_g0 - gv * (ns.buy if gv > 0 else sell)) * h -%}
             {%- if cv > 0 -%}
-              {%- set vs = vs + cv * h * 0.94 -%}
+              {%- set vs = vs + cv * h * e1 -%}
               {%- set vb = vb - inc_v -%}
             {%- elif dv > 0 -%}
-              {%- set out_v = dv * h / 0.94 -%}
+              {%- set out_v = dv * h / e1 -%}
               {%- set vs = vs - out_v -%}
-              {%- set vb = vb - vb * ([out_v / (vs + out_v), 1] | min if vs + out_v > 0 else 1) -%}
+              {%- set vb = vb - vb * ([out_v / (vs - fl + out_v), 1] | min if vs - fl + out_v > 0 else 1) -%}
             {%- endif -%}
-            {{ {'raw': (raw + inc) | round(6), 'basis': basis | round(6), 'buy': ns.buy | round(5), 'sell': sell | round(5),
+            {{ {'v': 2, 'raw': (raw + inc) | round(6), 'basis': basis | round(6), 'buy': ns.buy | round(5), 'sell': sell | round(5),
                 'ts': now_ts | int, 'stored': ns.stored | round(2), 'vr': (vr + inc_v) | round(6), 'vb': vb | round(6),
                 'vs': vs | round(5), 'fl': fl | round(2)} | tojson }}
           {%- else -%}
