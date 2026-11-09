@@ -4302,6 +4302,17 @@ views:
                 period: year
             grid_options:
               columns: 6
+          # Since the start: a window longer than any history = the whole statistic
+          - type: statistic
+            entity: sensor.hba_savings
+            name: Since the start
+            stat_type: change
+            period:
+              rolling_window:
+                duration:
+                  days: 3650
+            grid_options:
+              columns: full
 
       # Compared with Self-consumption
       - type: grid
@@ -4354,6 +4365,17 @@ views:
                 period: year
             grid_options:
               columns: 6
+          # Since the start: a window longer than any history = the whole statistic
+          - type: statistic
+            entity: sensor.hba_savings_vs_self_consumption
+            name: Since the start
+            stat_type: change
+            period:
+              rolling_window:
+                duration:
+                  days: 3650
+            grid_options:
+              columns: full
 
       # Self-consumption alone vs no batteries (the simulated battery): Saved = this + Compared with Self-consumption
       - type: grid
@@ -4405,6 +4427,17 @@ views:
                 period: year
             grid_options:
               columns: 6
+          # Since the start: a window longer than any history = the whole statistic
+          - type: statistic
+            entity: sensor.hba_savings_self_consumption
+            name: Since the start
+            stat_type: change
+            period:
+              rolling_window:
+                duration:
+                  days: 3650
+            grid_options:
+              columns: full
 
       # History
       - type: grid

@@ -23,7 +23,8 @@ This document covers HBA-specific changes only.
 ### Changed
 
 - **Savings view:** both blocks show the same periods, two tiles per row: today, last 7 days, this month,
-  this year (*Last 3 days* dropped; the per-day chart shows it).
+  this year (*Last 3 days* dropped; the per-day chart shows it), plus *Since the start* across the full
+  width (everything in the statistics).
 
 ---
 
