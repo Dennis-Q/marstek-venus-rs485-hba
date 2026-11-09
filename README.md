@@ -483,7 +483,7 @@ a loss and the round-trip loss ends up in the result; wear is not subtracted.
 same size: what your strategy added on top (buying cheap, selling at the peaks, keeping sun for later).
 `sensor.hba_savings_self_consumption` is that simulated battery's own result, so Saved = Self-consumption
 alone + vs Self-consumption. All three work with every strategy and keep long-term statistics; the preview dashboard's **Savings** view
-shows today, the last 3 / 7 days, this month, this year and bars per day and month.
+shows today, the last 7 days, this month, this year and bars per day and month.
 
 ### Labs: presence per floor
 

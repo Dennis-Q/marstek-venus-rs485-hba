@@ -20,6 +20,11 @@ This document covers HBA-specific changes only.
   Self-consumption, so the two blocks of the Savings view now add up. New tile *Self-consumption alone,
   this month* and a third bar in the History charts. Its statistics start at the update.
 
+### Changed
+
+- **Savings view:** both blocks show the same periods, two tiles per row: today, last 7 days, this month,
+  this year (*Last 3 days* dropped; the per-day chart shows it).
+
 ---
 
 ## v4.10.1-r23 — November 2026
