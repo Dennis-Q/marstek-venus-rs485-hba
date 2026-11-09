@@ -27,6 +27,7 @@
 # Self-consumption battery of the same size (stores only surplus sun, gives only
 # what the house imports, usable energy and max powers from HBA, ~94 % each way),
 # subtracted from the real one = what the strategy added on top of Self-consumption.
+# sensor.hba_savings_self_consumption: that simulated battery's own savings.
 #
 # The accumulator runs every 15 s and is kept out of the recorder. A template
 # sensor does not get its own value back after a restart or template reload
@@ -203,3 +204,19 @@ template:
         state: >-
           {%- set a = states('sensor.hba_savings_accumulator') | from_json -%}
           {{ (a.raw + (a.basis or 0) - a.vr - (a.vb or 0)) | round(2) }}
+
+      # The simulated Self-consumption battery on its own, compared with no batteries (EUR, running
+      # total). HBA Savings = this + HBA Savings vs Self-consumption. Negative when the sun is worth
+      # more sold than kept for the evening and night (sell price close to the buy price).
+      - name: "HBA Savings Self-consumption"
+        unique_id: hba_savings_self_consumption
+        icon: mdi:home-battery-outline
+        unit_of_measurement: "EUR"
+        device_class: monetary
+        state_class: total
+        availability: >-
+          {%- set s = states('sensor.hba_savings_accumulator') -%}
+          {{ s[:1] == '{' and (s | from_json).get('vr') is number }}
+        state: >-
+          {%- set a = states('sensor.hba_savings_accumulator') | from_json -%}
+          {{ (a.vr + (a.vb or 0)) | round(2) }}

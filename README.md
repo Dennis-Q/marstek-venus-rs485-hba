@@ -481,7 +481,8 @@ deduction of Planned). Energy still in the batteries counts at what it cost, so 
 a loss and the round-trip loss ends up in the result; wear is not subtracted.
 `sensor.hba_savings_vs_self_consumption` compares with a simulated Self-consumption battery of the
 same size: what your strategy added on top (buying cheap, selling at the peaks, keeping sun for later).
-Both work with every strategy and keep long-term statistics; the preview dashboard's **Savings** view
+`sensor.hba_savings_self_consumption` is that simulated battery's own result, so Saved = Self-consumption
+alone + vs Self-consumption. All three work with every strategy and keep long-term statistics; the preview dashboard's **Savings** view
 shows today, the last 3 / 7 days, this month, this year and bars per day and month.
 
 ### Labs: presence per floor
