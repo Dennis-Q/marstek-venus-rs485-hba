@@ -20,7 +20,8 @@ This document covers HBA-specific changes only.
   Self-consumption, so the Savings view now adds up. New block *Self-consumption alone* with the same
   four periods, and a third bar in the History charts. Its statistics start at the update.
 - `sensor.hba_round_trip_efficiency`: the batteries' measured round-trip efficiency (average of the
-  lifetime values), else 83 %. Planned (efficiency setting 0) and the savings sensors both use it.
+  lifetime values). It keeps its last value over a restart or while Modbus is not up yet; 83 % only when
+  it never had one. Planned (efficiency setting 0) and the savings sensors both use it.
 
 ### Changed
 
