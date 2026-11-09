@@ -18,7 +18,7 @@
 # shared with Solar-aware) minus the Solcast forecast per slot. Cost per slot =
 #   import x buy price - export x sell price + wear x kWh discharged
 # Battery: usable energy, max charge / discharge power (power groups and own limits included),
-# round-trip efficiency (setting, 0 = the batteries' measured lifetime RTE), split evenly over
+# round-trip efficiency (setting, 0 = sensor.hba_round_trip_efficiency: measured, else 83 %), split evenly over
 # charging and discharging. Stored energy never goes below the reserve. Energy left at the end
 # of the horizon is valued at the lowest buy price of its last 12 h x discharge efficiency (what
 # it will most likely save: the night after), so the plan neither empties the battery just
@@ -410,7 +410,7 @@ template:
               {%- set end = row.e1 | float(0) -%}
               {%- set sm = state_attr('sensor.hba_planned_strategy', 'summary') -%}
               {%- if row.a == 'Charge' and sm is mapping -%}
-                {%- set kw = ((row.pw / 1000 * ((sm.efficiency | float(85)) / 100) ** 0.5) if row.pw is defined else sm.charge_kw) | float(0) -%}
+                {%- set kw = ((row.pw / 1000 * ((sm.efficiency | float(83)) / 100) ** 0.5) if row.pw is defined else sm.charge_kw) | float(0) -%}
                 {%- set moved = kw * ([now_ts - t0, 0] | max) / 3600 -%}
                 {%- set expected = (start + [moved, end - start] | min) if end >= start else (start - [moved, start - end] | min) -%}
               {%- else -%}
@@ -444,7 +444,7 @@ template:
             {%- set prow = prev_plan | selectattr('ts', 'eq', now_slot) | first | default(none) -%}
             {%- set b_now = ns_m.b if ns_m.b is not none else (prow.b if prow is not none else none) -%}
             {%- set s_now = prow.s if prow is not none else b_now -%}
-            {%- set eta = (state_attr('sensor.hba_planned_strategy', 'efficiency') | float(85)) / 100 -%}
+            {%- set eta = (state_attr('sensor.hba_planned_strategy', 'efficiency') | float(83)) / 100 -%}
             {%- set ec = eta ** 0.5 -%}
             {%- set pE = state_attr('sensor.hba_planned_strategy', 'ledger_energy') -%}
             {%- set pC = state_attr('sensor.hba_planned_strategy', 'ledger_cost') -%}
@@ -496,12 +496,7 @@ template:
               {%- set emax = states('sensor.hba_usable_battery_energy') | float(0) -%}
               {%- set count = states('input_number.hba_battery_count') | int(1) -%}
               {%- set eff_set = states('input_number.hba_strategy_planned_efficiency') | float(0) -%}
-              {%- set ns_eff = namespace(v=[]) -%}
-              {%- for i in range(1, count + 1) -%}
-                {%- set r = states('sensor.marstek_m' ~ i ~ '_lifetime_round_trip_efficiency') | float(0) -%}
-                {%- if 50 <= r <= 100 -%}{%- set ns_eff.v = ns_eff.v + [r] -%}{%- endif -%}
-              {%- endfor -%}
-              {%- set eta = (eff_set if eff_set > 0 else ((ns_eff.v | sum / ns_eff.v | length) if ns_eff.v | length > 0 else 85)) / 100 -%}
+              {%- set eta = (eff_set if eff_set > 0 else states('sensor.hba_round_trip_efficiency') | float(83)) / 100 -%}
               {%- set ec = eta ** 0.5 -%}{%- set ed = eta ** 0.5 -%}
               {#- Max power. The running slot: what the batteries allow NOW (incl. the BMS limit near
                   full). Later slots: the set limits WITHOUT the momentary BMS limit and without the
@@ -1220,7 +1215,7 @@ script:
           t_left_h: >-
             {%- set n = as_timestamp(now()) -%}
             {{ [((((n | int) // step + 1) * step) - n) / 3600, 0.05] | max }}
-          ed: "{{ ((state_attr('sensor.hba_planned_strategy', 'efficiency') | float(85)) / 100) ** 0.5 }}"
+          ed: "{{ ((state_attr('sensor.hba_planned_strategy', 'efficiency') | float(83)) / 100) ** 0.5 }}"
           pd_kw: "{{ states('sensor.hba_total_max_discharge_power') | float(2500) / 1000 }}"
           # Net house use now (house minus sun) = P1 (+ = import) + what the batteries deliver, taken
           # from the COMMANDED total (hba_control_pid_output, + = charge), not the measured battery
