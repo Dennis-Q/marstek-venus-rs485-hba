@@ -479,8 +479,9 @@ batteries: every 15 s the grid cost without the batteries (P1 + battery power) m
 cost, at the price of the moment (the buy price sensor of Dynamic / Planned; the sell price sensor and
 deduction of Planned). Energy still in the batteries counts at what it cost, so a charging day is not
 a loss and the round-trip loss ends up in the result; the energy below the discharge cutoffs is never
-used and carries no cost. Efficiency = `sensor.hba_round_trip_efficiency` (the batteries' measured
-round trip, 83 % until measured); wear is not subtracted.
+used and carries no cost. Efficiency = the same as Planned: its efficiency setting, or at 0
+`sensor.hba_round_trip_efficiency` (the batteries' measured round trip, 83 % until measured); wear is
+not subtracted.
 `sensor.hba_savings_vs_self_consumption` compares with a simulated Self-consumption battery of the
 same size: what your strategy added on top (buying cheap, selling at the peaks, keeping sun for later).
 `sensor.hba_savings_self_consumption` is that simulated battery's own result, so Saved = Self-consumption

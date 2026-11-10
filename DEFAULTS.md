@@ -265,7 +265,7 @@ Every minimum is also the default, so a new install plans sensibly before *Apply
 
 | Helper | Default |
 |---|---|
-| `input_number.hba_strategy_planned_efficiency` | `0` % = `sensor.hba_round_trip_efficiency`, the batteries' measured lifetime round-trip efficiency (83 % until measured) |
+| `input_number.hba_strategy_planned_efficiency` | `0` % = `sensor.hba_round_trip_efficiency`, the batteries' measured lifetime round-trip efficiency, values outside 60–90 % skipped (83 % until measured); Savings uses the same value |
 | `input_number.hba_strategy_planned_wear_cost` | `0` EUR/kWh cycled |
 | `input_number.hba_strategy_planned_reserve` | `0` kWh |
 | `input_number.hba_strategy_planned_sell_deduction` | `0` EUR/kWh |

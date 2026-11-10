@@ -25,6 +25,11 @@ This document covers HBA-specific changes only.
   stall (it changed at every control cycle: 100–800 rows an hour). Labs floor sensors list the motion
   sensors as one entry *Motion sensors* (switching between an mmWave's moving and still target wrote
   ~1300 rows a day).
+- **Efficiency:** Savings uses the same round-trip efficiency as Planned, so also Planned's efficiency
+  setting when it is not 0 (it always used the measured value). The measured value skips batteries that
+  report less than 60 % or more than 90 % (was 50–100 %): a new battery's lifetime value can start far
+  too high (110 %, then about 100 % for weeks), and then Planned saw cycles as nearly free. The Planned
+  view then shows a warning with those batteries and the value to set by hand.
 
 ### Fixed
 

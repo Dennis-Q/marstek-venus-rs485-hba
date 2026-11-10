@@ -3331,7 +3331,9 @@ template:
   # (discharged / charged). Used by Planned (setting 0) and by the savings sensors; per direction =
   # its square root (83 % -> ~91 %). Trigger-based, so it keeps its last value over a restart or
   # reload (tested on dev 2026-11-09) while Modbus is not up yet; 83 % only when it never had one
-  # (4 x Venus E 3.0 on prod measured 82.5-83.6 %, 2026-11-09).
+  # (4 x Venus E 3.0 on prod measured 82.5-83.6 %, 2026-11-09). Values outside 60-90 % are skipped:
+  # the inverter alone loses ~12 points (prod DC vs AC, 2026-11-10), and a new battery's lifetime
+  # value can start far above that (a user's install showed 110 %, then ~100 % for weeks).
   - triggers:
       - trigger: state
         entity_id:
@@ -3357,11 +3359,11 @@ template:
           {%- set ns = namespace(v=[]) -%}
           {%- for i in range(1, count + 1) -%}
             {%- set r = states('sensor.marstek_m' ~ i ~ '_lifetime_round_trip_efficiency') | float(0) -%}
-            {%- if 50 <= r <= 100 -%}{%- set ns.v = ns.v + [r] -%}{%- endif -%}
+            {%- if 60 <= r <= 90 -%}{%- set ns.v = ns.v + [r] -%}{%- endif -%}
           {%- endfor -%}
           {%- set last = this.state | default('') -%}
           {%- if ns.v -%}{{ (ns.v | sum / ns.v | length) | round(1) }}
-          {%- elif last | is_number and 50 <= last | float <= 100 -%}{{ last }}
+          {%- elif last | is_number and 60 <= last | float <= 90 -%}{{ last }}
           {%- else -%}83
           {%- endif -%}
 

@@ -24,8 +24,9 @@
 # valued at Planned's ledger cost per kWh when there is one, else at the buy price
 # of that moment, and raw starts at minus that, so all sensors start at 0 (before
 # r25 they started at the basis, ~EUR 10 on prod). Efficiency per direction = the
-# square root of sensor.hba_round_trip_efficiency (measured, else 83 %; was a fixed
-# 0.94, measured round trip on prod ~83 %). Wear is not subtracted.
+# square root of Planned's efficiency setting, or when that is 0 of
+# sensor.hba_round_trip_efficiency (measured, else 83 %; was a fixed 0.94, measured
+# round trip on prod ~83 %), the same value Planned uses. Wear is not subtracted.
 # Works with every strategy: it only reads the meter, the batteries and the prices.
 #
 # sensor.hba_savings_vs_self_consumption: the same sum for a simulated
@@ -105,8 +106,9 @@ template:
               {%- set ns.above = ns.above + [c | float - floor, 0] | max -%}
             {%- else -%}{%- set ns.ok = false -%}{%- endif -%}
           {%- endfor -%}
-          {#- One-way efficiency: square root of the measured round trip (83 % -> ~0.91) -#}
-          {%- set e1 = (states('sensor.hba_round_trip_efficiency') | float(83) / 100) ** 0.5 -%}
+          {#- One-way efficiency: square root of the round trip Planned uses (83 % -> ~0.91) -#}
+          {%- set eff_set = states('input_number.hba_strategy_planned_efficiency') | float(0) -%}
+          {%- set e1 = ((eff_set if eff_set > 0 else states('sensor.hba_round_trip_efficiency') | float(83)) / 100) ** 0.5 -%}
           {%- set pe = states('input_text.hba_strategy_dynamic_frank_sensor_entity_id') | trim -%}
           {%- for e in (state_attr(pe, 'prices') or []) if e is mapping and 'from' in e and 'price' in e
                 and as_timestamp(e['from'], 0) <= now_ts and now_ts < as_timestamp(e.get('till', e['from']), 0) + (0 if 'till' in e else 3600) -%}

@@ -2667,6 +2667,25 @@ views:
             heading: Battery and house
             heading_style: subtitle
             icon: mdi:home-battery
+          # Measured efficiency looks off (a new battery's lifetime value can start far too high:
+          # 110 %, then ~100 % for weeks). HBA already skips values outside 60-90 %; this only says
+          # so and suggests the value in use for a fixed setting. Empty = no card.
+          - type: markdown
+            text_only: true
+            grid_options:
+              columns: full
+            content: >-
+              {%- set ns = namespace(v=[]) -%}
+              {%- for i in range(1, states('input_number.hba_battery_count') | int(1) + 1) -%}
+                {%- set r = states('sensor.marstek_m' ~ i ~ '_lifetime_round_trip_efficiency') -%}
+                {%- if r | is_number and r | float > 0 and not 60 <= r | float <= 90 -%}
+                  {%- set ns.v = ns.v + ['M' ~ i ~ ' ' ~ (r | float | round(1)) ~ ' %'] -%}
+                {%- endif -%}
+              {%- endfor -%}
+              {%- if ns.v and states('input_number.hba_strategy_planned_efficiency') | float(0) == 0 -%}
+              {%- set s = states('sensor.hba_round_trip_efficiency') | float(83) | round(0) | int -%}
+              <ha-alert alert-type="warning">Measured efficiency looks off: {{ ns.v | join(', ') }} (Venus E measure about 80–85 %). HBA leaves it out and uses {{ s }} %. For a fixed value, set <i>Round-trip efficiency</i> below to {{ s }} %.</ha-alert>
+              {%- endif -%}
           - type: entities
             entities:
               - entity: input_number.hba_strategy_planned_efficiency
