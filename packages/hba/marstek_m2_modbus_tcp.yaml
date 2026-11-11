@@ -18,7 +18,7 @@ modbus:
     port: 502
     delay: 1
     message_wait_milliseconds: 35
-    timeout: 20
+    timeout: 5
 
     sensors:
       - name: "Marstek m2 Wifi state number"

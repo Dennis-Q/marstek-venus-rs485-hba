@@ -18,14 +18,14 @@ modbus:
     port: 502
     delay: 1
     message_wait_milliseconds: 35
-    timeout: 20
+    timeout: 5
 
     sensors:
       - name: "Marstek m6 Wifi state number"
         unique_id: marstek_m6_wifi_state_number
         address: 30300
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint16
         state_class: measurement
@@ -36,7 +36,7 @@ modbus:
         unique_id: marstek_m6_bt_state_number
         address: 30301
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint16
         state_class: measurement
@@ -49,7 +49,7 @@ modbus:
         unique_id: marstek_m6_cloud_state_number
         address: 30302
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint16
         state_class: measurement
@@ -60,7 +60,7 @@ modbus:
         unique_id: marstek_m6_battery_wifi_signal_strength
         address: 30303
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: int16
         unit_of_measurement: dBm
@@ -207,7 +207,7 @@ modbus:
         unique_id: marstek_m6_battery_total_energy
         address: 32105
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint16
         unit_of_measurement: kWh
@@ -249,7 +249,7 @@ modbus:
         unique_id: marstek_m6_ac_frequency
         address: 32204
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint16
         unit_of_measurement: Hz
@@ -361,7 +361,7 @@ modbus:
         unique_id: marstek_m6_monthly_charging_energy
         address: 33008
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint32
         unit_of_measurement: kWh
@@ -375,7 +375,7 @@ modbus:
         unique_id: marstek_m6_monthly_discharging_energy
         address: 33010
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint32
         unit_of_measurement: kWh
@@ -389,7 +389,7 @@ modbus:
         unique_id: marstek_m6_battery_cell_1_voltage
         address: 34018
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint16
         unit_of_measurement: "V"
@@ -402,7 +402,7 @@ modbus:
         unique_id: marstek_m6_battery_cell_2_voltage
         address: 34019
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint16
         unit_of_measurement: "V"
@@ -415,7 +415,7 @@ modbus:
         unique_id: marstek_m6_battery_cell_3_voltage
         address: 34020
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint16
         unit_of_measurement: "V"
@@ -428,7 +428,7 @@ modbus:
         unique_id: marstek_m6_battery_cell_4_voltage
         address: 34021
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint16
         unit_of_measurement: "V"
@@ -441,7 +441,7 @@ modbus:
         unique_id: marstek_m6_battery_cell_5_voltage
         address: 34022
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint16
         unit_of_measurement: "V"
@@ -454,7 +454,7 @@ modbus:
         unique_id: marstek_m6_battery_cell_6_voltage
         address: 34023
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint16
         unit_of_measurement: "V"
@@ -467,7 +467,7 @@ modbus:
         unique_id: marstek_m6_battery_cell_7_voltage
         address: 34024
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint16
         unit_of_measurement: "V"
@@ -480,7 +480,7 @@ modbus:
         unique_id: marstek_m6_battery_cell_8_voltage
         address: 34025
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint16
         unit_of_measurement: "V"
@@ -493,7 +493,7 @@ modbus:
         unique_id: marstek_m6_battery_cell_9_voltage
         address: 34026
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint16
         unit_of_measurement: "V"
@@ -506,7 +506,7 @@ modbus:
         unique_id: marstek_m6_battery_cell_10_voltage
         address: 34027
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint16
         unit_of_measurement: "V"
@@ -519,7 +519,7 @@ modbus:
         unique_id: marstek_m6_battery_cell_11_voltage
         address: 34028
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint16
         unit_of_measurement: "V"
@@ -532,7 +532,7 @@ modbus:
         unique_id: marstek_m6_battery_cell_12_voltage
         address: 34029
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint16
         unit_of_measurement: "V"
@@ -546,7 +546,7 @@ modbus:
         unique_id: marstek_m6_battery_cell_13_voltage
         address: 34030
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint16
         unit_of_measurement: "V"
@@ -559,7 +559,7 @@ modbus:
         unique_id: marstek_m6_battery_cell_14_voltage
         address: 34031
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint16
         unit_of_measurement: "V"
@@ -572,7 +572,7 @@ modbus:
         unique_id: marstek_m6_battery_cell_15_voltage
         address: 34032
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint16
         unit_of_measurement: "V"
@@ -585,7 +585,7 @@ modbus:
         unique_id: marstek_m6_battery_cell_16_voltage
         address: 34033
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint16
         unit_of_measurement: "V"
