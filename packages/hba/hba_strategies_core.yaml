@@ -52,6 +52,29 @@ automation:
       - action: script.hba_run_strategy
         data: {}
 
+  # ── Release a hanging battery write ───────────────────────────────────────────
+  # hba_write_battery waits for each Modbus write, and the control loop waits for it.
+  # A battery that stops answering makes that write wait behind every poll already
+  # queued on its hub, each costing 4 attempts x the hub's timeout: the whole loop
+  # stands still for minutes (prod 2026-11-11: 149 s at timeout 5 s, 641 s at 20 s),
+  # so the other batteries keep running on their last command. A write that is still
+  # busy after 10 s is given up: stopping the script lets the cycle go on with the
+  # next battery. The stopped write is not recorded as sent, so it is repeated at the
+  # next cycle -- until the battery has been silent for 30 s and hba_write_battery
+  # skips it. A healthy write takes 0.15 s.
+  - id: hba_release_hanging_write
+    alias: "HBA: Release a hanging battery write"
+    mode: single
+    max_exceeded: silent
+    triggers:
+      - trigger: state
+        entity_id: script.hba_write_battery
+        to: "on"
+        for: { seconds: 10 }
+    actions:
+      - action: script.turn_off
+        target: { entity_id: script.hba_write_battery }
+
   # ── Master mode changed ───────────────────────────────────────────────────────
   - id: hba_master_mode_changed
     alias: "HBA: Master mode changed"
@@ -969,16 +992,36 @@ script:
           _same: "{{ _cached.rsplit('|', 1)[0] == _want }}"
       # A battery whose Modbus link hangs must not freeze control of the others. Its
       # battery_power (polled every 10 s) then stops reporting; a write to it would wait
-      # on that hub (timeout 20 s + retries) and, the control loop being mode: single,
-      # stall every battery. Prod 2026-10-02 22:59: M3's cable was touched, the next
-      # write to M3 blocked the loop for 10.5 min (no PID, no writes, M2 frozen at
-      # 527 W). No report for 30 s (3 polls) -> skip, and clear the cache so the first
-      # cycle after it reports again re-sends the command.
+      # on that hub (4 attempts x the hub's timeout per request, behind the polls already
+      # queued) and, the control loop being mode: single, stall every battery. Prod
+      # 2026-10-02 22:59: M3's cable was touched, the next write to M3 blocked the loop
+      # for 10.5 min (no PID, no writes, M2 frozen at 527 W) -- with the hub timeout then
+      # at 20 s: pymodbus closes the connection on the 8th failed request, 8 x 80 s. At
+      # 5 s that is 160 s (prod 2026-11-11, M1's switch port off: 149 s). No report for
+      # 30 s (3 polls) -> skip, and clear the cache so the first cycle after it reports
+      # again re-sends the command.
+      #
+      # A write that hung is released after 10 s (hba_release_hanging_write). Waiting for
+      # the 30 s above would let the next cycles hang on the same battery again (dev
+      # 2026-11-11, fake battery: 36 s without writes to the others). So the cache holds
+      # "pending|<time>" while a write is busy; a write that was cut off leaves it there,
+      # and the battery is skipped until its battery_power has reported after that time.
       - variables:
+          _hung: >-
+            {%- set hb = states.sensor['marstek_m' ~ _bat ~ '_battery_power'] -%}
+            {%- set p = _cached.split('|') -%}
+            {{ p | length == 2 and p[0] == 'pending'
+               and (hb is none or as_timestamp(hb.last_reported) <= (p[1] | float(0))) }}
           _silent: >-
             {%- set hb = states.sensor['marstek_m' ~ _bat ~ '_battery_power'] -%}
             {{ hb is none or hb.state in ['unavailable', 'unknown']
                or (now() - hb.last_reported).total_seconds() > 30 }}
+      - alias: "Previous write never finished and the battery has not reported since — skip"
+        if:
+          - condition: template
+            value_template: "{{ _hung }}"
+        then:
+          - stop: "Previous write to this battery was cut off — waiting for it to report"
       - alias: "Battery silent on Modbus — skip so a hung link cannot block the loop"
         if:
           - condition: template
@@ -996,6 +1039,12 @@ script:
               {{ not _force and _same and _refresh > 0 and (_age | int(0)) < _refresh }}
         then:
           - stop: "Command unchanged and still fresh — skipped 3 Modbus writes"
+      - alias: "Mark the write as busy (see _hung above)"
+        action: input_text.set_value
+        target:
+          entity_id: "input_text.hba_last_cmd_m{{ _bat }}"
+        data:
+          value: "pending|{{ as_timestamp(now()) | round(3) }}"
       - action: number.set_value
         continue_on_error: true
         target:

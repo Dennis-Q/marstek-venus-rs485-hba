@@ -31,6 +31,20 @@ This document covers HBA-specific changes only.
   too high (110 %, then about 100 % for weeks), and then Planned saw cycles as nearly free. The Planned
   view then shows a warning with those batteries and the value to set by hand.
 
+- **A battery that stops answering no longer freezes the others for minutes:** HBA waits for every
+  Modbus write, so one battery that hangs (cable pulled, battery frozen) stopped the control loop for
+  all of them — 10.5 minutes with the battery files as they were. Two changes:
+  - A write that is still busy after 10 s is given up (new automation *HBA: Release a hanging battery
+    write*) and that battery is skipped until it reports again. Measured with a battery that goes
+    silent: the other batteries were without commands for about 15 s.
+  - **Battery files** (`marstek_m*_modbus_tcp.yaml`): `timeout: 5` instead of 20, and 24 values that
+    change slowly are read every 5 minutes instead of every 30 s (cell voltages, Wi-Fi / Bluetooth /
+    cloud state, Wi-Fi signal, AC frequency, monthly energy, total energy), so writes wait less behind
+    reads. **The installer never overwrites your existing battery files**, so an existing install only
+    gets this when you change them by hand; the timeout is the line `timeout: 20` near the top of each
+    file. Do not keep a copy of the old file anywhere under `packages/` with the same file name: Home
+    Assistant then loads the copy instead of the new file.
+
 ### Fixed
 
 - **No false alerts after an automation reload:** the control-loop watchdog and the battery offline check
