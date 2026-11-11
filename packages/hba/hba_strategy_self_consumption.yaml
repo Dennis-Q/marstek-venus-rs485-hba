@@ -267,6 +267,7 @@ script:
               # with no assigned share can disconnect their relay independently.
               - variables:
                   idle_secs: "{{ states('input_number.hba_control_idle_time') | float(5) * 60 }}"
+                  _w_since: "{{ as_timestamp(now()) }}"
               - repeat:
                   count: "{{ states('input_number.hba_battery_count') | int(1) }}"
                   sequence:
@@ -285,12 +286,14 @@ script:
                                       target: { entity_id: input_text.hba_control_cycle_state }
                                       data:
                                         value: "Idle hold M{{ repeat.index }} — {{ 'charge' if is_charging_idle else 'discharge' }}"
-                            - action: script.hba_write_battery
+                            - action: script.turn_on
+                              target: { entity_id: script.hba_write_battery }
                               data:
-                                bat: "{{ repeat.index }}"
-                                cmd_mode: "{{ 'charge' if is_charging_idle else 'discharge' }}"
-                                charge_w: 1
-                                discharge_w: 1
+                                variables:
+                                  bat: "{{ repeat.index }}"
+                                  cmd_mode: "{{ 'charge' if is_charging_idle else 'discharge' }}"
+                                  charge_w: 1
+                                  discharge_w: 1
                       default:
                         - choose:
                             - conditions: "{{ is_state('input_boolean.hba_control_is_debug_mode', 'on') }}"
@@ -298,9 +301,13 @@ script:
                                 - action: input_text.set_value
                                   target: { entity_id: input_text.hba_control_cycle_state }
                                   data: { value: "Idle stop M{{ repeat.index }}" }
-                        - action: script.hba_write_battery
+                        - action: script.turn_on
+                          target: { entity_id: script.hba_write_battery }
                           data:
-                            bat: "{{ repeat.index }}"
-                            cmd_mode: "stop"
-                            charge_w: 0
-                            discharge_w: 0
+                            variables:
+                              bat: "{{ repeat.index }}"
+                              cmd_mode: "stop"
+                              charge_w: 0
+                              discharge_w: 0
+              - action: script.hba_wait_battery_writes
+                data: { since: "{{ _w_since }}" }

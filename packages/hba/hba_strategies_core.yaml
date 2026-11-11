@@ -52,29 +52,6 @@ automation:
       - action: script.hba_run_strategy
         data: {}
 
-  # ── Release a hanging battery write ───────────────────────────────────────────
-  # hba_write_battery waits for each Modbus write, and the control loop waits for it.
-  # A battery that stops answering makes that write wait behind every poll already
-  # queued on its hub, each costing 4 attempts x the hub's timeout: the whole loop
-  # stands still for minutes (prod 2026-11-11: 149 s at timeout 5 s, 641 s at 20 s),
-  # so the other batteries keep running on their last command. A write that is still
-  # busy after 10 s is given up: stopping the script lets the cycle go on with the
-  # next battery. The stopped write is not recorded as sent, so it is repeated at the
-  # next cycle -- until the battery has been silent for 30 s and hba_write_battery
-  # skips it. A healthy write takes 0.15 s.
-  - id: hba_release_hanging_write
-    alias: "HBA: Release a hanging battery write"
-    mode: single
-    max_exceeded: silent
-    triggers:
-      - trigger: state
-        entity_id: script.hba_write_battery
-        to: "on"
-        for: { seconds: 10 }
-    actions:
-      - action: script.turn_off
-        target: { entity_id: script.hba_write_battery }
-
   # ── Master mode changed ───────────────────────────────────────────────────────
   - id: hba_master_mode_changed
     alias: "HBA: Master mode changed"
@@ -946,8 +923,11 @@ script:
     description: >
       Writes one battery's forcible charge/discharge triple, skipping the Modbus
       round trips when the command is unchanged and still fresh.
-    mode: queued
-    max: 12
+    # parallel: every battery has its own Modbus connection, so the batteries are
+    # written at the same time and a battery that does not answer only delays itself.
+    # The callers start it with script.turn_on and wait in hba_wait_battery_writes.
+    mode: parallel
+    max: 20
     fields:
       bat:
         description: "Battery index, 1-6"
@@ -996,11 +976,12 @@ script:
       # 30 s (3 polls) -> skip, and clear the cache so the first cycle after it reports
       # again re-sends the command.
       #
-      # A write that hung is released after 10 s (hba_release_hanging_write). Waiting for
-      # the 30 s above would let the next cycles hang on the same battery again (dev
-      # 2026-11-11, fake battery: 36 s without writes to the others). So the cache holds
-      # "pending|<time>" while a write is busy; a write that was cut off leaves it there,
-      # and the battery is skipped until its battery_power has reported after that time.
+      # A write to such a battery keeps waiting in the background (it gives up by itself
+      # after the retries), and the cycle goes on without it. The cache holds
+      # "pending|<time>" while a write is busy, and the battery gets no new write until
+      # the write is done or its battery_power has reported after that time -- so the
+      # writes never pile up on one battery (dev 2026-11-11, fake battery, before the
+      # marker: 36 s without writes to the others).
       - variables:
           _hung: >-
             {%- set hb = states.sensor['marstek_m' ~ _bat ~ '_battery_power'] -%}
@@ -1011,12 +992,12 @@ script:
             {%- set hb = states.sensor['marstek_m' ~ _bat ~ '_battery_power'] -%}
             {{ hb is none or hb.state in ['unavailable', 'unknown']
                or (now() - hb.last_reported).total_seconds() > 30 }}
-      - alias: "Previous write never finished and the battery has not reported since — skip"
+      - alias: "A write is still busy and the battery has not reported since — skip"
         if:
           - condition: template
             value_template: "{{ _hung }}"
         then:
-          - stop: "Previous write to this battery was cut off — waiting for it to report"
+          - stop: "A write to this battery is still busy and it has not reported since"
       - alias: "Battery silent on Modbus — skip so a hung link cannot block the loop"
         if:
           - condition: template
@@ -1034,22 +1015,46 @@ script:
               {{ not _force and _same and _refresh > 0 and (_age | int(0)) < _refresh }}
         then:
           - stop: "Command unchanged and still fresh — skipped 3 Modbus writes"
+      - variables:
+          _t0: "{{ as_timestamp(now()) | round(3) }}"
       - alias: "Mark the write as busy (see _hung above)"
         action: input_text.set_value
         target:
           entity_id: "input_text.hba_last_cmd_m{{ _bat }}"
         data:
-          value: "pending|{{ as_timestamp(now()) | round(3) }}"
+          value: "pending|{{ _t0 }}"
       - action: number.set_value
         continue_on_error: true
         target:
           entity_id: "number.marstek_m{{ _bat }}_forcible_charge_power"
         data: { value: "{{ _chg }}" }
+      # A write that waited more than 15 s on a battery that still has not reported is
+      # out of date (the battery was gone and may just be back): do not send the rest of
+      # an old command. The marker stays, so the first cycle after the battery reports
+      # sends the current command. A slow battery that does report gets all three.
+      - alias: "Late, and the battery has not reported since — drop the rest"
+        if:
+          - condition: template
+            value_template: >-
+              {%- set hb = states.sensor['marstek_m' ~ _bat ~ '_battery_power'] -%}
+              {{ as_timestamp(now()) - _t0 > 15
+                 and (hb is none or as_timestamp(hb.last_reported) <= _t0) }}
+        then:
+          - stop: "Write waited too long on a battery that has not reported — rest dropped"
       - action: number.set_value
         continue_on_error: true
         target:
           entity_id: "number.marstek_m{{ _bat }}_forcible_discharge_power"
         data: { value: "{{ _dis }}" }
+      - alias: "Late, and the battery has not reported since — drop the rest"
+        if:
+          - condition: template
+            value_template: >-
+              {%- set hb = states.sensor['marstek_m' ~ _bat ~ '_battery_power'] -%}
+              {{ as_timestamp(now()) - _t0 > 15
+                 and (hb is none or as_timestamp(hb.last_reported) <= _t0) }}
+        then:
+          - stop: "Write waited too long on a battery that has not reported — rest dropped"
       - action: select.select_option
         continue_on_error: true
         target:
@@ -1126,6 +1131,8 @@ script:
     sequence:
       - variables:
           count: "{{ states('input_number.hba_battery_count') | int(1) }}"
+          # Start of this cycle's writes (see hba_wait_battery_writes).
+          _w_since: "{{ as_timestamp(now()) }}"
           # Charge alongside EV: never discharge into the car — a discharge request
           # becomes a stop. (Timed EV charge discharges on purpose; the sensor is off then.)
           along: "{{ is_state('binary_sensor.hba_ev_charge_alongside', 'on') }}"
@@ -1139,12 +1146,14 @@ script:
               - repeat:
                   count: "{{ count }}"
                   sequence:
-                    - action: script.hba_write_battery
+                    - action: script.turn_on
+                      target: { entity_id: script.hba_write_battery }
                       data:
-                        bat: "{{ repeat.index }}"
-                        cmd_mode: "stop"
-                        charge_w: 0
-                        discharge_w: 0
+                        variables:
+                          bat: "{{ repeat.index }}"
+                          cmd_mode: "stop"
+                          charge_w: 0
+                          discharge_w: 0
           # CHARGE
           - conditions: "{{ mode == 'charge' or (mode == 'auto' and desired > 0) }}"
             sequence:
@@ -1301,12 +1310,14 @@ script:
                     - choose:
                         - conditions: "{{ soc < soc_max and share > 0 }}"
                           sequence:
-                            - action: script.hba_write_battery
+                            - action: script.turn_on
+                              target: { entity_id: script.hba_write_battery }
                               data:
-                                bat: "{{ bat_idx }}"
-                                cmd_mode: "charge"
-                                charge_w: "{{ share }}"
-                                discharge_w: "{{ share }}"
+                                variables:
+                                  bat: "{{ bat_idx }}"
+                                  cmd_mode: "charge"
+                                  charge_w: "{{ share }}"
+                                  discharge_w: "{{ share }}"
                             - action: input_datetime.set_datetime
                               target:
                                 entity_id: "input_datetime.hba_last_active_m{{ bat_idx }}"
@@ -1324,19 +1335,23 @@ script:
                         - choose:
                             - conditions: "{{ bat_time_idle < idle_secs }}"
                               sequence:
-                                - action: script.hba_write_battery
+                                - action: script.turn_on
+                                  target: { entity_id: script.hba_write_battery }
                                   data:
-                                    bat: "{{ bat_idx }}"
-                                    cmd_mode: "charge"
-                                    charge_w: 1
-                                    discharge_w: 1
+                                    variables:
+                                      bat: "{{ bat_idx }}"
+                                      cmd_mode: "charge"
+                                      charge_w: 1
+                                      discharge_w: 1
                           default:
-                            - action: script.hba_write_battery
+                            - action: script.turn_on
+                              target: { entity_id: script.hba_write_battery }
                               data:
-                                bat: "{{ bat_idx }}"
-                                cmd_mode: "stop"
-                                charge_w: 0
-                                discharge_w: 0
+                                variables:
+                                  bat: "{{ bat_idx }}"
+                                  cmd_mode: "stop"
+                                  charge_w: 0
+                                  discharge_w: 0
           # DISCHARGE
           - conditions: "{{ mode == 'discharge' or (mode == 'auto' and desired < 0) }}"
             sequence:
@@ -1461,12 +1476,14 @@ script:
                     - choose:
                         - conditions: "{{ soc > soc_min and share > 0 }}"
                           sequence:
-                            - action: script.hba_write_battery
+                            - action: script.turn_on
+                              target: { entity_id: script.hba_write_battery }
                               data:
-                                bat: "{{ bat_idx }}"
-                                cmd_mode: "discharge"
-                                charge_w: "{{ share }}"
-                                discharge_w: "{{ share }}"
+                                variables:
+                                  bat: "{{ bat_idx }}"
+                                  cmd_mode: "discharge"
+                                  charge_w: "{{ share }}"
+                                  discharge_w: "{{ share }}"
                             - action: input_datetime.set_datetime
                               target:
                                 entity_id: "input_datetime.hba_last_active_m{{ bat_idx }}"
@@ -1484,19 +1501,55 @@ script:
                         - choose:
                             - conditions: "{{ bat_time_idle < idle_secs }}"
                               sequence:
-                                - action: script.hba_write_battery
+                                - action: script.turn_on
+                                  target: { entity_id: script.hba_write_battery }
                                   data:
-                                    bat: "{{ bat_idx }}"
-                                    cmd_mode: "discharge"
-                                    charge_w: 1
-                                    discharge_w: 1
+                                    variables:
+                                      bat: "{{ bat_idx }}"
+                                      cmd_mode: "discharge"
+                                      charge_w: 1
+                                      discharge_w: 1
                           default:
-                            - action: script.hba_write_battery
+                            - action: script.turn_on
+                              target: { entity_id: script.hba_write_battery }
                               data:
-                                bat: "{{ bat_idx }}"
-                                cmd_mode: "stop"
-                                charge_w: 0
-                                discharge_w: 0
+                                variables:
+                                  bat: "{{ bat_idx }}"
+                                  cmd_mode: "stop"
+                                  charge_w: 0
+                                  discharge_w: 0
+      - action: script.hba_wait_battery_writes
+        data: { since: "{{ _w_since }}" }
+
+  # ── Wait for this cycle's battery writes ──────────────────────────────────────
+  # The writes are started for all batteries at once (script.turn_on does not wait).
+  # The cycle then waits here until none of the writes started in this cycle is still
+  # busy -- healthy batteries need about 0.15 s -- and at most 2 s: a battery that
+  # does not answer keeps its own write waiting in the background and no longer holds
+  # up the others. "Busy" is the "pending|<time>" marker hba_write_battery keeps in
+  # the command cache; markers older than this cycle belong to a write that already
+  # hung and are not waited for again.
+  hba_wait_battery_writes:
+    alias: "HBA: Wait for this cycle's battery writes"
+    mode: parallel
+    max: 10
+    fields:
+      since:
+        description: "Timestamp taken before the writes were started"
+        example: 1794396956.97
+    sequence:
+      - wait_template: >-
+          {%- set ns = namespace(busy=false) -%}
+          {%- for i in range(1, 7) -%}
+            {%- set p = states('input_text.hba_last_cmd_m' ~ i).split('|') -%}
+            {%- if p | length == 2 and p[0] == 'pending'
+                  and (p[1] | float(0)) >= (since | float(0)) - 0.01 -%}
+              {%- set ns.busy = true -%}
+            {%- endif -%}
+          {%- endfor -%}
+          {{ not ns.busy }}
+        timeout: { seconds: 2 }
+        continue_on_timeout: true
 
   # ── Priority rotation ─────────────────────────────────────────────────────────
   # Advances hba_control_prioritize_battery by 1 (wraps around at battery_count).
