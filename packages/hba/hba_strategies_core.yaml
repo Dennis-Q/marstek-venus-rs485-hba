@@ -673,12 +673,11 @@ script:
       - variables:
           strategy: "{{ states('input_select.hba_strategy') }}"
           ev_entity: "{{ states('input_text.hba_strategy_ev_sensor_entity_id') | trim }}"
-          ev_active: >
-            {% if ev_entity not in ['', 'unknown', 'unavailable'] %}
-              {{ states(ev_entity) == 'on' }}
-            {% else %}
-              false
-            {% endif %}
+          # One expression on purpose: a bare "false" in an else-branch comes out as the
+          # text "false", which counts as true in the conditions below (no EV entity
+          # set = EV stop trigger all the time).
+          ev_active: >-
+            {{ ev_entity not in ['', 'unknown', 'unavailable'] and is_state(ev_entity, 'on') }}
       - variables:
           # Planned charges alongside the car when HBA can keep within the phase limits
           # (binary_sensor.hba_ev_alongside_ready), whatever the setting says
@@ -687,13 +686,9 @@ script:
                else states('input_select.hba_control_strategy_during_ev_charge') }}
           # Saturation gate for Charge PV during EV charge. Pointer not
           # configured → gate is always open (previous behaviour).
-          ev_saturated: >
+          ev_saturated: >-
             {% set e = states('input_text.hba_strategy_ev_saturated_entity_id') | trim %}
-            {% if e in ['', 'unknown', 'unavailable'] %}
-              true
-            {% else %}
-              {{ states(e) == 'on' }}
-            {% endif %}
+            {{ e in ['', 'unknown', 'unavailable'] or is_state(e, 'on') }}
       - choose:
           # A manual Full stop beats every override — EV stop trigger and Timed EV
           # charge alike (HBC v4.13.0: "manual Full stop in the main strategy

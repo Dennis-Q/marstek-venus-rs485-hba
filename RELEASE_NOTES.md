@@ -50,6 +50,9 @@ This document covers HBA-specific changes only.
 - **No false alerts after an automation reload:** the control-loop watchdog and the battery offline check
   ignore delays for 2 minutes after `automation_reloaded` (a reload can freeze HA for a while; new
   `sensor.hba_last_automation_reload`).
+- **Without an EV charging entity, the batteries stopped all the time:** with "EV charging entity_id" left
+  empty, HBA behaved as if a car was charging (label "EV stop trigger", Full stop with the default setting).
+  Installs with an EV entity filled in were not affected.
 
 ### Removed
 

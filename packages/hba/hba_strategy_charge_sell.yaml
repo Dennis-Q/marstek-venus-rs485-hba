@@ -87,7 +87,7 @@ script:
             {% elif goal == 'solar forecast' %}
               {{ available_energy >= solar_energy_desired | float(0) }}
             {% else %}
-              false
+              {{ false }}
             {% endif %}
       - choose:
           - conditions: "{{ goal_reached }}"
@@ -197,7 +197,7 @@ script:
             {% elif goal == 'energy reserve' %}
               {{ available_energy <= target_energy }}
             {% else %}
-              false
+              {{ false }}
             {% endif %}
       - choose:
           - conditions: "{{ goal_reached }}"
