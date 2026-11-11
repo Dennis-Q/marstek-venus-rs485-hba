@@ -951,6 +951,16 @@ script:
           _chg: "{{ charge_w | default(0) | int(0) }}"
           _dis: "{{ discharge_w | default(0) | int(0) }}"
           _force: "{{ force | default(false) }}"
+      # A forced write (the stop when leaving Full control) must not be lost because a
+      # write of the last control cycle is still busy: wait for that one first, at most
+      # 15 s, and then write anyway (only the 30 s silent check below still skips it).
+      - if:
+          - condition: template
+            value_template: "{{ _force and states('input_text.hba_last_cmd_m' ~ _bat).startswith('pending|') }}"
+        then:
+          - wait_template: "{{ not states('input_text.hba_last_cmd_m' ~ _bat).startswith('pending|') }}"
+            timeout: { seconds: 15 }
+            continue_on_timeout: true
       - variables:
           _want: "{{ _mode ~ '|' ~ _chg ~ '|' ~ _dis }}"
           _cached: "{{ states('input_text.hba_last_cmd_m' ~ _bat) | default('', true) }}"
@@ -982,12 +992,16 @@ script:
       # the write is done or its battery_power has reported after that time -- so the
       # writes never pile up on one battery (dev 2026-11-11, fake battery, before the
       # marker: 36 s without writes to the others).
+      # A busy write younger than 15 s also blocks a new one when the battery did report
+      # in the meantime: on prod (2026-11-11, slow register writes right after a restart)
+      # a second command otherwise started halfway the first and the two were mixed.
       - variables:
           _hung: >-
             {%- set hb = states.sensor['marstek_m' ~ _bat ~ '_battery_power'] -%}
             {%- set p = _cached.split('|') -%}
-            {{ p | length == 2 and p[0] == 'pending'
-               and (hb is none or as_timestamp(hb.last_reported) <= (p[1] | float(0))) }}
+            {{ not _force and p | length == 2 and p[0] == 'pending'
+               and (as_timestamp(now()) - (p[1] | float(0)) < 15
+                    or hb is none or as_timestamp(hb.last_reported) <= (p[1] | float(0))) }}
           _silent: >-
             {%- set hb = states.sensor['marstek_m' ~ _bat ~ '_battery_power'] -%}
             {{ hb is none or hb.state in ['unavailable', 'unknown']
@@ -1032,12 +1046,13 @@ script:
       # out of date (the battery was gone and may just be back): do not send the rest of
       # an old command. The marker stays, so the first cycle after the battery reports
       # sends the current command. A slow battery that does report gets all three.
+      # Never for a forced write: the stop when leaving Full control must go out whole.
       - alias: "Late, and the battery has not reported since — drop the rest"
         if:
           - condition: template
             value_template: >-
               {%- set hb = states.sensor['marstek_m' ~ _bat ~ '_battery_power'] -%}
-              {{ as_timestamp(now()) - _t0 > 15
+              {{ not _force and as_timestamp(now()) - _t0 > 15
                  and (hb is none or as_timestamp(hb.last_reported) <= _t0) }}
         then:
           - stop: "Write waited too long on a battery that has not reported — rest dropped"
@@ -1051,7 +1066,7 @@ script:
           - condition: template
             value_template: >-
               {%- set hb = states.sensor['marstek_m' ~ _bat ~ '_battery_power'] -%}
-              {{ as_timestamp(now()) - _t0 > 15
+              {{ not _force and as_timestamp(now()) - _t0 > 15
                  and (hb is none or as_timestamp(hb.last_reported) <= _t0) }}
         then:
           - stop: "Write waited too long on a battery that has not reported — rest dropped"
