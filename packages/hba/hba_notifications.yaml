@@ -1094,12 +1094,15 @@ automation:
           day: "{{ car.get('home_day', '') }}"
           sun: "{{ car.get('home_sun', -1) | float(-1) }}"
           want: "{{ (car.get('normal', 0) | float(0) + car.get('sun', 0) | float(0)) | round(1) }}"
-          # The levels the plan works towards, so the answer can be weighed
+          # What charging now would be: kWh, cost, first hour
+          buy: "{{ car.get('normal', 0) }} kWh (€{{ '%.2f' | format(car.get('normal_eur', 0) | float(0)) }}) from {{ car.get('normal_from', '') }}"
+          # The levels the plan works towards, in brackets on a line of its own above the message
+          # (user 2026-11-14: keep the texts short, and this line apart from the message)
           levels: >-
-            Car {{ states('sensor.ev_car_info') | float(0) | round(0) | int }} % ·
-            Minimum {{ states('input_number.hba_strategy_planned_car_minimum') | float(0) | int }} % ·
-            Normal {{ states('input_number.hba_strategy_planned_car_normal') | float(0) | int }} %
-            {%- if state_attr('sensor.ev_car_info', 'max_price_on') != false %} · max € {{ state_attr('sensor.ev_car_info', 'max_price') }}{% endif %}.
+            [Car {{ states('sensor.ev_car_info') | float(0) | round(0) | int }}% ·
+            Min {{ states('input_number.hba_strategy_planned_car_minimum') | float(0) | int }}% ·
+            Normal {{ states('input_number.hba_strategy_planned_car_normal') | float(0) | int }}%
+            {%- if state_attr('sensor.ev_car_info', 'max_price_on') != false %} · max €{{ state_attr('sensor.ev_car_info', 'max_price') }}{% endif %}]
       - choose:
           # The next departure is on a home day (the list): the plan assumes the car stays, for
           # Normal only. Asked because the list is a guess.
@@ -1107,14 +1110,12 @@ automation:
             sequence:
               - action: script.hba_notify_dispatch
                 data:
-                  title: "Car: {{ car.get('dl', 0) | int(0) | timestamp_custom('%A') }} counts as a home day"
+                  title: "Car: {{ car.get('dl', 0) | int(0) | timestamp_custom('%A') }} is a home day"
                   message: >-
                     {{ levels }}
 
-                    Normal ({{ car.normal }} kWh, € {{ '%.2f' | format(car.normal_eur | float(0)) }}) is planned from {{ car.normal_from }}:
-                    the cheapest known hours, the departure is no deadline for it. Minimum is in by {{ car.get('dl', 0) | int(0) | timestamp_custom('%a %H:%M') }}.
-                    Not leaving: Minimum may wait too. Leaving: Normal before the departure.
-                    Without an answer it stays like this.
+                    Normal: {{ buy }}. Minimum by {{ car.get('dl', 0) | int(0) | timestamp_custom('%a %H:%M') }}.
+                    No answer: stays like this.
                   tag: hba_car_normal
                   color: orange
                   priority: high
@@ -1126,22 +1127,21 @@ automation:
             sequence:
               - action: script.hba_notify_dispatch
                 data:
-                  title: "Car: Normal is planned"
+                  title: "Car: Normal planned"
                   message: >-
                     {{ levels }}
 
-                    Normal plans {{ car.normal }} kWh for € {{ '%.2f' | format(car.normal_eur | float(0)) }}, from {{ car.normal_from }}.
+                    Normal: {{ buy }}.
                     {% if day == '' -%}
                       No home day coming up.
                     {%- elif sun < 0 -%}
                       No solar forecast for {{ day }} yet.
                     {%- elif sun >= want -%}
-                      {{ day }}: about {{ sun | round(1) }} kWh spare solar, enough for this, so Min. until home day looks good.
+                      {{ day }} solar ~{{ sun | round(1) }} kWh covers it.
                     {%- else -%}
-                      {{ day }}: about {{ sun | round(1) }} kWh spare solar of the {{ want }} kWh, so charging looks better.
+                      {{ day }} solar ~{{ sun | round(1) }} of {{ want }} kWh.
                     {%- endif %}
-                    Not leaving: no deadline at the next departure, the cheapest known hours.
-                    Without an answer it charges.
+                    No answer: charges.
                   tag: hba_car_normal
                   color: orange
                   priority: high
@@ -1153,13 +1153,12 @@ automation:
             sequence:
               - action: script.hba_notify_dispatch
                 data:
-                  title: "Solar looks low for the car"
+                  title: "Car: solar looks low"
                   message: >-
                     {{ levels }}
 
-                    {{ day }}: about {{ sun | round(1) }} kWh spare solar of the {{ want }} kWh Normal needs.
-                    Charging now would be {{ car.normal }} kWh for € {{ '%.2f' | format(car.normal_eur | float(0)) }}, from {{ car.normal_from }}.
-                    Without an answer Normal stays skipped.
+                    {{ day }} solar ~{{ sun | round(1) }} of {{ want }} kWh. Charging now: {{ buy }}.
+                    No answer: stays skipped.
                   tag: hba_car_normal
                   color: orange
                   priority: high
@@ -1176,8 +1175,7 @@ automation:
                     {{ levels }}
 
                     {% set names = {'Mon': 'Monday', 'Tue': 'Tuesday', 'Wed': 'Wednesday', 'Thu': 'Thursday', 'Fri': 'Friday', 'Sat': 'Saturday', 'Sun': 'Sunday'} -%}
-                    Min. until home day: no Normal from the grid until {{ names.get(day, day) if day != '' else 'the next departure' }}.
-                    Charging now would be {{ car.normal }} kWh for € {{ '%.2f' | format(car.normal_eur | float(0)) }}, from {{ car.normal_from }}.
+                    Until {{ names.get(day, day) if day != '' else 'the next departure' }}. Charging now: {{ buy }}.
                   tag: hba_car_normal
                   color: blue
                   priority: normal
