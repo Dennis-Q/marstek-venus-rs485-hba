@@ -32,7 +32,7 @@ This document covers HBA-specific changes only.
   *Normal from the grid* — Auto / Minimum only / Min. until home day (was *Normal coming night*:
   Auto / Skip tonight / Skip until home day). Entities:
   `input_select.hba_strategy_planned_car_next_departure`, `…_car_normal_skip`.
-- **The evening question** shows the car's level, Minimum, Normal and the max price, and has three
+- **The evening question** shows the car's level, Minimum and Normal on a first line, and has three
   buttons: *Not leaving / Minimum only / Min. until home day*, or on a home day from the list
   *Not leaving / Leaving / Minimum only*.
   While *Min. until home day* runs, a short notice in its place says until which day Normal stays

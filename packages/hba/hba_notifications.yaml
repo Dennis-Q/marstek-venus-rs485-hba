@@ -1098,11 +1098,11 @@ automation:
           buy: "{{ car.get('normal', 0) }} kWh (€{{ '%.2f' | format(car.get('normal_eur', 0) | float(0)) }}) from {{ car.get('normal_from', '') }}"
           # The levels the plan works towards, in brackets on a line of its own above the message
           # (user 2026-11-14: keep the texts short, and this line apart from the message)
+          # No max price here: it rarely changes (user 2026-11-14)
           levels: >-
-            [Car {{ states('sensor.ev_car_info') | float(0) | round(0) | int }}% ·
-            Min {{ states('input_number.hba_strategy_planned_car_minimum') | float(0) | int }}% ·
-            Normal {{ states('input_number.hba_strategy_planned_car_normal') | float(0) | int }}%
-            {%- if state_attr('sensor.ev_car_info', 'max_price_on') != false %} · max €{{ state_attr('sensor.ev_car_info', 'max_price') }}{% endif %}]
+            [ Car: {{ states('sensor.ev_car_info') | float(0) | round(0) | int }}% -
+            Min: {{ states('input_number.hba_strategy_planned_car_minimum') | float(0) | int }}% -
+            Normal: {{ states('input_number.hba_strategy_planned_car_normal') | float(0) | int }}% ]
       - choose:
           # The next departure is on a home day (the list): the plan assumes the car stays, for
           # Normal only. Asked because the list is a guess.
