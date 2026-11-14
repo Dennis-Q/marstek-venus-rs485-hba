@@ -21,6 +21,9 @@ This document covers HBA-specific changes only.
 
 ### Changed
 
+- **Plan history shows what the car got:** a past hour in the Planned table has a line *🚗 Car X kWh*
+  when the charger's energy meter counted car charging in it (needs the EV charger energy meter).
+
 - **Refresh icon in the Planned view:** next to the *Plan* heading; makes a new plan at once (the line
   below shows "refresh asked"). Useful after plugging the car in or out, which the plan otherwise
   only sees at its next 5-minute check.

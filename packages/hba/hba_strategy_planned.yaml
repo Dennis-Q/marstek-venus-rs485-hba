@@ -243,11 +243,17 @@ template:
             {%- set S = 'sensor.hba_ev_hour_energy' -%}
             {%- set p_slot = state_attr(S, 'slot') | int(0) -%}
             {%- set p_start = state_attr(S, 'start') -%}
+            {#- prev = what the slot before this one got in total, kept when the slot changes: the
+                plan's history shows it (the planner may run just after this sensor moved on) -#}
+            {%- set p_prev = state_attr(S, 'prev') -%}
+            {%- set prev = {'slot': p_slot, 'kwh': (m - p_start) | round(2)}
+                           if m >= 0 and p_slot > 0 and p_slot != slot and p_start is number and m >= p_start
+                           else (p_prev if p_prev is mapping else none) -%}
             {%- set plan = state_attr('sensor.hba_planned_strategy', 'plan') or [] -%}
             {%- set cur = plan | selectattr('ts', 'eq', slot) | first | default(none) -%}
             {%- set ev = (cur.ev | float(0)) if cur is not none and cur.ev is defined else 0 -%}
             {%- if m < 0 -%}
-              {{ {'kwh': 0, 'slot': slot, 'start': p_start if p_slot == slot else none, 'planned': ev, 'done': false, 'meter': false} | tojson }}
+              {{ {'kwh': 0, 'slot': slot, 'start': p_start if p_slot == slot else none, 'planned': ev, 'done': false, 'meter': false, 'prev': prev} | tojson }}
             {%- else -%}
               {%- set start = p_start if p_slot == slot and p_start is number and m >= p_start else m -%}
               {#- A plan made inside the slot counts the car kWh from then on (rest of the hour, need
@@ -260,7 +266,7 @@ template:
                              else (m if made > slot else start) -%}
               {%- set kwh = m - start -%}
               {%- set planned = (base - start + ev) if ev > 0 else 0 -%}
-              {{ {'kwh': kwh | round(2), 'slot': slot, 'start': start, 'base': base, 'made': made, 'planned': planned | round(2), 'done': planned > 0 and kwh >= planned - 0.05, 'meter': true} | tojson }}
+              {{ {'kwh': kwh | round(2), 'slot': slot, 'start': start, 'base': base, 'made': made, 'planned': planned | round(2), 'done': planned > 0 and kwh >= planned - 0.05, 'meter': true, 'prev': prev} | tojson }}
             {%- endif -%}
     sensor:
       - name: "HBA EV Hour Energy"
@@ -280,6 +286,7 @@ template:
           # Planned kWh are in: the car waits for the rest of the slot
           done: "{{ (res | from_json if res is string else res).done }}"
           meter: "{{ (res | from_json if res is string else res).meter }}"
+          prev: "{{ (res | from_json if res is string else res).get('prev') }}"
 
   # ── House load profile ────────────────────────────────────────────────────────
   # Average house use per hour of the day, calculated once a night by automation
@@ -1075,8 +1082,15 @@ template:
                   re-plan alone said "Full stop" for an hour that charged until 03:10 (prod 2026-11-04). -#}
               {%- set sa = state_attr('sensor.hba_planned_strategy', 'slot_acts') -%}
               {%- set acts = sa.a if sa is mapping and sa.ts == prev_slot and sa.a is sequence else [] -%}
+              {#- What the car really got in that slot (charger energy meter, sensor.hba_ev_hour_energy):
+                  its running total when that sensor is still on the slot, else what it kept as prev.
+                  None without a meter. -#}
+              {%- set evs = 'sensor.hba_ev_hour_energy' -%}
+              {%- set evp = state_attr(evs, 'prev') -%}
+              {%- set ev_done = (states(evs) | float(0)) if state_attr(evs, 'slot') | int(0) == prev_slot and state_attr(evs, 'meter') == true
+                                else (evp.kwh if evp is mapping and evp.slot == prev_slot else none) -%}
               {%- if done is not none and done.ts not in (ns_h.h | map(attribute='ts') | list) -%}
-                {%- set ns_h.h = ns_h.h + [{'ts': done.ts, 'b': done.b, 's': done.s, 'a': done.a, 'r': done.r,
+                {%- set ns_h.h = ns_h.h + [{'ts': done.ts, 'b': done.b, 's': done.s, 'a': done.a, 'r': done.r, 'ev': ev_done,
                                              'acts': acts + ([done.a] if acts | length == 0 or acts | last != done.a else []),
                                              'e1': e_now | round(2) if e_now >= 0 else done.e1, 'pe1': done.e1, 'c': done.c, 'load': hour_load}] -%}
               {%- endif -%}
