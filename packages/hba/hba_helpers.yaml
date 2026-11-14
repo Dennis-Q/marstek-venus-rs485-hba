@@ -2152,8 +2152,9 @@ template:
           notify_target: "{{ states('input_text.hba_notify_entity_id') }}"
           available_notify_services: >-
             {%- set ns = namespace(result=[]) -%}
-            {%- for e in states.notify -%}
-              {%- set ns.result = ns.result + ['notify.mobile_app_' + e.entity_id[7:]] -%}
+            {#- Only the mobile app's notify entities; others (Telegram, ...) got the same prefix -#}
+            {%- for e in integration_entities('mobile_app') | select('match', 'notify[.]') -%}
+              {%- set ns.result = ns.result + ['notify.mobile_app_' + e[7:]] -%}
             {%- endfor -%}
             {{ ns.result }}
 

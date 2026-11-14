@@ -67,6 +67,8 @@ This document covers HBA-specific changes only.
 - Charge → Sell keeps its flow label (it was written and overwritten with "Sell" every cycle).
 - Cell voltage difference is a whole number of mV (the rounding was applied to the wrong part).
 - The Controller state card no longer fails when `sensor.p1_meter_power` does not exist.
+- The notify action suggestions only list the mobile app's own phones (other notify entities were
+  shown as `notify.mobile_app_…` actions that do not exist).
 - Docs: a fresh install starts on *Very safe*, *Regular* is the validated preset to switch to;
   DEFAULTS.md version; which battery files have an `availability:` on their selects.
 
