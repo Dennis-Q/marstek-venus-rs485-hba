@@ -99,7 +99,9 @@ template:
           {%- set count = states('input_number.hba_battery_count') | int(1) -%}
           {%- for i in range(1, count + 1) -%}
             {%- set c = states('sensor.marstek_m' ~ i ~ '_battery_remaining_capacity') -%}
-            {%- set floor = states('sensor.marstek_m' ~ i ~ '_battery_total_energy') | float(0)
+            {%- set cap = states('sensor.marstek_m' ~ i ~ '_battery_total_energy') | float(0) -%}
+            {%- if cap <= 0 -%}{%- set cap = (state_attr('sensor.hba_battery_capacity', 'last_known') or {}).get(i | string, 0) | float(0) -%}{%- endif -%}
+            {%- set floor = cap
                   * states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) / 100 -%}
             {%- if c | is_number -%}
               {%- set ns.stored = ns.stored + c | float -%}

@@ -1424,8 +1424,13 @@ template:
           {% for i in range(1, count + 1) %}
             {% set soc = states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') | float(0) %}
             {% set cap = states('sensor.marstek_m' ~ i ~ '_battery_total_energy') | float(0) %}
+            {#- capacity not readable (polled every 5 min; after an outage it comes back last): last known -#}
+            {% if cap <= 0 %}{% set cap = (state_attr('sensor.hba_battery_capacity', 'last_known') or {}).get(i | string, 0) | float(0) %}{% endif %}
             {% set soc_max = states('input_number.hba_marstek_m' ~ i ~ '_charging_cutoff_capacity') | float(100) %}
-            {% set ns.total = ns.total + ([((soc_max - soc) / 100) * cap, 0] | max) %}
+            {#- a battery whose SoC cannot be read does not count (it read as empty: all of it "to charge") -#}
+            {% if is_number(states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge')) %}
+              {% set ns.total = ns.total + ([((soc_max - soc) / 100) * cap, 0] | max) %}
+            {% endif %}
           {% endfor %}
           {{ ns.total | round(2) }}
 
@@ -1440,6 +1445,8 @@ template:
           {% for i in range(1, count + 1) %}
             {% set soc = states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') | float(0) %}
             {% set cap = states('sensor.marstek_m' ~ i ~ '_battery_total_energy') | float(0) %}
+            {#- capacity not readable (polled every 5 min; after an outage it comes back last): last known -#}
+            {% if cap <= 0 %}{% set cap = (state_attr('sensor.hba_battery_capacity', 'last_known') or {}).get(i | string, 0) | float(0) %}{% endif %}
             {% set soc_min = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) %}
             {% set ns.total = ns.total + ([((soc - soc_min) / 100) * cap, 0] | max) %}
           {% endfor %}
@@ -1459,6 +1466,8 @@ template:
             {% set cutoff = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(12) %}
             {% set extra = [0, min_soc - cutoff] | max %}
             {% set cap = states('sensor.marstek_m' ~ i ~ '_battery_total_energy') | float(0) %}
+            {#- capacity not readable (polled every 5 min; after an outage it comes back last): last known -#}
+            {% if cap <= 0 %}{% set cap = (state_attr('sensor.hba_battery_capacity', 'last_known') or {}).get(i | string, 0) | float(0) %}{% endif %}
             {% set ns.total = ns.total + (extra / 100) * cap %}
           {% endfor %}
           {{ ns.total | round(2) }}
@@ -1510,12 +1519,16 @@ template:
         state_class: measurement
         icon: mdi:battery-half
         state: >
+          {#- Average over the batteries whose SoC can be read. A missing one used to count as 0 %
+              (one of four away: the average a quarter lower, and a Sell "state of charge" goal
+              reached that was not). None readable: 0, as before. -#}
           {% set count = states('input_number.hba_battery_count') | int(1) %}
-          {% set ns = namespace(total=0) %}
+          {% set ns = namespace(total=0, n=0) %}
           {% for i in range(1, count + 1) %}
-            {% set ns.total = ns.total + states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') | float(0) %}
+            {% set s = states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') %}
+            {% if is_number(s) %}{% set ns.total = ns.total + (s | float(0)) %}{% set ns.n = ns.n + 1 %}{% endif %}
           {% endfor %}
-          {{ (ns.total / count) | round(1) }}
+          {{ (ns.total / ns.n) | round(1) if ns.n > 0 else 0 }}
 
       # ── Solar forecast distribution sensors (used by Charge → solar forecast goal cards)
       - name: "HBA Solar Forecast Today"
@@ -1606,9 +1619,17 @@ template:
           {% set ns = namespace(energy_max=0) %}
           {% for i in range(1, count + 1) %}
             {% set cap = states('sensor.marstek_m' ~ i ~ '_battery_total_energy') | float(0) %}
+            {#- capacity not readable (polled every 5 min; after an outage it comes back last): last known -#}
+            {% if cap <= 0 %}{% set cap = (state_attr('sensor.hba_battery_capacity', 'last_known') or {}).get(i | string, 0) | float(0) %}{% endif %}
             {% set soc_max = states('input_number.hba_marstek_m' ~ i ~ '_charging_cutoff_capacity') | float(100) %}
             {% set soc_min = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) %}
-            {% set ns.energy_max = ns.energy_max + (soc_max - soc_min) / 100 * cap %}
+            {#- Only a battery whose SoC can be read, as sensor.hba_charge_available_energy counts it:
+                the two then shrink and grow together when a battery drops out and comes back
+                (usable used to follow half a minute later, and a battery that was back counted
+                as 0 kWh until its capacity was polled again, up to 5 minutes). -#}
+            {% if is_number(states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge')) %}
+              {% set ns.energy_max = ns.energy_max + (soc_max - soc_min) / 100 * cap %}
+            {% endif %}
           {% endfor %}
           {{ ns.energy_max | round(2) }}
 
@@ -2530,6 +2551,7 @@ template:
             'binary_sensor.hba_rs485_mode_mismatch',
             'binary_sensor.hba_control_loop_stalled',
             'binary_sensor.hba_p1_meter_lost',
+            'sensor.hba_battery_capacity',
           ] %}
           {{ expected | reject('has_value') | list | length > 0 }}
         attributes:
@@ -2556,6 +2578,7 @@ template:
               'binary_sensor.hba_rs485_mode_mismatch',
               'binary_sensor.hba_control_loop_stalled',
               'binary_sensor.hba_p1_meter_lost',
+              'sensor.hba_battery_capacity',
             ] %}
             {% set ns = namespace(missing=[]) %}
             {% for e in expected %}
@@ -3434,6 +3457,56 @@ template:
           {%- set p = states.sensor.p1_meter_power -%}
           {{ p is none
              or (now() - (p.last_reported if is_number(p.state) else p.last_changed)).total_seconds() > 60 }}
+
+  # Last known capacity per battery (kWh). sensor.marstek_mX_battery_total_energy is polled every
+  # 5 minutes and is the last thing to come back after a battery was unreachable: the battery
+  # answers again, its SoC is read, but without a capacity it counted as 0 kWh for minutes more
+  # (dev 2026-11-14: 8 minutes after the battery was back, then a re-plan "off by 1.95 kWh").
+  # Capacity hardly changes, so the energy sensors use the last value read while it is
+  # unreadable. Trigger-based: kept over a restart. State = the configured batteries together.
+  - triggers:
+      - trigger: state
+        entity_id:
+          - sensor.marstek_m1_battery_total_energy
+          - sensor.marstek_m2_battery_total_energy
+          - sensor.marstek_m3_battery_total_energy
+          - sensor.marstek_m4_battery_total_energy
+          - sensor.marstek_m5_battery_total_energy
+          - sensor.marstek_m6_battery_total_energy
+        not_to: ["unknown", "unavailable"]
+      - trigger: state
+        entity_id: input_number.hba_battery_count
+      - trigger: homeassistant
+        event: start
+      - trigger: event
+        event_type: event_template_reloaded
+    actions:
+      - variables:
+          caps: >-
+            {%- set prev = state_attr('sensor.hba_battery_capacity', 'last_known') -%}
+            {%- set prev = prev if prev is mapping else {} -%}
+            {%- set ns = namespace(d={}) -%}
+            {%- for i in range(1, 7) -%}
+              {%- set k = i | string -%}
+              {%- set c = states('sensor.marstek_m' ~ i ~ '_battery_total_energy') | float(0) -%}
+              {%- set v = c if c > 0 else (prev[k] if k in prev else 0) | float(0) -%}
+              {%- if v > 0 -%}{%- set ns.d = ns.d | combine({k: v}) -%}{%- endif -%}
+            {%- endfor -%}
+            {{ ns.d | tojson }}
+    sensor:
+      - name: "HBA Battery Capacity"
+        unique_id: hba_battery_capacity
+        icon: mdi:battery-high
+        unit_of_measurement: kWh
+        state: >-
+          {%- set d = caps | from_json if caps is string else caps -%}
+          {%- set ns = namespace(t=0) -%}
+          {%- for i in range(1, (states('input_number.hba_battery_count') | int(1)) + 1) -%}
+            {%- set ns.t = ns.t + (d.get(i | string, 0) | float(0)) -%}
+          {%- endfor -%}
+          {{ ns.t | round(2) }}
+        attributes:
+          last_known: "{{ caps | from_json if caps is string else caps }}"
 
   # Time of the last automation reload. A reload can freeze HA for a while; the control-loop
   # watchdog and the battery offline check stay quiet for 2 min after it.

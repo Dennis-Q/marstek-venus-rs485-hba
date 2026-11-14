@@ -475,13 +475,24 @@ template:
             {%- set pE = state_attr('sensor.hba_planned_strategy', 'ledger_energy') -%}
             {%- set pC = state_attr('sensor.hba_planned_strategy', 'ledger_cost') -%}
             {%- set grid = is_state('sensor.hba_active_strategy', 'Charge') -%}
+            {#- Batteries whose SoC can be read now, against the last run (n). More than then = a
+                battery came back: the energy it brings was there all along and is not bought now
+                (dev 2026-11-14: 1.95 kWh back after an outage was booked at the running price,
+                0.62 -> 0.55 per kWh). The cost per kWh stays, only the energy is taken over. -#}
+            {%- set nb = namespace(n=0) -%}
+            {%- for i in range(1, (states('input_number.hba_battery_count') | int(1)) + 1)
+                  if is_number(states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge')) -%}
+              {%- set nb.n = nb.n + 1 -%}
+            {%- endfor -%}
+            {%- set pN = state_attr('sensor.hba_planned_strategy', 'ledger_bats') -%}
+            {%- set back = pN is number and nb.n > pN -%}
             {%- if e_now < 0 or b_now is none -%}
-              {{ {'E': pE, 'C': pC} | tojson }}
+              {{ {'E': pE, 'C': pC, 'n': pN} | tojson }}
             {%- elif pE is number and pC is number -%}
               {%- set dE = e_now - pE -%}
               {%- set price = b_now if grid else s_now -%}
-              {%- set C = ((pC * pE + dE * price / ec) / e_now) if dE > 0.02 and e_now > 0.05 else pC -%}
-              {{ {'E': e_now, 'C': C | round(4)} | tojson }}
+              {%- set C = ((pC * pE + dE * price / ec) / e_now) if dE > 0.02 and e_now > 0.05 and not back else pC -%}
+              {{ {'E': e_now, 'C': C | round(4), 'n': nb.n} | tojson }}
             {%- else -%}
               {#- Seed: replay the executed history (ts, b, s, a, e1), then up to now -#}
               {%- set hist = prev_hist | sort(attribute='ts') | list -%}
@@ -500,7 +511,7 @@ template:
               {%- if ns_l.E is none -%}{%- set ns_l.E = e_now -%}{%- set ns_l.C = b_now / ec -%}{%- endif -%}
               {%- set dE = e_now - ns_l.E -%}
               {%- set C = ((ns_l.C * ns_l.E + dE * (b_now if grid else s_now) / ec) / e_now) if dE > 0.02 and e_now > 0.05 else ns_l.C -%}
-              {{ {'E': e_now, 'C': C | round(4)} | tojson }}
+              {{ {'E': e_now, 'C': C | round(4), 'n': nb.n} | tojson }}
             {%- endif -%}
       - variables:
           # plan = the plan that runs. preview = the same calculation with the car, only to show
@@ -1171,6 +1182,8 @@ template:
           # Ledger (see the variable): stored energy at the last run and what it cost per stored kWh
           ledger_energy: "{{ (ledger if ledger is mapping else (ledger | from_json)).E }}"
           ledger_cost: "{{ (ledger if ledger is mapping else (ledger | from_json)).C }}"
+          # Batteries whose SoC could be read at that run (a battery that comes back is not a purchase)
+          ledger_bats: "{{ (ledger if ledger is mapping else (ledger | from_json)).get('n') }}"
           # Stored energy the plan expects at the end of the running slot (Charge / Sell run to it)
           target_energy: >-
             {%- set row = (result if result is mapping else (result | from_json)).plan | selectattr('ts', 'eq', now_slot) | first | default(none) -%}
