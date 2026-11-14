@@ -333,6 +333,72 @@ done
 
 echo ""
 
+# ── Battery files: still up to date? ──────────────────────────────────────────
+# Battery files hold the user's IP address, so the installer never overwrites them --
+# and fixes made to them never arrive (a hub timeout of 5 s instead of 20 s: a battery
+# that drops out holds up the others 4x shorter; 24 slow registers polled every 5 min
+# instead of every 30 s). This only looks and warns; it changes no battery file.
+#   - HBA's own files (packages/hba/marstek_mN_modbus_tcp.yaml): compared with this
+#     version, host and port lines aside. Different -> the new version is put next to
+#     it as <file>.new (HA only loads *.yaml), to copy the IP address into.
+#   - Other Marstek Modbus files anywhere under packages/ (fonske's originals, as HBC
+#     users have them): checked for the two settings above.
+#   - Two files with the same name under packages/: HA keeps only one of them, and
+#     which one is not obvious (an old copy in a subfolder replaced the new file on a
+#     production install, 2026-11-11).
+
+echo "Battery files:"
+BAT_WARN=false
+while IFS= read -r _f; do
+    grep -q "forcible_charge" "$_f" 2>/dev/null || continue
+    grep -q "^modbus:" "$_f" 2>/dev/null || continue
+    _rel="${_f#"${CONFIG_DIR}/"}"
+    if [[ "$_rel" =~ ^packages/hba/marstek_m[1-6]_modbus_tcp\.yaml$ ]]; then
+        _ref="${STAGE}/ref_$(basename "$_rel")"
+        if curl -fsSL --retry 2 --connect-timeout 15 --max-time 60 "${BASE_URL}/${_rel}" -o "$_ref" 2>/dev/null \
+                && [ -s "$_ref" ]; then
+            if cmp -s <(grep -vE '^[[:space:]]*(host|port):' "$_f") \
+                      <(grep -vE '^[[:space:]]*(host|port):' "$_ref"); then
+                rm -f "${_f}.new"
+            else
+                cp "$_ref" "${_f}.new"
+                BAT_WARN=true
+                warn "${_rel} is not the version of this release."
+                say "The new one is next to it as $(basename "$_rel").new: put your battery's IP"
+                say "address (host:) in it, rename it over the old file, restart Home Assistant."
+            fi
+        fi
+    else
+        _issues=""
+        _t=$(grep -m1 -E '^[[:space:]]*timeout:' "$_f" | grep -oE '[0-9]+' | head -n1 || true)
+        if [ -n "$_t" ] && [ "$_t" -gt 5 ]; then
+            _issues="timeout: ${_t} (HBA's files use 5: a battery that drops out holds up the others much shorter)"
+        fi
+        _slow=$(grep -cE '^[[:space:]]*scan_interval:[[:space:]]*300' "$_f" || true)
+        if [ "${_slow:-0}" -lt 20 ]; then
+            [ -n "$_issues" ] && _issues="${_issues}; "
+            _issues="${_issues}cell voltages and counters polled every 30 s (HBA's files: every 5 min, so commands wait less)"
+        fi
+        if [ -n "$_issues" ]; then
+            BAT_WARN=true
+            warn "${_rel} is a Marstek battery file that is not HBA's current one:"
+            say "${_issues}."
+            say "It works, but see README → Marstek battery files for what HBA's files change."
+        fi
+    fi
+done < <(find "${CONFIG_DIR}/packages" -type f -name '*.yaml' 2>/dev/null | sort)
+
+_dups=$(find "${CONFIG_DIR}/packages" -type f \( -name 'hba_*.yaml' -o -name 'marstek_*.yaml' \) 2>/dev/null \
+        | sed 's|.*/||' | sort | uniq -d)
+for _b in $_dups; do
+    BAT_WARN=true
+    warn "More than one file named ${_b} under packages/ — Home Assistant loads only one of them:"
+    find "${CONFIG_DIR}/packages" -type f -name "$_b" | sed "s|^${CONFIG_DIR}/|      |"
+    say "Remove the old copy, or rename it so it no longer ends in .yaml."
+done
+[ "$BAT_WARN" = false ] && ok "battery files are up to date"
+echo ""
+
 # ── configuration.yaml checks ─────────────────────────────────────────────────
 
 CONF="${CONFIG_DIR}/configuration.yaml"
