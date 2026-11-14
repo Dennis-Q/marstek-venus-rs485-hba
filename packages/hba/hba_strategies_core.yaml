@@ -597,6 +597,22 @@ automation:
                 entity_id: "{{ repeat.item.entity }}"
               data:
                 value: "{{ repeat.item.value }}"
+      # Wait until the read-backs show what was written (polled every 10 s), at most 12 s.
+      # This automation decides from the read-backs and is queued: without the wait the next
+      # run, started by any other trigger, still saw the old values and wrote the same
+      # registers again (prod 2026-11-09..11: 31 of 73, 87 of 153, 42 of 92 writes were
+      # repeats within 15 s).
+      - if: "{{ writes | length > 0 }}"
+        then:
+          - wait_template: >-
+              {%- set ns = namespace(ok=true) -%}
+              {%- for w in writes -%}
+                {%- set rb = states(w.entity | replace('number.', 'sensor.') ~ '_number') | float(-1) -%}
+                {%- if rb != (w.value | float(0)) -%}{%- set ns.ok = false -%}{%- endif -%}
+              {%- endfor -%}
+              {{ ns.ok }}
+            timeout: { seconds: 12 }
+            continue_on_timeout: true
 
   # ── Power groups: prefill a battery's own limits ─────────────────────────────
   # When a battery leaves "Own" for a group, its own max charge / max discharge power
@@ -881,9 +897,15 @@ script:
           sequence:
             - variables:
                 bat: "m{{ repeat.index }}"
-                # Don't write to unreachable entities — generates log spam
-                # with no effect.
-                bat_available: "{{ states('select.marstek_' ~ bat ~ '_forcible_charge_discharge') not in ['unavailable', 'unknown', 'none'] }}"
+                # Don't write to a battery that does not answer: unavailable, or silent on
+                # Modbus for 30 s (a hung link looks available for minutes; a write to it
+                # waits on its hub and held up the mode change for the batteries after it).
+                # It gets its mode from hba_master_mode_periodic_reapply once it is back.
+                bat_available: >-
+                  {%- set hb = states.sensor['marstek_' ~ bat ~ '_battery_power'] -%}
+                  {{ states('select.marstek_' ~ bat ~ '_forcible_charge_discharge') not in ['unavailable', 'unknown', 'none']
+                     and hb is not none and hb.state not in ['unavailable', 'unknown']
+                     and (now() - hb.last_reported).total_seconds() <= 30 }}
             # Stop any in-flight forcible charge/discharge BEFORE changing mode,
             # for any mode that doesn't actively keep commanding (everything
             # except Full control). Has to run while RS485 is still enabled so
@@ -905,15 +927,19 @@ script:
                         discharge_w: 0
                         force: true
             - choose:
+                - conditions: "{{ not bat_available }}"
+                  sequence: []
                 - conditions: "{{ mode == 'Manual control' }}"
                   sequence:
                     - action: select.select_option
+                      continue_on_error: true
                       target:
                         entity_id: "select.marstek_{{ bat }}_user_work_mode"
                       data: { option: "manual" }
                 - conditions: "{{ mode == 'Full control' }}"
                   sequence:
                     - action: select.select_option
+                      continue_on_error: true
                       target:
                         entity_id: "select.marstek_{{ bat }}_user_work_mode"
                       data: { option: "manual" }

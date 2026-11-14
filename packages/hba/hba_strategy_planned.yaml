@@ -1625,6 +1625,13 @@ automation:
                 'window_weeks': weeks, 'sources': ids,
                 'no_statistics': ids | reject('in', S.keys() | list) | list,
                 'kwh_day': ((ns2.p | reject('none') | sum) / 1000) | round(1) if keep | length > 0 else none} | tojson }}
+      # Nothing usable came back (the statistics call failed, or no complete day): keep the
+      # profile there is. An empty one replaced it until the next night, and Planned ran on
+      # the flat house load.
+      - condition: template
+        value_template: >-
+          {{ (result if result is mapping else (result | from_json)).days_used | int(0) > 0
+             or (state_attr('sensor.hba_house_load_profile', 'profile') or []) | length != 24 }}
       - event: hba_house_load_profile
         event_data:
           profile: "{{ (result if result is mapping else (result | from_json)).profile }}"

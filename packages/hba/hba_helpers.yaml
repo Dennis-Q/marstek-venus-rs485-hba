@@ -1809,9 +1809,6 @@ template:
             {%- set lt = state_attr('automation.hba_control_loop_p1_meter_triggered', 'last_triggered') -%}
             {%- set s = ((now() - lt).total_seconds()) | int if lt is not none else none -%}
             {{ s if s is not none and s > 90 and is_state('input_select.hba_marstek_master_battery_mode', 'Full control') else none }}
-          p1_updating: >-
-            {%- set p = states.sensor.p1_meter_power -%}
-            {{ p is not none and (now() - p.last_reported).total_seconds() < 60 }}
 
       # A battery is offline when Modbus lost it (inverter_state unavailable) OR its link
       # hangs: battery_power (polled every 10 s) has not reported for 30+ s. A hung link
