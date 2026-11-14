@@ -2954,12 +2954,12 @@ views:
                 name: Minimum above the max price
               - entity: input_text.hba_strategy_planned_car_home_days
                 name: Car home in daytime on
-              - entity: input_select.hba_strategy_planned_car_tomorrow
-                name: Car tomorrow
+              - entity: input_select.hba_strategy_planned_car_next_departure
+                name: Next departure
               - entity: input_boolean.hba_strategy_planned_car_ask_normal
                 name: Ask before Normal
-              - entity: input_select.hba_strategy_planned_car_normal_tonight
-                name: Normal coming night
+              - entity: input_select.hba_strategy_planned_car_normal_skip
+                name: Normal from the grid
               - entity: input_text.hba_ev_charger_energy_entity_id
                 name: EV charger energy meter (kWh counter)
           - type: markdown
@@ -2997,13 +2997,20 @@ views:
 
               <font color=grey>**Car home in daytime on:** the days the car can catch solar, separated by commas,
               in English: Mon, Tue, Wed, Thu, Fri, Sat, Sun, or full names. Empty = Sat,Sun; `none` = never.
-              **Car tomorrow:** overrides this once (Home or Away); back to Auto at 08:00.</font>
+              On such a day the departure is no deadline for Normal: it takes the cheapest known hours
+              until the first departure on a day the car is not home. Minimum is still in by the departure.
+              **Next departure:** your own answer for that one departure. *Not leaving* = the car stays,
+              Minimum may wait too. *Leaving* = it goes although the day is in the list. Back to Auto
+              once that departure has passed.</font>
 
 
-              <font color=grey>**Ask before Normal:** a question in the evening when Normal has hours tonight:
-              skip tonight, or skip until the next day the car is home. It shows that day's expected spare
-              solar. No answer means it charges, and Minimum always stays. With Skip until home day it only
-              speaks up when solar looks too low. **Normal coming night** shows the answer, and you can set it
+              <font color=grey>**Ask before Normal:** a question in the evening when Normal has hours planned:
+              *Not leaving*, *Minimum only* (you leave, Minimum is enough this time) or *Min. until home day*
+              (until the next day the car is home; it shows that day's expected spare solar). On a home
+              day from the list it asks whether the car really stays. No answer means it charges as
+              planned. While Min. until home day runs you get a short notice that Normal stays skipped, or a
+              warning when that day's solar looks too low.
+              **Next departure** and **Normal from the grid** show the answer, and you can set them
               here too. Solcast gives this for up to 7 days once its day 4 to 7 sensors are enabled.</font>
 
 
@@ -3049,14 +3056,21 @@ views:
               {%- set car = sm.get('car') or {} -%}
               {%- set full = sm.get('usable', 0) | float(0) -%}
               {%- set dl = state_attr(I, 'deadline') | int(0) -%}
-              {%- set cheap = (plan | selectattr('ts', 'lt', dl) | sort(attribute='b') | map(attribute='ts') | list)[:3] -%}
+              {%- set dl_n = car.get('dl_norm', 0) | int(0) -%}
+              {%- set dl_n = dl_n if dl_n > dl else dl -%}
+              {%- set cheap = (plan | selectattr('ts', 'lt', dl_n) | sort(attribute='b') | map(attribute='ts') | list)[:3] -%}
               ### Car hours
               {{ state_attr(I, 'car_name') or 'Active car' }} · departure {{ dl | timestamp_custom('%a %H:%M') }}{{ ' · not connected' if state_attr(I, 'connected') != true }}
+              {%- if dl_n > dl %}
+
+
+              Car home {{ dl | timestamp_custom('%A') }} ({{ 'Not leaving' if car.get('dep') == 'Not leaving' else 'home-day list' }}): Normal may use the cheapest hours until {{ dl_n | timestamp_custom('%a %H:%M') }}; Minimum {{ 'waits too' if car.get('dl_min', 0) | int(0) > dl else 'is in by the departure' }}.
+              {%- endif %}
 
 
               {% if preview or state_attr(I, 'connected') == true -%}
               {%- if car.get('normal_skip') %}
-              Normal skipped: {{ car.get('normal', 0) }} kWh, € {{ '%.2f' | format(car.get('normal_eur', 0)) }} ({{ states('input_select.hba_strategy_planned_car_normal_tonight') | lower }}).
+              Normal skipped: {{ car.get('normal', 0) }} kWh, € {{ '%.2f' | format(car.get('normal_eur', 0)) }} ({{ states('input_select.hba_strategy_planned_car_normal_skip') | lower }}{{ ', until ' ~ car.home_day if is_state('input_select.hba_strategy_planned_car_normal_skip', 'Min. until home day') and car.get('home_day') }}).
               {% endif -%}
               {%- if car.get('home_day') %}
               Next home day {{ car.home_day }}: {{ ('about ' ~ car.home_sun ~ ' kWh spare solar') if car.get('home_sun', -1) >= 0 else 'no forecast yet' }}.

@@ -21,6 +21,27 @@ This document covers HBA-specific changes only.
 
 ### Changed
 
+- **Planned × car: a day at home is no deadline any more.** When the car stays home on the day of the
+  next departure (a day in *Car home in daytime on*, or your own answer), Normal takes the cheapest
+  known hours until the first departure on a day it is not home — also in the daytime, already the
+  evening before. Before, "home" only lowered Normal by the expected sun and the car still charged
+  in the night before the departure time. Minimum is still in by the departure when the day only
+  comes from the list, and waits too after *Not leaving*.
+- **Two settings renamed, with new options** (the old ones start on Auto):
+  *Next departure* — Auto / Not leaving / Leaving (was *Car tomorrow*: Auto / Home / Away) and
+  *Normal from the grid* — Auto / Minimum only / Min. until home day (was *Normal coming night*:
+  Auto / Skip tonight / Skip until home day). Entities:
+  `input_select.hba_strategy_planned_car_next_departure`, `…_car_normal_skip`.
+- **The evening question** shows the car's level, Minimum, Normal and the max price, and has three
+  buttons: *Not leaving / Minimum only / Min. until home day*, or on a home day from the list
+  *Not leaving / Leaving / Minimum only*.
+  While *Min. until home day* runs, a short notice in its place says until which day Normal stays
+  skipped, with *Charge* and *Dismiss* buttons; it removes itself from the phone after an hour.
+- **The answers end by themselves once their departure has passed**, checked all the time
+  (`sensor.hba_planned_car_choice` remembers which departure). The old reset ran at one clock
+  minute and was missed after a restart or a changed departure time. Changing the departure time
+  after answering keeps the answer as long as the departure stays on the same day.
+
 - **Less recorder load:** `binary_sensor.hba_control_loop_stalled` has `seconds_since_cycle` only during a
   stall (it changed at every control cycle: 100–800 rows an hour). Labs floor sensors list the motion
   sensors as one entry *Motion sensors* (switching between an mmWave's moving and still target wrote

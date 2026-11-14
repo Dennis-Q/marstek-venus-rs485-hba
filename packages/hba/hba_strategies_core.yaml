@@ -1958,7 +1958,10 @@ script:
             - input_boolean.hba_strategy_planned_car_grid
             - input_boolean.hba_strategy_planned_car_ask_normal
       - action: input_select.select_option
-        target: { entity_id: input_select.hba_strategy_planned_car_normal_tonight }
+        target:
+          entity_id:
+            - input_select.hba_strategy_planned_car_next_departure
+            - input_select.hba_strategy_planned_car_normal_skip
         data: { option: "Auto" }
       - action: input_text.set_value
         target: { entity_id: input_text.hba_strategy_planned_sell_price_entity_id }

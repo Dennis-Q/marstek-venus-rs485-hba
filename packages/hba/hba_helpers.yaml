@@ -1148,22 +1148,27 @@ input_select:
     icon: mdi:clock-end
   # History for the house-load profile. Whole weeks keep weekdays and weekend in the same
   # mix; the default comes first so a new install starts on it.
-  # Override for the next day; back to Auto at 08:00
-  hba_strategy_planned_car_tomorrow:
-    name: "Planned: car tomorrow"
+  # The car's next departure, for that one departure. Auto = the home-day list decides.
+  # Not leaving = the car stays: no deadline then, Normal and Minimum take the cheapest known
+  # hours until the first departure on a day it is not home. Leaving = it goes, although the day
+  # is in the list. Back to Auto once that departure has passed (hba_planned_car_choice_reset).
+  # Until 2026-11: hba_strategy_planned_car_tomorrow (Auto / Home / Away).
+  hba_strategy_planned_car_next_departure:
+    name: "Planned: car next departure"
     options:
       - "Auto"
-      - "Home"
-      - "Away"
+      - "Not leaving"
+      - "Leaving"
     icon: mdi:car-clock
-  # Normal skipped by the evening question or by hand. Minimum always stays. Back to Auto at
-  # departure; "until home day" at the departure of the next day the car is home.
-  hba_strategy_planned_car_normal_tonight:
-    name: "Planned: car Normal coming night"
+  # Normal skipped by the evening question or by hand. Minimum always stays. Minimum only: until
+  # the next departure has passed. Min. until home day: until a departure on a home day has passed.
+  # Until 2026-11: hba_strategy_planned_car_normal_tonight (Auto / Skip tonight / Skip until home day).
+  hba_strategy_planned_car_normal_skip:
+    name: "Planned: car Normal skip"
     options:
       - "Auto"
-      - "Skip tonight"
-      - "Skip until home day"
+      - "Minimum only"
+      - "Min. until home day"
     icon: mdi:car-clock
 
   hba_house_load_window:
@@ -3296,6 +3301,42 @@ template:
           max_w: >-
             {%- set x = lim | from_json if lim is string else lim -%}
             {{ x.ct if states('sensor.hba_total_battery_power') | float(0) < 0 else x.dt }}
+
+  # Which departure the car choices belong to (hba_planned_car_choice_reset ends them). Trigger-based
+  # so HA restores it after a restart. dep_day / skip_day = the date of the next departure at the
+  # moment the choice was made (YYYY-MM-DD, empty on Auto); a choice found without a date (first
+  # start after the update) gets the current next departure.
+  - triggers:
+      - trigger: state
+        entity_id:
+          - input_select.hba_strategy_planned_car_next_departure
+          - input_select.hba_strategy_planned_car_normal_skip
+        to: ~
+      - trigger: homeassistant
+        event: start
+    sensor:
+      - name: "HBA Planned Car Choice"
+        unique_id: hba_planned_car_choice
+        icon: mdi:car-clock
+        state: >-
+          {{ [states('input_select.hba_strategy_planned_car_next_departure'), states('input_select.hba_strategy_planned_car_normal_skip')] | reject('eq', 'Auto') | list | join(', ') or 'Auto' }}
+        attributes:
+          dep_day: >-
+            {%- set dl = state_attr('sensor.ev_car_info', 'deadline') | int(0) -%}
+            {%- set d = (dl | timestamp_custom('%Y-%m-%d')) if dl > 0 else now().strftime('%Y-%m-%d') -%}
+            {%- set old = this.attributes.get('dep_day', '') if this is defined and this.attributes is defined else '' -%}
+            {%- if states('input_select.hba_strategy_planned_car_next_departure') in ['Auto', 'unknown', 'unavailable'] -%}
+            {%- elif trigger.platform == 'state' and trigger.entity_id == 'input_select.hba_strategy_planned_car_next_departure' or not old -%}{{ d }}
+            {%- else -%}{{ old }}
+            {%- endif -%}
+          skip_day: >-
+            {%- set dl = state_attr('sensor.ev_car_info', 'deadline') | int(0) -%}
+            {%- set d = (dl | timestamp_custom('%Y-%m-%d')) if dl > 0 else now().strftime('%Y-%m-%d') -%}
+            {%- set old = this.attributes.get('skip_day', '') if this is defined and this.attributes is defined else '' -%}
+            {%- if states('input_select.hba_strategy_planned_car_normal_skip') in ['Auto', 'unknown', 'unavailable'] -%}
+            {%- elif trigger.platform == 'state' and trigger.entity_id == 'input_select.hba_strategy_planned_car_normal_skip' or not old -%}{{ d }}
+            {%- else -%}{{ old }}
+            {%- endif -%}
 
   # When Charge or Sell was chosen (for the reminders). Trigger-based so HA restores it after a
   # restart — input_select last_changed restarts with HA, which reset the 1/2/4 h reminders.

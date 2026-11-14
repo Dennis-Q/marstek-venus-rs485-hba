@@ -347,8 +347,8 @@ template:
           - input_text.hba_strategy_solar_aware_forecast_entity_id
           - input_text.hba_strategy_solar_forecast_entity_id
           - input_text.hba_strategy_solar_forecast_tomorrow_entity_id
-          - input_select.hba_strategy_planned_car_tomorrow
-          - input_select.hba_strategy_planned_car_normal_tonight
+          - input_select.hba_strategy_planned_car_next_departure
+          - input_select.hba_strategy_planned_car_normal_skip
           - sensor.hba_house_load_profile
         id: settings
       - trigger: state
@@ -391,7 +391,7 @@ template:
             {%- set raw = state_attr('sensor.hba_energy_prices_data', 'marks') -%}
             {%- set ev_e = 'sensor.ev_car_info' -%}
             {%- set marks = (raw | from_json) if raw is string and (raw | trim)[:1] == '[' else (raw if raw is sequence else []) -%}
-            {{ marks | length }}|{{ (marks | last).start if marks | length > 0 else '' }}|{{ states(today_solar_e) | float(0) | round(1) if today_solar_e != '' else '' }}|{{ states(tomorrow_solar_e) | float(0) | round(1) if tomorrow_solar_e != '' else '' }}|{{ state_attr(ev_e, 'following') }}|{{ state_attr(ev_e, 'max_price_on') }}|{{ state_attr(ev_e, 'known') }}|{{ state_attr(ev_e, 'connected') }}|{{ (states(ev_e) | float(0) / 5) | round(0) }}|{{ state_attr(ev_e, 'max_price') }}|{{ state_attr(ev_e, 'charge_kw') }}|{{ state_attr(ev_e, 'over_price') }}|{{ states('input_select.hba_strategy_planned_car_tomorrow') }}|{{ states('input_select.hba_strategy_planned_car_normal_tonight') }}
+            {{ marks | length }}|{{ (marks | last).start if marks | length > 0 else '' }}|{{ states(today_solar_e) | float(0) | round(1) if today_solar_e != '' else '' }}|{{ states(tomorrow_solar_e) | float(0) | round(1) if tomorrow_solar_e != '' else '' }}|{{ state_attr(ev_e, 'following') }}|{{ state_attr(ev_e, 'max_price_on') }}|{{ state_attr(ev_e, 'known') }}|{{ state_attr(ev_e, 'connected') }}|{{ (states(ev_e) | float(0) / 5) | round(0) }}|{{ state_attr(ev_e, 'max_price') }}|{{ state_attr(ev_e, 'charge_kw') }}|{{ state_attr(ev_e, 'over_price') }}|{{ states('input_select.hba_strategy_planned_car_next_departure') }}|{{ states('input_select.hba_strategy_planned_car_normal_skip') }}|{{ state_attr(ev_e, 'deadline') }}
       - variables:
           # The slot that was running according to the previous plan, to measure the drift
           drift: >-
@@ -618,23 +618,42 @@ template:
                     alongside EV), so car and batteries stop competing for the same cheap hours (prod Mar-Oct:
                     252 kWh). Sun the car will get on a day it is home does not have to be bought, for
                     Normal: forecast minus house use in daytime minus refilling the batteries. "That day"
-                    is today before 08:00, else tomorrow. Normal can be skipped for the coming night
-                    (input_select.hba_strategy_planned_car_normal_tonight); its hours are still worked out
+                    is the day of the next departure. The car stays home that day (a day in the home-day
+                    list, or Not leaving in input_select.hba_strategy_planned_car_next_departure; Leaving
+                    overrules the list): that departure is no deadline for Normal, which takes the cheapest
+                    known hours until the first departure on a day it is not home (user 2026-11-14: home on
+                    Saturday, the plan still charged in the night before 07:00 while 12:00 was cheaper).
+                    Minimum keeps the next departure when home only comes from the list (a guess), and
+                    waits too with Not leaving. Normal can be skipped
+                    (input_select.hba_strategy_planned_car_normal_skip); its hours are still worked out
                     for the evening question. -#}
                 {%- set ev_e = 'sensor.ev_car_info' -%}
-                {%- set car = namespace(min=0, need=0, sun=0, min_left=0, left=0, picks={}, lims={}, home=false, over=0, over_eur=0, over_from='', kwh=0, eur=0, alt_kwh=0, alt_eur=0, nskip=false, nkwh=0, neur=0, nfrom='', home_day='', home_fc=-1, home_sun=-1, sun_in=0, along=is_state('binary_sensor.hba_ev_alongside_ready', 'on')) -%}
+                {%- set car = namespace(min=0, need=0, sun=0, min_left=0, left=0, picks={}, lims={}, home=false, over=0, over_eur=0, over_from='', kwh=0, eur=0, alt_kwh=0, alt_eur=0, nskip=false, dep='Auto', dl=0, dl_norm=0, dl_min=0, nkwh=0, neur=0, nfrom='', home_day='', home_fc=-1, home_sun=-1, sun_in=0, along=is_state('binary_sensor.hba_ev_alongside_ready', 'on')) -%}
                 {#- Sun into the car (below): value per kWh, per-slot kWh, totals -#}
                 {%- set cs = namespace(v=0, cap=0, e=0, l=[], at={}, kwh=0, norm=0, got=0, eur=0) -%}
                 {#- Preview only: the plan that runs leaves the car out, the preview run takes it in even
                     with Follow assisted off or the car unplugged (then from today's SoC), to show what
                     it would do to the batteries. Nothing of it reaches the batteries or the EV project. -#}
                 {%- if is_state('input_boolean.hba_strategy_planned_car', 'on') and state_attr(ev_e, 'known') == true and (car_run == 'preview' or (is_state('input_boolean.hba_strategy_planned_car_preview', 'off') and state_attr(ev_e, 'following') == true and state_attr(ev_e, 'connected') == true)) -%}
-                  {%- set car_today = now().hour < 8 -%}
-                  {%- set car_day = now() if car_today else now() + timedelta(days=1) -%}
+                  {%- set car_dl0 = state_attr(ev_e, 'deadline') | int(0) -%}
+                  {%- set car_day = (car_dl0 | as_datetime | as_local) if car_dl0 > 0 else now() -%}
+                  {%- set car_today = car_day.strftime('%Y-%m-%d') == now().strftime('%Y-%m-%d') -%}
                   {%- set car_days = states('input_text.hba_strategy_planned_car_home_days') | trim -%}
                   {%- set car_days = ('Sat,Sun' if car_days in ['', 'unknown', 'unavailable'] else car_days) | lower | regex_findall('[^,; ]+') -%}
-                  {%- set car_tm = states('input_select.hba_strategy_planned_car_tomorrow') -%}
-                  {%- set car.home = car_tm == 'Home' or (car_tm != 'Away' and (car_day.strftime('%a') | lower in car_days or car_day.strftime('%A') | lower in car_days)) -%}
+                  {%- set car_tm = states('input_select.hba_strategy_planned_car_next_departure') -%}
+                  {%- set car.home = car_tm == 'Not leaving' or (car_tm != 'Leaving' and (car_day.strftime('%a') | lower in car_days or car_day.strftime('%A') | lower in car_days)) -%}
+                  {#- Deadlines: Normal until the first departure on a day the car is not home (later
+                      departures: the list only), Minimum the same with Not leaving, else the next one -#}
+                  {%- set car_dl = namespace(norm=car_dl0 if not car.home else 0) -%}
+                  {%- for o in range(1, 8) if car.home and car_dl0 > 0 and car_dl.norm == 0 -%}
+                    {%- set d = car_day + timedelta(days=o) -%}
+                    {%- if car_dl.norm == 0 and not (d.strftime('%a') | lower in car_days or d.strftime('%A') | lower in car_days) -%}
+                      {%- set car_dl.norm = as_timestamp(d) | int -%}
+                    {%- endif -%}
+                  {%- endfor -%}
+                  {%- if car.home and car_dl0 > 0 and car_dl.norm == 0 -%}{%- set car_dl.norm = as_timestamp(car_day + timedelta(days=7)) | int -%}{%- endif -%}
+                  {%- set car_dl_min = car_dl.norm if car_tm == 'Not leaving' else car_dl0 -%}
+                  {%- set car.dep = car_tm -%}{%- set car.dl = car_dl0 -%}{%- set car.dl_norm = car_dl.norm -%}{%- set car.dl_min = car_dl_min -%}
                   {%- set car_fc_e = today_solar_e if car_today else tomorrow_solar_e -%}
                   {%- set car_fc = (states(car_fc_e) | float(0)) if car_fc_e != '' else 0 -%}
                   {%- set car_house = ((prof[8:17] | select('number') | sum) / 1000) if prof | length == 24 else load_kw * 9 -%}
@@ -652,7 +671,7 @@ template:
                       {%- set car.home_sun = ([car.home_fc - car_house - emax, 0] | max) if car.home_fc >= 0 else -1 -%}
                     {%- endif -%}
                   {%- endfor -%}
-                  {%- set car.nskip = states('input_select.hba_strategy_planned_car_normal_tonight') in ['Skip tonight', 'Skip until home day'] -%}
+                  {%- set car.nskip = states('input_select.hba_strategy_planned_car_normal_skip') in ['Minimum only', 'Min. until home day'] -%}
                   {%- set car_soc = states(ev_e) | float(0) -%}
                   {%- set car_pct = (state_attr(ev_e, 'capacity_kwh') | float(0)) / 100 / (state_attr(ev_e, 'efficiency') | float(0.9)) -%}
                   {%- set car_lmin = states('input_number.hba_strategy_planned_car_minimum') | float(0) -%}
@@ -681,7 +700,7 @@ template:
                   {%- if not car_today -%}
                     {%- set cs_need = car.need if not car.nskip else 0 -%}
                     {%- set cs_acc = namespace(k=0, b=none) -%}
-                    {%- for sl in slots | selectattr('ts', 'lt', state_attr(ev_e, 'deadline') | int(0)) | sort(attribute='b') if cs_acc.k < cs_need - 0.05 and not (car_max_on and sl.b > car_maxp) -%}
+                    {%- for sl in slots | selectattr('ts', 'lt', car_dl.norm) | sort(attribute='b') if cs_acc.k < cs_need - 0.05 and not (car_max_on and sl.b > car_maxp) -%}
                       {%- set cs_acc.k = cs_acc.k + car_kw * sl.h -%}{%- set cs_acc.b = sl.b -%}
                     {%- endfor -%}
                     {%- set cs.v = cs_acc.b if cs_need > 0.05 and cs_acc.k >= cs_need - 0.05 and cs_acc.b is not none else car_maxp -%}
@@ -701,9 +720,9 @@ template:
                     {%- set cs.norm = [cs.kwh, cs_need] | min -%}
                     {%- set car.left = [car.left - cs.norm, 0] | max -%}
                   {%- endif -%}
-                  {%- for sl in slots | selectattr('ts', 'lt', state_attr(ev_e, 'deadline') | int(0)) | sort(attribute='b') -%}
+                  {%- for sl in slots | selectattr('ts', 'lt', car_dl.norm) | sort(attribute='b') -%}
                     {%- set c_over = car_max_on and sl.b > car_maxp -%}
-                    {%- set c_min = 0 if c_over and car_skip else [car_kw * sl.h, car.min_left] | min -%}
+                    {%- set c_min = 0 if (c_over and car_skip) or sl.ts >= car_dl_min else [car_kw * sl.h, car.min_left] | min -%}
                     {%- set c_want = 0 if c_over else [car_kw * sl.h - c_min, car.left] | min -%}
                     {%- if c_min + c_want > 0.1 -%}
                       {%- set c_norm = 0 if car.nskip else c_want -%}
@@ -729,9 +748,9 @@ template:
                   {%- endfor -%}
                   {#- The same hours with the max price switch the other way, for the Car section -#}
                   {%- set alt = namespace(min=car.min, need=0 if car.nskip else car.need) -%}
-                  {%- for sl in slots | selectattr('ts', 'lt', state_attr(ev_e, 'deadline') | int(0)) | sort(attribute='b') -%}
+                  {%- for sl in slots | selectattr('ts', 'lt', car_dl.norm) | sort(attribute='b') -%}
                     {%- set c_over = not car_max_on and sl.b > car_maxp -%}
-                    {%- set c_min = 0 if c_over and car_skip else [car_kw * sl.h, alt.min] | min -%}
+                    {%- set c_min = 0 if (c_over and car_skip) or sl.ts >= car_dl_min else [car_kw * sl.h, alt.min] | min -%}
                     {%- set c_norm = 0 if c_over else [car_kw * sl.h - c_min, alt.need] | min -%}
                     {%- if c_min + c_norm > 0.1 -%}
                       {%- set alt.min = alt.min - c_min -%}
@@ -1019,12 +1038,12 @@ template:
                        'gain': (sc_total - plan_total) | round(2),
                        'until': (slots | last).ts + step,
                        'slots': N, 'levels': K, 'step_kwh': dE | round(2),
-                       'car': {'soc': states('sensor.ev_car_info') | float(-1), 'along': car.along, 'sun_in': car.sun_in | round(1), 'min': car.min | round(1), 'need': car.need | round(1), 'sun': car.sun | round(1), 'home': car.home,
+                       'car': {'soc': states('sensor.ev_car_info') | float(-1), 'along': car.along, 'sun_in': car.sun_in | round(1), 'min': car.min | round(1), 'need': car.need | round(1), 'sun': car.sun | round(1), 'home': car.home, 'dep': car.dep, 'dl': car.dl, 'dl_norm': car.dl_norm, 'dl_min': car.dl_min,
                                'unmet': ([car.min_left + car.left, 0] | max) | round(1), 'over': car.over | round(1), 'over_eur': car.over_eur | round(2),
                                'over_from': car.over_from | timestamp_custom('%H:%M') if car.over_from != '' else '',
                                'kwh': car.kwh | round(1), 'eur': car.eur | round(2), 'alt_kwh': car.alt_kwh | round(1), 'alt_eur': car.alt_eur | round(2),
                                'normal': car.nkwh | round(1), 'normal_eur': car.neur | round(2),
-                               'normal_from': car.nfrom | timestamp_custom('%H:%M') if car.nfrom != '' else '',
+                               'normal_from': car.nfrom | timestamp_custom('%H:%M' if (car.nfrom | timestamp_custom('%Y-%m-%d')) == now().strftime('%Y-%m-%d') else '%a %H:%M') if car.nfrom != '' else '',
                                'normal_skip': car.nskip, 'home_day': car.home_day, 'home_fc': car.home_fc | round(1), 'home_sun': car.home_sun | round(1),
                                'sun_value': cs.v | round(3), 'sun_est': cs.kwh | round(1), 'sun_off_grid': cs.norm | round(1), 'sun_kwh': cs.got | round(1), 'sun_eur': cs.eur | round(2)},
                        'calc_s': (as_timestamp(now()) - t_calc0) | round(2)} -%}
@@ -1385,38 +1404,61 @@ automation:
   # 2026-10-16..22, every one caught, no normal day) and are skipped. Average per local hour of the
   # remaining days -> event hba_house_load_profile -> sensor.hba_house_load_profile.
   # Prod analysis 2026-10-28: night ~450 W, midday ~1 kW, 17:00 ~1.5 kW, evening ~0.7 kW.
-  # A one-day override: back to the weekday default once that day has started
-  - id: hba_planned_car_tomorrow_reset
-    alias: "HBA: Planned car tomorrow back to Auto"
+  # The car choices end by themselves. Each belongs to one departure: the next one when it was
+  # chosen, kept as that day's date in sensor.hba_planned_car_choice (restored after a restart).
+  # Not leaving / Leaving / Minimum only end once that day's departure has passed = the EV
+  # project's next departure is on a later day. Min. until home day ends once a departure on a
+  # day the car was home has passed (the list, or Not leaving; not with Leaving); without any
+  # home day in the list, like Minimum only.
+  # Checked all the time, not at one clock minute: the old reset at "departure hour, minute 0"
+  # was missed when HA restarted then or the departure time was changed past it (user
+  # 2026-11-14), and the choice stayed a day longer. A departure time changed after the choice
+  # moves the end with it, as long as it stays on that day.
+  - id: hba_planned_car_choice_reset
+    alias: "HBA: Planned car choices back to Auto"
+    mode: queued
+    max_exceeded: silent
     triggers:
-      - trigger: time
-        at: "08:00:00"
+      # The next departure changes: one has passed, or the departure time was changed
+      - trigger: state
+        entity_id: sensor.ev_car_info
+        attribute: deadline
+      - trigger: homeassistant
+        event: start
+      - trigger: time_pattern
+        minutes: "/15"
     actions:
-      - action: input_select.select_option
-        target: { entity_id: input_select.hba_strategy_planned_car_tomorrow }
-        data: { option: "Auto" }
-
-  # Skip tonight ends at departure, Skip until home day at the departure of a day the car is
-  # home. Without any home day in the list it also ends at departure.
-  - id: hba_planned_car_normal_reset
-    alias: "HBA: Planned car Normal back to Auto"
-    triggers:
-      - trigger: template
-        value_template: "{{ now().hour == states('input_number.ev_window_charging_end_hour') | int(7) and now().minute == 0 }}"
-    conditions:
-      - condition: template
-        value_template: >-
-          {%- set f = states('input_select.hba_strategy_planned_car_normal_tonight') -%}
-          {%- set days = states('input_text.hba_strategy_planned_car_home_days') | trim -%}
-          {%- set days = ('Sat,Sun' if days in ['', 'unknown', 'unavailable'] else days) | lower | regex_findall('[^,; ]+') -%}
-          {%- set week = ['mon','tue','wed','thu','fri','sat','sun','monday','tuesday','wednesday','thursday','friday','saturday','sunday'] -%}
-          {%- set tm = states('input_select.hba_strategy_planned_car_tomorrow') -%}
-          {%- set home = tm == 'Home' or (tm != 'Away' and (now().strftime('%a') | lower in days or now().strftime('%A') | lower in days)) -%}
-          {{ f == 'Skip tonight' or (f == 'Skip until home day' and (home or days | select('in', week) | list | count == 0)) }}
-    actions:
-      - action: input_select.select_option
-        target: { entity_id: input_select.hba_strategy_planned_car_normal_tonight }
-        data: { option: "Auto" }
+      - variables:
+          dl: "{{ state_attr('sensor.ev_car_info', 'deadline') | int(0) }}"
+          next_day: "{{ (dl | timestamp_custom('%Y-%m-%d')) if dl > 0 else '' }}"
+          dep_day: "{{ state_attr('sensor.hba_planned_car_choice', 'dep_day') or '' }}"
+          skip_day: "{{ state_attr('sensor.hba_planned_car_choice', 'skip_day') or '' }}"
+          skip: "{{ states('input_select.hba_strategy_planned_car_normal_skip') }}"
+          # The departure that has just passed was on a day the car was home, on or after skip_day:
+          # a day in the list unless Leaving was chosen for it, or Not leaving was chosen for it
+          # (read here, before that choice is set back to Auto below)
+          home_passed: >-
+            {%- set days = states('input_text.hba_strategy_planned_car_home_days') | trim -%}
+            {%- set days = ('Sat,Sun' if days in ['', 'unknown', 'unavailable'] else days) | lower | regex_findall('[^,; ]+') -%}
+            {%- set week = ['mon','tue','wed','thu','fri','sat','sun','monday','tuesday','wednesday','thursday','friday','saturday','sunday'] -%}
+            {%- set p = ((dl | as_datetime | as_local) - timedelta(days=1)) if dl > 0 else none -%}
+            {%- set dep = states('input_select.hba_strategy_planned_car_next_departure') if p is not none and dep_day == p.strftime('%Y-%m-%d') else 'Auto' -%}
+            {{ p is not none and skip_day != '' and p.strftime('%Y-%m-%d') >= skip_day
+               and (dep == 'Not leaving'
+                    or (dep != 'Leaving' and (p.strftime('%a') | lower in days or p.strftime('%A') | lower in days))
+                    or days | select('in', week) | list | count == 0) }}
+      - if: "{{ states('input_select.hba_strategy_planned_car_next_departure') != 'Auto' and dep_day != '' and next_day > dep_day }}"
+        then:
+          - action: input_select.select_option
+            target: { entity_id: input_select.hba_strategy_planned_car_next_departure }
+            data: { option: "Auto" }
+      - if: >-
+          {{ (skip == 'Minimum only' and skip_day != '' and next_day > skip_day)
+             or (skip == 'Min. until home day' and home_passed) }}
+        then:
+          - action: input_select.select_option
+            target: { entity_id: input_select.hba_strategy_planned_car_normal_skip }
+            data: { option: "Auto" }
 
   # A never-set text field reads "unknown" on the dashboard: show the default instead
   - id: hba_planned_car_home_days_default
