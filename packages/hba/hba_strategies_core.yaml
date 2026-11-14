@@ -49,8 +49,53 @@ automation:
       # during the delay and is dropped silently, and the strategy reads the settled
       # value. Single-sensor P1 setups just pay 100 ms latency on a ~1.1 s loop.
       - delay: { milliseconds: 100 }
+      # No cycle on a P1 value that is not a number. A P1 template without an availability
+      # rule turns a lost meter into 0 W (or, for a moment, into consumption minus nothing:
+      # prod 2026-11-14, cable pulled, 2671 W and then 0 W), and the PID would act on it.
+      - condition: template
+        value_template: "{{ states('sensor.p1_meter_power') | is_number }}"
       - action: script.hba_run_strategy
         data: {}
+
+  # ── P1 meter lost: stop the batteries ─────────────────────────────────────────
+  # The control loop only runs on P1 updates. Without them the batteries keep their last
+  # command with nobody steering (prod 2026-11-14, cable pulled during Self-consumption:
+  # 2.4 kW discharge for 4.5 min, until the cable was back). binary_sensor.hba_p1_meter_lost
+  # = no P1 reading for 60 s -> stop every battery, whatever the strategy, and clear the PID
+  # memory. The loop continues by itself at the first reading. force: the stop goes out
+  # even when the command cache says a battery is already stopped.
+  - id: hba_p1_meter_lost_stop
+    alias: "HBA: Stop batteries when the P1 meter is lost"
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_p1_meter_lost
+        to: "on"
+    conditions:
+      - condition: state
+        entity_id: input_select.hba_marstek_master_battery_mode
+        state: "Full control"
+    actions:
+      - action: input_text.set_value
+        target: { entity_id: input_text.hba_strategy_active_flow }
+        data: { value: "P1 meter lost → Full stop" }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_control_i_term }
+        data: { value: 0 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_control_pid_output }
+        data: { value: 0 }
+      - repeat:
+          count: "{{ states('input_number.hba_battery_count') | int(1) }}"
+          sequence:
+            - action: script.hba_write_battery
+              continue_on_error: true
+              data:
+                bat: "{{ repeat.index }}"
+                cmd_mode: "stop"
+                charge_w: 0
+                discharge_w: 0
+                force: true
 
   # ── Master mode changed ───────────────────────────────────────────────────────
   - id: hba_master_mode_changed

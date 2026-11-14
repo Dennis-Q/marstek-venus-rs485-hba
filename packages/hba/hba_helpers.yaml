@@ -1777,10 +1777,12 @@ template:
              and (now() - s).total_seconds() >= 3600 }}
 
       # Watchdog: in Full control the control loop starts a cycle on every P1 update (~1 s).
-      # No new cycle for 90 s = stalled: either one cycle hangs (a battery whose Modbus link
-      # dropped mid-write — the loop waits until that hub reconnects, up to ~10 min, prod
-      # 2026-10-02 and 2026-10-25) or the P1 meter stopped updating. The batteries keep their
-      # last command meanwhile. Watch only — changes nothing in the control loop. now()
+      # No new cycle for 90 s while the P1 meter does report = stalled: one cycle hangs (a
+      # battery whose Modbus link dropped mid-write — the loop waits until that hub reconnects,
+      # up to ~10 min, prod 2026-10-02 and 2026-10-25). The batteries keep their last command
+      # meanwhile. A P1 meter that stopped is binary_sensor.hba_p1_meter_lost (own alert, and
+      # the batteries are stopped): without the P1 check here both alerts came, and this one
+      # "resolved" on the meter's sensors going unavailable (prod 2026-11-14). Watch only — changes nothing in the control loop. now()
       # re-renders this once a minute, so it turns on 90–150 s into a stall. Quiet for 2 min
       # after an automation reload: each reload can freeze HA for a while (prod 2026-11-08:
       # 11 reloads in 5 min, 94 s without a cycle during a normal Charge).
@@ -1794,9 +1796,11 @@ template:
           {%- set lt = state_attr('automation.hba_control_loop_p1_meter_triggered', 'last_triggered') -%}
           {%- set mm = states.input_select.hba_marstek_master_battery_mode -%}
           {%- set rl = as_datetime(states('sensor.hba_last_automation_reload')) -%}
+          {%- set p = states.sensor.p1_meter_power -%}
           {{ mm is not none and mm.state == 'Full control'
              and (now() - mm.last_changed).total_seconds() > 90
              and lt is not none and (now() - lt).total_seconds() > 90
+             and p is not none and is_number(p.state) and (now() - p.last_reported).total_seconds() < 60
              and (rl is none or (now() - rl).total_seconds() > 120) }}
         attributes:
           # Only in Full control and over 90 s: a value that changed at every control cycle (this
@@ -2528,6 +2532,7 @@ template:
             'binary_sensor.hba_any_battery_offline',
             'binary_sensor.hba_rs485_mode_mismatch',
             'binary_sensor.hba_control_loop_stalled',
+            'binary_sensor.hba_p1_meter_lost',
           ] %}
           {{ expected | reject('has_value') | list | length > 0 }}
         attributes:
@@ -2553,6 +2558,7 @@ template:
               'binary_sensor.hba_any_battery_offline',
               'binary_sensor.hba_rs485_mode_mismatch',
               'binary_sensor.hba_control_loop_stalled',
+              'binary_sensor.hba_p1_meter_lost',
             ] %}
             {% set ns = namespace(missing=[]) %}
             {% for e in expected %}
@@ -3408,6 +3414,29 @@ template:
           {%- elif last | is_number and 60 <= last | float <= 90 -%}{{ last }}
           {%- else -%}83
           {%- endif -%}
+
+  # P1 meter lost: sensor.p1_meter_power has given no reading for 60 s -- it stopped reporting
+  # (a pulled cable: the meter's sensors keep their last value for ~2 min, prod 2026-11-14) or
+  # it is not a number (unavailable / unknown) that long. Automation hba_p1_meter_lost_stop then
+  # stops the batteries; banner + notification. Checked every 10 s (a state-based template with
+  # now() only re-renders once a minute), so it turns on 60-70 s after the last reading; the
+  # state only changes when the meter goes or comes back, so no recorder rows in between. A meter
+  # whose value stays exactly the same for a minute would also count: on prod the longest time
+  # between two P1 values was under 20 s in 2.4 days.
+  - triggers:
+      - trigger: time_pattern
+        seconds: "/10"
+      - trigger: homeassistant
+        event: start
+    binary_sensor:
+      - name: "HBA P1 Meter Lost"
+        unique_id: hba_p1_meter_lost
+        device_class: problem
+        icon: mdi:meter-electric-outline
+        state: >-
+          {%- set p = states.sensor.p1_meter_power -%}
+          {{ p is none
+             or (now() - (p.last_reported if is_number(p.state) else p.last_changed)).total_seconds() > 60 }}
 
   # Time of the last automation reload. A reload can freeze HA for a while; the control-loop
   # watchdog and the battery offline check stay quiet for 2 min after it.

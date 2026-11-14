@@ -21,6 +21,13 @@ This document covers HBA-specific changes only.
 
 ### Changed
 
+- **P1 meter lost: the batteries stop.** No reading from `sensor.p1_meter_power` for a minute (meter
+  or its connection gone) → every battery is stopped, whatever the strategy, with a banner and a
+  notification *P1 meter lost, batteries stopped*; control continues by itself at the first reading.
+  Before, the batteries kept their last command until the meter was back. The *control stalled* alert
+  is now only about a hanging cycle. **Add an `availability:` line to your own P1 Meter Power sensor**
+  (see `hba_config.yaml.example`): without it a lost meter reads as 0 W.
+
 - **Plan history shows what the car got:** a past hour in the Planned table has a line *🚗 Car X kWh*
   when the charger's energy meter counted car charging in it (needs the EV charger energy meter).
 

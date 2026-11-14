@@ -603,19 +603,14 @@ automation:
         entity_id: binary_sensor.hba_control_loop_stalled
         to: "on"
     actions:
-      - variables:
-          p1ok: "{{ state_attr('binary_sensor.hba_control_loop_stalled', 'p1_updating') }}"
       - action: script.hba_notify_dispatch
         data:
           title: "HBA: control stalled"
           message: >-
             HBA has not run a control cycle for over 90 s; the batteries keep their last
-            command.
-            {%- if p1ok %} The P1 meter does update, so a cycle is hanging — usually a battery
+            command. The P1 meter does update, so a cycle is hanging — usually a battery
             whose network link dropped while HBA wrote to it. HBA continues once that battery
             is reachable again (up to ~10 min); check cables and power.
-            {%- else %} The P1 meter (sensor.p1_meter_power) has stopped updating — check the
-            meter / DSMR connection.{% endif %}
           tag: hba_control_loop_stalled
           color: red
           priority: high
@@ -637,6 +632,56 @@ automation:
           tag: hba_control_loop_stalled
           color: green
           resolve_id: hba_control_loop_stalled
+
+  # ── P1 meter lost ─────────────────────────────────────────────────────────────
+  # binary_sensor.hba_p1_meter_lost: no P1 reading for 60 s. In Full control automation
+  # hba_p1_meter_lost_stop (hba_strategies_core.yaml) has stopped the batteries.
+  - id: hba_notify_p1_meter_lost
+    alias: "HBA: Notify P1 meter lost"
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_p1_meter_lost
+        to: "on"
+    conditions:
+      - condition: state
+        entity_id: input_select.hba_marstek_master_battery_mode
+        state: "Full control"
+    actions:
+      - action: script.hba_notify_dispatch
+        data:
+          title: "HBA: P1 meter lost, batteries stopped"
+          message: >-
+            The P1 meter (sensor.p1_meter_power) has given no reading for over a minute.
+            HBA cannot regulate without it and has stopped the batteries. Check the meter
+            and its connection; HBA continues by itself at the first reading.
+          tag: hba_p1_meter_lost
+          color: red
+          priority: high
+          persistent_id: hba_p1_meter_lost
+
+  - id: hba_notify_p1_meter_lost_resolved
+    alias: "HBA: P1 meter lost — resolved"
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_p1_meter_lost
+        from: "on"
+        to: "off"
+    conditions:
+      - condition: template
+        value_template: >-
+          {% set raised = state_attr('automation.hba_notify_p1_meter_lost', 'last_triggered') %}
+          {% set mine = this.attributes.last_triggered if this is defined and this.attributes is defined else none %}
+          {{ raised is not none and (mine is none or raised > mine) }}
+    actions:
+      - action: script.hba_notify_dispatch
+        data:
+          title: "HBA: P1 meter is back"
+          message: "The P1 meter gives readings again; HBA controls the batteries again."
+          tag: hba_p1_meter_lost
+          color: green
+          resolve_id: hba_p1_meter_lost
 
   # ── Charge / Sell chosen by hand ──────────────────────────────────────────────
   # A reminder so a one-off Charge or Sell is not forgotten (e.g. the evening Sell of Dynamic
