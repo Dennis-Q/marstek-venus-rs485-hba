@@ -87,7 +87,15 @@ fi
 if [ -z "$BRANCH" ] && [[ "$VERSION" =~ ^v[0-9] ]]; then
     BASE_URL="https://raw.githubusercontent.com/${REPO}/${VERSION}"
     DISPLAY_REF="version : ${VERSION}"
-elif resolve_commit "$REF_NAME"; then
+elif [ -n "${HBA_INSTALLER_SHA:-}" ] || resolve_commit "$REF_NAME"; then
+    # Handed over by the installer that started this run: use the commit it resolved. A
+    # second lookup can fail (GitHub API rate limit) or find a newer commit, and then the
+    # files would come from another commit than this installer.
+    if [ -n "${HBA_INSTALLER_SHA:-}" ]; then
+        COMMIT_SHA="$HBA_INSTALLER_SHA"
+        COMMIT_DATE="${HBA_INSTALLER_DATE:-}"
+        COMMIT_MSG="${HBA_INSTALLER_MSG:-}"
+    fi
     # Not a release: show which commit this is, and download every file from that
     # exact commit. Fetching by branch name can mix commits within one run, because
     # raw.githubusercontent.com caches each branch file for a few minutes.
@@ -108,16 +116,25 @@ fi
 # change simply run their own script.
 if [ -z "${HBA_INSTALLER_SELF:-}" ]; then
     _self=$(mktemp)
-    if curl -fsSL "${BASE_URL}/install.sh" -o "$_self" 2>/dev/null; then
+    if curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 60 \
+            "${BASE_URL}/install.sh" -o "$_self" 2>/dev/null && [ -s "$_self" ]; then
         export HBA_INSTALLER_SELF=1
+        export HBA_INSTALLER_TMP="$_self"
         [ -n "$BRANCH" ] && export HBA_BRANCH="$BRANCH"
         [ -z "$BRANCH" ] && export HBA_VERSION="$VERSION"
+        if [ -n "${COMMIT_SHA:-}" ]; then
+            export HBA_INSTALLER_SHA="$COMMIT_SHA"
+            export HBA_INSTALLER_DATE="${COMMIT_DATE:-}"
+            export HBA_INSTALLER_MSG="${COMMIT_MSG:-}"
+        fi
         exec bash "$_self"
     fi
     rm -f "$_self"
     warn "Could not fetch the installer of ${REF_NAME}; continuing with this one."
     echo ""
 fi
+# The temporary copy this run was started from (see above): bash has read it by now
+[ -n "${HBA_INSTALLER_TMP:-}" ] && rm -f "$HBA_INSTALLER_TMP"
 
 if [ -n "$BRANCH" ] || ! [[ "$VERSION" =~ ^v[0-9] ]]; then
     warn "Installing '${REF_NAME}', not a release — this may be unstable."
@@ -125,10 +142,49 @@ if [ -n "$BRANCH" ] || ! [[ "$VERSION" =~ ^v[0-9] ]]; then
 fi
 
 # ── Download helper ───────────────────────────────────────────────────────────
+# Nothing is written into the configuration until every file has been downloaded and
+# checked. A download that fails halfway (network, GitHub) used to stop the script with
+# some files new and the rest old -- and HBA's files only work as one set -- or left a
+# file cut off in the middle. download() fetches into a staging folder inside the config
+# directory (same disk, so putting a file in place is a rename); install_staged moves
+# them all at the end. Any failure before that leaves the installation as it was.
+
+STAGE="${CONFIG_DIR}/.hba_install.$$"
+STAGED=()
+INSTALLED=false
+mkdir -p "$STAGE"
+
+cleanup() {
+    rm -rf "$STAGE"
+    if [ "$INSTALLED" = false ]; then
+        echo ""
+        warn "Installation stopped before any file was changed. Your HBA files are as they were."
+    fi
+}
+trap cleanup EXIT
 
 download() {
-    local src="$1" dst="$2"
-    curl -fsSL "${BASE_URL}/${src}" -o "${dst}"
+    local src="$1" dst="$2" tmp
+    tmp="${STAGE}/$(printf '%s' "${dst#"${CONFIG_DIR}/"}" | tr '/' '_')"
+    if ! curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 120 \
+            "${BASE_URL}/${src}" -o "$tmp"; then
+        echo "ERROR: could not download ${src}."
+        return 1
+    fi
+    # Complete? Every HBA file is text that ends with a line break.
+    if [ ! -s "$tmp" ] || [ -n "$(tail -c1 "$tmp")" ]; then
+        echo "ERROR: ${src} arrived empty or cut off."
+        return 1
+    fi
+    STAGED+=("${tmp}|${dst}")
+}
+
+install_staged() {
+    local pair
+    for pair in "${STAGED[@]}"; do
+        mv -f "${pair%%|*}" "${pair#*|}"
+    done
+    INSTALLED=true
 }
 
 # ── Header ────────────────────────────────────────────────────────────────────
@@ -150,7 +206,7 @@ mkdir -p "${CONFIG_DIR}/lovelace"
 # ── Core HBA files — always overwrite ────────────────────────────────────────
 # Safe to overwrite on every update; no user-editable content in these files.
 
-echo "Core files:"
+echo "Downloading (nothing is changed until all files are in):"
 
 CORE_FILES=(
     packages/hba/hba_helpers.yaml
@@ -177,23 +233,6 @@ done
 # see README "Preview dashboard"). Downloaded on every install so it stays in step.
 download "lovelace/battery_assistant_preview.yaml" "${CONFIG_DIR}/lovelace/battery_assistant_preview.yaml"
 ok "lovelace/battery_assistant_preview.yaml  (preview dashboard, optional)"
-
-# ── Obsolete files — removed on update ───────────────────────────────────────
-# Files a previous HBA version shipped that no longer exist. Left on disk they
-# would keep loading. hba_strategy_dynamic_v2.yaml (renamed to
-# hba_strategy_dynamic.yaml in r22, which also replaced the old Dynamic v1 file
-# of that name) would define sensor.hba_energy_prices_data a second time.
-
-OBSOLETE_FILES=(
-    packages/hba/hba_strategy_dynamic_v2.yaml
-)
-
-for f in "${OBSOLETE_FILES[@]}"; do
-    if [ -f "${CONFIG_DIR}/${f}" ]; then
-        rm -f "${CONFIG_DIR}/${f}"
-        ok "$f (obsolete — removed)"
-    fi
-done
 
 echo ""
 
@@ -269,6 +308,30 @@ else
     say "Marstek files already present — skipped."
     echo ""
 fi
+
+# ── Put the downloaded files in place ─────────────────────────────────────────
+
+install_staged
+ok "${#STAGED[@]} files installed"
+
+# ── Obsolete files — removed on update ───────────────────────────────────────
+# Files a previous HBA version shipped that no longer exist. Left on disk they
+# would keep loading. hba_strategy_dynamic_v2.yaml (renamed to
+# hba_strategy_dynamic.yaml in r22, which also replaced the old Dynamic v1 file
+# of that name) would define sensor.hba_energy_prices_data a second time.
+
+OBSOLETE_FILES=(
+    packages/hba/hba_strategy_dynamic_v2.yaml
+)
+
+for f in "${OBSOLETE_FILES[@]}"; do
+    if [ -f "${CONFIG_DIR}/${f}" ]; then
+        rm -f "${CONFIG_DIR}/${f}"
+        ok "$f (obsolete — removed)"
+    fi
+done
+
+echo ""
 
 # ── configuration.yaml checks ─────────────────────────────────────────────────
 
