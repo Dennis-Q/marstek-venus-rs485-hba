@@ -101,6 +101,11 @@ automation:
   - id: hba_master_mode_changed
     alias: "HBA: Master mode changed"
     description: "Applies work mode and RS485 settings to all batteries when master mode changes."
+    # queued: a second change while the first is still being applied (it takes seconds) runs
+    # after it, with the mode chosen last. With the default (single) it was dropped: Disabled
+    # and then Full control within a second left the control loop automation off (dev 2026-11-14).
+    mode: queued
+    max: 5
     triggers:
       - trigger: state
         entity_id: input_select.hba_marstek_master_battery_mode
@@ -837,6 +842,8 @@ script:
   # Marstek control → disable RS485 so battery uses its own built-in algorithm
   hba_apply_master_mode:
     alias: "HBA: Apply master mode to all batteries"
+    mode: queued
+    max: 5
     sequence:
       - variables:
           mode: "{{ states('input_select.hba_marstek_master_battery_mode') }}"
