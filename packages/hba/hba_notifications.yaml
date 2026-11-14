@@ -1286,6 +1286,11 @@ script:
   # handle the bell, which used to put the same alert in the bell twice.
   hba_notify_dispatch:
     alias: "HBA: Notify dispatch"
+    # queued: two alerts at the same moment both go out, one after the other. With the
+    # default (single) the second call was dropped while the first waited for the phone
+    # push: no push, no bell entry, and a dropped "resolved" left its bell entry behind.
+    mode: queued
+    max: 20
     fields:
       title:
         description: "Notification title"

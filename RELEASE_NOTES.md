@@ -28,6 +28,9 @@ This document covers HBA-specific changes only.
   is now only about a hanging cycle. **Add an `availability:` line to your own P1 Meter Power sensor**
   (see `hba_config.yaml.example`): without it a lost meter reads as 0 W.
 
+- **Two alerts at the same moment both arrive.** The second one was dropped while the first was
+  being sent to the phone.
+
 - **Plan history shows what the car got:** a past hour in the Planned table has a line *🚗 Car X kWh*
   when the charger's energy meter counted car charging in it (needs the EV charger energy meter).
 
