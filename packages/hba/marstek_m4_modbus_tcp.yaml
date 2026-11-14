@@ -946,7 +946,7 @@ template:
           {% set max_v = states('sensor.marstek_m4_battery_maximum_cell_voltage') %}
           {% set min_v = states('sensor.marstek_m4_battery_minimum_cell_voltage') %}
           {% if max_v not in ['unknown', 'unavailable', ''] and min_v not in ['unknown', 'unavailable', ''] %}
-            {{ ((max_v | float) - (min_v | float)) * 1000 | round(0) | int }}
+            {{ (((max_v | float) - (min_v | float)) * 1000) | round(0) | int }}
           {% else %}
             unknown
           {% endif %}
