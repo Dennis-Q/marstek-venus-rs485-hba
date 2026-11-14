@@ -378,6 +378,20 @@ template:
         entity_id: sensor.ev_car_info
         attribute: deadline
         id: settings
+      # The car becomes known (or Follow assisted is switched) -- after an HA start the plan is
+      # made while the car's integration is not up yet (known false), so without the car; it was
+      # only put right at the next 5-minute check (prod 2026-11-14 09:20: 4 minutes in which the
+      # car was told to wait). 10 s, so a flicker does not re-plan.
+      - trigger: state
+        entity_id: sensor.ev_car_info
+        attribute: known
+        for: "00:00:10"
+        id: settings
+      - trigger: state
+        entity_id: sensor.ev_car_info
+        attribute: following
+        for: "00:00:10"
+        id: settings
     actions:
       # `this` is not available in trigger actions -- read the previous plan by entity id.
       - variables:
@@ -685,7 +699,9 @@ template:
                   {%- endfor -%}
                   {%- set car.nskip = states('input_select.hba_strategy_planned_car_normal_skip') in ['Minimum only', 'Min. until home day'] -%}
                   {%- set car_soc = states(ev_e) | float(0) -%}
-                  {%- set car_pct = (state_attr(ev_e, 'capacity_kwh') | float(0)) / 100 / (state_attr(ev_e, 'efficiency') | float(0.9)) -%}
+                  {%- set car_eff = state_attr(ev_e, 'efficiency') | float(0.9) -%}
+                  {#- 0 or less (a wrong setting) would divide by zero and stop every new plan -#}
+                  {%- set car_pct = (state_attr(ev_e, 'capacity_kwh') | float(0)) / 100 / (car_eff if car_eff > 0 else 0.9) -%}
                   {%- set car_lmin = states('input_number.hba_strategy_planned_car_minimum') | float(0) -%}
                   {%- set car_lnorm = [states('input_number.hba_strategy_planned_car_normal') | float(0), car_lmin] | max -%}
                   {%- set car.min = ([car_lmin - car_soc, 0] | max) * car_pct -%}
@@ -1223,12 +1239,20 @@ script:
   # ── Planned dispatch ──────────────────────────────────────────────────────────
   # Runs the running slot's strategy from sensor.hba_planned_strategy. Charge / Sell run to
   # the planned end-of-slot energy (attribute target_energy), then the plan of the rest of the slot.
-  # Without a plan: Self-consumption.
+  # Without a plan: Self-consumption. The same when the plan is out of date: the plan sensor
+  # keeps its last state when a new plan cannot be made (an error in the calculation), and
+  # that state would otherwise run on -- a Zero import or Full stop hour without end. Every
+  # new slot makes a plan, so a plan whose slot ended more than 5 minutes ago is out of date.
   hba_strategy_planned:
     alias: "HBA: Strategy - Planned"
     sequence:
       - variables:
-          act: "{{ states('sensor.hba_planned_strategy') }}"
+          act: >-
+            {%- set pph = state_attr('sensor.hba_energy_prices_data', 'datapoints_per_hour') | int(1) -%}
+            {%- set step = 3600 // ([pph, 1] | max) -%}
+            {%- set ps = state_attr('sensor.hba_planned_strategy', 'plan_slot') | int(0) -%}
+            {{ 'plan out of date' if ps > 0 and as_timestamp(now()) - (ps + step) > 300
+               else states('sensor.hba_planned_strategy') }}
           target: "{{ state_attr('sensor.hba_planned_strategy', 'target_energy') | float(-1) }}"
           avail: "{{ states('sensor.hba_charge_available_energy') | float(0) }}"
           # Hysteresis (prod 2026-10-29 04:32-04:44: Charge <-> Charge PV every ~30 s near full).
@@ -1365,7 +1389,12 @@ script:
           # keeps "<act> done", so the hysteresis above still applies.
           - conditions: "{{ act in ['Charge', 'Sell'] }}"
             sequence:
-              - if: "{{ (state_attr('sensor.hba_planned_strategy', 'done_slot') | int(0)) != ((as_timestamp(now()) | int) // (step | int)) * (step | int) }}"
+              # Asked in the first cycle after reaching the target (the label does not say "done"
+              # yet) and, while no answer comes, once a minute: asking every cycle would start a
+              # plan calculation every second when the planner cannot answer.
+              - if: >-
+                  {{ (state_attr('sensor.hba_planned_strategy', 'done_slot') | int(0)) != ((as_timestamp(now()) | int) // (step | int)) * (step | int)
+                     and (not flow.startswith('Planned → ' ~ act ~ ' done') or now().second < 2) }}
                 then:
                   - event: hba_planned_replan
                     event_data: { a: "{{ act }}" }
