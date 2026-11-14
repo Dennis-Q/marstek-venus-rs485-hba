@@ -71,8 +71,8 @@ removed for this reason.
 
 HBA ships **Very safe / Safe / Regular / Responsive**, differing only in Ki (0.15 / 0.22 /
 0.30 / 0.40) at a fixed Kp 0.35, plus **Low peak (grid limit)** — Safe with output damping
-removed, for installs bounded by an instantaneous fuse or connection limit. Regular is the
-validated default. Full rationale and the measured numbers are in [DEFAULTS.md](DEFAULTS.md).
+removed, for installs bounded by an instantaneous fuse or connection limit. A fresh install
+starts on Very safe; Regular is the validated preset to switch to. Full rationale and the measured numbers are in [DEFAULTS.md](DEFAULTS.md).
 
 ### Other PID differences
 

@@ -1266,10 +1266,15 @@ script:
                 target: { entity_id: input_text.hba_strategy_active_flow }
                 data: { value: "Planned → Charge" }
               - choose:
+                  # Import limit on: the meter is kept at the limit, the batteries take what is
+                  # left of it (as in the Charge strategy; charge_w is not applied then)
                   - conditions: "{{ is_state('input_boolean.hba_control_has_power_limit_import', 'on') }}"
                     sequence:
                       - action: script.hba_strategy_self_consumption
-                        data: { skip_label: true }
+                        data:
+                          skip_label: true
+                          discharge_disabled: true
+                          setpoint_override: "{{ states('input_number.hba_control_power_limit_import') | float(5000) }}"
                 default:
                   - action: script.hba_set_batteries
                     data:

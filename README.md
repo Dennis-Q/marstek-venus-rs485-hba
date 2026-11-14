@@ -109,7 +109,8 @@ behave more similarly.
 The everyday presets are **Very safe / Safe / Regular / Responsive**. They share Kp 0.35,
 Kd 0.1 and the damping settings, and differ **only in Ki**, because Kp 0.35 is a *measured*
 optimum — swept on production and bracketed on both sides, it is the cheapest per disturbance,
-so there is nothing to gain by varying it. **Regular** (Ki 0.30) is the validated default
+so there is nothing to gain by varying it. A fresh install starts on **Very safe**; **Regular**
+(Ki 0.30) is the validated preset to switch to once the batteries respond
 (measured on production: 137 W residual 8 s after a 2.25 kW step, against 410 W at Ki 0.22).
 **Responsive** (Ki 0.40) is faster and a little cheaper per load step, but overshoots on large
 steps and jitters around solar balance — see the trade-off in DEFAULTS.md.
@@ -293,9 +294,10 @@ originals. All entity IDs are unchanged and the files are compatible with HBC.
 The files differ from fonske's in three minimal ways:
 - `service:` → `action:` throughout (required for HA 2026.x)
 - Bug fix: corrected a missing entity prefix in the `charge_to_soc` state template
-- **m2–m6 only:** an `availability:` condition on each template `select` entity
+- An `availability:` condition on the template `select` entities: m2–m6 on all of them
+  (battery count), m1 only on RS485 control mode (register readable)
 
-The availability condition prevents HA from polling batteries that are not configured.
+The battery-count condition prevents HA from polling batteries that are not configured.
 Without it, setting `hba_battery_count` to 1 still causes the Modbus hub to poll
 batteries 2–6 on every scan interval, fail, and fill your logs with connection errors.
 

@@ -133,11 +133,9 @@ script:
                         data: { flow_prefix: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Charge →" }
                   - conditions: "{{ next == 'Sell' }}"
                     sequence:
-                      - action: input_text.set_value
-                        target: { entity_id: input_text.hba_strategy_active_flow }
-                        data: { value: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Charge → Sell" }
+                      # Sell writes the label itself ("Charge → Sell", or its own next step)
                       - action: script.hba_strategy_sell
-                        data: {}
+                        data: { flow_prefix: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Charge →" }
                   - conditions: "{{ next == 'Standby / peak shave' }}"
                     sequence:
                       - action: input_text.set_value
@@ -162,10 +160,16 @@ script:
             target: { entity_id: input_text.hba_strategy_active_flow }
             data: { value: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Charge" }
           - choose:
+              # Regulated: the meter is kept at the import limit and the batteries take what is
+              # left of it, never discharging. Without these two fields this was plain
+              # Self-consumption (meter to 0 W, discharging allowed): no charging from the grid.
               - conditions: "{{ is_state('input_boolean.hba_control_has_power_limit_import', 'on') }}"
                 sequence:
                   - action: script.hba_strategy_self_consumption
-                    data: { skip_label: true }
+                    data:
+                      skip_label: true
+                      discharge_disabled: true
+                      setpoint_override: "{{ states('input_number.hba_control_power_limit_import') | float(5000) }}"
             default:
               - action: script.hba_set_batteries
                 data:

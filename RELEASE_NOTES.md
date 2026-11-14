@@ -57,6 +57,18 @@ This document covers HBA-specific changes only.
 - **Without an EV charging entity, the batteries stopped all the time:** with "EV charging entity_id" left
   empty, HBA behaved as if a car was charging (label "EV stop trigger", Full stop with the default setting).
   Installs with an EV entity filled in were not affected.
+- **Charge with an import limit charges from the grid again.** With *Import power limit* on, Charge (and
+  Planned's Charge) ran as plain Self-consumption: the meter went to 0 W and the batteries could even
+  discharge. Now the meter is kept at the import limit and the batteries take what is left of it, never
+  discharging. Under Planned the planned charge power is not applied while the limit is on.
+- **Take control from HBC now sets Node-RED to manual start** (and Yield back to auto). The command
+  that does this was sent with an empty add-on name and boot mode, failed silently, and Node-RED came
+  back after a host restart.
+- Charge → Sell keeps its flow label (it was written and overwritten with "Sell" every cycle).
+- Cell voltage difference is a whole number of mV (the rounding was applied to the wrong part).
+- The Controller state card no longer fails when `sensor.p1_meter_power` does not exist.
+- Docs: a fresh install starts on *Very safe*, *Regular* is the validated preset to switch to;
+  DEFAULTS.md version; which battery files have an `availability:` on their selects.
 
 ### Removed
 

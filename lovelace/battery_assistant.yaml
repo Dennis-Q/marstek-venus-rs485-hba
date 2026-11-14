@@ -2456,7 +2456,8 @@ views:
               {% set target = states('input_number.hba_target_grid_consumption') | float(0) -%}
               {% set err = grid - target -%}
               {% set ev_e = states('input_text.hba_strategy_ev_sensor_entity_id') | trim -%}
-              {% set p1_age = (as_timestamp(now()) - as_timestamp(states['sensor.p1_meter_power'].last_changed)) | int -%}
+              {% set p1_st = states['sensor.p1_meter_power'] -%}
+              {% set p1_age = (as_timestamp(now()) - as_timestamp(p1_st.last_changed if p1_st is not none else now())) | int -%}
               {% set has_imp = is_state('input_boolean.hba_control_has_power_limit_import', 'on') -%}
               {% set has_exp = is_state('input_boolean.hba_control_has_power_limit_export', 'on') -%}
               {% set imp_lim = states('input_number.hba_control_power_limit_import') | float(0) | int -%}
