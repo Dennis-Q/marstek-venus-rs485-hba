@@ -319,6 +319,10 @@ template:
       - trigger: event
         event_type: hba_planned_replan
         id: done
+      # The refresh icon in the Planned view (script.hba_planned_refresh)
+      - trigger: event
+        event_type: hba_planned_refresh
+        id: manual
       - trigger: state
         entity_id: sensor.hba_energy_prices_data
       - trigger: state
@@ -421,6 +425,7 @@ template:
             {%- endif -%}
           replan: >-
             {%- if trigger.id == 'done' -%}{{ trigger.event.data.get('a', 'Charge') }} done
+            {%- elif trigger.id == 'manual' -%}refresh asked
             {%- elif trigger.platform in ['homeassistant', 'event'] -%}HA start / reload
             {%- elif trigger.id == 'settings' -%}settings changed
             {%- elif prev_plan | length == 0 -%}no plan yet
@@ -1191,6 +1196,16 @@ template:
           summary: "{{ (result if result is mapping else (result | from_json)).get('summary') }}"
 
 script:
+  # A new plan now, from the refresh icon in the Planned view. The plan re-makes itself on new
+  # prices, a new slot, changed settings and drift; plugging the car in or out is only seen at
+  # the next 5-minute check, which is what this is for.
+  hba_planned_refresh:
+    alias: "HBA: Planned - refresh the plan"
+    icon: mdi:refresh
+    mode: single
+    sequence:
+      - event: hba_planned_refresh
+
   # ── Planned dispatch ──────────────────────────────────────────────────────────
   # Runs the running slot's strategy from sensor.hba_planned_strategy. Charge / Sell run to
   # the planned end-of-slot energy (attribute target_energy), then the plan of the rest of the slot.

@@ -21,6 +21,10 @@ This document covers HBA-specific changes only.
 
 ### Changed
 
+- **Refresh icon in the Planned view:** next to the *Plan* heading; makes a new plan at once (the line
+  below shows "refresh asked"). Useful after plugging the car in or out, which the plan otherwise
+  only sees at its next 5-minute check.
+
 - **Planned × car: a day at home is no deadline any more.** When the car stays home on the day of the
   next departure (a day in *Car home in daytime on*, or your own answer), Normal takes the cheapest
   known hours until the first departure on a day it is not home — also in the daytime, already the

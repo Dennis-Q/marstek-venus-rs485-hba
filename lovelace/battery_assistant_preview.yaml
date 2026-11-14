@@ -2458,6 +2458,16 @@ views:
             heading: Plan
             heading_style: title
             icon: mdi:table-clock
+            # Refresh: a new plan now (script.hba_planned_refresh)
+            badges:
+              - type: entity
+                entity: sensor.hba_planned_strategy
+                show_state: false
+                show_icon: true
+                icon: mdi:refresh
+                tap_action:
+                  action: perform-action
+                  perform_action: script.hba_planned_refresh
           - type: markdown
             content: |-
               {%- set E = 'sensor.hba_planned_strategy' -%}
