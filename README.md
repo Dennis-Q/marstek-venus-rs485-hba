@@ -211,7 +211,10 @@ Edit `packages/hba/hba_config.yaml` to define `sensor.p1_meter_power` for your s
 Your copy is never overwritten on updates; the installer keeps the latest examples next to it
 in `hba_config.yaml.example` to copy from.
 The file ships with commented examples. The sensor must be **positive when importing**
-from the grid and negative when exporting. Entity names depend on your DSMR reader —
+from the grid and negative when exporting. Keep the `availability:` line of the example: it makes
+the sensor unavailable when the meter is, where it would otherwise read 0 W. When the meter gives
+no reading for a minute HBA stops the batteries and notifies (*P1 meter lost*), and continues by
+itself at the first reading. Entity names depend on your DSMR reader —
 check **Developer Tools → States** to find the correct ones.
 
 Optional: for **Charge alongside EV** with the car first, also define the per-phase grid power
@@ -291,11 +294,20 @@ The `marstek_m*.yaml` files are built from
 originals. All entity IDs are unchanged and the files are compatible with HBC.
 **You can use fonske's files directly** if you prefer — HBA works fine with them.
 
-The files differ from fonske's in three minimal ways:
+The files differ from fonske's in a few small ways:
 - `service:` → `action:` throughout (required for HA 2026.x)
 - Bug fix: corrected a missing entity prefix in the `charge_to_soc` state template
 - An `availability:` condition on the template `select` entities: m2–m6 on all of them
   (battery count), m1 only on RS485 control mode (register readable)
+- Hub `timeout: 5` (was 20): a battery that stops answering holds up the others four times shorter
+- 24 slow registers (cell voltages, Wi-Fi / cloud state, monthly counters, total energy) are read
+  every 5 minutes instead of every 30 seconds, so commands wait less behind the reads
+
+The installer never overwrites a battery file (it holds your battery's IP address), so it checks
+them at every install and warns: HBA's own files are compared with the release (a differing one
+gets the new version next to it as `…yaml.new`, to copy the IP address into), other Marstek Modbus
+files anywhere under `packages/` are checked for the last two points, and two files with the same
+name under `packages/` are reported (Home Assistant loads only one of them).
 
 The battery-count condition prevents HA from polling batteries that are not configured.
 Without it, setting `hba_battery_count` to 1 still causes the Modbus hub to poll

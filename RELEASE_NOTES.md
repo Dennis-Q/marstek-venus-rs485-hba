@@ -44,9 +44,25 @@ This document covers HBA-specific changes only.
 - **Planned: a plan that is out of date no longer runs on.** When no new plan can be made, Planned
   runs Self-consumption (*Planned (plan out of date)*) from 5 minutes after the last planned slot.
 
+- **Installer checks the battery files.** It never overwrites them, so fixes to them did not reach
+  existing installs. It now warns when a battery file is not the current version (and puts the new
+  one next to it as `.new`), when another Marstek Modbus file under `packages/` still has the long
+  timeout or the fast polling, and when two files under `packages/` have the same name.
+
 - **Installer: all files or none.** Every file is downloaded and checked first and only then put in
   place; a download that fails halfway leaves the installation as it was (before: some files new, the
   rest old). Downloads are retried, and the branch is resolved to a commit once.
+
+- **A battery that drops out and comes back no longer upsets the numbers.** A battery counts while
+  its state of charge can be read; its capacity (polled every 5 minutes, the last thing to come back)
+  is remembered in `sensor.hba_battery_capacity`. Before, a battery that was back still counted as
+  0 kWh for minutes, Planned then re-planned for energy that was never gone and booked it as bought.
+  Average SoC is taken over the batteries that can be read (a missing one counted as 0 %).
+
+- **Smaller fixes:** the PID no longer counts on a battery that is offline or faulted (it reacted
+  late after a load drop with a battery away); changing the master mode skips a battery that does not
+  answer instead of waiting on it; power-group limit registers are no longer written two or three
+  times per change; a failed nightly calculation no longer wipes the house load profile.
 
 - **Two alerts at the same moment both arrive.** The second one was dropped while the first was
   being sent to the phone.
