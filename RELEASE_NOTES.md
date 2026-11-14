@@ -28,6 +28,26 @@ This document covers HBA-specific changes only.
   is now only about a hanging cycle. **Add an `availability:` line to your own P1 Meter Power sensor**
   (see `hba_config.yaml.example`): without it a lost meter reads as 0 W.
 
+- **A quick second master-mode change is no longer dropped.** Choosing another mode while the previous
+  one was still being applied (a few seconds) was ignored; Disabled and then Full control right after
+  left the control loop off. The changes now run one after the other.
+
+- **Problems that are already there at a start or reload are reported.** Battery offline, control
+  stalled, P1 meter lost, RS485 mismatch, limits not restored, charge goal conflict and the EV link are
+  checked again 5 minutes after an HA start or an automation reload. Before, a problem that began just
+  before it (or was there all along) gave no notification, and a restart removed its bell entry.
+
+- **Planned: the car is back in the plan right after a restart.** The plan made at an HA start had no
+  car (its integration was not up yet) until the next 5-minute check; the car was told to wait meanwhile.
+  It is now re-made as soon as the car is known.
+
+- **Planned: a plan that is out of date no longer runs on.** When no new plan can be made, Planned
+  runs Self-consumption (*Planned (plan out of date)*) from 5 minutes after the last planned slot.
+
+- **Installer: all files or none.** Every file is downloaded and checked first and only then put in
+  place; a download that fails halfway leaves the installation as it was (before: some files new, the
+  rest old). Downloads are retried, and the branch is resolved to a commit once.
+
 - **Two alerts at the same moment both arrive.** The second one was dropped while the first was
   being sent to the phone.
 
