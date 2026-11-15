@@ -26,7 +26,7 @@ This document covers HBA-specific changes only.
   `binary_sensor.hba_plan_out_of_date` turns on, with a banner in the Overview, a notification
   *Planned has no current plan* and a resolved message when a plan is made again (also checked after
   an HA start or automation reload).
-- **Planned: Car first vs Balance side by side.** With car hours next to charging batteries the plan
+- **Planned: Car first vs Balance side by side** (with a Difference column, the car's price per kWh and the batteries' cost out after the car hours). With car hours next to charging batteries the plan
   now always works out both choices (also when one is set by hand) and the Car section shows them in a
   table: car hours and kWh, car cost, what the batteries store in those hours, batteries + house, kWh
   that do not fit, total — plus which one runs and by how much. Insights (Planned — decisions) gets two

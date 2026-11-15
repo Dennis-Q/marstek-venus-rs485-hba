@@ -1156,12 +1156,14 @@ template:
               {%- set ns = namespace(x={}) -%}
               {%- for r in [a, b] if r.status == 'OK' and r.summary.car.prio not in ns.x -%}
                 {%- set c = r.summary.car -%}
-                {%- set hn = namespace(h=[], bat=0) -%}
+                {%- set hn = namespace(h=[], bat=0, cout=none) -%}
                 {%- for w in r.plan if w.get('ev', 0) | float(0) > 0 -%}
                   {%- set hn.h = hn.h + [[w.ts, w.ev]] -%}
                   {%- set hn.bat = hn.bat + ([w.e1 - w.e0, 0] | max) -%}
+                  {%- set hn.cout = w.c -%}
                 {%- endfor -%}
-                {%- set ns.x = ns.x | combine({c.prio: {'hours': hn.h, 'kwh': c.kwh, 'eur': c.eur, 'bat': hn.bat | round(1),
+                {#- cout: what a kWh from the batteries costs after the last car hour (cost out) -#}
+                {%- set ns.x = ns.x | combine({c.prio: {'hours': hn.h, 'kwh': c.kwh, 'eur': c.eur, 'bat': hn.bat | round(1), 'cout': hn.cout,
                      'plan': r.summary.plan_cost, 'unmet': c.unmet,
                      'total': (r.summary.plan_cost + c.eur + c.unmet * mp) | round(2)}}) -%}
               {%- endfor -%}
