@@ -1170,6 +1170,17 @@ input_select:
       - "Minimum only"
       - "Min. until home day"
     icon: mdi:car-clock
+  # Car hours when the batteries charge from the grid too (Planned, Charge alongside EV):
+  # Car first = the car at full power, the batteries the room it leaves; Balance = the batteries
+  # leave the car its 6 A minimum + 1 A margin, so the Peblar keeps charging instead of pausing;
+  # Auto = the plan works out both and keeps the cheaper (batteries + car).
+  hba_strategy_planned_car_priority:
+    name: "Planned: car hours priority"
+    options:
+      - "Auto"
+      - "Car first"
+      - "Balance"
+    icon: mdi:scale-balance
 
   hba_house_load_window:
     name: "House load history"
@@ -1976,7 +1987,9 @@ template:
       # discharges and self-consumption runs with discharge disabled. Attributes:
       #   mode       "Batteries first" below input_number.hba_ev_battery_priority_energy
       #              of usable energy, else "EV first"; always "EV first" in a Planned car
-      #              hour (ev_mode force: the plan counts on the car's full power)
+      #              hour (ev_mode force: the plan counts on the car's full power), or "Balance"
+      #              when that plan chose it (summary car prio): the batteries leave the car
+      #              its 6 A minimum + 1 A per phase (sensor.hba_phase_room ev_bal_w)
       # The room per phase lives in sensor.hba_phase_room (recorder-excluded: it changes on
       # every P1 update; this sensor's history stays useful).
       - name: "HBA EV Charge Alongside"
@@ -2005,7 +2018,7 @@ template:
             {%- for i in range(1, n + 1) if not is_number(states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge')) -%}{%- set q.ok = false -%}{%- endfor -%}
             {%- set ok = q.ok -%}
             {%- if is_state('binary_sensor.hba_ev_assist', 'on') and is_state_attr('binary_sensor.hba_ev_assist', 'ev_mode', 'force') -%}
-            EV first
+            {{ 'Balance' if ((state_attr('sensor.hba_planned_strategy', 'summary') or {}).get('car') or {}).get('prio') == 'Balance' else 'EV first' }}
             {%- elif not ok and state_attr('binary_sensor.hba_ev_charge_alongside', 'mode') in ['Batteries first', 'EV first'] -%}
             {{ state_attr('binary_sensor.hba_ev_charge_alongside', 'mode') }}
             {%- else -%}
@@ -2946,6 +2959,9 @@ template:
   #     sensor.ev_charger_power_lX or sensor.ev_charger_power, ev_source). Without that
   #     reservation the batteries filled the room the car wanted after the charger's load
   #     balancing throttled it (prod 2026-10-24: 5.3 instead of 10.5 kW for minutes).
+  #   ev_bal_w — Planned car hours with priority Balance: the same limit, but the car counted at
+  #     6 A + 1 A margin on its phases instead of what it draws now / its max, so the charger's
+  #     own limit throttles it to its minimum instead of pausing it
   #   missing_sensors — sensor.p1_meter_power_lX needed for the batteries' phases but absent
   # Phase power from the user-defined sensor.p1_meter_power_lX (W, + = import) and
   # optional sensor.p1_meter_voltage_lX (else 230 V); no reading = no room on that phase.
@@ -3020,7 +3036,7 @@ template:
             {%- endfor -%}
             {%- set used = evw.d.items() | selectattr(1, 'gt', 230) | map(attribute=0) | list -%}
             {%- set used = used if (src == 'per phase' and used) else ['L1', 'L2', 'L3'] -%}
-            {%- set out = namespace(ev={}, res={}, fc={}, fd={}) -%}
+            {%- set out = namespace(ev={}, bal={}, res={}, fc={}, fd={}) -%}
             {%- for ph in ['L1', 'L2', 'L3'] -%}
               {%- set n = ph | lower -%}
               {%- set v = states('sensor.p1_meter_voltage_' ~ n) | float(0) -%}
@@ -3032,16 +3048,20 @@ template:
                 {#- everything else on the phase = measured minus the batteries' own share -#}
                 {%- set other_imp = net - bat.c[ph] + bat.d[ph] -%}
                 {%- set out.ev = out.ev | combine({ph: [evlim * v - other_imp - r, 0] | max | round(0) | int}) -%}
+                {#- Balance: the car's own draw out, its minimum + margin in (also while it pauses) -#}
+                {%- set car_b = 7 * v if (src != 'none' and ph in used) else 0 -%}
+                {%- set out.bal = out.bal | combine({ph: [evlim * v - (other_imp - evw.d[ph]) - car_b, 0] | max | round(0) | int}) -%}
                 {%- set out.fc = out.fc | combine({ph: [fuse * v - other_imp, 0] | max | round(0) | int}) -%}
                 {%- set out.fd = out.fd | combine({ph: [fuse * v + other_imp, 0] | max | round(0) | int}) -%}
               {%- else -%}
                 {%- set out.ev = out.ev | combine({ph: 0}) -%}
+                {%- set out.bal = out.bal | combine({ph: 0}) -%}
                 {%- set out.fc = out.fc | combine({ph: 0}) -%}
                 {%- set out.fd = out.fd | combine({ph: 0}) -%}
               {%- endif -%}
             {%- endfor -%}
             {%- set miss = bat.need | unique | sort | map('lower') | map('regex_replace', '^', 'sensor.p1_meter_power_') | reject('has_value') | list -%}
-            {{ {'ev': out.ev, 'res': out.res, 'src': src, 'fc': out.fc if fuse > 0 else {},
+            {{ {'ev': out.ev, 'bal': out.bal, 'res': out.res, 'src': src, 'fc': out.fc if fuse > 0 else {},
                  'fd': out.fd if fuse > 0 else {}, 'miss': miss | join(', ')} | tojson }}
     sensor:
       - name: "HBA Phase Room"
@@ -3052,10 +3072,13 @@ template:
         # charges); 0 when no per-phase limit is in use.
         state: >-
           {%- set x = room | from_json if room is string else room -%}
-          {%- set vals = (x.fc.values() | list) + ((x.ev.values() | list) if is_state('binary_sensor.hba_ev_charge_alongside', 'on') else []) -%}
+          {%- set bal = is_state_attr('binary_sensor.hba_ev_charge_alongside', 'mode', 'Balance') -%}
+          {%- set ev = x.get('bal', {}) if bal else x.ev -%}
+          {%- set vals = (x.fc.values() | list) + ((ev.values() | list) if is_state('binary_sensor.hba_ev_charge_alongside', 'on') else []) -%}
           {{ (vals | min) if vals else 0 }}
         attributes:
           ev_room_w: "{{ (room | from_json if room is string else room).ev }}"
+          ev_bal_w: "{{ (room | from_json if room is string else room).bal }}"
           ev_reserve_w: "{{ (room | from_json if room is string else room).res }}"
           ev_source: "{{ (room | from_json if room is string else room).src }}"
           fuse_charge_w: "{{ (room | from_json if room is string else room).fc }}"
@@ -3090,23 +3113,25 @@ template:
             {%- set count = states('input_number.hba_battery_count') | int(1) -%}
             {%- set nominal = 2500 -%}
             {%- set along = is_state('binary_sensor.hba_ev_charge_alongside', 'on') -%}
-            {%- set evfirst = along and is_state_attr('binary_sensor.hba_ev_charge_alongside', 'mode', 'EV first') -%}
+            {%- set evbal = along and is_state_attr('binary_sensor.hba_ev_charge_alongside', 'mode', 'Balance') -%}
+            {%- set evfirst = along and is_state_attr('binary_sensor.hba_ev_charge_alongside', 'mode', 'EV first') or evbal -%}
             {%- set fc = state_attr('sensor.hba_phase_room', 'fuse_charge_w') -%}
             {%- set fc = fc if fc is mapping else {} -%}
             {%- set fd = state_attr('sensor.hba_phase_room', 'fuse_discharge_w') -%}
             {%- set fd = fd if fd is mapping else {} -%}
-            {%- set er = state_attr('sensor.hba_phase_room', 'ev_room_w') if evfirst else {} -%}
+            {%- set er = state_attr('sensor.hba_phase_room', 'ev_bal_w' if evbal else 'ev_room_w') if evfirst else {} -%}
+            {%- set car_lbl = 'Balance ' if evbal else 'Car first ' -%}
             {%- set er = er if er is mapping else {} -%}
             {#- Room per phase as [W, reason]: the tighter of main fuse and car first -#}
             {%- set rc = namespace(d={}) -%}
             {%- set rd = namespace(d={}) -%}
             {%- for ph in ['L1', 'L2', 'L3'] -%}
               {%- if ph in fc and ph in er -%}
-                {%- set rc.d = rc.d | combine({ph: ([fc[ph], 'Main fuse ' ~ ph] if fc[ph] <= er[ph] else [er[ph], 'Car first ' ~ ph])}) -%}
+                {%- set rc.d = rc.d | combine({ph: ([fc[ph], 'Main fuse ' ~ ph] if fc[ph] <= er[ph] else [er[ph], car_lbl ~ ph])}) -%}
               {%- elif ph in fc -%}
                 {%- set rc.d = rc.d | combine({ph: [fc[ph], 'Main fuse ' ~ ph]}) -%}
               {%- elif ph in er -%}
-                {%- set rc.d = rc.d | combine({ph: [er[ph], 'Car first ' ~ ph]}) -%}
+                {%- set rc.d = rc.d | combine({ph: [er[ph], car_lbl ~ ph]}) -%}
               {%- endif -%}
               {%- if ph in fd -%}
                 {%- set rd.d = rd.d | combine({ph: [fd[ph], 'Main fuse ' ~ ph]}) -%}
@@ -3242,11 +3267,11 @@ template:
                 stays in sensor.hba_limits_now and the Overview line. -#}
             {%- set kinds = namespace(c={}, d={}) -%}
             {%- for r, w in out.cl.items() -%}
-              {%- set k = r[:-3] if (r.startswith('Car first ') or r.startswith('Main fuse ')) else r -%}
+              {%- set k = r[:-3] if (r.startswith('Car first ') or r.startswith('Balance ') or r.startswith('Main fuse ')) else r -%}
               {%- set kinds.c = kinds.c | combine({k: kinds.c.get(k, 0) + w}) -%}
             {%- endfor -%}
             {%- for r, w in out.dl.items() -%}
-              {%- set k = r[:-3] if (r.startswith('Car first ') or r.startswith('Main fuse ')) else r -%}
+              {%- set k = r[:-3] if (r.startswith('Car first ') or r.startswith('Balance ') or r.startswith('Main fuse ')) else r -%}
               {%- set kinds.d = kinds.d | combine({k: kinds.d.get(k, 0) + w}) -%}
             {%- endfor -%}
             {%- set nowts = as_timestamp(now()) | int -%}
@@ -3314,7 +3339,7 @@ template:
           {%- set x = lim | from_json if lim is string else lim -%}
           {%- set p = states('sensor.hba_total_battery_power') | float(0) -%}
           {%- set m = 400 if is_state('binary_sensor.hba_battery_power_limited', 'on') else 150 -%}
-          {%- set c = (x.cs.startswith('Main fuse') or x.cs.startswith('Car first') or x.cs == 'BMS')
+          {%- set c = (x.cs.startswith('Main fuse') or x.cs.startswith('Car first') or x.cs.startswith('Balance') or x.cs == 'BMS')
                       and p < -50 and -p >= x.ct - m -%}
           {%- set d = x.ds.startswith('Main fuse') and p > 50 and p >= x.dt - m -%}
           {{ c or d }}

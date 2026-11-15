@@ -280,6 +280,7 @@ Every minimum is also the default, so a new install plans sensibly before *Apply
 | `input_select.hba_strategy_planned_car_next_departure` | Auto (Not leaving / Leaving: back to Auto once that departure has passed) |
 | `input_boolean.hba_strategy_planned_car_ask_normal` | `off` (on = evening question whether Normal may charge) |
 | `input_select.hba_strategy_planned_car_normal_skip` | Auto (Minimum only ends once the next departure has passed, Min. until home day once a departure on a day the car was home has passed) |
+| `input_select.hba_strategy_planned_car_priority` | Auto (the plan works out Car first and Balance and keeps the cheaper) |
 | `input_text.hba_strategy_planned_sell_price_entity_id` | empty = sell at the buy price (net metering) |
 | `input_boolean.hba_strategy_planned_skip_charge` / `_skip_sell` / `_skip_zero_import` | `off` (all strategies allowed) |
 | `input_boolean.hba_strategy_planned_car_solar_export` | `off` (the car only gets sun the plan would export when selling pays less than a kWh in the car is worth) |

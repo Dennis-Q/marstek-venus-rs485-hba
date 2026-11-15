@@ -21,6 +21,16 @@ This document covers HBA-specific changes only.
 
 ### Changed
 
+- **Planned with the car: car hours priority** (*Car hours with charging batteries*, Car section,
+  `input_select.hba_strategy_planned_car_priority`). In an hour where both the car and the batteries
+  charge from the grid (Charge alongside EV): **Car first** = the car at full power, the batteries the
+  room it leaves (as before); **Balance** = the batteries leave the car its 6 A minimum + 1 A per phase,
+  so the charger slows the car instead of pausing it; the car counts at its minimum (4.1 kW) and gets
+  more hours. **Auto** (default) works out both and keeps the cheaper one (batteries + car, car kWh that
+  no longer fit at the max price; Balance only when it saves more than 2 cents). The Car section shows
+  which one runs and both totals. At runtime Balance is a mode of Charge alongside EV
+  (`binary_sensor.hba_ev_charge_alongside` mode *Balance*, room in `sensor.hba_phase_room` `ev_bal_w`,
+  limit source *Balance Lx*). Nothing changes in the EV project: the charger's own limit throttles the car.
 - **Planned with the car: the car limits the batteries only while it charges.** In a car hour the
   batteries got only the phase room the car leaves (or nothing) for the whole hour, even when the car
   needed just a few minutes of it (0.8 kWh at 10.5 kW ≈ 5 min). Now that limit counts for the car's

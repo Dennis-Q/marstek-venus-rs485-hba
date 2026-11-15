@@ -1280,8 +1280,9 @@ script:
                     {%- set rm = namespace(d={}) -%}
                     {%- set fc = state_attr('sensor.hba_phase_room', 'fuse_charge_w') -%}
                     {%- set rm.d = fc if fc is mapping else {} -%}
-                    {%- if along and is_state_attr('binary_sensor.hba_ev_charge_alongside', 'mode', 'EV first') -%}
-                      {%- set r = state_attr('sensor.hba_phase_room', 'ev_room_w') -%}
+                    {%- set evbal = is_state_attr('binary_sensor.hba_ev_charge_alongside', 'mode', 'Balance') -%}
+                    {%- if along and (is_state_attr('binary_sensor.hba_ev_charge_alongside', 'mode', 'EV first') or evbal) -%}
+                      {%- set r = state_attr('sensor.hba_phase_room', 'ev_bal_w' if evbal else 'ev_room_w') -%}
                       {%- for ph, w in (r.items() if r is mapping else []) -%}
                         {%- set rm.d = rm.d | combine({ph: [w, rm.d[ph]] | min if ph in rm.d else w}) -%}
                       {%- endfor -%}
@@ -2040,6 +2041,7 @@ script:
           entity_id:
             - input_select.hba_strategy_planned_car_next_departure
             - input_select.hba_strategy_planned_car_normal_skip
+            - input_select.hba_strategy_planned_car_priority
         data: { option: "Auto" }
       - action: input_text.set_value
         target: { entity_id: input_text.hba_strategy_planned_sell_price_entity_id }

@@ -606,6 +606,11 @@ views:
               first: until {{ states('input_number.hba_ev_battery_priority_energy') | float(0) | round(1) }} kWh
               usable (now {{ states('sensor.hba_charge_available_energy') | float(0) | round(1) }} kWh) the
               charger slows the car.</ha-alert>
+              {%- elif is_state_attr('binary_sensor.hba_ev_charge_alongside', 'mode', 'Balance') -%}
+              <ha-alert alert-type="warning">EV is charging, balanced with the batteries — they never
+              discharge into the car and leave it its minimum (6 A + 1 A margin per phase) under
+              {{ states('input_number.hba_ev_phase_current_limit') | float(22) | round(1) }} A, so the
+              charger slows the car instead of pausing it.</ha-alert>
               {%- else -%}
               <ha-alert alert-type="warning">EV is charging and gets priority — batteries never
               discharge into the car. They charge only when {{ states('sensor.hba_active_strategy') }} wants
@@ -2978,6 +2983,8 @@ views:
                 name: Ask before Normal
               - entity: input_select.hba_strategy_planned_car_normal_skip
                 name: Normal from the grid
+              - entity: input_select.hba_strategy_planned_car_priority
+                name: Car hours with charging batteries
               - entity: input_text.hba_ev_charger_energy_entity_id
                 name: EV charger energy meter (kWh counter)
           - type: markdown
@@ -3087,6 +3094,10 @@ views:
 
 
               {% if preview or state_attr(I, 'connected') == true -%}
+              {%- set au = car.get('auto') or {} -%}
+              {%- if car.get('kwh', 0) | float(0) > 0.05 and car.get('along') %}
+              Car hours next to the batteries: **{{ car.get('prio', 'Car first') }}**{% if au.get('balance') is not none %} (Auto: Car first € {{ '%.2f' | format(au.car_first) }}, Balance € {{ '%.2f' | format(au.balance) }}){% endif %}.
+              {% endif -%}
               {%- if car.get('normal_skip') %}
               Normal skipped: {{ car.get('normal', 0) }} kWh, € {{ '%.2f' | format(car.get('normal_eur', 0)) }} ({{ states('input_select.hba_strategy_planned_car_normal_skip') | lower }}{{ ', until ' ~ car.home_day if is_state('input_select.hba_strategy_planned_car_normal_skip', 'Min. until home day') and car.get('home_day') }}).
               {% endif -%}

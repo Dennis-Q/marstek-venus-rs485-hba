@@ -360,6 +360,7 @@ template:
           - input_text.hba_strategy_solar_forecast_tomorrow_entity_id
           - input_select.hba_strategy_planned_car_next_departure
           - input_select.hba_strategy_planned_car_normal_skip
+          - input_select.hba_strategy_planned_car_priority
           - sensor.hba_house_load_profile
         id: settings
       - trigger: state
@@ -517,10 +518,15 @@ template:
           # plan = the plan that runs. preview = the same calculation with the car, only to show
           # it (sensor.hba_planned_car_preview, below).
           car_run: plan
+          # Car hours priority for this run: Balance or Car first; Auto starts with Car first and
+          # also works out Balance in the next step.
+          car_prio: &planned_car_prio "{{ 'Balance' if is_state('input_select.hba_strategy_planned_car_priority', 'Balance') else 'Car first' }}"
           result: &planned_result >-
             {#- Start time: the summary reports how long the calculation took (it blocks HA that long) -#}
             {%- set t_calc0 = as_timestamp(now()) -%}
-            {%- if replan == '' -%}
+            {%- if car_run == 'skip' -%}
+              {{ {'status': 'skip'} | tojson }}
+            {%- elif replan == '' -%}
               {{ {'plan': prev_plan, 'status': state_attr('sensor.hba_planned_strategy', 'status') or 'OK',
                   'made': state_attr('sensor.hba_planned_strategy', 'plan_made'),
                   'reason': state_attr('sensor.hba_planned_strategy', 'plan_reason'),
@@ -759,10 +765,29 @@ template:
                     {%- set cs.norm = [cs.kwh, cs_need] | min -%}
                     {%- set car.left = [car.left - cs.norm, 0] | max -%}
                   {%- endif -%}
+                  {%- set car_lim = states('input_number.hba_ev_phase_current_limit') | float(0) -%}
+                  {%- set car_lim = car_lim if car_lim > 0 else states('input_number.hba_phase_current_limit') | float(0) -%}
+                  {%- set car_ph = namespace(l=[]) -%}
+                  {%- for i in range(1, count + 1) -%}
+                    {%- set ph = states('input_select.hba_marstek_m' ~ i ~ '_phase') -%}
+                    {%- if ph in ['L1', 'L2', 'L3'] and ph not in car_ph.l -%}{%- set car_ph.l = car_ph.l + [ph] -%}{%- endif -%}
+                  {%- endfor -%}
+                  {%- set car_room = ([car_lim - car_kw * 1000 / 690, 0] | max) * 0.23 * (car_ph.l | length) -%}
+                  {#- Car hours priority (input_select.hba_strategy_planned_car_priority; car_prio is set per
+                      run, Auto runs both and keeps the cheaper). Balance: the batteries leave the car its
+                      6 A minimum + 1 A margin per phase, so the charger keeps charging next to them instead
+                      of pausing (its own CT limit, ~22 A per phase on prod). The car then counts at its
+                      minimum (6 A x 3 phases = 4.1 kW) for the whole hour and needs more hours; when the
+                      batteries are done early it speeds up, finishes sooner, and the next plan sees that.
+                      Only with Charge alongside EV (car.along) and phases + a limit set; else Car first.
+                      House load is left out, as for Car first: the charger pauses briefly by itself. -#}
+                  {%- set car_bal = car_prio == 'Balance' and car.along and car_lim > 0 and (car_ph.l | length) > 0 -%}
+                  {%- set car_pk = ([car_kw, 6 * 0.69] | min) if car_bal else car_kw -%}
+                  {%- set bal_room = ([car_lim - 7, 0] | max) * 0.23 * (car_ph.l | length) -%}
                   {%- for sl in slots | selectattr('ts', 'lt', car_dl.norm) | sort(attribute='b') -%}
                     {%- set c_over = car_max_on and sl.b > car_maxp -%}
-                    {%- set c_min = 0 if (c_over and car_skip) or sl.ts >= car_dl_min else [car_kw * sl.h, car.min_left] | min -%}
-                    {%- set c_want = 0 if c_over else [car_kw * sl.h - c_min, car.left] | min -%}
+                    {%- set c_min = 0 if (c_over and car_skip) or sl.ts >= car_dl_min else [car_pk * sl.h, car.min_left] | min -%}
+                    {%- set c_want = 0 if c_over else [car_pk * sl.h - c_min, car.left] | min -%}
                     {%- if c_min + c_want > 0.1 -%}
                       {%- set c_norm = 0 if car.nskip else c_want -%}
                       {%- if c_min + c_norm > 0.1 -%}
@@ -789,8 +814,8 @@ template:
                   {%- set alt = namespace(min=car.min, need=0 if car.nskip else car.need) -%}
                   {%- for sl in slots | selectattr('ts', 'lt', car_dl.norm) | sort(attribute='b') -%}
                     {%- set c_over = not car_max_on and sl.b > car_maxp -%}
-                    {%- set c_min = 0 if (c_over and car_skip) or sl.ts >= car_dl_min else [car_kw * sl.h, alt.min] | min -%}
-                    {%- set c_norm = 0 if c_over else [car_kw * sl.h - c_min, alt.need] | min -%}
+                    {%- set c_min = 0 if (c_over and car_skip) or sl.ts >= car_dl_min else [car_pk * sl.h, alt.min] | min -%}
+                    {%- set c_norm = 0 if c_over else [car_pk * sl.h - c_min, alt.need] | min -%}
                     {%- if c_min + c_norm > 0.1 -%}
                       {%- set alt.min = alt.min - c_min -%}
                       {%- set alt.need = alt.need - c_norm -%}
@@ -798,14 +823,6 @@ template:
                       {%- set car.alt_eur = car.alt_eur + (c_min + c_norm) * sl.b -%}
                     {%- endif -%}
                   {%- endfor -%}
-                  {%- set car_lim = states('input_number.hba_ev_phase_current_limit') | float(0) -%}
-                  {%- set car_lim = car_lim if car_lim > 0 else states('input_number.hba_phase_current_limit') | float(0) -%}
-                  {%- set car_ph = namespace(l=[]) -%}
-                  {%- for i in range(1, count + 1) -%}
-                    {%- set ph = states('input_select.hba_marstek_m' ~ i ~ '_phase') -%}
-                    {%- if ph in ['L1', 'L2', 'L3'] and ph not in car_ph.l -%}{%- set car_ph.l = car_ph.l + [ph] -%}{%- endif -%}
-                  {%- endfor -%}
-                  {%- set car_room = ([car_lim - car_kw * 1000 / 690, 0] | max) * 0.23 * (car_ph.l | length) -%}
                   {#- A car hour: the car takes the sun first (it pulls more than the sun gives, so nothing
                       is exported for Charge PV to store); the batteries only get the sun above the car's
                       kWh. Grid Charge alongside the car only when HBA can keep the phases within the limits
@@ -821,13 +838,13 @@ template:
                     {%- if k in car.picks -%}
                       {%- set c_sun = [sl.u, car.picks[k]] | min -%}
                       {%- set u2 = [sl.u - car.picks[k], 0] | max -%}
-                      {%- set c_pc = (([sl.pc, car_room] | min) if car_lim > 0 and car_ph.l else sl.pc) if car.along
+                      {%- set c_pc = (([sl.pc, bal_room if car_bal else car_room] | min) if car_lim > 0 and car_ph.l else sl.pc) if car.along
                                      else (([sl.pc, u2 / ([sl.h, 0.01] | max)] | min) if car_pv else 0) -%}
                       {#- Only the part of the hour the car charges: an hour with 0.8 kWh for the car is ~5 min
                           at 10.5 kW, the batteries have their full power the rest of it (user 2026-11-15:
                           12:00 capped at 2.8 kWh for the whole hour, 3.6 kWh less stored, 15:00 Sell gone).
                           No discharge in that hour stays. -#}
-                      {%- set c_f = [car.picks[k] / ([car_kw * sl.h, 0.01] | max), 1] | min -%}
+                      {%- set c_f = [car.picks[k] / ([car_pk * sl.h, 0.01] | max), 1] | min -%}
                       {%- set c_pc = c_pc * c_f + sl.pc * (1 - c_f) -%}
                       {%- set car.sun_in = car.sun_in + c_sun -%}
                       {%- set car.eur = car.eur - c_sun * (sl.b - sl.s) -%}
@@ -1083,7 +1100,7 @@ template:
                        'gain': (sc_total - plan_total) | round(2),
                        'until': (slots | last).ts + step,
                        'slots': N, 'levels': K, 'step_kwh': dE | round(2),
-                       'car': {'soc': states('sensor.ev_car_info') | float(-1), 'along': car.along, 'sun_in': car.sun_in | round(1), 'min': car.min | round(1), 'need': car.need | round(1), 'sun': car.sun | round(1), 'home': car.home, 'dep': car.dep, 'dl': car.dl, 'dl_norm': car.dl_norm, 'dl_min': car.dl_min,
+                       'car': {'soc': states('sensor.ev_car_info') | float(-1), 'along': car.along, 'prio': 'Balance' if car_bal | default(false) else 'Car first', 'sun_in': car.sun_in | round(1), 'min': car.min | round(1), 'need': car.need | round(1), 'sun': car.sun | round(1), 'home': car.home, 'dep': car.dep, 'dl': car.dl, 'dl_norm': car.dl_norm, 'dl_min': car.dl_min,
                                'unmet': ([car.min_left + car.left, 0] | max) | round(1), 'over': car.over | round(1), 'over_eur': car.over_eur | round(2),
                                'over_from': car.over_from | timestamp_custom('%H:%M') if car.over_from != '' else '',
                                'kwh': car.kwh | round(1), 'eur': car.eur | round(2), 'alt_kwh': car.alt_kwh | round(1), 'alt_eur': car.alt_eur | round(2),
@@ -1096,6 +1113,40 @@ template:
                 {%- endif -%}
               {%- endif -%}
             {%- endif -%}
+      # Car hours priority Auto: the same plan once more with Balance, only when the plan has car
+      # hours next to grid-charging batteries (Charge alongside EV). The cheaper one runs:
+      # plan cost (batteries + house) + the car's grid cost + car kWh that no longer fit before
+      # the departure at the max price (else the dearest hour). Balance only when it saves more
+      # than 2 cents, so a tie does not flip the charger's behaviour at every re-plan.
+      - variables:
+          car_run: &planned_car_auto_run >-
+            {%- set r = result if result is mapping else (result | from_json) -%}
+            {%- set c = (r.get('summary') or {}).get('car') or {} -%}
+            {{ car_run if is_state('input_select.hba_strategy_planned_car_priority', 'Auto') and replan != '' and r.status == 'OK'
+               and c.get('along') == true and c.get('kwh', 0) | float(0) > 0.05 else 'skip' }}
+          car_prio: Balance
+          result_b: *planned_result
+          result: &planned_car_auto_pick >-
+            {%- set a = result if result is mapping else (result | from_json) -%}
+            {%- if car_run == 'skip' -%}
+              {{ a | tojson }}
+            {%- else -%}
+              {%- set b = result_b if result_b is mapping else (result_b | from_json) -%}
+              {%- set mp = state_attr('sensor.ev_car_info', 'max_price') | float(0) -%}
+              {%- set mp = mp if mp > 0 else (a.plan | map(attribute='b') | max) -%}
+              {%- set ca = a.summary.car -%}
+              {%- set ta = a.summary.plan_cost + ca.eur + ca.unmet * mp -%}
+              {%- if b.status == 'OK' and b.summary.car.prio == 'Balance' -%}
+                {%- set cb = b.summary.car -%}
+                {%- set tb = b.summary.plan_cost + cb.eur + cb.unmet * mp -%}
+                {%- set pick = b if tb < ta - 0.02 else a -%}
+                {%- set auto = {'car_first': ta | round(2), 'balance': tb | round(2)} -%}
+              {%- else -%}
+                {%- set pick = a -%}{%- set auto = {'car_first': ta | round(2)} -%}
+              {%- endif -%}
+              {{ pick | combine({'summary': pick.summary | combine({'car': pick.summary.car | combine({'auto': auto})})}) | tojson }}
+            {%- endif -%}
+      - variables:
           # Executed slots: when a new slot starts, the previous one moves here with the
           # stored energy measured now (e1) next to the planned target (pe1) -- e.g. to check that a
           # spread-out Sell really sold what was planned. Last 24 h.
@@ -1233,7 +1284,13 @@ template:
           replan: preview
           ledger: "{{ {'E': state_attr('sensor.hba_planned_strategy', 'ledger_energy'), 'C': state_attr('sensor.hba_planned_strategy', 'ledger_cost')} | tojson }}"
           car_run: preview
+          car_prio: *planned_car_prio
           result: *planned_result
+      - variables:
+          car_run: *planned_car_auto_run
+          car_prio: Balance
+          result_b: *planned_result
+          result: *planned_car_auto_pick
     sensor:
       - name: "HBA Planned Car Preview"
         unique_id: hba_planned_car_preview
