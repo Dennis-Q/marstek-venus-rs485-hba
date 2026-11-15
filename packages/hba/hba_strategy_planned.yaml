@@ -72,8 +72,6 @@ template:
           {%- set step = 3600 // ([pph, 1] | max) -%}
           {%- set ps = state_attr('sensor.hba_planned_strategy', 'plan_slot') | int(0) -%}
           {{ is_state('input_select.hba_strategy', 'Planned') and ps > 0 and as_timestamp(now()) - (ps + step) > 300 }}
-        attributes:
-          plan_made: "{{ state_attr('sensor.hba_planned_strategy', 'plan_made') }}"
 
       - name: "HBA EV Assist"
         unique_id: hba_ev_assist
