@@ -451,7 +451,8 @@ template:
             {%- elif trigger.platform in ['homeassistant', 'event'] -%}HA start / reload
             {%- elif trigger.id == 'settings' -%}settings changed
             {%- elif prev_plan | length == 0 -%}no plan yet
-            {%- elif signature != prev_sig -%}new prices or forecast
+            {%- elif signature.split('|')[:4] != (prev_sig or '').split('|')[:4] -%}new prices or forecast
+            {%- elif signature != prev_sig -%}car changed
             {%- elif now_slot != prev_slot -%}new slot
             {%- elif drift | float(-1) > states('input_number.hba_strategy_planned_replan_drift') | float(1) -%}off by {{ drift }} kWh
             {%- endif -%}
@@ -1113,18 +1114,18 @@ template:
                 {%- endif -%}
               {%- endif -%}
             {%- endif -%}
-      # Car hours priority Auto: the same plan once more with Balance, only when the plan has car
-      # hours next to grid-charging batteries (Charge alongside EV). The cheaper one runs:
-      # plan cost (batteries + house) + the car's grid cost + car kWh that no longer fit before
-      # the departure at the max price (else the dearest hour). Balance only when it saves more
-      # than 2 cents, so a tie does not flip the charger's behaviour at every re-plan.
+      # Car hours priority: the same plan once more with the other choice (Car first <-> Balance),
+      # only when the plan has car hours next to grid-charging batteries (Charge alongside EV). Both
+      # go into the summary (car cmp) for the Car section. Auto runs the cheaper one: plan cost
+      # (batteries + house) + the car's grid cost + car kWh that no longer fit before the departure
+      # at the max price (else the dearest hour). Balance only when it saves more than 2 cents, so a
+      # tie does not flip the charger's behaviour at every re-plan. A fixed choice runs as set.
       - variables:
           car_run: &planned_car_auto_run >-
             {%- set r = result if result is mapping else (result | from_json) -%}
             {%- set c = (r.get('summary') or {}).get('car') or {} -%}
-            {{ car_run if is_state('input_select.hba_strategy_planned_car_priority', 'Auto') and replan != '' and r.status == 'OK'
-               and c.get('along') == true and c.get('kwh', 0) | float(0) > 0.05 else 'skip' }}
-          car_prio: Balance
+            {{ car_run if replan != '' and r.status == 'OK' and c.get('along') == true and c.get('kwh', 0) | float(0) > 0.05 else 'skip' }}
+          car_prio: "{{ 'Car first' if car_prio == 'Balance' else 'Balance' }}"
           result_b: *planned_result
           result: &planned_car_auto_pick >-
             {%- set a = result if result is mapping else (result | from_json) -%}
@@ -1134,17 +1135,26 @@ template:
               {%- set b = result_b if result_b is mapping else (result_b | from_json) -%}
               {%- set mp = state_attr('sensor.ev_car_info', 'max_price') | float(0) -%}
               {%- set mp = mp if mp > 0 else (a.plan | map(attribute='b') | max) -%}
-              {%- set ca = a.summary.car -%}
-              {%- set ta = a.summary.plan_cost + ca.eur + ca.unmet * mp -%}
-              {%- if b.status == 'OK' and b.summary.car.prio == 'Balance' -%}
-                {%- set cb = b.summary.car -%}
-                {%- set tb = b.summary.plan_cost + cb.eur + cb.unmet * mp -%}
-                {%- set pick = b if tb < ta - 0.02 else a -%}
-                {%- set auto = {'car_first': ta | round(2), 'balance': tb | round(2)} -%}
-              {%- else -%}
-                {%- set pick = a -%}{%- set auto = {'car_first': ta | round(2)} -%}
-              {%- endif -%}
-              {{ pick | combine({'summary': pick.summary | combine({'car': pick.summary.car | combine({'auto': auto})})}) | tojson }}
+              {#- Key numbers per choice: car hours (start, kWh), car kWh / cost, energy the batteries
+                  store in car hours, batteries + house cost, kWh that do not fit, total -#}
+              {%- set ns = namespace(x={}) -%}
+              {%- for r in [a, b] if r.status == 'OK' and r.summary.car.prio not in ns.x -%}
+                {%- set c = r.summary.car -%}
+                {%- set hn = namespace(h=[], bat=0) -%}
+                {%- for w in r.plan if w.get('ev', 0) | float(0) > 0 -%}
+                  {%- set hn.h = hn.h + [[w.ts, w.ev]] -%}
+                  {%- set hn.bat = hn.bat + ([w.e1 - w.e0, 0] | max) -%}
+                {%- endfor -%}
+                {%- set ns.x = ns.x | combine({c.prio: {'hours': hn.h, 'kwh': c.kwh, 'eur': c.eur, 'bat': hn.bat | round(1),
+                     'plan': r.summary.plan_cost, 'unmet': c.unmet,
+                     'total': (r.summary.plan_cost + c.eur + c.unmet * mp) | round(2)}}) -%}
+              {%- endfor -%}
+              {%- set pa = a.summary.car.prio -%}
+              {%- set auto = is_state('input_select.hba_strategy_planned_car_priority', 'Auto') -%}
+              {%- set use_b = auto and b.status == 'OK' and pa == 'Car first' and b.summary.car.prio == 'Balance'
+                              and ns.x['Balance'].total < ns.x['Car first'].total - 0.02 -%}
+              {%- set pick = b if use_b else a -%}
+              {{ pick | combine({'summary': pick.summary | combine({'car': pick.summary.car | combine({'cmp': ns.x})})}) | tojson }}
             {%- endif -%}
       - variables:
           # Executed slots: when a new slot starts, the previous one moves here with the
@@ -1236,6 +1246,10 @@ template:
           summary: "{{ (result if result is mapping else (result | from_json)).get('summary') }}"
           drift: "{{ drift }}"
           slot_acts: "{{ slot_acts if slot_acts is mapping else (slot_acts | from_json) }}"
+          # Re-plans of the last 24 h: when (t) and why (r), for Insights
+          replans: >-
+            {%- set l = (state_attr('sensor.hba_planned_strategy', 'replans') or []) | selectattr('t', 'ge', now_ts - 86400) | list -%}
+            {{ l + ([{'t': now_ts | int, 'r': replan}] if replan != '' else []) }}
           # Ledger (see the variable): stored energy at the last run and what it cost per stored kWh
           ledger_energy: "{{ (ledger if ledger is mapping else (ledger | from_json)).E }}"
           ledger_cost: "{{ (ledger if ledger is mapping else (ledger | from_json)).C }}"
@@ -1288,7 +1302,7 @@ template:
           result: *planned_result
       - variables:
           car_run: *planned_car_auto_run
-          car_prio: Balance
+          car_prio: "{{ 'Car first' if car_prio == 'Balance' else 'Balance' }}"
           result_b: *planned_result
           result: *planned_car_auto_pick
     sensor:

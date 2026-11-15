@@ -3094,9 +3094,38 @@ views:
 
 
               {% if preview or state_attr(I, 'connected') == true -%}
-              {%- set au = car.get('auto') or {} -%}
+              {%- set cmp = car.get('cmp') or {} -%}
+              {%- set setp = states('input_select.hba_strategy_planned_car_priority') -%}
+              {%- set run = car.get('prio', 'Car first') -%}
               {%- if car.get('kwh', 0) | float(0) > 0.05 and car.get('along') %}
-              Car hours next to the batteries: **{{ car.get('prio', 'Car first') }}**{% if au.get('balance') is not none %} (Auto: Car first € {{ '%.2f' | format(au.car_first) }}, Balance € {{ '%.2f' | format(au.balance) }}){% endif %}.
+              **Car hours next to the batteries: {{ run }}**
+              {%- if cmp | length == 2 -%}
+              {%- set d = (cmp['Balance'].total - cmp['Car first'].total) | round(2) %}
+              {{ ' · Auto: ' if setp == 'Auto' else ' · set by hand; ' }}{{ 'Balance' if d > 0 else 'Car first' }} € {{ '%.2f' | format(d | abs) }} more{{ (' (Balance only below Car first − €0.02)' if setp == 'Auto' and run == 'Car first' and d <= 0 else '') }}
+
+
+              <small>
+
+              | | Car first | Balance |
+              |:--|:--|:--|
+              {%- set ch = namespace(c='', b='') -%}
+              {%- for k in ['Car first', 'Balance'] -%}
+              {%- set t = namespace(l=[]) -%}
+              {%- for h in cmp[k].hours -%}{%- set t.l = t.l + [(h[0] | timestamp_custom('%H:%M')) ~ ' ' ~ '%.1f' | format(h[1])] -%}{%- endfor -%}
+              {%- if k == 'Car first' -%}{%- set ch.c = t.l | join(' · ') -%}{%- else -%}{%- set ch.b = t.l | join(' · ') -%}{%- endif -%}
+              {%- endfor %}
+              | Car hours (kWh) | {{ ch.c }} | {{ ch.b }} |
+              | Car kWh · cost | {{ cmp['Car first'].kwh }} · € {{ '%.2f' | format(cmp['Car first'].eur) }} | {{ cmp['Balance'].kwh }} · € {{ '%.2f' | format(cmp['Balance'].eur) }} |
+              | Batteries store in car hours | {{ cmp['Car first'].bat }} kWh | {{ cmp['Balance'].bat }} kWh |
+              | Batteries + house | € {{ '%.2f' | format(cmp['Car first'].plan) }} | € {{ '%.2f' | format(cmp['Balance'].plan) }} |
+              {%- if cmp['Car first'].unmet > 0 or cmp['Balance'].unmet > 0 %}
+              | Car kWh that do not fit | {{ cmp['Car first'].unmet }} | {{ cmp['Balance'].unmet }} |
+              {%- endif %}
+              | **Total** | **€ {{ '%.2f' | format(cmp['Car first'].total) }}** | **€ {{ '%.2f' | format(cmp['Balance'].total) }}** |
+
+              </small>
+              {%- elif setp != 'Car first' %} · Balance not possible (needs the batteries' phases and the phase limit for EV charging)
+              {%- endif %}
               {% endif -%}
               {%- if car.get('normal_skip') %}
               Normal skipped: {{ car.get('normal', 0) }} kWh, € {{ '%.2f' | format(car.get('normal_eur', 0)) }} ({{ states('input_select.hba_strategy_planned_car_normal_skip') | lower }}{{ ', until ' ~ car.home_day if is_state('input_select.hba_strategy_planned_car_normal_skip', 'Min. until home day') and car.get('home_day') }}).
@@ -4190,6 +4219,18 @@ views:
               **Expected until {{ sm.until | timestamp_custom('%a %H:%M') }}** <font color=grey>(all electricity: house, batteries, sun, and what is left in the batteries at the end)</font>: with the plan {{ res(sm.plan_cost) }} · with Self-consumption only {{ res(sm.sc_cost) }} → the plan is **€{{ '%.2f' | format(sm.gain | abs) }} {{ 'better' if sm.gain >= 0 else 'worse' }}**</small>
               {%- else %}
               <small>No plan yet ({{ states(E) }}).</small>
+              {%- endif %}
+
+              {%- if state_attr('sensor.ev_car_soc', 'held') == true %}
+
+              <small>⚠️ **Car SoC {{ states('sensor.ev_car_soc') }} % is kept** from {{ state_attr('sensor.ev_car_soc', 'seen') | int(0) | timestamp_custom('%H:%M') }}: the car integration ({{ state_attr('sensor.ev_car_soc', 'entity') }}) has no value now. Kept up to 15 minutes.</small>
+              {%- endif %}
+              {%- set rp = state_attr(E, 'replans') or [] %}
+              {%- if rp | length > 0 %}
+              {%- set rn = namespace(c={}) -%}
+              {%- for x in rp -%}{%- set k = x.r if not x.r.startswith('off by') else 'off the plan (drift)' -%}{%- set rn.c = rn.c | combine({k: rn.c.get(k, 0) + 1}) -%}{%- endfor %}
+
+              <small>**Re-plans last 24 h: {{ rp | length }}** — {% for k, v in rn.c.items() | sort(attribute='1', reverse=true) %}{{ k }} {{ v }}{{ ' · ' if not loop.last }}{% endfor %}</small>
               {%- endif %}
 
               <small><small>

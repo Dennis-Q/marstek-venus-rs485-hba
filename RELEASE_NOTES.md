@@ -21,6 +21,13 @@ This document covers HBA-specific changes only.
 
 ### Changed
 
+- **Planned: Car first vs Balance side by side.** With car hours next to charging batteries the plan
+  now always works out both choices (also when one is set by hand) and the Car section shows them in a
+  table: car hours and kWh, car cost, what the batteries store in those hours, batteries + house, kWh
+  that do not fit, total — plus which one runs and by how much. Insights (Planned — decisions) gets two
+  lines: the car SoC that is being kept while the car integration has none (EV project), and the
+  re-plans of the last 24 h counted by reason (new reason *car changed*, split off from *new prices or
+  forecast*).
 - **Planned with the car: car hours priority** (*Car hours with charging batteries*, Car section,
   `input_select.hba_strategy_planned_car_priority`). In an hour where both the car and the batteries
   charge from the grid (Charge alongside EV): **Car first** = the car at full power, the batteries the
