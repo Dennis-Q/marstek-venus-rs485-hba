@@ -823,6 +823,12 @@ template:
                       {%- set u2 = [sl.u - car.picks[k], 0] | max -%}
                       {%- set c_pc = (([sl.pc, car_room] | min) if car_lim > 0 and car_ph.l else sl.pc) if car.along
                                      else (([sl.pc, u2 / ([sl.h, 0.01] | max)] | min) if car_pv else 0) -%}
+                      {#- Only the part of the hour the car charges: an hour with 0.8 kWh for the car is ~5 min
+                          at 10.5 kW, the batteries have their full power the rest of it (user 2026-11-15:
+                          12:00 capped at 2.8 kWh for the whole hour, 3.6 kWh less stored, 15:00 Sell gone).
+                          No discharge in that hour stays. -#}
+                      {%- set c_f = [car.picks[k] / ([car_kw * sl.h, 0.01] | max), 1] | min -%}
+                      {%- set c_pc = c_pc * c_f + sl.pc * (1 - c_f) -%}
                       {%- set car.sun_in = car.sun_in + c_sun -%}
                       {%- set car.eur = car.eur - c_sun * (sl.b - sl.s) -%}
                       {%- set ns_car.l = ns_car.l + [sl | combine({'ev': car.picks[k], 'ev_lim': car.lims[k], 'pd': 0, 'pc': c_pc, 'u': u2})] -%}

@@ -21,6 +21,11 @@ This document covers HBA-specific changes only.
 
 ### Changed
 
+- **Planned with the car: the car limits the batteries only while it charges.** In a car hour the
+  batteries got only the phase room the car leaves (or nothing) for the whole hour, even when the car
+  needed just a few minutes of it (0.8 kWh at 10.5 kW ≈ 5 min). Now that limit counts for the car's
+  share of the hour; the rest has the batteries' normal charge power. Example: 3.6 kWh more stored at
+  0.242 instead of buying earlier at 0.251, and the afternoon Sell it pays for stays in the plan.
 - **P1 meter lost: the batteries stop.** No reading from `sensor.p1_meter_power` for a minute (meter
   or its connection gone) → every battery is stopped, whatever the strategy, with a banner and a
   notification *P1 meter lost, batteries stopped*; control continues by itself at the first reading.
