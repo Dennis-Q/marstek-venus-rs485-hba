@@ -21,6 +21,11 @@ This document covers HBA-specific changes only.
 
 ### Changed
 
+- **Planned: plan out of date is no longer silent.** When no new plan could be made for the running
+  slot (usually an error in the plan calculation), Planned already ran Self-consumption; now
+  `binary_sensor.hba_plan_out_of_date` turns on, with a banner in the Overview, a notification
+  *Planned has no current plan* and a resolved message when a plan is made again (also checked after
+  an HA start or automation reload).
 - **Planned: Car first vs Balance side by side.** With car hours next to charging batteries the plan
   now always works out both choices (also when one is set by hand) and the Car section shows them in a
   table: car hours and kWh, car cost, what the batteries store in those hours, batteries + house, kWh

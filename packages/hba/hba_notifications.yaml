@@ -749,6 +749,64 @@ automation:
           color: green
           resolve_id: hba_p1_meter_lost
 
+  # ── Planned: plan out of date ─────────────────────────────────────────────────
+  # binary_sensor.hba_plan_out_of_date: no new plan for the running slot; Planned runs
+  # Self-consumption until a plan is made again.
+  - id: hba_notify_plan_out_of_date
+    alias: "HBA: Notify plan out of date"
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_plan_out_of_date
+        to: "on"
+      # After an HA start or an automation reload (automation hba_alert_recheck)
+      - trigger: event
+        event_type: hba_alert_recheck
+        id: recheck
+    conditions:
+      - condition: template
+        value_template: >-
+          {%- set s = states.binary_sensor.hba_plan_out_of_date -%}
+          {%- set mine = this.attributes.last_triggered if this is defined and this.attributes is defined else none -%}
+          {{ trigger.id != 'recheck'
+             or (s is not none and s.state == 'on' and (mine is none or s.last_changed > mine)) }}
+    actions:
+      - action: script.hba_notify_dispatch
+        data:
+          title: "HBA: Planned has no current plan"
+          message: >-
+            No new plan could be made since
+            {{ as_timestamp(state_attr('binary_sensor.hba_plan_out_of_date', 'plan_made'), 0) | timestamp_custom('%a %H:%M') }}.
+            HBA runs Self-consumption until a plan is made again. Usually an error in the plan
+            calculation: check the Home Assistant log, or press refresh in the Planned view.
+          tag: hba_plan_out_of_date
+          color: red
+          priority: high
+          persistent_id: hba_plan_out_of_date
+
+  - id: hba_notify_plan_out_of_date_resolved
+    alias: "HBA: Plan out of date — resolved"
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_plan_out_of_date
+        from: "on"
+        to: "off"
+    conditions:
+      - condition: template
+        value_template: >-
+          {% set raised = state_attr('automation.hba_notify_plan_out_of_date', 'last_triggered') %}
+          {% set mine = this.attributes.last_triggered if this is defined and this.attributes is defined else none %}
+          {{ raised is not none and (mine is none or raised > mine) }}
+    actions:
+      - action: script.hba_notify_dispatch
+        data:
+          title: "HBA: Planned has a current plan again"
+          message: "A new plan was made; HBA follows the plan again."
+          tag: hba_plan_out_of_date
+          color: green
+          resolve_id: hba_plan_out_of_date
+
   # ── Charge / Sell chosen by hand ──────────────────────────────────────────────
   # A reminder so a one-off Charge or Sell is not forgotten (e.g. the evening Sell of Dynamic
   # does not run while Charge is selected). "Done" = binary_sensor.hba_manual_strategy_done

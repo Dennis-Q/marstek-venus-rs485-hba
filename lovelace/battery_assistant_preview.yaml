@@ -483,6 +483,15 @@ views:
               columns: full
             visibility:
               - condition: state
+                entity: binary_sensor.hba_plan_out_of_date
+                state: "on"
+            content: >
+              <ha-alert alert-type="error">Plan out of date — no new plan since {{ as_timestamp(state_attr('binary_sensor.hba_plan_out_of_date', 'plan_made'), 0) | timestamp_custom('%a %H:%M') }}. HBA runs Self-consumption until a plan is made again. Usually an error in the plan calculation: check the Home Assistant log, or press refresh in the Planned view.</ha-alert>
+          - type: markdown
+            grid_options:
+              columns: full
+            visibility:
+              - condition: state
                 entity: binary_sensor.hba_power_limits_not_restored
                 state: "on"
             content: >

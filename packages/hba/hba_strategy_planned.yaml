@@ -59,6 +59,22 @@ template:
   # charging above the max price, the EV project asks Charge or Skip. Off, missing or stale = the EV
   # project's own rules. Older than 2 h = stale, as every new slot re-plans.
   - binary_sensor:
+      # Planned runs, but its plan is out of date: no new plan for the running slot (a plan is
+      # made at every new slot), so script.hba_strategy_planned runs Self-consumption -- the same
+      # test (slot ended more than 5 minutes ago). Usually an error in the calculation: the plan
+      # sensor then keeps its last plan. Banner + notification + resolved (hba_notifications.yaml).
+      - name: "HBA Plan Out Of Date"
+        unique_id: hba_plan_out_of_date
+        device_class: problem
+        icon: mdi:calendar-alert
+        state: >-
+          {%- set pph = state_attr('sensor.hba_energy_prices_data', 'datapoints_per_hour') | int(1) -%}
+          {%- set step = 3600 // ([pph, 1] | max) -%}
+          {%- set ps = state_attr('sensor.hba_planned_strategy', 'plan_slot') | int(0) -%}
+          {{ is_state('input_select.hba_strategy', 'Planned') and ps > 0 and as_timestamp(now()) - (ps + step) > 300 }}
+        attributes:
+          plan_made: "{{ state_attr('sensor.hba_planned_strategy', 'plan_made') }}"
+
       - name: "HBA EV Assist"
         unique_id: hba_ev_assist
         icon: mdi:car-clock
