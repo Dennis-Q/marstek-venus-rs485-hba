@@ -692,7 +692,7 @@ template:
                 {#- Preview only: the plan that runs leaves the car out, the preview run takes it in even
                     with Follow assisted off or the car unplugged (then from today's SoC), to show what
                     it would do to the batteries. Nothing of it reaches the batteries or the EV project. -#}
-                {%- if is_state('input_boolean.hba_strategy_planned_car', 'on') and state_attr(ev_e, 'known') == true and (car_run == 'preview' or (is_state('input_boolean.hba_strategy_planned_car_preview', 'off') and state_attr(ev_e, 'following') == true and state_attr(ev_e, 'connected') == true)) -%}
+                {%- if car_run != 'nocar' and is_state('input_boolean.hba_strategy_planned_car', 'on') and state_attr(ev_e, 'known') == true and (car_run == 'preview' or (is_state('input_boolean.hba_strategy_planned_car_preview', 'off') and state_attr(ev_e, 'following') == true and state_attr(ev_e, 'connected') == true)) -%}
                   {%- set car_dl0 = state_attr(ev_e, 'deadline') | int(0) -%}
                   {%- set car_day = (car_dl0 | as_datetime | as_local) if car_dl0 > 0 else now() -%}
                   {%- set car_today = car_day.strftime('%Y-%m-%d') == now().strftime('%Y-%m-%d') -%}
@@ -1141,6 +1141,13 @@ template:
             {{ car_run if replan != '' and r.status == 'OK' and c.get('along') == true and c.get('kwh', 0) | float(0) > 0.05 else 'skip' }}
           car_prio: "{{ 'Car first' if car_prio == 'Balance' else 'Balance' }}"
           result_b: *planned_result
+      # The same hours without the car (the "No car" column: what the car costs the batteries)
+      - variables:
+          car_run_ab: "{{ car_run }}"
+          car_run: &planned_car_nocar_run "{{ 'skip' if car_run == 'skip' else 'nocar' }}"
+          result_n: *planned_result
+      - variables:
+          car_run: "{{ car_run_ab }}"
           result: &planned_car_auto_pick >-
             {%- set a = result if result is mapping else (result | from_json) -%}
             {%- if car_run == 'skip' -%}
@@ -1170,6 +1177,17 @@ template:
               {%- set use_b = auto and b.status == 'OK' and pa == 'Car first' and b.summary.car.prio == 'Balance'
                               and ns.x['Balance'].total < ns.x['Car first'].total - 0.02 -%}
               {%- set pick = b if use_b else a -%}
+              {#- No car: batteries + house, what they store and their cost out in the hours the
+                  running choice gives the car -#}
+              {%- set n = result_n if result_n is mapping else (result_n | from_json) -%}
+              {%- if n.status == 'OK' and pick.summary.car.prio in ns.x -%}
+                {%- set hts = ns.x[pick.summary.car.prio].hours | map(attribute=0) | list -%}
+                {%- set nn = namespace(bat=0, cout=none) -%}
+                {%- for w in n.plan if w.ts in hts -%}
+                  {%- set nn.bat = nn.bat + ([w.e1 - w.e0, 0] | max) -%}{%- set nn.cout = w.c -%}
+                {%- endfor -%}
+                {%- set ns.x = ns.x | combine({'No car': {'bat': nn.bat | round(1), 'cout': nn.cout, 'plan': n.summary.plan_cost}}) -%}
+              {%- endif -%}
               {{ pick | combine({'summary': pick.summary | combine({'car': pick.summary.car | combine({'cmp': ns.x})})}) | tojson }}
             {%- endif -%}
       - variables:
@@ -1320,6 +1338,12 @@ template:
           car_run: *planned_car_auto_run
           car_prio: "{{ 'Car first' if car_prio == 'Balance' else 'Balance' }}"
           result_b: *planned_result
+      - variables:
+          car_run_ab: "{{ car_run }}"
+          car_run: *planned_car_nocar_run
+          result_n: *planned_result
+      - variables:
+          car_run: "{{ car_run_ab }}"
           result: *planned_car_auto_pick
     sensor:
       - name: "HBA Planned Car Preview"

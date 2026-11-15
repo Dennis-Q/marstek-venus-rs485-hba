@@ -3108,36 +3108,42 @@ views:
               {%- set run = car.get('prio', 'Car first') -%}
               {%- if car.get('kwh', 0) | float(0) > 0.05 and car.get('along') %}
               **Car hours next to the batteries: {{ run }}**
-              {%- if cmp | length == 2 -%}
+              {%- if 'Car first' in cmp and 'Balance' in cmp -%}
               {%- set d = (cmp['Balance'].total - cmp['Car first'].total) | round(2) %}
               {{ ' · Auto: ' if setp == 'Auto' else ' · set by hand; ' }}{{ 'Balance' if d > 0 else 'Car first' }} € {{ '%.2f' | format(d | abs) }} more{{ (' (Balance only below Car first − €0.02)' if setp == 'Auto' and run == 'Car first' and d <= 0 else '') }}
 
 
               <small>
 
-              | | Car first | Balance | Difference |
-              |:--|:--|:--|--:|
+              | | Car first | Balance | No car | Difference |
+              |:--|:--|:--|:--|--:|
               {%- set ch = namespace(c='', b='') -%}
               {%- for k in ['Car first', 'Balance'] -%}
               {%- set t = namespace(l=[]) -%}
               {%- for h in cmp[k].hours -%}{%- set t.l = t.l + [(h[0] | timestamp_custom('%H:%M')) ~ ' ' ~ '%.1f' | format(h[1])] -%}{%- endfor -%}
               {%- if k == 'Car first' -%}{%- set ch.c = t.l | join(' · ') -%}{%- else -%}{%- set ch.b = t.l | join(' · ') -%}{%- endif -%}
               {%- endfor -%}
-              {%- set A = cmp['Car first'] -%}{%- set B = cmp['Balance'] -%}
+              {%- set A = cmp['Car first'] -%}{%- set B = cmp['Balance'] -%}{%- set N = cmp.get('No car') or {} -%}
               {%- macro df(x, f='%+.2f') -%}{{ f | format(x) if x is number else '—' }}{%- endmacro -%}
               {%- set pa = A.eur / A.kwh if A.kwh > 0 else none -%}{%- set pb = B.eur / B.kwh if B.kwh > 0 else none %}
-              | Car hours (kWh) | {{ ch.c }} | {{ ch.b }} | |
-              | Car kWh · cost | {{ A.kwh }} · € {{ '%.2f' | format(A.eur) }} | {{ B.kwh }} · € {{ '%.2f' | format(B.eur) }} | {{ df(B.eur - A.eur) }} |
-              | Car price per kWh | {{ ('€ ' ~ df(pa, '%.3f')) if pa is number else '—' }} | {{ ('€ ' ~ df(pb, '%.3f')) if pb is number else '—' }} | {{ df(pb - pa, '%+.3f') if pa is number and pb is number else '—' }} |
-              | Batteries store in car hours | {{ A.bat }} kWh | {{ B.bat }} kWh | {{ df(B.bat - A.bat, '%+.1f') }} |
-              | Battery kWh cost out after the car hours | {{ ('€ ' ~ df(A.cout, '%.3f')) if A.get('cout') is number else '—' }} | {{ ('€ ' ~ df(B.cout, '%.3f')) if B.get('cout') is number else '—' }} | {{ df(B.cout - A.cout, '%+.3f') if A.get('cout') is number and B.get('cout') is number else '—' }} |
-              | Batteries + house | € {{ '%.2f' | format(A.plan) }} | € {{ '%.2f' | format(B.plan) }} | {{ df(B.plan - A.plan) }} |
+              | Car hours (kWh) | {{ ch.c }} | {{ ch.b }} | — | |
+              | Car kWh · cost | {{ A.kwh }} · € {{ '%.2f' | format(A.eur) }} | {{ B.kwh }} · € {{ '%.2f' | format(B.eur) }} | — | {{ df(B.eur - A.eur) }} |
+              | Car price per kWh | {{ ('€ ' ~ df(pa, '%.3f')) if pa is number else '—' }} | {{ ('€ ' ~ df(pb, '%.3f')) if pb is number else '—' }} | — | {{ df(pb - pa, '%+.3f') if pa is number and pb is number else '—' }} |
+              | Batteries store in car hours | {{ A.bat }} kWh | {{ B.bat }} kWh | {{ (N.bat ~ ' kWh') if N.get('bat') is not none else '—' }} | {{ df(B.bat - A.bat, '%+.1f') }} |
+              | Battery kWh cost out after the car hours | {{ ('€ ' ~ df(A.cout, '%.3f')) if A.get('cout') is number else '—' }} | {{ ('€ ' ~ df(B.cout, '%.3f')) if B.get('cout') is number else '—' }} | {{ ('€ ' ~ df(N.cout, '%.3f')) if N.get('cout') is number else '—' }} | {{ df(B.cout - A.cout, '%+.3f') if A.get('cout') is number and B.get('cout') is number else '—' }} |
+              | Batteries + house | € {{ '%.2f' | format(A.plan) }} | € {{ '%.2f' | format(B.plan) }} | {{ ('€ %.2f' | format(N.plan)) if N.get('plan') is number else '—' }} | {{ df(B.plan - A.plan) }} |
               {%- if A.unmet > 0 or B.unmet > 0 %}
-              | Car kWh that do not fit | {{ A.unmet }} | {{ B.unmet }} | {{ df(B.unmet - A.unmet, '%+.1f') }} |
+              | Car kWh that do not fit | {{ A.unmet }} | {{ B.unmet }} | — | {{ df(B.unmet - A.unmet, '%+.1f') }} |
               {%- endif %}
-              | **Total** | **€ {{ '%.2f' | format(A.total) }}** | **€ {{ '%.2f' | format(B.total) }}** | **{{ df(B.total - A.total) }}** |
+              | **Total** | **€ {{ '%.2f' | format(A.total) }}** | **€ {{ '%.2f' | format(B.total) }}** | — | **{{ df(B.total - A.total) }}** |
 
-              <font color=grey>Difference = Balance − Car first (+ = Balance costs more). Cost out: what a kWh from the batteries has cost (bought ÷ efficiency, sun at the sell price, + wear).</font>
+              {%- set P = cmp[run] if run in cmp else A %}
+              {%- if N.get('plan') is number %}
+
+              **The car costs the batteries € {{ '%.2f' | format(P.plan - N.plan) }}** ({{ run }}: batteries + house € {{ '%.2f' | format(P.plan) }} instead of € {{ '%.2f' | format(N.plan) }}){% if P.get('cout') is number and N.get('cout') is number %}; cost out after the car hours € {{ '%.3f' | format(P.cout) }} instead of € {{ '%.3f' | format(N.cout) }}{% endif %}.
+              {%- endif %}
+
+              <font color=grey>Difference = Balance − Car first (+ = Balance costs more). No car: the same plan without the car, in the hours {{ run }} gives the car. Cost out: what a kWh from the batteries has cost (bought ÷ efficiency, sun at the sell price, + wear).</font>
 
               </small>
               {%- elif setp != 'Car first' %} · Balance not possible (needs the batteries' phases and the phase limit for EV charging)
