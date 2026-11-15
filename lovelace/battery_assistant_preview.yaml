@@ -4239,7 +4239,7 @@ views:
 
               {%- if state_attr('sensor.ev_car_soc', 'held') == true %}
 
-              <small>⚠️ **Car SoC {{ states('sensor.ev_car_soc') }} % is kept** from {{ state_attr('sensor.ev_car_soc', 'seen') | int(0) | timestamp_custom('%H:%M') }}: the car integration ({{ state_attr('sensor.ev_car_soc', 'entity') }}) has no value now. Kept up to 15 minutes.</small>
+              <small>⚠️ **Car SoC {{ states('sensor.ev_car_soc') }} % is kept** since {{ state_attr('sensor.ev_car_soc', 'lost') | int(0) | timestamp_custom('%H:%M') }}: the car integration ({{ state_attr('sensor.ev_car_soc', 'entity') }}) has no value now. Kept up to 15 minutes.</small>
               {%- endif %}
               {%- set rp = state_attr(E, 'replans') or [] %}
               {%- if rp | length > 0 %}
