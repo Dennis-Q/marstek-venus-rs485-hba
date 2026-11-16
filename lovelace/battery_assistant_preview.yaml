@@ -2947,6 +2947,10 @@ views:
               {%- else -%}
               <ha-alert alert-type="success">Car settings OK.{{ ' The car is not connected.' if state_attr(I, 'connected') == false }}</ha-alert>
               {%- endif %}
+              {%- if is_state('input_boolean.hba_strategy_planned_car_battery', 'on')
+                     and not (is_state('input_boolean.ev_car1_compensated', 'on') or is_state('input_boolean.ev_car2_compensated', 'on') or is_state('input_boolean.ev_car3_compensated', 'on')) %}
+              <ha-alert alert-type="info">No car has compensated charging (EV project → Cars → <i>Charging is compensated</i>). Battery energy the car gets beyond its grid hours then counts at the cheapest known price, not the max price.</ha-alert>
+              {%- endif %}
               {%- set S = 'binary_sensor.hba_ev_solar_allowed' -%}
               {%- set why = state_attr(S, 'reason') -%}
               {%- set tgt = state_attr(S, 'target') -%}
@@ -2996,13 +3000,6 @@ views:
                 row:
                   entity: input_datetime.hba_strategy_planned_car_latest_plugin
                   name: Latest plug-in time
-              - type: conditional
-                conditions:
-                  - entity: input_boolean.hba_strategy_planned_car_battery
-                    state: "on"
-                row:
-                  entity: input_boolean.ev_car1_compensated
-                  name: Car 1 charging is compensated
               - entity: input_boolean.hba_strategy_planned_car_solar_export
                 name: Solar the plan would export
               - entity: input_boolean.ev_window_max_price_enabled
@@ -3050,7 +3047,7 @@ views:
               later — so not when an expensive morning or a better sale needs it, and more easily when tomorrow's
               sun refills the batteries. What a kWh in the car is worth: the price of a grid hour it saves (that
               hour then charges less); above those hours, up to Leftover, the max price when the car's charging
-              is **compensated** (EV project, per car), else the cheapest known price. The house comes first, the
+              is **compensated** (EV project → Cars, per car), else the cheapest known price. The house comes first, the
               rest goes to the car; HBA discharges at the planned power and the EV project lets the car take
               what would be exported. With **Allow grid charging for Normal** off, energy bought from the grid
               after plug-in never goes to the car. **Ends before departure:** battery to car stops this many
