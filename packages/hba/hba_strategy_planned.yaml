@@ -575,6 +575,7 @@ template:
               (states(ev_e) | float(0) / 5) | round(0) }}|{{
               state_attr(ev_e, 'max_price') }}|{{
               state_attr(ev_e, 'charge_kw') }}|{{
+              state_attr(ev_e, 'phases') }}|{{
               state_attr(ev_e, 'over_price') }}|{{
               states('input_select.hba_strategy_planned_car_next_departure') }}|{{
               states('input_select.hba_strategy_planned_car_normal_skip') }}|{{
@@ -981,6 +982,8 @@ template:
                       if is_state('input_boolean.hba_strategy_planned_car_grid', 'on') else 0 -%}
                   {%- set car.left = car.need -%}
                   {%- set car_kw = state_attr(ev_e, 'charge_kw') | float(11) -%}
+                  {#- Phases the car charges on (EV project, per car): 1 or 3; not published = 3 -#}
+                  {%- set car_n = 1 if state_attr(ev_e, 'phases') | int(3) == 1 else 3 -%}
                   {%- set car_maxp = state_attr(ev_e, 'max_price') | float(0) -%}
                   {#- The EV project's switch: off = no limit. Without that attribute (older EV project): on -#}
                   {%- set car_max_on = state_attr(ev_e, 'max_price_on') != false -%}
@@ -1040,17 +1043,22 @@ template:
                       {%- set car_ph.l = car_ph.l + [ph] -%}
                     {%- endif -%}
                   {%- endfor -%}
-                  {%- set car_room = ([car_lim - car_kw * 1000 / 690, 0] | max) * 0.23 * (car_ph.l | length) -%}
+                  {#- Room next to the car at full power: the limit minus the car's current per phase
+                      (a 1-phase car has all of it on one phase; which one is not known, so it counts
+                      on every battery phase) -#}
+                  {%- set car_room = ([car_lim - car_kw * 1000 / (230 * car_n), 0] | max)
+                      * 0.23 * (car_ph.l | length) -%}
                   {#- Car hours priority (input_select.hba_strategy_planned_car_priority; car_prio is set per
                       run, Auto runs both and keeps the cheaper). Balance: the batteries leave the car its
                       6 A minimum + 1 A margin per phase, so the charger keeps charging next to them instead
                       of pausing (its own CT limit, ~22 A per phase on prod). The car then counts at its
-                      minimum (6 A x 3 phases = 4.1 kW) for the whole hour and needs more hours; when the
-                      batteries are done early it speeds up, finishes sooner, and the next plan sees that.
+                      minimum (6 A x 3 phases = 4.1 kW, a 1-phase car 1.4 kW) for the whole hour and needs
+                      more hours; when the batteries are done early it speeds up, finishes sooner, and the
+                      next plan sees that.
                       Only with Charge alongside EV (car.along) and phases + a limit set; else Car first.
                       House load is left out, as for Car first: the charger pauses briefly by itself. -#}
                   {%- set car_bal = car_prio == 'Balance' and car.along and car_lim > 0 and (car_ph.l | length) > 0 -%}
-                  {%- set car_pk = ([car_kw, 6 * 0.69] | min) if car_bal else car_kw -%}
+                  {%- set car_pk = ([car_kw, 6 * 0.23 * car_n] | min) if car_bal else car_kw -%}
                   {%- set bal_room = ([car_lim - 7, 0] | max) * 0.23 * (car_ph.l | length) -%}
                   {%- for sl in slots | selectattr('ts', 'lt', car_dl.norm) | selectattr('ts', 'ge', c_from)
                       | sort(attribute='b') -%}
