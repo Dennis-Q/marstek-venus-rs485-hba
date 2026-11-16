@@ -1965,9 +1965,11 @@ template:
             {{ none if is_state('input_boolean.hba_strategy_planned_debug', 'off')
                 else (d if d.get('made') else state_attr('sensor.hba_planned_strategy_debug', 'plan')) }}
 
-  # Preview only: the plan with the car, next to the plan that runs (which leaves the car out). A
-  # second full calculation, after each plan and only while the switch is on; a separate block, so
-  # HA gets a turn between the two. Only the Car section reads it.
+  # Preview only: the plan with the car, next to the plan that runs (which leaves the car out).
+  # One more full calculation after each plan, only while the switch is on -- and one or two on
+  # top for the comparison, by the same rule as the plan itself (the other priority with Auto or
+  # Insights mode, "No car" with Insights mode; see "Car hours priority"). A separate block, so
+  # HA gets a turn in between. Only the Car section reads it.
   - triggers:
       - trigger: state
         entity_id: sensor.hba_planned_strategy
