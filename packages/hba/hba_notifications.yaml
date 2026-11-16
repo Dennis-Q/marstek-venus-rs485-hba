@@ -1283,7 +1283,7 @@ automation:
       # Charge the car from the batteries on (user 2026-11-16): the departure also matters when Normal
       # is already in -- the batteries may fill the car up to Leftover until then. So it asks at
       # plug-in whatever the time, as long as the car is below Leftover, and at the reminder time
-      # only when it did not ask yet that day since plug-in.
+      # only when it did not ask yet that day (see "asked" below).
       - condition: template
         value_template: >-
           {%- set t = states('input_datetime.ev_assisted_reminder')[:5] -%}

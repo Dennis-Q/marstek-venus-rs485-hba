@@ -68,7 +68,8 @@
 #                                    backward pass -> forward pass -> grid car hours the batteries
 #                                    replace -> summary
 #       result_b, result_n, result   the same calculation with the other car priority and without
-#                                    the car, then the pick (Car first / Balance / Auto)
+#                                    the car (each only when needed, see "Car hours priority"),
+#                                    then the pick (Car first / Balance / Auto)
 #       history, slot_acts, debug    executed slots, what ran, debug copy
 #   sensor.hba_planned_car_preview            the same calculation, only to show it (Preview only)
 # script:
@@ -1315,6 +1316,10 @@ template:
                               + msp * ([dis - d - bk, 0] | max)
                               + (eps if sl.up else eps_dark)[a]
                               + ns.V[i] * (1 - f) + ns.V[i + 1] * f -%}
+                          {#- Car only with at least 0.6 kWh per hour into the car (1e9 = never chosen). A slot
+                              is only offered to the car from 0.7 (half the hour at the car's ~1.4 kW
+                              minimum, see "Battery to car" above); why this limit is 0.6 is not recorded
+                              (0afd8f0, 2026-11-16). The same check is in the forward pass. -#}
                           {%- set v = v if a != 'Car' or bk >= 0.6 * sl.h else 1e9 -%}
                           {%- if v < best.v -%}
                             {%- set best.v = v -%}

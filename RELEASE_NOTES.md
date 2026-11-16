@@ -25,12 +25,14 @@ This document covers HBA-specific changes only.
   off; needs the EV project with *Follow assisted*). A new plan action **Car** (🔋→🚗 in the plan table):
   the batteries cover the house and the rest goes into the car, when a battery kWh is worth more there
   than sold, used in the house or kept. A kWh in the car is worth the all-in price of a grid car hour it
-  replaces (that hour then charges less, dearest first); above those hours, up to Leftover, the max price
+  replaces (that hour then charges less); above those hours, up to Leftover, the max price
   for a car whose charging is compensated (new per-car switch in the EV project) or else the cheapest known
   price — never more than refilling the batteries from the grid would cost, so the plan never buys for
   the car through the batteries. With *Allow grid charging for Normal* off, grid energy bought after
   plug-in never goes to the car. It runs through the Timed EV charge push (same guards, the EV project's
-  `assisted_battery` mode) at the plan's power. New settings: *ends before departure* (hours, default 1;
+  `assisted_battery` mode) at the house's expected use plus the car's charge power; with an energy meter
+  on the charger the push stops when the car has that hour's kWh, and the batteries cover the house for
+  the rest. It pauses while the plan is out of date or the P1 meter is lost. New settings: *ends before departure* (hours, default 1;
   grid car hours run up to the departure) and *latest plug-in time* (default 18:00: until then the plan
   may keep battery energy for a car that is not plugged in yet; at that time without the car it is free
   again). With the switch on, the car question also comes at plug-in when Normal is already in, as long
@@ -57,10 +59,12 @@ This document covers HBA-specific changes only.
   `input_select.hba_strategy_planned_car_priority`). In an hour where both the car and the batteries
   charge from the grid (Charge alongside EV): **Car first** = the car at full power, the batteries the
   room it leaves (as before); **Balance** = the batteries leave the car its 6 A minimum + 1 A per phase,
-  so the charger slows the car instead of pausing it; the car counts at its minimum (4.1 kW) and gets
+  so the charger slows the car instead of pausing it; the car counts at its minimum (4.1 kW; a 1-phase car 1.4 kW, from the EV project's car info) and gets
   more hours. **Auto** (default) works out both and keeps the cheaper one (batteries + car, car kWh that
   no longer fit at the max price; Balance only when it saves more than 2 cents). The Car section shows
-  which one runs and both totals. At runtime Balance is a mode of Charge alongside EV
+  which one runs and both totals. With a fixed choice the other one is only worked out while Insights mode
+  is on, and so is the *No car* column (each is one more plan calculation, during which HA waits); the
+  Car section says so. At runtime Balance is a mode of Charge alongside EV
   (`binary_sensor.hba_ev_charge_alongside` mode *Balance*, room in `sensor.hba_phase_room` `ev_bal_w`,
   limit source *Balance Lx*). Nothing changes in the EV project: the charger's own limit throttles the car.
 - **Planned with the car: the car limits the batteries only while it charges.** In a car hour the
@@ -172,6 +176,13 @@ This document covers HBA-specific changes only.
 
 ### Fixed
 
+- **Ask before Normal: no repeat after a restart or reload.** The plug-in question came again when HA
+  restarted or templates were reloaded with the car connected. When it only asks for the departure, the
+  first line now says why Normal has no grid hours (already in, grid charging off, covered by Minimum or
+  solar, or no hour below the max price).
+- **Timed EV charge / battery to car: waiting for the car without an EV-charging entity.** With no
+  EV-charging entity set, "the car is not drawing" now comes from the charger power sensor (below 300 W
+  for 3 minutes), so the push stops instead of exporting until the overflow guard trips.
 - **No false alerts after an automation reload:** the control-loop watchdog and the battery offline check
   ignore delays for 2 minutes after `automation_reloaded` (a reload can freeze HA for a while; new
   `sensor.hba_last_automation_reload`).
