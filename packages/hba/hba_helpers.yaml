@@ -2137,11 +2137,14 @@ template:
              battery_assist mode charging from grid with no battery behind it. #}
           {# Planned, charge the car from the batteries: the running plan row is Car (battery to car)
              and the stored energy is still above the row's target; the car is plugged in. The same
-             push, guards and EV mode (battery) as Timed EV charge; the power is the row's (pw). #}
+             push, guards and EV mode (battery) as Timed EV charge; the power is the row's (pw).
+             Not with a plan that is out of date (its last row would keep pushing for hours);
+             script.hba_strategy_planned runs Self-consumption then. #}
           {% set plan = state_attr('sensor.hba_planned_strategy', 'plan') or [] %}
           {% set cur = plan | selectattr('ts', 'le', as_timestamp(now()) | int) | list | last | default(none) %}
           {% set planned_car = cur is not none and cur.a == 'Car'
              and is_state('input_select.hba_strategy', 'Planned')
+             and not is_state('binary_sensor.hba_plan_out_of_date', 'on')
              and is_state('input_select.hba_marstek_master_battery_mode', 'Full control')
              and is_state('input_boolean.hba_strategy_planned_car_battery', 'on')
              and state_attr('sensor.ev_car_info', 'connected') == true

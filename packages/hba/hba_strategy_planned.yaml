@@ -2095,7 +2095,12 @@ script:
           # binary_sensor.hba_battery_assist_active is on. Here only when it is not: the car does not
           # draw (yet), or the row's target is reached (done, below). Not done: the batteries cover
           # the house only (Zero import), nothing exported.
-          - conditions: "{{ act == 'Car' and target >= 0 and avail > target + 0.05 }}"
+          # Once done, "not done" again only 0.3 kWh above the target, as for Charge / Sell and as
+          # binary_sensor.hba_battery_assist_active does: the stored energy hovers around the target
+          # and each flip would switch the EV project in and out of battery mode.
+          - conditions: >-
+              {{ act == 'Car' and target >= 0
+                 and avail > target + (0.3 if flow.startswith('Planned → Car done') else 0.05) }}
             sequence:
               - action: script.hba_strategy_zero_import
                 data: { flow_prefix: "Planned → Car (car not charging) →" }
