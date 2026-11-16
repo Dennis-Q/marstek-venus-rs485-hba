@@ -2,14 +2,38 @@
 #
 # Core infrastructure for Home Battery Assistant (HBA).
 #
+# One control cycle (about once a second, only in master mode Full control):
+#   sensor.p1_meter_power changes
+#   -> automation hba_control_loop       100 ms settle, P1 must be a number
+#   -> script hba_run_strategy           what runs now: Full stop, the push to the car, the EV
+#                                        stop trigger, else the chosen strategy's script
+#   -> the strategy script               works out one total power (the PID is in
+#                                        hba_strategy_self_consumption.yaml)
+#   -> script hba_set_batteries          splits that power over the batteries
+#   -> script hba_write_battery          one per battery, all at the same time: the three
+#                                        Modbus registers, skipped when nothing changed
+#   -> script hba_wait_battery_writes    until they are done, at most 2 s
+# The label of what runs is input_text.hba_strategy_active_flow ("A → B → C"); other code reads
+# it (PID resets, the stalled check, the Planned hysteresis), so a label is part of the logic.
+#
 # Contains:
-#   • The main control loop automation (P1-triggered, ~1 s)
-#   • Master mode / PID preset / priority cycling / insights auto-off automations
+#   automations
+#   • hba_control_loop — the control loop (P1-triggered, ~1 s)
+#   • hba_p1_meter_lost_stop — stops the batteries when the P1 meter is lost
+#   • hba_master_mode_changed, hba_master_mode_periodic_reapply — master mode to the batteries
+#   • hba_pid_preset_changed, hba_cycle_priority, hba_insights_mode_auto_off
+#   • hba_battery_assist_pid_reset, hba_direct_mode_pid_reset — PID memory cleared on transitions
+#   • hba_power_limits_apply, hba_power_group_prefill_max_power,
+#     hba_power_group_restore_own_limits — power groups: the batteries' limit registers
+#   scripts
 #   • hba_run_strategy   — strategy dispatcher (reads input_select.hba_strategy)
 #   • hba_apply_master_mode — pushes RS485/work-mode settings to all batteries
 #   • hba_set_batteries  — distributes a target power across N batteries
+#   • hba_write_battery  — the only place that writes a battery's power registers
+#   • hba_wait_battery_writes — waits for one cycle's writes
+#   • hba_restore_power_limits — limit registers back after a battery restart
 #   • hba_advance_priority — rotates the priority battery index
-#   • hba_apply_defaults — writes factory defaults to all user-facing helpers
+#   • hba_apply_battery_assist_defaults, hba_apply_defaults — factory defaults to the helpers
 #
 # Strategy scripts that do the actual control logic live in separate files:
 #   hba_strategy_self_consumption.yaml   (PID, most complex)
@@ -192,7 +216,7 @@ automation:
 
   # ── PID preset changed ────────────────────────────────────────────────────────
   # Writes Kp/Ki/Kd and dampening values for the selected named preset.
-  # ── PID preset changed ────────────────────────────────────────────────────────
+  #
   # The four everyday presets share Kp 0.35 / Kd 0.1 / damping 20-10 and differ ONLY in
   # Ki: 0.15 / 0.22 / 0.30 / 0.40 (~x1.35 per step). "Low peak (grid limit)" is the exception.
   #
@@ -544,11 +568,23 @@ automation:
           writes: >-
             {%- set S = 'sensor.hba_power_limits' -%}
             {%- set count = states('input_number.hba_battery_count') | int(1) -%}
-            {%- set v = state_attr(S, 'groups') -%}{%- set groups = v if v is mapping else {} -%}
+            {%- set v = state_attr(S, 'groups') -%}
+            {%- set groups = v if v is mapping else {} -%}
+            {#- Per direction (d) and battery (k = its number as text):
+                 want    the limit sensor.hba_power_limits decided
+                 c.rb    the register as the battery reports it (0 = restarted, -1 = no reading)
+                 c.eff   the limit that counts now: that read-back, else the last known value,
+                         else want
+                 c.live  the battery can be reached
+               The writes, sent in this order: w.lower (below what counts now), w.heal (same
+               value, the register reads 0), w.up (raises, as far as the group has room:
+               u.sum = what the group's batteries add up to now) -#}
             {%- set w = namespace(lower=[], heal=[], up=[]) -%}
             {%- for d in ['charge', 'discharge'] -%}
-              {%- set v = state_attr(S, d) -%}{%- set want = v if v is mapping else {} -%}
-              {%- set v = state_attr(S, 'last_known_' ~ d) -%}{%- set lk = v if v is mapping else {} -%}
+              {%- set v = state_attr(S, d) -%}
+              {%- set want = v if v is mapping else {} -%}
+              {%- set v = state_attr(S, 'last_known_' ~ d) -%}
+              {%- set lk = v if v is mapping else {} -%}
               {%- set c = namespace(eff={}, rb={}, live={}) -%}
               {%- for i in range(1, count + 1) -%}
                 {%- set k = i | string -%}
@@ -574,7 +610,9 @@ automation:
                   {%- endif -%}
                 {%- endfor -%}
                 {%- set u = namespace(sum=0) -%}
-                {%- for k in mem -%}{%- set u.sum = u.sum + c.eff[k] -%}{%- endfor -%}
+                {%- for k in mem -%}
+                  {%- set u.sum = u.sum + c.eff[k] -%}
+                {%- endfor -%}
                 {%- for k in mem if c.live[k] and k in want and want[k] > c.eff[k] -%}
                   {%- set e = 'number.marstek_m' ~ k ~ '_max_' ~ d ~ '_power' -%}
                   {%- set new = [want[k], g.max_power - (u.sum - c.eff[k])] | min | int -%}
@@ -608,7 +646,9 @@ automation:
               {%- set ns = namespace(ok=true) -%}
               {%- for w in writes -%}
                 {%- set rb = states(w.entity | replace('number.', 'sensor.') ~ '_number') | float(-1) -%}
-                {%- if rb != (w.value | float(0)) -%}{%- set ns.ok = false -%}{%- endif -%}
+                {%- if rb != (w.value | float(0)) -%}
+                  {%- set ns.ok = false -%}
+                {%- endif -%}
               {%- endfor -%}
               {{ ns.ok }}
             timeout: { seconds: 12 }
@@ -693,8 +733,12 @@ automation:
           for_each: ["charge", "discharge"]
           sequence:
             - variables:
-                own: "{{ states('input_number.hba_marstek_m' ~ bat ~ '_max_' ~ repeat.item ~ '_power') | float(0) | int }}"
-                now: "{{ states('sensor.marstek_m' ~ bat ~ '_max_' ~ repeat.item ~ '_power_number') | float(-1) | int }}"
+                own: >-
+                  {{ states('input_number.hba_marstek_m' ~ bat ~ '_max_' ~ repeat.item ~ '_power')
+                     | float(0) | int }}
+                now: >-
+                  {{ states('sensor.marstek_m' ~ bat ~ '_max_' ~ repeat.item ~ '_power_number')
+                     | float(-1) | int }}
             - if:
                 - condition: template
                   value_template: "{{ own > 0 and now >= 0 and own != now }}"
@@ -708,8 +752,13 @@ automation:
 
 script:
   # ── Strategy dispatcher ───────────────────────────────────────────────────────
-  # Called by hba_control_loop every ~1 s. Checks for the EV stop trigger first,
-  # then dispatches to the configured strategy script.
+  # Called by hba_control_loop every ~1 s. The first branch that applies runs, in this order:
+  #   1. Strategy Full stop                       beats everything below
+  #   2. The push to the car                      binary_sensor.hba_battery_assist_active on and
+  #                                               not waiting: Timed EV charge, or a Planned Car row
+  #   3. EV stop trigger (the car is charging)    what runs is set by "strategy during EV charge";
+  #                                               Charge alongside EV has no branch: 4 runs
+  #   4. The chosen strategy's script
   hba_run_strategy:
     alias: "HBA: Run active strategy"
     sequence:
@@ -768,11 +817,17 @@ script:
                   - variables:
                       p_row: >-
                         {%- set plan = state_attr('sensor.hba_planned_strategy', 'plan') or [] -%}
-                        {%- set cur = plan | selectattr('ts', 'le', as_timestamp(now()) | int) | list | last | default(none) -%}
-                        {{ cur.pw if strategy == 'Planned' and cur is not none and cur.a == 'Car' and cur.pw is defined else 0 }}
+                        {%- set cur = plan | selectattr('ts', 'le', as_timestamp(now()) | int) | list
+                            | last | default(none) -%}
+                        {{ cur.pw
+                           if strategy == 'Planned' and cur is not none and cur.a == 'Car' and cur.pw is defined
+                           else 0 }}
                   - action: input_text.set_value
                     target: { entity_id: input_text.hba_strategy_active_flow }
-                    data: { value: "{{ 'Planned → Car from the batteries → Discharge to EV' if p_row | int(0) > 0 else 'Timed EV charge → Discharge to EV' }}" }
+                    data:
+                      value: >-
+                        {{ 'Planned → Car from the batteries → Discharge to EV' if p_row | int(0) > 0
+                           else 'Timed EV charge → Discharge to EV' }}
                   - action: script.hba_set_batteries
                     data:
                       desired_power_w: >-
@@ -914,7 +969,8 @@ script:
                 # It gets its mode from hba_master_mode_periodic_reapply once it is back.
                 bat_available: >-
                   {%- set hb = states.sensor['marstek_' ~ bat ~ '_battery_power'] -%}
-                  {{ states('select.marstek_' ~ bat ~ '_forcible_charge_discharge') not in ['unavailable', 'unknown', 'none']
+                  {{ states('select.marstek_' ~ bat ~ '_forcible_charge_discharge')
+                       not in ['unavailable', 'unknown', 'none']
                      and hb is not none and hb.state not in ['unavailable', 'unknown']
                      and (now() - hb.last_reported).total_seconds() <= 30 }}
             # Stop any in-flight forcible charge/discharge BEFORE changing mode,
@@ -972,16 +1028,6 @@ script:
                 # them in. Re-selecting Full control / Marstek control re-applies
                 # that mode's settings.
 
-  # ── Battery power distribution ────────────────────────────────────────────────
-  # Distributes a target power across N batteries using priority-first waterfall fill:
-  #   1. Priority battery takes as much as it can (hw max, SoC eligibility, slow-charge cap).
-  #   2. The others follow cyclically (p+1 … count, 1 … p-1), each taking what it can.
-  #   "Auto balance (SoC)" replaces this order with sensor.hba_battery_order (by SoC).
-  # Per-battery eligibility: SoC within its cutoffs (exact, as HBC), inverter not faulted and
-  # the battery reported over Modbus within the last 30 s.
-  # Shares are pre-computed in a single Jinja2 namespace loop into shares_json before the
-  # repeat, because Jinja2 loop iterations cannot share mutable state — variables: steps in
-  # a repeat are independent and cannot decrement a running remainder across iterations.
   # ── Single point of Modbus actuation ──────────────────────────────────────────
   # Every forcible charge/discharge command goes through here so the write
   # de-duplication is applied consistently.
@@ -1007,6 +1053,15 @@ script:
   #      to 0 restores the old always-write behaviour.
   #   2. force: true on the master-mode handoff path, which must land immediately.
   #   3. After a restart the cached epoch is stale, so the first cycle re-sends.
+  #
+  # The command cache, one per battery: input_text.hba_last_cmd_m<N>
+  #   "<mode>|<charge W>|<discharge W>|<time>"   the last command that was sent, and when
+  #   "pending|<time>"                           a write is busy since then
+  #   ""                                         nothing known: the next cycle writes
+  # Steps: (1) a forced write waits for a busy one  (2) skip when a write is still busy, the
+  # battery is silent, or the command is unchanged and fresh  (3) mark "pending"  (4) the three
+  # writes, in this order: charge power, discharge power, mode; a write that came late to a
+  # battery that still has not reported drops the rest  (5) store the command, or "" when the battery is unavailable.
   hba_write_battery:
     alias: "HBA: Write battery registers (de-duplicated)"
     description: >
@@ -1220,6 +1275,26 @@ script:
               entity_id: "number.marstek_m{{ _bat }}_max_discharge_power"
             data: { value: "{{ _ld }}" }
 
+  # ── Battery power distribution ────────────────────────────────────────────────
+  # Distributes a target power across N batteries using priority-first waterfall fill:
+  #   1. Priority battery takes as much as it can (hw max, SoC eligibility, slow-charge cap).
+  #   2. The others follow cyclically (p+1 … count, 1 … p-1), each taking what it can.
+  #   "Auto balance (SoC)" replaces this order with sensor.hba_battery_order (by SoC).
+  # Per-battery eligibility: SoC within its cutoffs (exact, as HBC), inverter not faulted and
+  # the battery reported over Modbus within the last 30 s.
+  # Shares are pre-computed in a single Jinja2 namespace loop into shares_json before the
+  # repeat, because Jinja2 loop iterations cannot share mutable state — variables: steps in
+  # a repeat are independent and cannot decrement a running remainder across iterations.
+  #
+  # Three branches: stop, charge, discharge. Charge and discharge are built the same way:
+  #   shares_json   who gets how much (the steps are numbered inside the template)
+  #   repeat        one hba_write_battery per battery: its share; or 1 W in the same direction
+  #                 while it was active less than the idle time ago (keeps the relay closed);
+  #                 or stop
+  # Discharge differs from charge only in: the main fuse room for export instead of the
+  # charge / car room, no BMS charge-current cap, no slow-charge cap, and the low-SoC latch.
+  # The writes are started without waiting (script.turn_on) and waited for together at the end
+  # (hba_wait_battery_writes), so one battery that does not answer cannot delay the others.
   hba_set_batteries:
     alias: "HBA: Set battery power (distribute across all)"
     description: >
@@ -1285,6 +1360,7 @@ script:
               - variables:
                   shares_json: >-
                     {%- set ns = namespace(remaining=desired | abs, shares={}, order=[]) -%}
+                    {#- 1. Room per phase (rm.d, W; empty = no per-phase limit) -#}
                     {#- Per-phase caps (sensor.hba_phase_room): the main fuse limit in every
                         strategy, and Charge alongside EV with the car first — the tighter of the
                         two per phase. A battery with no phase set counts against every phase. -#}
@@ -1292,7 +1368,8 @@ script:
                     {%- set fc = state_attr('sensor.hba_phase_room', 'fuse_charge_w') -%}
                     {%- set rm.d = fc if fc is mapping else {} -%}
                     {%- set evbal = is_state_attr('binary_sensor.hba_ev_charge_alongside', 'mode', 'Balance') -%}
-                    {%- if along and (is_state_attr('binary_sensor.hba_ev_charge_alongside', 'mode', 'EV first') or evbal) -%}
+                    {%- if along
+                        and (is_state_attr('binary_sensor.hba_ev_charge_alongside', 'mode', 'EV first') or evbal) -%}
                       {%- set r = state_attr('sensor.hba_phase_room', 'ev_bal_w' if evbal else 'ev_room_w') -%}
                       {%- for ph, w in (r.items() if r is mapping else []) -%}
                         {%- set rm.d = rm.d | combine({ph: [w, rm.d[ph]] | min if ph in rm.d else w}) -%}
@@ -1306,6 +1383,7 @@ script:
                         paired with M4 when charging). Cyclic, each battery is second in line
                         equally often as the priority rotates. -#}
                     {#- "Auto balance (SoC)": the 30-min SoC order (sensor.hba_battery_order). -#}
+                    {#- 2. The order the batteries are filled in (ns.order) -#}
                     {%- set soc_order = state_attr('sensor.hba_battery_order', 'charge_order') -%}
                     {%- set lk = state_attr('sensor.hba_power_limits', 'last_known_charge') -%}
                     {%- set lk = lk if lk is mapping else {} -%}
@@ -1317,8 +1395,11 @@ script:
                     {%- endif -%}
                     {%- for k in range(count) -%}
                       {%- set b = ((priority_bat - 1 + k) % count) + 1 -%}
-                      {%- if b not in ns.order -%}{%- set ns.order = ns.order + [b] -%}{%- endif -%}
+                      {%- if b not in ns.order -%}
+                        {%- set ns.order = ns.order + [b] -%}
+                      {%- endif -%}
                     {%- endfor -%}
+                    {#- 3. Power groups change that order -#}
                     {#- Power group leader first: in a group with a leader (Follow battery order,
                         One at a time) the leader swaps places with the group's first battery in
                         the order, so the battery with the high ceiling runs before a capped one
@@ -1331,7 +1412,9 @@ script:
                         {%- set fm = ns.order | select('in', x.members | map('int') | list) | list -%}
                         {%- if fm and fm[0] != L and L in ns.order -%}
                           {%- set sw = namespace(l=[]) -%}
-                          {%- for b in ns.order -%}{%- set sw.l = sw.l + [L if b == fm[0] else (fm[0] if b == L else b)] -%}{%- endfor -%}
+                          {%- for b in ns.order -%}
+                            {%- set sw.l = sw.l + [L if b == fm[0] else (fm[0] if b == L else b)] -%}
+                          {%- endfor -%}
                           {%- set ns.order = sw.l -%}
                         {%- endif -%}
                       {%- endfor -%}
@@ -1339,13 +1422,18 @@ script:
                           and leader 4 the swap alone gives 4,1,2,3, so M1 (capped) ran before M2. -#}
                       {%- set fol = namespace(l=[]) -%}
                       {%- for G, x in plg.items() if (G ~ '_charge') in pll -%}
-                        {%- set fol.l = fol.l + (x.members | map('int') | reject('eq', pll[G ~ '_charge'] | int) | list) -%}
+                        {%- set fol.l = fol.l
+                            + (x.members | map('int') | reject('eq', pll[G ~ '_charge'] | int) | list) -%}
                       {%- endfor -%}
-                      {%- set ns.order = (ns.order | reject('in', fol.l) | list) + (ns.order | select('in', fol.l) | list) -%}
+                      {%- set ns.order = (ns.order | reject('in', fol.l) | list)
+                          + (ns.order | select('in', fol.l) | list) -%}
                     {%- endif -%}
+                    {#- 4. Each battery in that order takes what it can of what is left (ns.remaining):
+                        hw_max = its limit, eff_max = that after the slow-charge and phase caps -#}
                     {%- for bat in ns.order -%}
                       {%- set soc = states('sensor.marstek_m' ~ bat ~ '_battery_state_of_charge') | float(0) -%}
-                      {%- set soc_max = states('input_number.hba_marstek_m' ~ bat ~ '_charging_cutoff_capacity') | float(100) -%}
+                      {%- set soc_max = states('input_number.hba_marstek_m' ~ bat
+                          ~ '_charging_cutoff_capacity') | float(100) -%}
                       {#- Both limit registers reading 0 = the battery restarted: the read-back
                           is 0 until written, the battery itself still limits at its stored
                           value (firmware quirk). Use the last known value, else a deliberate
@@ -1353,7 +1441,8 @@ script:
                       {%- set rbc = states('number.marstek_m' ~ bat ~ '_max_charge_power') | float(2500) -%}
                       {%- set rbd = states('number.marstek_m' ~ bat ~ '_max_discharge_power') | float(2500) -%}
                       {%- set rb = rbc -%}
-                      {%- set hw_max = ((lk[bat | string] if (bat | string) in lk else 2500) if rbc == 0 and rbd == 0 else rb) | int -%}
+                      {%- set hw_max = ((lk[bat | string] if (bat | string) in lk else 2500)
+                                         if rbc == 0 and rbd == 0 else rb) | int -%}
                       {#- What the BMS allows right now: the Control caps every charge setpoint
                           at battery voltage × BMS charge current limit (35111) anyway, so asking
                           more only loses the difference instead of giving it to the next
@@ -1397,7 +1486,8 @@ script:
                         {%- if rm.d and ph in rm.d -%}
                           {%- set rm.d = rm.d | combine({ph: rm.d[ph] - share}) -%}
                         {%- elif rm.d -%}
-                          {%- set rm.d = rm.d | combine({'L1': rm.d.L1 - share, 'L2': rm.d.L2 - share, 'L3': rm.d.L3 - share}) -%}
+                          {%- set rm.d = rm.d | combine({'L1': rm.d.L1 - share, 'L2': rm.d.L2 - share,
+                              'L3': rm.d.L3 - share}) -%}
                         {%- endif -%}
                       {%- else -%}
                         {%- set ns.shares = ns.shares | combine({bat | string: 0}) -%}
@@ -1410,7 +1500,9 @@ script:
                     - variables:
                         bat_idx: "{{ repeat.index }}"
                         soc: "{{ states('sensor.marstek_m' ~ repeat.index ~ '_battery_state_of_charge') | float(0) }}"
-                        soc_max: "{{ states('input_number.hba_marstek_m' ~ repeat.index ~ '_charging_cutoff_capacity') | float(100) }}"
+                        soc_max: >-
+                          {{ states('input_number.hba_marstek_m' ~ repeat.index ~ '_charging_cutoff_capacity')
+                             | float(100) }}
                         share: "{{ (shares_json | trim | from_json).get(repeat.index | string, 0) }}"
                     - choose:
                         - conditions: "{{ soc < soc_max and share > 0 }}"
@@ -1479,6 +1571,8 @@ script:
               - variables:
                   shares_json: >-
                     {%- set ns = namespace(remaining=desired | abs, shares={}, order=[]) -%}
+                    {#- The same four steps as the charge branch: room per phase (rmd.d), order, power
+                        groups, share per battery -#}
                     {#- Main fuse limit per phase (export): the batteries on a phase discharge at
                         most what keeps that phase's export under the limit (sensor.hba_phase_room
                         fuse_discharge_w). A battery with no phase set counts against every phase. -#}
@@ -1503,7 +1597,9 @@ script:
                     {%- endif -%}
                     {%- for k in range(count) -%}
                       {%- set b = ((priority_bat - 1 + k) % count) + 1 -%}
-                      {%- if b not in ns.order -%}{%- set ns.order = ns.order + [b] -%}{%- endif -%}
+                      {%- if b not in ns.order -%}
+                        {%- set ns.order = ns.order + [b] -%}
+                      {%- endif -%}
                     {%- endfor -%}
                     {#- Power group leader first (see the charge branch) -#}
                     {%- set plg = state_attr('sensor.hba_power_limits', 'groups') -%}
@@ -1514,7 +1610,9 @@ script:
                         {%- set fm = ns.order | select('in', x.members | map('int') | list) | list -%}
                         {%- if fm and fm[0] != L and L in ns.order -%}
                           {%- set sw = namespace(l=[]) -%}
-                          {%- for b in ns.order -%}{%- set sw.l = sw.l + [L if b == fm[0] else (fm[0] if b == L else b)] -%}{%- endfor -%}
+                          {%- for b in ns.order -%}
+                            {%- set sw.l = sw.l + [L if b == fm[0] else (fm[0] if b == L else b)] -%}
+                          {%- endfor -%}
                           {%- set ns.order = sw.l -%}
                         {%- endif -%}
                       {%- endfor -%}
@@ -1522,13 +1620,16 @@ script:
                           and leader 4 the swap alone gives 4,1,2,3, so M1 (capped) ran before M2. -#}
                       {%- set fol = namespace(l=[]) -%}
                       {%- for G, x in plg.items() if (G ~ '_discharge') in pll -%}
-                        {%- set fol.l = fol.l + (x.members | map('int') | reject('eq', pll[G ~ '_discharge'] | int) | list) -%}
+                        {%- set fol.l = fol.l
+                            + (x.members | map('int') | reject('eq', pll[G ~ '_discharge'] | int) | list) -%}
                       {%- endfor -%}
-                      {%- set ns.order = (ns.order | reject('in', fol.l) | list) + (ns.order | select('in', fol.l) | list) -%}
+                      {%- set ns.order = (ns.order | reject('in', fol.l) | list)
+                          + (ns.order | select('in', fol.l) | list) -%}
                     {%- endif -%}
                     {%- for bat in ns.order -%}
                       {%- set soc = states('sensor.marstek_m' ~ bat ~ '_battery_state_of_charge') | float(0) -%}
-                      {%- set soc_min = states('input_number.hba_marstek_m' ~ bat ~ '_discharging_cutoff_capacity') | float(13) -%}
+                      {%- set soc_min = states('input_number.hba_marstek_m' ~ bat
+                          ~ '_discharging_cutoff_capacity') | float(13) -%}
                       {#- Both limit registers reading 0 = the battery restarted: the read-back
                           is 0 until written, the battery itself still limits at its stored
                           value (firmware quirk). Use the last known value, else a deliberate
@@ -1536,7 +1637,8 @@ script:
                       {%- set rbc = states('number.marstek_m' ~ bat ~ '_max_charge_power') | float(2500) -%}
                       {%- set rbd = states('number.marstek_m' ~ bat ~ '_max_discharge_power') | float(2500) -%}
                       {%- set rb = rbd -%}
-                      {%- set hw_max = ((lk[bat | string] if (bat | string) in lk else 2500) if rbc == 0 and rbd == 0 else rb) | int -%}
+                      {%- set hw_max = ((lk[bat | string] if (bat | string) in lk else 2500)
+                                         if rbc == 0 and rbd == 0 else rb) | int -%}
                       {%- set inv = states('sensor.marstek_m' ~ bat ~ '_inverter_state') -%}
                       {#- Silent on Modbus 30+ s (see hba_write_battery): its write is skipped,
                           so give its share to the next battery instead. -#}
@@ -1544,7 +1646,8 @@ script:
                       {%- set live = hb is not none and hb.state not in ['unavailable', 'unknown']
                                      and (now() - hb.last_reported).total_seconds() <= 30 -%}
                       {#- Low-SoC latch: the firmware refuses, give its share to the next battery -#}
-                      {%- set eligible = live and soc > soc_min and bat not in (state_attr('sensor.hba_power_limits', 'latched') or [])
+                      {%- set eligible = live and soc > soc_min
+                          and bat not in (state_attr('sensor.hba_power_limits', 'latched') or [])
                                          and inv not in ['Fault','unknown','unavailable'] -%}
                       {%- if eligible -%}
                         {%- set dph = states('input_select.hba_marstek_m' ~ bat ~ '_phase') -%}
@@ -1563,7 +1666,8 @@ script:
                         {%- if rmd.d and dph in rmd.d -%}
                           {%- set rmd.d = rmd.d | combine({dph: rmd.d[dph] - share}) -%}
                         {%- elif rmd.d -%}
-                          {%- set rmd.d = rmd.d | combine({'L1': rmd.d.L1 - share, 'L2': rmd.d.L2 - share, 'L3': rmd.d.L3 - share}) -%}
+                          {%- set rmd.d = rmd.d | combine({'L1': rmd.d.L1 - share, 'L2': rmd.d.L2 - share,
+                              'L3': rmd.d.L3 - share}) -%}
                         {%- endif -%}
                       {%- else -%}
                         {%- set ns.shares = ns.shares | combine({bat | string: 0}) -%}
@@ -1576,7 +1680,9 @@ script:
                     - variables:
                         bat_idx: "{{ repeat.index }}"
                         soc: "{{ states('sensor.marstek_m' ~ repeat.index ~ '_battery_state_of_charge') | float(0) }}"
-                        soc_min: "{{ states('input_number.hba_marstek_m' ~ repeat.index ~ '_discharging_cutoff_capacity') | float(13) }}"
+                        soc_min: >-
+                          {{ states('input_number.hba_marstek_m' ~ repeat.index ~ '_discharging_cutoff_capacity')
+                             | float(13) }}
                         share: "{{ (shares_json | trim | from_json).get(repeat.index | string, 0) }}"
                     - choose:
                         - conditions: "{{ soc > soc_min and share > 0 }}"

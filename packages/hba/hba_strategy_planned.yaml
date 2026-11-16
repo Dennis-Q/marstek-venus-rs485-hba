@@ -1,6 +1,6 @@
 # hba_strategy_planned.yaml
 #
-# Planned — plans charge / sell / hold per price slot over all known prices, in time order.
+# Planned — plans charge / sell / keep per price slot over all known prices, in time order.
 #
 # Why: Dynamic (HBC Extreme-Pair Matching) pairs cheap and expensive hours by price rank, not by
 # time: it can pair an expensive hour with a LATER cheap one, does not know a battery must be
@@ -9,13 +9,15 @@
 #
 # How: dynamic programming over (price slot x stored energy). Per slot it may choose
 #   Charge (grid) | Sell | Self-consumption | Charge PV | Zero import | Full stop
-# Charge and Sell either at max power or to a partial target: any of the 21 energy levels in
+#   | Car (battery to car, only in slots the car may take battery energy in)
+# Charge, Sell and Car either at max power or to a partial target: any of the energy levels in
 # between ("sell down to 1.8 kWh", "charge up to 6.2 kWh"). Without partial targets a Sell hour
 # could only sell everything, e.g. sell all at 0.49 in the last expensive hour and buy back at
-# 0.506 right after (prod plan 2026-10-30 17-19 h). Execution already runs Charge / Sell to the
+# 0.506 right after (prod plan 2026-10-30 17-19 h). Execution runs Charge / Sell / Car to the
 # row's e1 (Sell spread over the slot).
-# and simulates the house: average load (input_number.hba_strategy_solar_aware_house_load,
-# shared with Solar-aware) minus the Solcast forecast per slot. Cost per slot =
+# The plan simulates the house per slot: house use (sensor.hba_house_load_profile per hour of the
+# day, else the average input_number.hba_strategy_solar_aware_house_load, shared with Solar-aware)
+# minus the Solcast forecast. Cost per slot =
 #   import x buy price - export x sell price + wear x kWh discharged
 # Battery: usable energy, max charge / discharge power (power groups and own limits included),
 # round-trip efficiency (setting, 0 = sensor.hba_round_trip_efficiency: measured, else 83 %), split evenly over
@@ -23,15 +25,17 @@
 # of the horizon is valued at the lowest buy price of its last 12 h x discharge efficiency (what
 # it will most likely save: the night after), so the plan neither empties the battery just
 # because the price data ends nor hoards it for an imagined expensive hour.
-# Backward pass: value per energy level (21 levels, linear interpolation between them, so small
-# hourly flows are not rounded away). Forward pass: from the real stored energy, the best
+# Backward pass: value per energy level (21 levels by default, linear interpolation between them,
+# so small hourly flows are not rounded away). Forward pass: from the real stored energy, the best
 # strategy per slot -> sensor.hba_planned_strategy attribute 'plan'. Measured 0.13 s for 48
 # hourly slots on the dev box; 15-minute slots work the same (slot length from the price data).
 #
-# Re-plans (otherwise the previous plan is kept):
+# Re-plans (otherwise the previous plan is kept; the reason is attribute plan_reason):
 #   HA start / template reload, a Planned setting or a source entity changes, new prices or a
-#   new solar forecast (signature), a new slot, or the stored energy is more than
-#   input_number.hba_strategy_planned_replan_drift kWh off the plan (checked every 5 min).
+#   new solar forecast, the car changed (both by the signature), a new slot, the stored energy
+#   is more than input_number.hba_strategy_planned_replan_drift kWh off the plan (all checked
+#   every 5 min), a Charge / Sell / Car row that reached its target early (event
+#   hba_planned_replan) and the refresh icon in the Planned view (event hba_planned_refresh).
 # Executed slots move to the 'history' attribute (last 24 h, with their prices and the stored
 # energy measured at their end) -- templates cannot query the recorder, so the sensor keeps it.
 #
@@ -39,19 +43,87 @@
 #   A charge from the grid for a later, dearer slot   B sell at a high price
 #   C keep the energy for a later, dearer slot         D the battery covers the house
 #   E the sun charges the battery                      F nothing to gain now
-#   G battery empty (at reserve) or full
+#   G battery empty (at reserve) or full               H the batteries charge the car
 #
-# Execution (script.hba_strategy_planned): the current slot's strategy. Charge and Sell run to
-# the stored energy the plan expects at the end of the slot (attribute e1), then hold with
-# Charge PV. Labels "Planned → <strategy>", so the PID-reset automations see Charge / Sell.
+# Execution (script.hba_strategy_planned): the current slot's strategy. Charge, Sell and Car run
+# to the stored energy the plan expects at the end of the slot (row e1 = attribute
+# target_energy); reached early, a new plan is asked for the rest of the slot. The Car push itself
+# runs in hba_run_strategy (hba_strategies_core.yaml) while binary_sensor.hba_battery_assist_active
+# is on. Labels "Planned → <strategy>", so the PID-reset automations see Charge / Sell.
+#
+# ── Map of this file ────────────────────────────────────────────────────────────
+# template:
+#   binary_sensor.hba_plan_out_of_date        no new plan for the running slot
+#   binary_sensor.hba_ev_assist               what the EV project is told to do with the car now
+#   binary_sensor.hba_ev_link_problem         the EV project does not listen
+#   binary_sensor.hba_batteries_charging_at_max
+#   binary_sensor.hba_ev_solar_allowed        may the car take solar now
+#   sensor.hba_ev_hour_energy                 kWh the car got in the running slot
+#   sensor.hba_house_load_profile             house use per hour of the day
+#   sensor.hba_planned_strategy (+ _debug)    THE PLAN. Its variables, in order:
+#       signature, drift, replan     is a new plan needed, and why
+#       ledger                       what the stored energy really cost
+#       result                       the calculation (one long template, steps marked "── ... ──"):
+#                                    inputs -> price slots -> the car -> energy levels ->
+#                                    backward pass -> forward pass -> grid car hours the batteries
+#                                    replace -> summary
+#       result_b, result_n, result   the same calculation with the other car priority and without
+#                                    the car, then the pick (Car first / Balance / Auto)
+#       history, slot_acts, debug    executed slots, what ran, debug copy
+#   sensor.hba_planned_car_preview            the same calculation, only to show it (Preview only)
+# script:
+#   hba_planned_refresh                       the refresh icon
+#   hba_strategy_planned                      runs the running slot's strategy
+# automation:
+#   hba_planned_car_choice_reset, hba_planned_car_home_days_default, hba_house_load_profile_update
+#
+# ── Short names in the calculation ──────────────────────────────────────────────
+# Energy in kWh, power in kW, prices in EUR/kWh, unless a name says otherwise (pw = W).
+# A price slot (sl):
+#   ts     start, Unix time                 h      hours left of it (the running slot: the rest)
+#   b, s   buy price, sell price (after the sell deduction)
+#   sun    forecast                         load   house use (without the margin)
+#   d      what the batteries must give the house (house above the sun, with the margin)
+#   u      sun above the house: what the batteries may store
+#   up     the sun is up                    pc, pd max charge / discharge power
+#   ev, ev_lim   a grid car hour: the car's kWh and its limit in %
+#   cs, cv, ck   exported sun the car may take: kWh cap, value per kWh, least kWh it starts with
+#   bc, bv       battery to car: kWh cap, value per kWh
+# The battery:
+#   emax   usable energy                    rmin   reserve (never below it)
+#   eta    round-trip efficiency; ec, ed = charging / discharging share (each the square root)
+#   K, dE  number of energy levels, kWh between two levels
+#   E, E2  stored energy at the start / end of a slot;  E0 = now
+#   room   kWh from the AC side that still fit;  av = kWh the batteries can deliver above the reserve
+#   cc, cd the most a slot can charge / discharge (power x h)
+# One option in a slot:
+#   a      the strategy                     j      partial target level (-1 = max power)
+#   ch, dis  kWh charged / discharged, AC side      bk   kWh of it into the car (Car)
+#   net    kWh from the grid (+ import, - export)   sx   kWh of sun exported
+#   v      cost of the option: this slot + the value table of the level it ends at (lowest wins)
+#   V, ns.Vs   value table: expected cost from a slot on, per energy level (ns.Vs[t] = at the
+#              start of slot t). slope = what a stored kWh is worth there.
+#   wear   wear cost per kWh discharged     msp    minimum profit per kWh sold (not a real cost)
+#   endv   value of a kWh left at the end   eps, tie   tiny tie-breakers between equal options
+# Namespaces: ns_p power limits · ns_in inputs · car the car's grid hours and totals · cs sun into
+#   the car · bt battery to car · fw forward pass (running totals, fw.out = the plan rows) ·
+#   sc Self-consumption only, for the expected gain · b_over grid car hours the batteries replace
+# A plan row (attribute plan; fw.out):
+#   ts, b, s, sun, load as the slot · a strategy · e0, e1 stored energy at its start / end ·
+#   c cost out (EUR per kWh the batteries deliver after it) · r reason code · alt, adv, alt_e1
+#   runner-up, how much worse, where it would end · part a partial target · pw power in W (Charge:
+#   whole batteries; Car: house + car) · ev, ev_lim grid car hour · bev kWh from the batteries into
+#   the car · ev_sun kWh of sun into the car · then strategy after an early-finished Charge / Sell ·
+#   du [d, u] when a slot has both
 
 template:
   # ── EV assist ─────────────────────────────────────────────────────────────────
   # Tells the EV project (ha-smart-ev-charging) that HBA is in charge of the car and what it does
   # now. HBA only instructs: the EV project does all charger and car control, and only listens when
   # its input_boolean.ev_follow_assisted is on. A manual force charge always wins there.
-  # on = Timed EV charge is pushing, or Planned runs with a fresh plan and Plan the car (not Preview only).
-  # ev_mode: battery = batteries push (Timed EV charge), force = plan's grid hour until its kWh are in
+  # on = the batteries push (binary_sensor.hba_battery_assist_active: Timed EV charge, or a Planned
+  # Car row), or Planned runs with a fresh plan and Plan the car (not Preview only).
+  # ev_mode: battery = batteries push, force = plan's grid hour until its kWh are in
   # (sensor.hba_ev_hour_energy, with a charger energy meter), solar = nothing
   # from the grid, spare solar allowed (binary_sensor.hba_ev_solar_allowed), wait = nothing, no solar
   # either. (Until 2026-11 wait meant today's solar: update both projects together.)
@@ -85,26 +157,35 @@ template:
                  and state_attr('sensor.ev_car_info', 'known') == true
                  and state_attr('sensor.ev_car_info', 'following') == true
                  and is_state('input_boolean.hba_strategy_planned_car_preview', 'off')
-                 and as_timestamp(now()) - as_timestamp(state_attr('sensor.hba_planned_strategy', 'plan_made'), 0) < 7200) }}
+                 and as_timestamp(now())
+                     - as_timestamp(state_attr('sensor.hba_planned_strategy', 'plan_made'), 0) < 7200) }}
         attributes:
           ev_mode: >-
             {%- set plan = state_attr('sensor.hba_planned_strategy', 'plan') or [] -%}
             {%- set cur = plan | selectattr('ts', 'le', as_timestamp(now()) | int) | list | last | default(none) -%}
             {{ 'battery' if is_state('binary_sensor.hba_battery_assist_active', 'on')
                else ('force' if cur is not none and cur.get('ev')
-                     and not (state_attr('sensor.hba_ev_hour_energy', 'done') == true and state_attr('sensor.hba_ev_hour_energy', 'slot') | int(0) == cur.ts)
+                     and not (state_attr('sensor.hba_ev_hour_energy', 'done') == true
+                         and state_attr('sensor.hba_ev_hour_energy', 'slot') | int(0) == cur.ts)
                else ('solar' if is_state('binary_sensor.hba_ev_solar_allowed', 'on') else 'wait')) }}
           ev_limit: >-
             {%- set plan = state_attr('sensor.hba_planned_strategy', 'plan') or [] -%}
             {%- set cur = plan | selectattr('ts', 'le', as_timestamp(now()) | int) | list | last | default(none) -%}
             {%- set top = states('input_number.hba_strategy_planned_car_leftover') | float(0) -%}
             {#- Timed EV charge: no limit (the car's own). A plan row Car (battery to car): its ev_lim. -#}
-            {%- if not is_state('binary_sensor.hba_battery_assist_active', 'on') or (cur is not none and cur.a == 'Car') -%}
+            {%- if not is_state('binary_sensor.hba_battery_assist_active', 'on')
+                or (cur is not none and cur.a == 'Car') -%}
               {{ cur.ev_lim if cur is not none and cur.get('ev_lim') else (top if top > 0 else 100) | int }}
             {%- endif -%}
-          over_price_kwh: "{{ ((state_attr('sensor.hba_planned_strategy', 'summary') or {}).get('car') or {}).get('over', 0) }}"
-          over_price_eur: "{{ ((state_attr('sensor.hba_planned_strategy', 'summary') or {}).get('car') or {}).get('over_eur', 0) }}"
-          over_price_from: "{{ ((state_attr('sensor.hba_planned_strategy', 'summary') or {}).get('car') or {}).get('over_from', '') }}"
+          over_price_kwh: >-
+            {{ ((state_attr('sensor.hba_planned_strategy', 'summary') or {}).get('car') or {})
+               .get('over', 0) }}
+          over_price_eur: >-
+            {{ ((state_attr('sensor.hba_planned_strategy', 'summary') or {}).get('car') or {})
+               .get('over_eur', 0) }}
+          over_price_from: >-
+            {{ ((state_attr('sensor.hba_planned_strategy', 'summary') or {}).get('car') or {})
+               .get('over_from', '') }}
           plan_made: "{{ state_attr('sensor.hba_planned_strategy', 'plan_made') }}"
 
       # Plan the car (with Planned) or Timed EV charge is on, but the EV project does not listen:
@@ -116,12 +197,20 @@ template:
         icon: mdi:car-off
         delay_on: "00:02:00"
         state: >-
-          {%- set plan = is_state('input_boolean.hba_strategy_planned_car', 'on') and is_state('input_boolean.hba_strategy_planned_car_preview', 'off') and is_state('input_select.hba_strategy', 'Planned') -%}
-          {{ (plan or is_state('input_boolean.hba_battery_assist_enabled', 'on')) and state_attr('sensor.ev_car_info', 'following') != true }}
+          {%- set plan = is_state('input_boolean.hba_strategy_planned_car', 'on')
+              and is_state('input_boolean.hba_strategy_planned_car_preview', 'off')
+              and is_state('input_select.hba_strategy', 'Planned') -%}
+          {{ (plan or is_state('input_boolean.hba_battery_assist_enabled', 'on'))
+              and state_attr('sensor.ev_car_info', 'following') != true }}
         attributes:
           reason: >-
-            {%- set what = 'Plan the car' if is_state('input_boolean.hba_strategy_planned_car', 'on') and is_state('input_boolean.hba_strategy_planned_car_preview', 'off') and is_state('input_select.hba_strategy', 'Planned') else 'Timed EV charge' -%}
-            {{ what }} is on, but {{ 'the EV project is missing or too old (no sensor.ev_car_info)' if state_attr('sensor.ev_car_info', 'following') is none else 'Follow assisted is off in the EV project' }}.
+            {%- set what = 'Plan the car' if is_state('input_boolean.hba_strategy_planned_car', 'on')
+                and is_state('input_boolean.hba_strategy_planned_car_preview', 'off')
+                and is_state('input_select.hba_strategy', 'Planned') else 'Timed EV charge' -%}
+            {{ what }} is on, but {{
+              'the EV project is missing or too old (no sensor.ev_car_info)'
+              if state_attr('sensor.ev_car_info', 'following') is none
+              else 'Follow assisted is off in the EV project' }}.
 
       # The batteries charge at what they may take right now (sensor.hba_limits_now: full batteries,
       # groups, BMS, phase room). On after 3 min, off after 5 min clearly below it: ev_mode solar ->
@@ -191,13 +280,18 @@ template:
               {%- set ns = namespace(end=plan | length, found=false, dark=false) -%}
               {%- for q in plan[i + 1:] if not ns.found -%}
                 {%- if ns.dark and q.sun > q.load -%}
-                  {%- set ns.end = i + 1 + loop.index0 -%}{%- set ns.found = true -%}
-                {%- elif q.sun < 0.05 -%}{%- set ns.dark = true -%}
+                  {%- set ns.end = i + 1 + loop.index0 -%}
+                  {%- set ns.found = true -%}
+                {%- elif q.sun < 0.05 -%}
+                  {%- set ns.dark = true -%}
                 {%- endif -%}
               {%- endfor -%}
               {%- set w = plan[i:ns.end] -%}
               {%- set pk = namespace(e=-1, k=0) -%}
-              {%- for q in w if q.e1 > pk.e -%}{%- set pk.e = q.e1 -%}{%- set pk.k = loop.index0 -%}{%- endfor -%}
+              {%- for q in w if q.e1 > pk.e -%}
+                {%- set pk.e = q.e1 -%}
+                {%- set pk.k = loop.index0 -%}
+              {%- endfor -%}
               {%- set after = w[pk.k + 1:] | map(attribute='e1') | list -%}
               {%- set low = (after | min) if after and ns.found else pk.e -%}
               {%- set spare = [low - rsv, 0] | max if ns.found else 0 -%}
@@ -209,15 +303,24 @@ template:
               {%- set export = cur.a in ['Full stop', 'Sell', 'Zero import'] and cur.sun > cur.load + 0.05 -%}
               {%- set cv = (sm.get('car') or {}).get('sun_value', 0) | float(0) -%}
               {%- set price_ok = cv <= 0 or cur.get('ev_sun', 0) > 0 or cur.s < cv -%}
-              {%- if cur.a == 'Charge' -%}{%- set r = ['charge', false] -%}
-              {%- elif export and is_state('input_boolean.hba_strategy_planned_car_solar_export', 'off') -%}{%- set r = ['export', false] -%}
-              {%- elif (export or reached or is_state('binary_sensor.hba_batteries_charging_at_max', 'on')) and not price_ok -%}{%- set r = ['price', false] -%}
-              {%- elif export -%}{%- set r = ['export', true] -%}
-              {%- elif reached -%}{%- set r = ['target', true] -%}
-              {%- elif is_state('binary_sensor.hba_batteries_charging_at_max', 'on') -%}{%- set r = ['max', true] -%}
-              {%- else -%}{%- set r = ['batteries', false] -%}
+              {%- if cur.a == 'Charge' -%}
+                {%- set r = ['charge', false] -%}
+              {%- elif export and is_state('input_boolean.hba_strategy_planned_car_solar_export', 'off') -%}
+                {%- set r = ['export', false] -%}
+              {%- elif (export or reached or is_state('binary_sensor.hba_batteries_charging_at_max', 'on'))
+                  and not price_ok -%}
+                {%- set r = ['price', false] -%}
+              {%- elif export -%}
+                {%- set r = ['export', true] -%}
+              {%- elif reached -%}
+                {%- set r = ['target', true] -%}
+              {%- elif is_state('binary_sensor.hba_batteries_charging_at_max', 'on') -%}
+                {%- set r = ['max', true] -%}
+              {%- else -%}
+                {%- set r = ['batteries', false] -%}
               {%- endif -%}
-              {{ {'on': r[1], 'reason': r[0], 'target': target | round(2), 'reached': today if day_ok else prev} | tojson }}
+              {{ {'on': r[1], 'reason': r[0], 'target': target | round(2), 'reached': today if day_ok
+                  else prev} | tojson }}
             {%- endif -%}
     binary_sensor:
       - name: "HBA EV Solar Allowed"
@@ -268,7 +371,8 @@ template:
             {%- set cur = plan | selectattr('ts', 'eq', slot) | first | default(none) -%}
             {%- set ev = (cur.ev | float(0)) if cur is not none and cur.ev is defined else 0 -%}
             {%- if m < 0 -%}
-              {{ {'kwh': 0, 'slot': slot, 'start': p_start if p_slot == slot else none, 'planned': ev, 'done': false, 'meter': false, 'prev': prev} | tojson }}
+              {{ {'kwh': 0, 'slot': slot, 'start': p_start if p_slot == slot else none, 'planned': ev, 'done': false,
+                  'meter': false, 'prev': prev} | tojson }}
             {%- else -%}
               {%- set start = p_start if p_slot == slot and p_start is number and m >= p_start else m -%}
               {#- A plan made inside the slot counts the car kWh from then on (rest of the hour, need
@@ -277,11 +381,14 @@ template:
                   against the 2.4 already in it stopped the car at 2.5 kWh; 05:00 at 6.1 of 11) -#}
               {%- set made = as_timestamp(state_attr('sensor.hba_planned_strategy', 'plan_made'), 0) | int -%}
               {%- set p_base = state_attr(S, 'base') -%}
-              {%- set base = p_base if p_slot == slot and start == p_start and state_attr(S, 'made') | int(-1) == made and p_base is number and start <= p_base <= m
+              {%- set base = p_base if p_slot == slot and start == p_start and state_attr(S, 'made') | int(-1) == made
+                  and p_base is number and start <= p_base <= m
                              else (m if made > slot else start) -%}
               {%- set kwh = m - start -%}
               {%- set planned = (base - start + ev) if ev > 0 else 0 -%}
-              {{ {'kwh': kwh | round(2), 'slot': slot, 'start': start, 'base': base, 'made': made, 'planned': planned | round(2), 'done': planned > 0 and kwh >= planned - 0.05, 'meter': true, 'prev': prev} | tojson }}
+              {{ {'kwh': kwh | round(2), 'slot': slot, 'start': start, 'base': base, 'made': made,
+                  'planned': planned | round(2), 'done': planned > 0 and kwh >= planned - 0.05, 'meter': true,
+                  'prev': prev} | tojson }}
             {%- endif -%}
     sensor:
       - name: "HBA EV Hour Energy"
@@ -423,14 +530,18 @@ template:
           prev_hist: "{{ state_attr('sensor.hba_planned_strategy', 'history') or [] }}"
           prev_slot: "{{ state_attr('sensor.hba_planned_strategy', 'plan_slot') | int(0) }}"
           prev_sig: "{{ state_attr('sensor.hba_planned_strategy', 'signature') or '' }}"
+          # &name / *name are YAML anchors: the same template text is used again further down
+          # (the calculation three times, and all of it once more by the car preview sensor)
           step: &planned_step >-
             {%- set pph = state_attr('sensor.hba_energy_prices_data', 'datapoints_per_hour') | int(1) -%}
             {{ 3600 // ([pph, 1] | max) }}
           e_now: &planned_e_now "{{ states('sensor.hba_charge_available_energy') | float(-1) }}"
           today_solar_e: &planned_today_solar_e >-
             {%- set sa = states('input_text.hba_strategy_solar_aware_forecast_entity_id') | trim -%}
-            {{ sa if sa not in ['', 'unknown', 'unavailable'] else states('input_text.hba_strategy_solar_forecast_entity_id') | trim }}
-          tomorrow_solar_e: &planned_tomorrow_solar_e "{{ states('input_text.hba_strategy_solar_forecast_tomorrow_entity_id') | trim }}"
+            {{ sa if sa not in ['', 'unknown', 'unavailable']
+                else states('input_text.hba_strategy_solar_forecast_entity_id') | trim }}
+          tomorrow_solar_e: &planned_tomorrow_solar_e >-
+            {{ states('input_text.hba_strategy_solar_forecast_tomorrow_entity_id') | trim }}
       - variables:
           now_ts: &planned_now_ts "{{ as_timestamp(now()) | int }}"
           now_slot: &planned_now_slot "{{ ((as_timestamp(now()) | int) // step) * step }}"
@@ -441,8 +552,26 @@ template:
             {%- set ev_e = 'sensor.ev_car_info' -%}
             {%- set lp = states('input_datetime.hba_strategy_planned_car_latest_plugin')[:5] -%}
             {%- set lp = '18:00' if lp in ['00:00', 'unkno', 'unava', ''] else lp -%}
-            {%- set marks = (raw | from_json) if raw is string and (raw | trim)[:1] == '[' else (raw if raw is sequence else []) -%}
-            {{ marks | length }}|{{ (marks | last).start if marks | length > 0 else '' }}|{{ states(today_solar_e) | float(0) | round(1) if today_solar_e != '' else '' }}|{{ states(tomorrow_solar_e) | float(0) | round(1) if tomorrow_solar_e != '' else '' }}|{{ state_attr(ev_e, 'following') }}|{{ state_attr(ev_e, 'max_price_on') }}|{{ state_attr(ev_e, 'known') }}|{{ state_attr(ev_e, 'connected') }}|{{ (states(ev_e) | float(0) / 5) | round(0) }}|{{ state_attr(ev_e, 'max_price') }}|{{ state_attr(ev_e, 'charge_kw') }}|{{ state_attr(ev_e, 'over_price') }}|{{ states('input_select.hba_strategy_planned_car_next_departure') }}|{{ states('input_select.hba_strategy_planned_car_normal_skip') }}|{{ state_attr(ev_e, 'deadline') }}|{{ is_state('input_boolean.hba_strategy_planned_car_battery', 'on') and state_attr(ev_e, 'connected') != true and now().strftime('%H:%M') < lp }}
+            {%- set marks = (raw | from_json) if raw is string and (raw | trim)[:1] == '['
+                else (raw if raw is sequence else []) -%}
+            {{ marks | length }}|{{
+              (marks | last).start if marks | length > 0 else '' }}|{{
+              states(today_solar_e) | float(0) | round(1) if today_solar_e != '' else '' }}|{{
+              states(tomorrow_solar_e) | float(0) | round(1) if tomorrow_solar_e != '' else '' }}|{{
+              state_attr(ev_e, 'following') }}|{{
+              state_attr(ev_e, 'max_price_on') }}|{{
+              state_attr(ev_e, 'known') }}|{{
+              state_attr(ev_e, 'connected') }}|{{
+              (states(ev_e) | float(0) / 5) | round(0) }}|{{
+              state_attr(ev_e, 'max_price') }}|{{
+              state_attr(ev_e, 'charge_kw') }}|{{
+              state_attr(ev_e, 'over_price') }}|{{
+              states('input_select.hba_strategy_planned_car_next_departure') }}|{{
+              states('input_select.hba_strategy_planned_car_normal_skip') }}|{{
+              state_attr(ev_e, 'deadline') }}|{{
+              is_state('input_boolean.hba_strategy_planned_car_battery', 'on')
+              and state_attr(ev_e, 'connected') != true
+              and now().strftime('%H:%M') < lp }}
       - variables:
           # The slot that was running according to the previous plan, to measure the drift
           drift: >-
@@ -461,9 +590,11 @@ template:
               {%- set end = row.e1 | float(0) -%}
               {%- set sm = state_attr('sensor.hba_planned_strategy', 'summary') -%}
               {%- if row.a == 'Charge' and sm is mapping -%}
-                {%- set kw = ((row.pw / 1000 * ((sm.efficiency | float(83)) / 100) ** 0.5) if row.pw is defined else sm.charge_kw) | float(0) -%}
+                {%- set kw = ((row.pw / 1000 * ((sm.efficiency | float(83)) / 100) ** 0.5) if row.pw is defined
+                    else sm.charge_kw) | float(0) -%}
                 {%- set moved = kw * ([now_ts - t0, 0] | max) / 3600 -%}
-                {%- set expected = (start + [moved, end - start] | min) if end >= start else (start - [moved, start - end] | min) -%}
+                {%- set expected = (start + [moved, end - start] | min) if end >= start
+                    else (start - [moved, start - end] | min) -%}
               {%- else -%}
                 {%- set f = ([now_ts - t0, 0] | max) / ([slot_end - t0, 1] | max) -%}
                 {%- set expected = start + (end - start) * ([f, 1] | min) -%}
@@ -479,7 +610,8 @@ template:
             {%- elif signature.split('|')[:4] != (prev_sig or '').split('|')[:4] -%}new prices or forecast
             {%- elif signature != prev_sig -%}car changed
             {%- elif now_slot != prev_slot -%}new slot
-            {%- elif drift | float(-1) > states('input_number.hba_strategy_planned_replan_drift') | float(1) -%}off by {{ drift }} kWh
+            {%- elif drift | float(-1)
+                > states('input_number.hba_strategy_planned_replan_drift') | float(1) -%}off by {{ drift }} kWh
             {%- endif -%}
       # Ledger: what the energy in the battery really cost (EUR per stored kWh), from what
       # actually went in -- every 5 min the change in stored energy since the last run, priced at the
@@ -490,10 +622,13 @@ template:
       - variables:
           ledger: >-
             {%- set raw = state_attr('sensor.hba_energy_prices_data', 'marks') -%}
-            {%- set marks = (raw | from_json) if raw is string and (raw | trim)[:1] == '[' else (raw if raw is sequence else []) -%}
+            {%- set marks = (raw | from_json) if raw is string and (raw | trim)[:1] == '['
+                else (raw if raw is sequence else []) -%}
             {%- set cur = marks | selectattr('start', 'defined') | list -%}
             {%- set ns_m = namespace(b=none) -%}
-            {%- for m in cur if as_timestamp(m.start, 0) | int == now_slot -%}{%- set ns_m.b = (m.price | float(0)) / 100 -%}{%- endfor -%}
+            {%- for m in cur if as_timestamp(m.start, 0) | int == now_slot -%}
+              {%- set ns_m.b = (m.price | float(0)) / 100 -%}
+            {%- endfor -%}
             {%- set prow = prev_plan | selectattr('ts', 'eq', now_slot) | first | default(none) -%}
             {%- set b_now = ns_m.b if ns_m.b is not none else (prow.b if prow is not none else none) -%}
             {%- set s_now = prow.s if prow is not none else b_now -%}
@@ -532,7 +667,8 @@ template:
               {%- set ns_l = namespace(E=none, C=none) -%}
               {%- for h in hist if h.e1 is number -%}
                 {%- if ns_l.E is none -%}
-                  {%- set ns_l.E = h.e1 -%}{%- set ns_l.C = h.b / ec -%}
+                  {%- set ns_l.E = h.e1 -%}
+                  {%- set ns_l.C = h.b / ec -%}
                 {%- else -%}
                   {%- set dE = h.e1 - ns_l.E -%}
                   {%- if dE > 0.02 and h.e1 > 0.05 -%}
@@ -541,9 +677,13 @@ template:
                   {%- set ns_l.E = h.e1 -%}
                 {%- endif -%}
               {%- endfor -%}
-              {%- if ns_l.E is none -%}{%- set ns_l.E = e_now -%}{%- set ns_l.C = b_now / ec -%}{%- endif -%}
+              {%- if ns_l.E is none -%}
+                {%- set ns_l.E = e_now -%}
+                {%- set ns_l.C = b_now / ec -%}
+              {%- endif -%}
               {%- set dE = e_now - ns_l.E -%}
-              {%- set C = ((ns_l.C * ns_l.E + dE * (b_now if grid else s_now) / ec) / e_now) if dE > 0.02 and e_now > 0.05 else ns_l.C -%}
+              {%- set C = ((ns_l.C * ns_l.E + dE * (b_now if grid else s_now) / ec) / e_now) if dE > 0.02
+                  and e_now > 0.05 else ns_l.C -%}
               {{ {'E': e_now, 'C': C | round(4), 'n': nb.n, 'g': 0} | tojson }}
             {%- endif -%}
       - variables:
@@ -552,7 +692,9 @@ template:
           car_run: plan
           # Car hours priority for this run: Balance or Car first; Auto starts with Car first and
           # also works out Balance in the next step.
-          car_prio: &planned_car_prio "{{ 'Balance' if is_state('input_select.hba_strategy_planned_car_priority', 'Balance') else 'Car first' }}"
+          car_prio: &planned_car_prio >-
+            {{ 'Balance' if is_state('input_select.hba_strategy_planned_car_priority', 'Balance')
+               else 'Car first' }}
           result: &planned_result >-
             {#- Start time: the summary reports how long the calculation took (it blocks HA that long) -#}
             {%- set t_calc0 = as_timestamp(now()) -%}
@@ -567,12 +709,15 @@ template:
             {%- else -%}
               {#- ── Inputs ── -#}
               {%- set raw = state_attr('sensor.hba_energy_prices_data', 'marks') -%}
-              {%- set marks = (raw | from_json) if raw is string and (raw | trim)[:1] == '[' else (raw if raw is sequence else []) -%}
+              {%- set marks = (raw | from_json) if raw is string and (raw | trim)[:1] == '['
+                  else (raw if raw is sequence else []) -%}
               {%- set emax = states('sensor.hba_usable_battery_energy') | float(0) -%}
               {%- set count = states('input_number.hba_battery_count') | int(1) -%}
               {%- set eff_set = states('input_number.hba_strategy_planned_efficiency') | float(0) -%}
-              {%- set eta = (eff_set if eff_set > 0 else states('sensor.hba_round_trip_efficiency') | float(83)) / 100 -%}
-              {%- set ec = eta ** 0.5 -%}{%- set ed = eta ** 0.5 -%}
+              {%- set eta = (eff_set if eff_set > 0
+                  else states('sensor.hba_round_trip_efficiency') | float(83)) / 100 -%}
+              {%- set ec = eta ** 0.5 -%}
+              {%- set ed = eta ** 0.5 -%}
               {#- Max power. The running slot: what the batteries allow NOW (incl. the BMS limit near
                   full). Later slots: the set limits WITHOUT the momentary BMS limit and without the
                   register dip during a power-group leader handover (prod 2026-10-29: full batteries
@@ -588,16 +733,19 @@ template:
               {%- set lk_d = state_attr('sensor.hba_power_limits', 'last_known_discharge') -%}
               {%- set pl_c = pl_c if pl_c is mapping and is_state('sensor.hba_power_limits', 'Active') else {} -%}
               {%- set pl_d = pl_d if pl_d is mapping and is_state('sensor.hba_power_limits', 'Active') else {} -%}
-              {%- set lk_c = lk_c if lk_c is mapping else {} -%}{%- set lk_d = lk_d if lk_d is mapping else {} -%}
+              {%- set lk_c = lk_c if lk_c is mapping else {} -%}
+              {%- set lk_d = lk_d if lk_d is mapping else {} -%}
               {%- set ns_p = namespace(c=0, d=0, max_c=0) -%}
               {%- for i in range(1, count + 1) -%}
                 {%- set k = i | string -%}
                 {%- set rc = states('number.marstek_m' ~ i ~ '_max_charge_power') | float(0) -%}
                 {%- set rd = states('number.marstek_m' ~ i ~ '_max_discharge_power') | float(0) -%}
-                {%- set lim_c = (pl_c[k] if k in pl_c else (lk_c[k] if k in lk_c else (rc if rc > 50 else 2500))) | float(0) -%}
+                {%- set lim_c = (pl_c[k] if k in pl_c
+                    else (lk_c[k] if k in lk_c else (rc if rc > 50 else 2500))) | float(0) -%}
                 {%- set ns_p.c = ns_p.c + lim_c -%}
                 {%- set ns_p.max_c = [ns_p.max_c, lim_c] | max -%}
-                {%- set ns_p.d = ns_p.d + (pl_d[k] if k in pl_d else (lk_d[k] if k in lk_d else (rd if rd > 50 else 2500))) | float(0) -%}
+                {%- set ns_p.d = ns_p.d
+                    + (pl_d[k] if k in pl_d else (lk_d[k] if k in lk_d else (rd if rd > 50 else 2500))) | float(0) -%}
               {%- endfor -%}
               {%- set pc = ns_p.c / 1000 -%}
               {%- set pd = ns_p.d / 1000 -%}
@@ -614,42 +762,54 @@ template:
               {%- set prof = state_attr('sensor.hba_house_load_profile', 'profile') -%}
               {%- set prof = prof if prof is sequence and prof is not string and prof | length == 24 else [] -%}
               {%- set acts = ['Self-consumption', 'Charge PV', 'Full stop']
-                             + ([] if is_state('input_boolean.hba_strategy_planned_skip_zero_import', 'on') else ['Zero import'])
+                             + ([] if is_state('input_boolean.hba_strategy_planned_skip_zero_import', 'on')
+                                 else ['Zero import'])
                              + ([] if is_state('input_boolean.hba_strategy_planned_skip_charge', 'on') else ['Charge'])
                              + ([] if is_state('input_boolean.hba_strategy_planned_skip_sell', 'on') else ['Sell']) -%}
               {#- Tiny tie-breakers: with equal cost prefer the simpler strategy. eps prefers Charge PV
                   (holding while storing the sun), eps_dark prefers Full stop (no sun, or the sun is
                   worth more exported); the forward pass picks per slot, see 'worth' below. -#}
-              {%- set eps = {'Self-consumption': 0, 'Charge PV': 0.0001, 'Zero import': 0.0002, 'Full stop': 0.0003, 'Charge': 0.0005, 'Sell': 0.0005, 'Car': 0.0005} -%}
-              {%- set eps_dark = {'Self-consumption': 0, 'Full stop': 0.0001, 'Zero import': 0.0002, 'Charge PV': 0.0003, 'Charge': 0.0005, 'Sell': 0.0005, 'Car': 0.0005} -%}
+              {%- set eps = {'Self-consumption': 0, 'Charge PV': 0.0001, 'Zero import': 0.0002, 'Full stop': 0.0003,
+                  'Charge': 0.0005, 'Sell': 0.0005, 'Car': 0.0005} -%}
+              {%- set eps_dark = {'Self-consumption': 0, 'Full stop': 0.0001, 'Zero import': 0.0002,
+                  'Charge PV': 0.0003, 'Charge': 0.0005, 'Sell': 0.0005, 'Car': 0.0005} -%}
               {%- if marks | length == 0 -%}
-                {{ {'plan': [], 'status': 'No price data', 'made': now().isoformat(), 'reason': replan, 'eta': (eta * 100) | round(1)} | tojson }}
+                {{ {'plan': [], 'status': 'No price data', 'made': now().isoformat(), 'reason': replan,
+                    'eta': (eta * 100) | round(1)} | tojson }}
               {%- elif emax <= 0 or e_now < 0 -%}
-                {{ {'plan': [], 'status': 'No battery data', 'made': now().isoformat(), 'reason': replan, 'eta': (eta * 100) | round(1)} | tojson }}
+                {{ {'plan': [], 'status': 'No battery data', 'made': now().isoformat(), 'reason': replan,
+                    'eta': (eta * 100) | round(1)} | tojson }}
               {%- else -%}
+                {#- ── Price slots: one entry per price period, from the running one on (keys: top of this file) ── -#}
                 {#- Sell prices (optional separate sensor, e.g. market price from 2027) -#}
                 {%- set se = states('input_text.hba_strategy_planned_sell_price_entity_id') | trim -%}
                 {%- set ns_in = namespace(sell=[], sun=[], slots=[]) -%}
                 {%- if se not in ['', 'unknown', 'unavailable'] -%}
                   {%- for e in (state_attr(se, 'prices') or []) if e is mapping and 'from' in e and 'price' in e -%}
-                    {%- set ns_in.sell = ns_in.sell + [{'ts': as_timestamp(e['from'], 0) | int, 'p': e['price'] | float(0)}] -%}
+                    {%- set ns_in.sell = ns_in.sell
+                        + [{'ts': as_timestamp(e['from'], 0) | int, 'p': e['price'] | float(0)}] -%}
                   {%- endfor -%}
                 {%- endif -%}
                 {#- Solcast detailedForecast: 30-minute periods, pv_estimate in kW -#}
                 {%- for ent in [today_solar_e, tomorrow_solar_e] if ent != '' -%}
                   {%- for p in (state_attr(ent, 'detailedForecast') or []) if p is mapping and 'period_start' in p -%}
-                    {%- set ns_in.sun = ns_in.sun + [{'ts': as_timestamp(p.period_start, 0) | int, 'kw': p.pv_estimate | float(0)}] -%}
+                    {%- set ns_in.sun = ns_in.sun
+                        + [{'ts': as_timestamp(p.period_start, 0) | int, 'kw': p.pv_estimate | float(0)}] -%}
                   {%- endfor -%}
                 {%- endfor -%}
                 {#- Sun up (sun.sun): sunrise / sunset as time of day, also used for tomorrow (minutes off).
                     Decides Charge PV vs Full stop in a tie -- not the forecast amount, which is too
                     unreliable for that (fog: 0 forecast, sun after all). Without sun.sun: forecast > 0. -#}
-                {%- set rise = state_attr('sun.sun', 'next_rising') -%}{%- set sset = state_attr('sun.sun', 'next_setting') -%}
+                {%- set rise = state_attr('sun.sun', 'next_rising') -%}
+                {%- set sset = state_attr('sun.sun', 'next_setting') -%}
                 {%- set tod = namespace(r=-1, s=-1) -%}
                 {%- if rise and sset -%}
-                  {%- set rl = as_timestamp(rise, 0) | int -%}{%- set sl_ = as_timestamp(sset, 0) | int -%}
-                  {%- set tod.r = (rl | timestamp_custom('%H') | int) * 3600 + (rl | timestamp_custom('%M') | int) * 60 -%}
-                  {%- set tod.s = (sl_ | timestamp_custom('%H') | int) * 3600 + (sl_ | timestamp_custom('%M') | int) * 60 -%}
+                  {%- set rl = as_timestamp(rise, 0) | int -%}
+                  {%- set sl_ = as_timestamp(sset, 0) | int -%}
+                  {%- set tod.r = (rl | timestamp_custom('%H') | int) * 3600
+                      + (rl | timestamp_custom('%M') | int) * 60 -%}
+                  {%- set tod.s = (sl_ | timestamp_custom('%H') | int) * 3600
+                      + (sl_ | timestamp_custom('%M') | int) * 60 -%}
                 {%- endif -%}
                 {%- for m in marks if m is mapping -%}
                   {%- set ts = as_timestamp(m.start, 0) | int -%}
@@ -672,19 +832,26 @@ template:
                     {%- for p in ns_in.sun -%}
                       {%- set ov = ([ts + step, p.ts + 1800] | min - [start, p.ts] | max) / 3600 -%}
                       {%- if ov > 0 -%}
-                        {%- set ns_s.kwh = ns_s.kwh + p.kw * ov -%}{%- set ns_s.cov = ns_s.cov + ov -%}
-                        {%- set ns_s.d = ns_s.d + ([lm - p.kw, 0] | max) * ov -%}{%- set ns_s.u = ns_s.u + ([p.kw - lm, 0] | max) * ov -%}
+                        {%- set ns_s.kwh = ns_s.kwh + p.kw * ov -%}
+                        {%- set ns_s.cov = ns_s.cov + ov -%}
+                        {%- set ns_s.d = ns_s.d + ([lm - p.kw, 0] | max) * ov -%}
+                        {%- set ns_s.u = ns_s.u + ([p.kw - lm, 0] | max) * ov -%}
                       {%- endif -%}
                     {%- endfor -%}
                     {%- set first = ts <= now_ts -%}
                     {%- set t_s = hr * 3600 + (ts | timestamp_custom('%M') | int) * 60 -%}
                     {%- set up = (t_s < tod.s and t_s + step > tod.r) if tod.r >= 0 else ns_s.kwh > 0.01 -%}
-                    {%- set ns_in.slots = ns_in.slots + [{'ts': ts, 'b': b, 's': s, 'h': h, 'sun': ns_s.kwh, 'load': lw * h, 'up': up,
-                         'd': ns_s.d + lm * ([h - ns_s.cov, 0] | max), 'u': ns_s.u,
-                         'pc': ([pc_now, pc] | min) if first else pc, 'pd': ([pd_now, pd] | min) if first else pd}] -%}
+                    {%- set ns_in.slots = ns_in.slots + [{
+                        'ts': ts, 'b': b, 's': s, 'h': h,
+                        'sun': ns_s.kwh, 'load': lw * h, 'up': up,
+                        'd': ns_s.d + lm * ([h - ns_s.cov, 0] | max), 'u': ns_s.u,
+                        'pc': ([pc_now, pc] | min) if first else pc,
+                        'pd': ([pd_now, pd] | min) if first else pd}] -%}
                   {%- endif -%}
                 {%- endfor -%}
                 {%- set slots = ns_in.slots | sort(attribute='ts') -%}
+                {#- ── The car: its grid hours, the sun and the battery energy it may take,
+                    written into the slots ── -#}
                 {#- The car (input_boolean.hba_strategy_planned_car, needs the EV project's sensor.ev_car_info with
                     Follow assisted on): the cheapest hours before departure. Minimum is a must: any price, also
                     with grid charging off; above the max price the EV project asks first, and Skip leaves
@@ -703,13 +870,17 @@ template:
                     (input_select.hba_strategy_planned_car_normal_skip); its hours are still worked out
                     for the evening question. -#}
                 {%- set ev_e = 'sensor.ev_car_info' -%}
-                {%- set car = namespace(min=0, need=0, sun=0, min_left=0, left=0, picks={}, lims={}, home=false, over=0, over_eur=0, over_from='', kwh=0, eur=0, alt_kwh=0, alt_eur=0, nskip=false, dep='Auto', dl=0, dl_norm=0, dl_min=0, nkwh=0, neur=0, nfrom='', home_day='', home_fc=-1, home_sun=-1, sun_in=0, along=is_state('binary_sensor.hba_ev_alongside_ready', 'on')) -%}
+                {%- set car = namespace(min=0, need=0, sun=0, min_left=0, left=0, picks={}, lims={}, home=false, over=0,
+                    over_eur=0, over_from='', kwh=0, eur=0, alt_kwh=0, alt_eur=0, nskip=false, dep='Auto', dl=0,
+                    dl_norm=0, dl_min=0, nkwh=0, neur=0, nfrom='', home_day='', home_fc=-1, home_sun=-1, sun_in=0,
+                    along=is_state('binary_sensor.hba_ev_alongside_ready', 'on')) -%}
                 {#- Sun into the car (below): value per kWh, per-slot kWh, totals -#}
                 {%- set cs = namespace(v=0, cap=0, e=0, l=[], at={}, kwh=0, norm=0, got=0, eur=0) -%}
                 {#- Battery to car (input_boolean.hba_strategy_planned_car_battery, below): kWh and value per
                     slot, the extra kWh above the grid hours and its value, the car's top level -#}
                 {%- set bt = namespace(at={}, extra=0, vx=0, top=0, segs=[]) -%}
-                {%- set car_bat = car_run != 'nocar' and is_state('input_boolean.hba_strategy_planned_car_battery', 'on') -%}
+                {%- set car_bat = car_run != 'nocar'
+                    and is_state('input_boolean.hba_strategy_planned_car_battery', 'on') -%}
                 {#- Expected car: battery to car on, the car not plugged in yet, before the latest plug-in
                     time (input_datetime.hba_strategy_planned_car_latest_plugin, unset = 18:00). The plan
                     counts it as plugged in from that time, so it may keep battery energy for it but give
@@ -719,34 +890,51 @@ template:
                 {%- set lp = states('input_datetime.hba_strategy_planned_car_latest_plugin')[:5] -%}
                 {%- set lp = '18:00' if lp in ['00:00', 'unkno', 'unava', ''] else lp -%}
                 {%- set plug_ts = as_timestamp(today_at(lp)) | int -%}
-                {%- set car_exp = car_bat and car_run == 'plan' and state_attr(ev_e, 'connected') != true and now_ts < plug_ts -%}
+                {%- set car_exp = car_bat and car_run == 'plan' and state_attr(ev_e, 'connected') != true
+                    and now_ts < plug_ts -%}
                 {%- set c_from = plug_ts if car_exp else 0 -%}
                 {#- Preview only: the plan that runs leaves the car out, the preview run takes it in even
                     with Follow assisted off or the car unplugged (then from today's SoC), to show what
                     it would do to the batteries. Nothing of it reaches the batteries or the EV project. -#}
-                {%- if car_run != 'nocar' and is_state('input_boolean.hba_strategy_planned_car', 'on') and state_attr(ev_e, 'known') == true and (car_run == 'preview' or (is_state('input_boolean.hba_strategy_planned_car_preview', 'off') and state_attr(ev_e, 'following') == true and (state_attr(ev_e, 'connected') == true or car_exp))) -%}
+                {%- if car_run != 'nocar' and is_state('input_boolean.hba_strategy_planned_car', 'on')
+                    and state_attr(ev_e, 'known') == true
+                    and (car_run == 'preview'
+                      or (is_state('input_boolean.hba_strategy_planned_car_preview', 'off')
+                        and state_attr(ev_e, 'following') == true
+                        and (state_attr(ev_e, 'connected') == true or car_exp))) -%}
                   {%- set car_dl0 = state_attr(ev_e, 'deadline') | int(0) -%}
                   {%- set car_day = (car_dl0 | as_datetime | as_local) if car_dl0 > 0 else now() -%}
                   {%- set car_today = car_day.strftime('%Y-%m-%d') == now().strftime('%Y-%m-%d') -%}
                   {%- set car_days = states('input_text.hba_strategy_planned_car_home_days') | trim -%}
-                  {%- set car_days = ('Sat,Sun' if car_days in ['', 'unknown', 'unavailable'] else car_days) | lower | regex_findall('[^,; ]+') -%}
+                  {%- set car_days = ('Sat,Sun' if car_days in ['', 'unknown', 'unavailable']
+                      else car_days) | lower | regex_findall('[^,; ]+') -%}
                   {%- set car_tm = states('input_select.hba_strategy_planned_car_next_departure') -%}
-                  {%- set car.home = car_tm == 'Not leaving' or (car_tm != 'Leaving' and (car_day.strftime('%a') | lower in car_days or car_day.strftime('%A') | lower in car_days)) -%}
+                  {%- set car.home = car_tm == 'Not leaving'
+                      or (car_tm != 'Leaving'
+                        and (car_day.strftime('%a') | lower in car_days
+                          or car_day.strftime('%A') | lower in car_days)) -%}
                   {#- Deadlines: Normal until the first departure on a day the car is not home (later
                       departures: the list only), Minimum the same with Not leaving, else the next one -#}
                   {%- set car_dl = namespace(norm=car_dl0 if not car.home else 0) -%}
                   {%- for o in range(1, 8) if car.home and car_dl0 > 0 and car_dl.norm == 0 -%}
                     {%- set d = car_day + timedelta(days=o) -%}
-                    {%- if car_dl.norm == 0 and not (d.strftime('%a') | lower in car_days or d.strftime('%A') | lower in car_days) -%}
+                    {%- if car_dl.norm == 0
+                        and not (d.strftime('%a') | lower in car_days or d.strftime('%A') | lower in car_days) -%}
                       {%- set car_dl.norm = as_timestamp(d) | int -%}
                     {%- endif -%}
                   {%- endfor -%}
-                  {%- if car.home and car_dl0 > 0 and car_dl.norm == 0 -%}{%- set car_dl.norm = as_timestamp(car_day + timedelta(days=7)) | int -%}{%- endif -%}
+                  {%- if car.home and car_dl0 > 0 and car_dl.norm == 0 -%}
+                    {%- set car_dl.norm = as_timestamp(car_day + timedelta(days=7)) | int -%}
+                  {%- endif -%}
                   {%- set car_dl_min = car_dl.norm if car_tm == 'Not leaving' else car_dl0 -%}
-                  {%- set car.dep = car_tm -%}{%- set car.dl = car_dl0 -%}{%- set car.dl_norm = car_dl.norm -%}{%- set car.dl_min = car_dl_min -%}
+                  {%- set car.dep = car_tm -%}
+                  {%- set car.dl = car_dl0 -%}
+                  {%- set car.dl_norm = car_dl.norm -%}
+                  {%- set car.dl_min = car_dl_min -%}
                   {%- set car_fc_e = today_solar_e if car_today else tomorrow_solar_e -%}
                   {%- set car_fc = (states(car_fc_e) | float(0)) if car_fc_e != '' else 0 -%}
-                  {%- set car_house = ((prof[8:17] | select('number') | sum) / 1000) if prof | length == 24 else load_kw * 9 -%}
+                  {%- set car_house = ((prof[8:17] | select('number') | sum) / 1000) if prof | length == 24
+                      else load_kw * 9 -%}
                   {%- set car.sun = ([car_fc - car_house - emax, 0] | max) if car.home else 0 -%}
                   {#- The next day the car is home and its solar, for the evening question. Forecast days
                       after tomorrow only with Solcast (forecast_day_3 = the day after tomorrow, up to 7
@@ -754,23 +942,33 @@ template:
                   {%- for o in range(0 if car_today else 1, 8) -%}
                     {%- set d = now() + timedelta(days=o) -%}
                     {%- set first = o == (0 if car_today else 1) -%}
-                    {%- if car.home_day == '' and ((car.home if first else (d.strftime('%a') | lower in car_days or d.strftime('%A') | lower in car_days))) -%}
+                    {%- if car.home_day == ''
+                        and ((car.home if first
+                          else (d.strftime('%a') | lower in car_days or d.strftime('%A') | lower in car_days))) -%}
                       {%- set car.home_day = d.strftime('%a') -%}
-                      {%- set fc_e = today_solar_e if o == 0 else (tomorrow_solar_e if o == 1 else (tomorrow_solar_e | replace('forecast_tomorrow', 'forecast_day_' ~ (o + 1)) if 'forecast_tomorrow' in tomorrow_solar_e else '')) -%}
+                      {%- set fc_e = today_solar_e if o == 0
+                          else (tomorrow_solar_e if o == 1
+                            else (tomorrow_solar_e | replace('forecast_tomorrow', 'forecast_day_' ~ (o + 1))
+                              if 'forecast_tomorrow' in tomorrow_solar_e else '')) -%}
                       {%- set car.home_fc = (states(fc_e) | float(-1)) if fc_e != '' else -1 -%}
                       {%- set car.home_sun = ([car.home_fc - car_house - emax, 0] | max) if car.home_fc >= 0 else -1 -%}
                     {%- endif -%}
                   {%- endfor -%}
-                  {%- set car.nskip = states('input_select.hba_strategy_planned_car_normal_skip') in ['Minimum only', 'Min. until home day'] -%}
+                  {%- set car.nskip = states('input_select.hba_strategy_planned_car_normal_skip')
+                      in ['Minimum only', 'Min. until home day'] -%}
                   {%- set car_soc = states(ev_e) | float(0) -%}
                   {%- set car_eff = state_attr(ev_e, 'efficiency') | float(0.9) -%}
                   {#- 0 or less (a wrong setting) would divide by zero and stop every new plan -#}
-                  {%- set car_pct = (state_attr(ev_e, 'capacity_kwh') | float(0)) / 100 / (car_eff if car_eff > 0 else 0.9) -%}
+                  {%- set car_pct = (state_attr(ev_e, 'capacity_kwh') | float(0)) / 100
+                      / (car_eff if car_eff > 0 else 0.9) -%}
                   {%- set car_lmin = states('input_number.hba_strategy_planned_car_minimum') | float(0) -%}
-                  {%- set car_lnorm = [states('input_number.hba_strategy_planned_car_normal') | float(0), car_lmin] | max -%}
+                  {%- set car_lnorm = [states('input_number.hba_strategy_planned_car_normal') | float(0),
+                      car_lmin] | max -%}
                   {%- set car.min = ([car_lmin - car_soc, 0] | max) * car_pct -%}
                   {%- set car.min_left = car.min -%}
-                  {%- set car.need = ([([car_lnorm - [car_soc, car_lmin] | max, 0] | max) * car_pct - car.sun, 0] | max) if is_state('input_boolean.hba_strategy_planned_car_grid', 'on') else 0 -%}
+                  {%- set car.need =
+                      ([([car_lnorm - [car_soc, car_lmin] | max, 0] | max) * car_pct - car.sun, 0] | max)
+                      if is_state('input_boolean.hba_strategy_planned_car_grid', 'on') else 0 -%}
                   {%- set car.left = car.need -%}
                   {%- set car_kw = state_attr(ev_e, 'charge_kw') | float(11) -%}
                   {%- set car_maxp = state_attr(ev_e, 'max_price') | float(0) -%}
@@ -788,21 +986,31 @@ template:
                       are picked. The plan (DP) then values that sun at cv instead of the sell price, so
                       it also decides whether the batteries or the car get it. Not before 08:00: then
                       car.sun (the day's forecast) already counts it. -#}
-                  {%- set cs.v = car_maxp -%}{%- set cs.e = [[e_now, 0] | max, emax] | min -%}
+                  {%- set cs.v = car_maxp -%}
+                  {%- set cs.e = [[e_now, 0] | max, emax] | min -%}
                   {%- if not car_today -%}
                     {%- set cs_need = car.need if not car.nskip else 0 -%}
                     {%- set cs_acc = namespace(k=0, b=none) -%}
-                    {%- for sl in slots | selectattr('ts', 'lt', car_dl.norm) | selectattr('ts', 'ge', c_from) | sort(attribute='b') if cs_acc.k < cs_need - 0.05 and not (car_max_on and sl.b > car_maxp) -%}
-                      {%- set cs_acc.k = cs_acc.k + car_kw * sl.h -%}{%- set cs_acc.b = sl.b -%}
+                    {%- for sl in slots | selectattr('ts', 'lt', car_dl.norm) | selectattr('ts', 'ge', c_from)
+                      | sort(attribute='b')
+                        if cs_acc.k < cs_need - 0.05 and not (car_max_on and sl.b > car_maxp) -%}
+                      {%- set cs_acc.k = cs_acc.k + car_kw * sl.h -%}
+                      {%- set cs_acc.b = sl.b -%}
                     {%- endfor -%}
-                    {%- set cs.v = cs_acc.b if cs_need > 0.05 and cs_acc.k >= cs_need - 0.05 and cs_acc.b is not none else car_maxp -%}
-                    {%- set cs_top = [states('input_number.hba_strategy_planned_car_leftover') | float(0), car_lnorm] | max -%}
+                    {%- set cs.v = cs_acc.b
+                        if cs_need > 0.05 and cs_acc.k >= cs_need - 0.05 and cs_acc.b is not none
+                        else car_maxp -%}
+                    {%- set cs_top = [states('input_number.hba_strategy_planned_car_leftover') | float(0),
+                        car_lnorm] | max -%}
                     {%- set cs.cap = ([cs_top - car_soc, 0] | max) * car_pct -%}
-                    {%- for sl in slots if (sl.ts | timestamp_custom('%Y-%m-%d')) == now().strftime('%Y-%m-%d') and sl.ts >= c_from -%}
+                    {%- for sl in slots if (sl.ts | timestamp_custom('%Y-%m-%d')) == now().strftime('%Y-%m-%d')
+                        and sl.ts >= c_from -%}
                       {%- set ch = [sl.u, sl.pc * sl.h, ([emax - cs.e, 0] | max) / ec] | min -%}
                       {%- set cs.e = [cs.e + ch * ec, emax] | min -%}
                       {%- set spare = [sl.u - ch, car_kw * sl.h] | min -%}
-                      {%- if spare >= 0.7 * sl.h and sl.s < cs.v -%}{%- set cs.l = cs.l + [{'ts': sl.ts, 's': sl.s, 'k': spare}] -%}{%- endif -%}
+                      {%- if spare >= 0.7 * sl.h and sl.s < cs.v -%}
+                        {%- set cs.l = cs.l + [{'ts': sl.ts, 's': sl.s, 'k': spare}] -%}
+                      {%- endif -%}
                     {%- endfor -%}
                     {%- for x in cs.l | sort(attribute='s') if cs.kwh < cs.cap - 0.05 -%}
                       {%- set k = [x.k, cs.cap - cs.kwh] | min -%}
@@ -813,11 +1021,14 @@ template:
                     {%- set car.left = [car.left - cs.norm, 0] | max -%}
                   {%- endif -%}
                   {%- set car_lim = states('input_number.hba_ev_phase_current_limit') | float(0) -%}
-                  {%- set car_lim = car_lim if car_lim > 0 else states('input_number.hba_phase_current_limit') | float(0) -%}
+                  {%- set car_lim = car_lim if car_lim > 0
+                      else states('input_number.hba_phase_current_limit') | float(0) -%}
                   {%- set car_ph = namespace(l=[]) -%}
                   {%- for i in range(1, count + 1) -%}
                     {%- set ph = states('input_select.hba_marstek_m' ~ i ~ '_phase') -%}
-                    {%- if ph in ['L1', 'L2', 'L3'] and ph not in car_ph.l -%}{%- set car_ph.l = car_ph.l + [ph] -%}{%- endif -%}
+                    {%- if ph in ['L1', 'L2', 'L3'] and ph not in car_ph.l -%}
+                      {%- set car_ph.l = car_ph.l + [ph] -%}
+                    {%- endif -%}
                   {%- endfor -%}
                   {%- set car_room = ([car_lim - car_kw * 1000 / 690, 0] | max) * 0.23 * (car_ph.l | length) -%}
                   {#- Car hours priority (input_select.hba_strategy_planned_car_priority; car_prio is set per
@@ -831,15 +1042,18 @@ template:
                   {%- set car_bal = car_prio == 'Balance' and car.along and car_lim > 0 and (car_ph.l | length) > 0 -%}
                   {%- set car_pk = ([car_kw, 6 * 0.69] | min) if car_bal else car_kw -%}
                   {%- set bal_room = ([car_lim - 7, 0] | max) * 0.23 * (car_ph.l | length) -%}
-                  {%- for sl in slots | selectattr('ts', 'lt', car_dl.norm) | selectattr('ts', 'ge', c_from) | sort(attribute='b') -%}
+                  {%- for sl in slots | selectattr('ts', 'lt', car_dl.norm) | selectattr('ts', 'ge', c_from)
+                      | sort(attribute='b') -%}
                     {%- set c_over = car_max_on and sl.b > car_maxp -%}
-                    {%- set c_min = 0 if (c_over and car_skip) or sl.ts >= car_dl_min else [car_pk * sl.h, car.min_left] | min -%}
+                    {%- set c_min = 0 if (c_over and car_skip) or sl.ts >= car_dl_min
+                        else [car_pk * sl.h, car.min_left] | min -%}
                     {%- set c_want = 0 if c_over else [car_pk * sl.h - c_min, car.left] | min -%}
                     {%- if c_min + c_want > 0.1 -%}
                       {%- set c_norm = 0 if car.nskip else c_want -%}
                       {%- if c_min + c_norm > 0.1 -%}
                         {%- set car.picks = car.picks | combine({sl.ts | string: c_min + c_norm}) -%}
-                        {%- set car.lims = car.lims | combine({sl.ts | string: (car_lnorm if c_norm > 0.05 else car_lmin) | int}) -%}
+                        {%- set car.lims = car.lims | combine(
+                            {sl.ts | string: (car_lnorm if c_norm > 0.05 else car_lmin) | int}) -%}
                         {%- set car.kwh = car.kwh + c_min + c_norm -%}
                         {%- set car.eur = car.eur + (c_min + c_norm) * sl.b -%}
                       {%- endif -%}
@@ -859,9 +1073,11 @@ template:
                   {%- endfor -%}
                   {#- The same hours with the max price switch the other way, for the Car section -#}
                   {%- set alt = namespace(min=car.min, need=0 if car.nskip else car.need) -%}
-                  {%- for sl in slots | selectattr('ts', 'lt', car_dl.norm) | selectattr('ts', 'ge', c_from) | sort(attribute='b') -%}
+                  {%- for sl in slots | selectattr('ts', 'lt', car_dl.norm) | selectattr('ts', 'ge', c_from)
+                      | sort(attribute='b') -%}
                     {%- set c_over = not car_max_on and sl.b > car_maxp -%}
-                    {%- set c_min = 0 if (c_over and car_skip) or sl.ts >= car_dl_min else [car_pk * sl.h, alt.min] | min -%}
+                    {%- set c_min = 0 if (c_over and car_skip) or sl.ts >= car_dl_min
+                        else [car_pk * sl.h, alt.min] | min -%}
                     {%- set c_norm = 0 if c_over else [car_pk * sl.h - c_min, alt.need] | min -%}
                     {%- if c_min + c_norm > 0.1 -%}
                       {%- set alt.min = alt.min - c_min -%}
@@ -883,7 +1099,8 @@ template:
                       (input_number.hba_strategy_planned_car_battery_end, grid hours run up to it). At
                       least half the hour at ~1.4 kW, the car's minimum. Not in a grid car hour. -#}
                   {%- if car_bat -%}
-                    {%- set bt.top = [states('input_number.hba_strategy_planned_car_leftover') | float(0), car_lnorm] | max -%}
+                    {%- set bt.top = [states('input_number.hba_strategy_planned_car_leftover') | float(0),
+                        car_lnorm] | max -%}
                     {%- set bt.top = 100 if bt.top <= 0 else bt.top -%}
                     {%- set b_room = ([bt.top - car_soc, 0] | max) * car_pct -%}
                     {%- set bt.extra = [b_room - car.kwh - cs.kwh, 0] | max -%}
@@ -892,23 +1109,29 @@ template:
                         the departure / round-trip efficiency): else the plan buys for Leftover through
                         the batteries, 18 % worse than charging the car directly, and Leftover never comes
                         from the grid (dev test 2026-11-16: max price 0.50, bought at 0.37 for the car) -#}
-                    {%- set b_win = slots | selectattr('ts', 'lt', [car_dl.norm, slots[0].ts + step] | max) | map(attribute='b') | min -%}
-                    {%- set bt.vx = [(car_maxp if car_maxp > 0 else b_cheap) if state_attr(ev_e, 'compensated') == true else b_cheap, b_win / eta] | min -%}
+                    {%- set b_win = slots | selectattr('ts', 'lt', [car_dl.norm, slots[0].ts + step] | max)
+                        | map(attribute='b') | min -%}
+                    {%- set bt.vx = [(car_maxp if car_maxp > 0 else b_cheap)
+                                         if state_attr(ev_e, 'compensated') == true else b_cheap,
+                                     b_win / eta] | min -%}
                     {%- set b_end = (states('input_number.hba_strategy_planned_car_battery_end') | float(1)) * 3600 -%}
                     {%- set bt.segs = [{'v': bt.vx, 'k': bt.extra, 'dl': car_dl.norm - b_end, 'ts': 9999999999}] -%}
                     {%- for pk in car.picks -%}
                       {%- set ps = slots | selectattr('ts', 'eq', pk | int) | first -%}
                       {%- set p_dl = car_dl_min if car.lims[pk] == car_lmin | int else car_dl.norm -%}
-                      {%- set bt.segs = bt.segs + [{'v': ps.b, 'k': car.picks[pk], 'dl': p_dl - b_end, 'ts': pk | int}] -%}
+                      {%- set bt.segs = bt.segs
+                          + [{'v': ps.b, 'k': car.picks[pk], 'dl': p_dl - b_end, 'ts': pk | int}] -%}
                     {%- endfor -%}
                     {%- set bt.segs = bt.segs | sort(attribute='v', reverse=true) -%}
-                    {%- for sl in slots | selectattr('ts', 'ge', [now_slot, c_from] | max) | sort(attribute='b') if (sl.ts | string) not in car.picks -%}
+                    {%- for sl in slots | selectattr('ts', 'ge', [now_slot, c_from] | max) | sort(attribute='b')
+                        if (sl.ts | string) not in car.picks -%}
                       {%- set cap = [car_kw * sl.h, [sl.pd * sl.h - sl.d, 0] | max] | min -%}
                       {%- set acc = namespace(k=0, v=0, l=[]) -%}
                       {%- for g in bt.segs -%}
                         {%- set take = ([g.k, cap - acc.k] | min) if sl.ts + step <= g.dl and sl.ts < g.ts else 0 -%}
                         {%- set take = take if take > 0.01 else 0 -%}
-                        {%- set acc.k = acc.k + take -%}{%- set acc.v = acc.v + take * g.v -%}
+                        {%- set acc.k = acc.k + take -%}
+                        {%- set acc.v = acc.v + take * g.v -%}
                         {%- set acc.l = acc.l + [g | combine({'k': g.k - take})] -%}
                       {%- endfor -%}
                       {%- if acc.k >= 0.7 * sl.h -%}
@@ -920,8 +1143,15 @@ template:
                   {#- An expected car is not plugged in: no grid car hours yet (their cost and kWh only
                       value the battery energy above); the plan made at plug-in has them -#}
                   {%- if car_exp -%}
-                    {%- set car.picks = {} -%}{%- set car.kwh = 0 -%}{%- set car.eur = 0 -%}{%- set car.over = 0 -%}{%- set car.over_eur = 0 -%}
-                    {%- set car.nkwh = 0 -%}{%- set car.neur = 0 -%}{%- set car.alt_kwh = 0 -%}{%- set car.alt_eur = 0 -%}
+                    {%- set car.picks = {} -%}
+                    {%- set car.kwh = 0 -%}
+                    {%- set car.eur = 0 -%}
+                    {%- set car.over = 0 -%}
+                    {%- set car.over_eur = 0 -%}
+                    {%- set car.nkwh = 0 -%}
+                    {%- set car.neur = 0 -%}
+                    {%- set car.alt_kwh = 0 -%}
+                    {%- set car.alt_eur = 0 -%}
                   {%- endif -%}
                   {#- A car hour: the car takes the sun first (it pulls more than the sun gives, so nothing
                       is exported for Charge PV to store); the batteries only get the sun above the car's
@@ -931,15 +1161,18 @@ template:
                       nothing. Never discharging into the car. The sun the car takes costs what exporting
                       it would have earned (user 2026-11-05: a friend's plan stored 3.5 kWh of sun per hour
                       next to an 11 kW car). -#}
-                  {%- set car_pv = states('input_select.hba_control_strategy_during_ev_charge') in ['Charge PV', 'Charge alongside EV'] -%}
+                  {%- set car_pv = states('input_select.hba_control_strategy_during_ev_charge')
+                      in ['Charge PV', 'Charge alongside EV'] -%}
                   {%- set ns_car = namespace(l=[]) -%}
                   {%- for sl in slots -%}
                     {%- set k = sl.ts | string -%}
                     {%- if k in car.picks -%}
                       {%- set c_sun = [sl.u, car.picks[k]] | min -%}
                       {%- set u2 = [sl.u - car.picks[k], 0] | max -%}
-                      {%- set c_pc = (([sl.pc, bal_room if car_bal else car_room] | min) if car_lim > 0 and car_ph.l else sl.pc) if car.along
-                                     else (([sl.pc, u2 / ([sl.h, 0.01] | max)] | min) if car_pv else 0) -%}
+                      {%- set c_pc =
+                          (([sl.pc, bal_room if car_bal else car_room] | min) if car_lim > 0 and car_ph.l else sl.pc)
+                          if car.along
+                          else (([sl.pc, u2 / ([sl.h, 0.01] | max)] | min) if car_pv else 0) -%}
                       {#- Only the part of the hour the car charges: an hour with 0.8 kWh for the car is ~5 min
                           at 10.5 kW, the batteries have their full power the rest of it (user 2026-11-15:
                           12:00 capped at 2.8 kWh for the whole hour, 3.6 kWh less stored, 15:00 Sell gone).
@@ -948,7 +1181,8 @@ template:
                       {%- set c_pc = c_pc * c_f + sl.pc * (1 - c_f) -%}
                       {%- set car.sun_in = car.sun_in + c_sun -%}
                       {%- set car.eur = car.eur - c_sun * (sl.b - sl.s) -%}
-                      {%- set ns_car.l = ns_car.l + [sl | combine({'ev': car.picks[k], 'ev_lim': car.lims[k], 'pd': 0, 'pc': c_pc, 'u': u2})] -%}
+                      {%- set ns_car.l = ns_car.l + [sl | combine(
+                          {'ev': car.picks[k], 'ev_lim': car.lims[k], 'pd': 0, 'pc': c_pc, 'u': u2})] -%}
                     {%- else -%}
                       {#- cs = kWh of exported sun the car may take, cv = what that kWh is worth there,
                           ck = the least export it starts with (half the hour at ~1.4 kW);
@@ -962,8 +1196,10 @@ template:
                 {%- endif -%}
                 {%- set N = slots | length -%}
                 {%- if N == 0 -%}
-                  {{ {'plan': [], 'status': 'No price data', 'made': now().isoformat(), 'reason': replan, 'eta': (eta * 100) | round(1)} | tojson }}
+                  {{ {'plan': [], 'status': 'No price data', 'made': now().isoformat(), 'reason': replan,
+                      'eta': (eta * 100) | round(1)} | tojson }}
                 {%- else -%}
+                  {#- ── Energy levels, and the value of energy left at the end ── -#}
                   {#- Energy levels: input_number.hba_strategy_planned_energy_step (0 = auto, 20 steps);
                       the step divides the usable energy evenly, 4..100 steps. The time grows with the
                       square of the levels (the partial Charge / Sell targets): dev box, 25 slots, 41 levels
@@ -984,19 +1220,27 @@ template:
                   {%- set endv = end_b * ed -%}
                   {#- ── Backward pass: value of each energy level per slot ── -#}
                   {%- set ns = namespace(V=[], Vs=[]) -%}
-                  {%- for k in range(K) -%}{%- set ns.V = ns.V + [-(k * dE) * endv] -%}{%- endfor -%}
+                  {%- for k in range(K) -%}
+                    {%- set ns.V = ns.V + [-(k * dE) * endv] -%}
+                  {%- endfor -%}
                   {%- set ns.Vs = [ns.V] -%}
                   {%- for t in range(N - 1, -1, -1) -%}
                     {%- set sl = slots[t] -%}
-                    {%- set d = sl.d -%}{%- set u = sl.u -%}
-                    {%- set cc = sl.pc * sl.h -%}{%- set cd = sl.pd * sl.h -%}
-                    {%- set ck = sl.ck if 'cs' in sl else 1e9 -%}{%- set cs_k = sl.cs if 'cs' in sl else 0 -%}{%- set cg = (sl.cv - sl.s) if 'cs' in sl else 0 -%}
-                    {%- set bc = sl.bc if 'bc' in sl else 0 -%}{%- set bv = sl.bv if 'bc' in sl else 0 -%}
+                    {%- set d = sl.d -%}
+                    {%- set u = sl.u -%}
+                    {%- set cc = sl.pc * sl.h -%}
+                    {%- set cd = sl.pd * sl.h -%}
+                    {%- set ck = sl.ck if 'cs' in sl else 1e9 -%}
+                    {%- set cs_k = sl.cs if 'cs' in sl else 0 -%}
+                    {%- set cg = (sl.cv - sl.s) if 'cs' in sl else 0 -%}
+                    {%- set bc = sl.bc if 'bc' in sl else 0 -%}
+                    {%- set bv = sl.bv if 'bc' in sl else 0 -%}
                     {%- set acts_t = acts + (['Car'] if 'bc' in sl else []) -%}
                     {%- set nv = namespace(V=[]) -%}
                     {%- for k in range(K) -%}
                       {%- set E = k * dE -%}
-                      {%- set room = ([emax - E, 0] | max) / ec -%}{%- set av = ([E - rmin, 0] | max) * ed -%}
+                      {%- set room = ([emax - E, 0] | max) / ec -%}
+                      {%- set av = ([E - rmin, 0] | max) * ed -%}
                       {%- set best = namespace(v=1e9) -%}
                       {%- for a in acts_t -%}
                         {#- Charge / Sell: max power (j = -1) and every energy level j in between as a
@@ -1004,26 +1248,59 @@ template:
                             than the house uses), Charge levels only above what the sun alone gives.
                             Car (battery to car): like Sell, house first, the rest (bk, up to bc) into
                             the car at bv per kWh instead of exported. -#}
-                        {%- set ch0 = ([u, cc, room] | min) if a in ['Self-consumption', 'Charge PV'] else (([cc, room] | min) if a == 'Charge' else 0) -%}
-                        {%- set dis0 = ([d, cd, av] | min) if a in ['Self-consumption', 'Zero import'] else (([cd, av] | min) if a == 'Sell' else (([d + bc, cd, av] | min) if a == 'Car' else 0)) -%}
-                        {%- set js = (range(((E - dis0 / ed) / dE + 0.02) | round(0, 'ceil') | int, ((E - d / ed) / dE - 0.02) | round(0, 'ceil') | int) | list) if a in ['Sell', 'Car']
-                                     else ((range(((E + u * ec) / dE + 0.02) | round(0, 'ceil') | int, ((E + ch0 * ec) / dE - 0.02) | round(0, 'ceil') | int) | list) if a == 'Charge' else []) -%}
+                        {%- set ch0 = ([u, cc, room] | min) if a in ['Self-consumption', 'Charge PV']
+                            else (([cc, room] | min) if a == 'Charge' else 0) -%}
+                        {%- set dis0 = ([d, cd, av] | min) if a in ['Self-consumption', 'Zero import']
+                            else (([cd, av] | min) if a == 'Sell'
+                              else (([d + bc, cd, av] | min) if a == 'Car' else 0)) -%}
+                        {#- js = the partial targets: the energy levels between where max power ends and where
+                            "only the house" (Sell, Car) or "only the sun" (Charge) ends -#}
+                        {%- set js =
+                            (range(((E - dis0 / ed) / dE + 0.02) | round(0, 'ceil') | int,
+                                   ((E - d / ed) / dE - 0.02) | round(0, 'ceil') | int) | list)
+                            if a in ['Sell', 'Car']
+                            else ((range(((E + u * ec) / dE + 0.02) | round(0, 'ceil') | int,
+                                         ((E + ch0 * ec) / dE - 0.02) | round(0, 'ceil') | int) | list)
+                                  if a == 'Charge' else []) -%}
                         {%- for j in [-1] + js -%}
-                        {%- set ch = ch0 if j < 0 else (((j * dE - E) / ec) if a == 'Charge' else 0) -%}
-                        {%- set dis = dis0 if j < 0 else (((E - j * dE) * ed) if a in ['Sell', 'Car'] else 0) -%}
-                        {%- set bk = ([dis - d, 0] | max) if a == 'Car' else 0 -%}
-                        {%- set net = d - u + ch - dis + bk -%}
-                        {%- set E2 = [[E + ch * ec - dis / ed, 0] | max, emax] | min -%}
-                        {%- set x = E2 / dE -%}{%- set i = [x | int, K - 2] | min -%}{%- set f = x - i -%}
-                        {%- set sx = [[-net, u - ch] | min, 0] | max -%}
-                        {%- set v = ([net, 0] | max) * sl.b - ([-net, 0] | max) * sl.s - (([sx, cs_k] | min) * cg if sx >= ck else 0) - bk * bv + wear * dis + msp * ([dis - d - bk, 0] | max) + (eps if sl.up else eps_dark)[a] + ns.V[i] * (1 - f) + ns.V[i + 1] * f -%}
-                        {%- set v = v if a != 'Car' or bk >= 0.6 * sl.h else 1e9 -%}
-                        {%- if v < best.v -%}{%- set best.v = v -%}{%- endif -%}
+                          {%- set ch = ch0 if j < 0 else (((j * dE - E) / ec) if a == 'Charge' else 0) -%}
+                          {%- set dis = dis0 if j < 0 else (((E - j * dE) * ed) if a in ['Sell', 'Car'] else 0) -%}
+                          {%- set bk = ([dis - d, 0] | max) if a == 'Car' else 0 -%}
+                          {%- set net = d - u + ch - dis + bk -%}
+                          {%- set E2 = [[E + ch * ec - dis / ed, 0] | max, emax] | min -%}
+                          {%- set x = E2 / dE -%}
+                          {%- set i = [x | int, K - 2] | min -%}
+                          {%- set f = x - i -%}
+                          {%- set sx = [[-net, u - ch] | min, 0] | max -%}
+                          {#- E2 = where this option ends; x = that as a level number, between level i and i + 1
+                              (f = how far towards i + 1). sx = sun exported.
+                              v = the cost of the option, one term per line:
+                                import from the grid, at the buy price
+                                export, at the sell price
+                                what the exported sun is worth more in the car (cs)
+                                battery energy into the car (bk), at its value (bv)
+                                wear per kWh discharged
+                                minimum sell profit on what the batteries export
+                                tie-breaker
+                                the value table at E2 = the cost of all later slots from there -#}
+                          {%- set v = ([net, 0] | max) * sl.b
+                              - ([-net, 0] | max) * sl.s
+                              - (([sx, cs_k] | min) * cg if sx >= ck else 0)
+                              - bk * bv
+                              + wear * dis
+                              + msp * ([dis - d - bk, 0] | max)
+                              + (eps if sl.up else eps_dark)[a]
+                              + ns.V[i] * (1 - f) + ns.V[i + 1] * f -%}
+                          {%- set v = v if a != 'Car' or bk >= 0.6 * sl.h else 1e9 -%}
+                          {%- if v < best.v -%}
+                            {%- set best.v = v -%}
+                          {%- endif -%}
                         {%- endfor -%}
                       {%- endfor -%}
                       {%- set nv.V = nv.V + [best.v] -%}
                     {%- endfor -%}
-                    {%- set ns.V = nv.V -%}{%- set ns.Vs = [nv.V] + ns.Vs -%}
+                    {%- set ns.V = nv.V -%}
+                    {%- set ns.Vs = [nv.V] + ns.Vs -%}
                   {%- endfor -%}
                   {#- ── Forward pass from the real stored energy ── -#}
                   {%- set E0 = [[e_now, 0] | max, emax] | min -%}
@@ -1033,21 +1310,31 @@ template:
                   {#- Battery to car with grid charging for Normal off: the grid energy stored since the car
                       was plugged in (ledger g, then the planned Charge kWh) may not go to the car (gb) -#}
                   {%- set grid_off = not is_state('input_boolean.hba_strategy_planned_car_grid', 'on') -%}
-                  {%- set fw = namespace(E=E0, basis=E0 * per_kwh, out=[], cost=0, gb=[lg.get('g', 0) | float(0), E0] | min if grid_off else 0, bkwh=0, beur=0, bcost=0) -%}
+                  {%- set fw = namespace(E=E0, basis=E0 * per_kwh, out=[], cost=0,
+                      gb=[lg.get('g', 0) | float(0), E0] | min if grid_off else 0, bkwh=0, beur=0, bcost=0) -%}
                   {%- for t in range(N) -%}
-                    {%- set sl = slots[t] -%}{%- set V = ns.Vs[t + 1] -%}
-                    {%- set d = sl.d -%}{%- set u = sl.u -%}
-                    {%- set cc = sl.pc * sl.h -%}{%- set cd = sl.pd * sl.h -%}
-                    {%- set ck = sl.ck if 'cs' in sl else 1e9 -%}{%- set cs_k = sl.cs if 'cs' in sl else 0 -%}{%- set cg = (sl.cv - sl.s) if 'cs' in sl else 0 -%}
+                    {%- set sl = slots[t] -%}
+                    {%- set V = ns.Vs[t + 1] -%}
+                    {%- set d = sl.d -%}
+                    {%- set u = sl.u -%}
+                    {%- set cc = sl.pc * sl.h -%}
+                    {%- set cd = sl.pd * sl.h -%}
+                    {%- set ck = sl.ck if 'cs' in sl else 1e9 -%}
+                    {%- set cs_k = sl.cs if 'cs' in sl else 0 -%}
+                    {%- set cg = (sl.cv - sl.s) if 'cs' in sl else 0 -%}
                     {%- set E = fw.E -%}
-                    {%- set room = ([emax - E, 0] | max) / ec -%}{%- set av = ([E - rmin, 0] | max) * ed -%}
-                    {%- set bc = ([sl.bc, ([E - fw.gb, 0] | max) * ed] | min if grid_off else sl.bc) if 'bc' in sl else 0 -%}{%- set bv = sl.bv if 'bc' in sl else 0 -%}
+                    {%- set room = ([emax - E, 0] | max) / ec -%}
+                    {%- set av = ([E - rmin, 0] | max) * ed -%}
+                    {%- set bc = ([sl.bc, ([E - fw.gb, 0] | max) * ed] | min if grid_off else sl.bc) if 'bc' in sl
+                        else 0 -%}
+                    {%- set bv = sl.bv if 'bc' in sl else 0 -%}
                     {#- Ties (e.g. a full or empty battery, where several options do the same): decide by
                         what a stored kWh is worth = the slope of the value table here. That already
                         counts the power limit, e.g. extra energy at 16:00 is sold in the LAST sell
                         hour (19:00), not at the 17:00 peak. So the label also says what is right if
                         reality differs a little from the forecast. -#}
-                    {%- set xm = E / dE -%}{%- set im = [xm | int, K - 2] | min -%}
+                    {%- set xm = E / dE -%}
+                    {%- set im = [xm | int, K - 2] | min -%}
                     {%- set slope = (V[im] - V[im + 1]) / dE -%}
                     {#- keep: a stored kWh is worth more later than it saves now -> do not discharge;
                         store: storing the sun is worth more than exporting it now -#}
@@ -1060,38 +1347,78 @@ template:
                         from the battery (after net metering: sell ~0.10 -> 0.12 vs 0.54) -> Self-consumption
                         first; under net metering (0.505 / 0.82 = 0.62 > 0.54) Charge PV stays first. -#}
                     {%- set peak_from_battery = store and u > 0.01 and sl.b > sl.s / (ed * ec) + wear -%}
-                    {%- set order = ((['Self-consumption', 'Charge PV', 'Full stop', 'Zero import'] if peak_from_battery else ['Charge PV', 'Full stop', 'Self-consumption', 'Zero import']) if store else ['Full stop', 'Charge PV', 'Zero import', 'Self-consumption'])
+                    {%- set order = ((['Self-consumption', 'Charge PV', 'Full stop', 'Zero import'] if peak_from_battery
+                      else ['Charge PV', 'Full stop', 'Self-consumption', 'Zero import'])
+                        if store else ['Full stop', 'Charge PV', 'Zero import', 'Self-consumption'])
                                     if keep else
-                                    (['Self-consumption', 'Zero import', 'Charge PV', 'Full stop'] if store else ['Zero import', 'Self-consumption', 'Full stop', 'Charge PV']) -%}
-                    {%- set tie = {order[0]: 0, order[1]: 0.0001, order[2]: 0.0002, order[3]: 0.0003, 'Charge': 0.0005, 'Sell': 0.0005, 'Car': 0.0005} -%}
-                    {%- set best = namespace(v=1e9, a='Self-consumption', E2=E, ch=0, dis=0, imm=0, alt='', altv=1e9, altE=E, part=false, car=0, bev=0) -%}
+                                    (['Self-consumption', 'Zero import', 'Charge PV', 'Full stop'] if store
+                                        else ['Zero import', 'Self-consumption', 'Full stop', 'Charge PV']) -%}
+                    {%- set tie = {order[0]: 0, order[1]: 0.0001, order[2]: 0.0002, order[3]: 0.0003, 'Charge': 0.0005,
+                        'Sell': 0.0005, 'Car': 0.0005} -%}
+                    {#- The same options and cost as in the backward pass, now from the real energy E: the best one
+                        becomes the row (imm = its cost in this slot alone), the runner-up is kept for Insights -#}
+                    {%- set best = namespace(v=1e9, a='Self-consumption', E2=E, ch=0, dis=0, imm=0, alt='', altv=1e9,
+                        altE=E, part=false, car=0, bev=0) -%}
                     {%- for a in acts + (['Car'] if 'bc' in sl else []) -%}
-                      {%- set ch0 = ([u, cc, room] | min) if a in ['Self-consumption', 'Charge PV'] else (([cc, room] | min) if a == 'Charge' else 0) -%}
-                      {%- set dis0 = ([d, cd, av] | min) if a in ['Self-consumption', 'Zero import'] else (([cd, av] | min) if a == 'Sell' else (([d + bc, cd, av] | min) if a == 'Car' else 0)) -%}
-                      {%- set js = (range(((E - dis0 / ed) / dE + 0.02) | round(0, 'ceil') | int, ((E - d / ed) / dE - 0.02) | round(0, 'ceil') | int) | list) if a in ['Sell', 'Car']
-                                   else ((range(((E + u * ec) / dE + 0.02) | round(0, 'ceil') | int, ((E + ch0 * ec) / dE - 0.02) | round(0, 'ceil') | int) | list) if a == 'Charge' else []) -%}
+                      {%- set ch0 = ([u, cc, room] | min) if a in ['Self-consumption', 'Charge PV']
+                          else (([cc, room] | min) if a == 'Charge' else 0) -%}
+                      {%- set dis0 = ([d, cd, av] | min) if a in ['Self-consumption', 'Zero import']
+                          else (([cd, av] | min) if a == 'Sell'
+                            else (([d + bc, cd, av] | min) if a == 'Car' else 0)) -%}
+                      {#- js = the partial targets: the energy levels between where max power ends and where
+                          "only the house" (Sell, Car) or "only the sun" (Charge) ends -#}
+                      {%- set js =
+                          (range(((E - dis0 / ed) / dE + 0.02) | round(0, 'ceil') | int,
+                                 ((E - d / ed) / dE - 0.02) | round(0, 'ceil') | int) | list)
+                          if a in ['Sell', 'Car']
+                          else ((range(((E + u * ec) / dE + 0.02) | round(0, 'ceil') | int,
+                                       ((E + ch0 * ec) / dE - 0.02) | round(0, 'ceil') | int) | list)
+                                if a == 'Charge' else []) -%}
                       {%- for j in [-1] + js -%}
-                      {%- set ch = ch0 if j < 0 else (((j * dE - E) / ec) if a == 'Charge' else 0) -%}
-                      {%- set dis = dis0 if j < 0 else (((E - j * dE) * ed) if a in ['Sell', 'Car'] else 0) -%}
-                      {%- set bk = ([[dis - d, 0] | max, bc] | min) if a == 'Car' else 0 -%}
-                      {%- set net = d - u + ch - dis + bk -%}
-                      {%- set E2 = [[E + ch * ec - dis / ed, 0] | max, emax] | min -%}
-                      {%- set x = E2 / dE -%}{%- set i = [x | int, K - 2] | min -%}{%- set f = x - i -%}
-                      {%- set sx = [[-net, u - ch] | min, 0] | max -%}
-                      {%- set to_car = ([sx, cs_k] | min) if sx >= ck else 0 -%}
-                      {%- set imm = ([net, 0] | max) * sl.b - ([-net, 0] | max) * sl.s - to_car * cg - bk * bv + wear * dis -%}
-                      {%- set v = imm + msp * ([dis - d - bk, 0] | max) + tie[a] + V[i] * (1 - f) + V[i + 1] * f -%}
-                      {%- set v = v if a != 'Car' or bk >= 0.6 * sl.h else 1e9 -%}
-                      {#- Keep the runner-up too: Insights shows how close each decision was -#}
-                      {#- (the runner-up is another strategy, not the same one with another amount) -#}
-                      {%- if v < best.v -%}
-                        {%- if a != best.a -%}
-                          {%- set best.alt = best.a if best.v < 1e9 else '' -%}{%- set best.altv = best.v -%}{%- set best.altE = best.E2 -%}
+                        {%- set ch = ch0 if j < 0 else (((j * dE - E) / ec) if a == 'Charge' else 0) -%}
+                        {%- set dis = dis0 if j < 0 else (((E - j * dE) * ed) if a in ['Sell', 'Car'] else 0) -%}
+                        {%- set bk = ([[dis - d, 0] | max, bc] | min) if a == 'Car' else 0 -%}
+                        {%- set net = d - u + ch - dis + bk -%}
+                        {%- set E2 = [[E + ch * ec - dis / ed, 0] | max, emax] | min -%}
+                        {%- set x = E2 / dE -%}
+                        {%- set i = [x | int, K - 2] | min -%}
+                        {%- set f = x - i -%}
+                        {%- set sx = [[-net, u - ch] | min, 0] | max -%}
+                        {%- set to_car = ([sx, cs_k] | min) if sx >= ck else 0 -%}
+                        {#- imm = the cost in this slot alone (the same terms as in the backward pass); v adds the
+                            minimum sell profit, the tie-breaker and the value table at E2 -#}
+                        {%- set imm = ([net, 0] | max) * sl.b
+                            - ([-net, 0] | max) * sl.s
+                            - to_car * cg
+                            - bk * bv
+                            + wear * dis -%}
+                        {%- set v = imm
+                            + msp * ([dis - d - bk, 0] | max)
+                            + tie[a]
+                            + V[i] * (1 - f) + V[i + 1] * f -%}
+                        {%- set v = v if a != 'Car' or bk >= 0.6 * sl.h else 1e9 -%}
+                        {#- Keep the runner-up too: Insights shows how close each decision was -#}
+                        {#- (the runner-up is another strategy, not the same one with another amount) -#}
+                        {%- if v < best.v -%}
+                          {%- if a != best.a -%}
+                            {%- set best.alt = best.a if best.v < 1e9 else '' -%}
+                            {%- set best.altv = best.v -%}
+                            {%- set best.altE = best.E2 -%}
+                          {%- endif -%}
+                          {%- set best.v = v -%}
+                          {%- set best.a = a -%}
+                          {%- set best.E2 = E2 -%}
+                          {%- set best.ch = ch -%}
+                          {%- set best.dis = dis -%}
+                          {%- set best.imm = imm -%}
+                          {%- set best.part = j >= 0 -%}
+                          {%- set best.car = to_car -%}
+                          {%- set best.bev = bk -%}
+                        {%- elif v < best.altv and a != best.a -%}
+                          {%- set best.alt = a -%}
+                          {%- set best.altv = v -%}
+                          {%- set best.altE = E2 -%}
                         {%- endif -%}
-                        {%- set best.v = v -%}{%- set best.a = a -%}{%- set best.E2 = E2 -%}{%- set best.ch = ch -%}{%- set best.dis = dis -%}{%- set best.imm = imm -%}{%- set best.part = j >= 0 -%}{%- set best.car = to_car -%}{%- set best.bev = bk -%}
-                      {%- elif v < best.altv and a != best.a -%}
-                        {%- set best.alt = a -%}{%- set best.altv = v -%}{%- set best.altE = E2 -%}
-                      {%- endif -%}
                       {%- endfor -%}
                     {%- endfor -%}
                     {#- Name what the battery does (user 2026-11-04). Nothing in and nothing out: all hold
@@ -1112,11 +1439,16 @@ template:
                     {%- set cover = sl.up and av > 0.05 and slope / ed + wear < sl.b and not car_h -%}
                     {%- set store = store and (u > 0.05 or not car_h) -%}
                     {%- if best.a in holds and best.dis < 0.01 and best.ch < 0.01 -%}
-                      {%- set pr = (state_attr('sensor.hba_planned_strategy', 'plan') or []) | selectattr('ts', 'eq', sl.ts) | first | default(none) if t == 0 else none -%}
+                      {%- set pr = (state_attr('sensor.hba_planned_strategy', 'plan') or []) | selectattr('ts', 'eq',
+                        sl.ts) | first | default(none)
+                          if t == 0 else none -%}
                       {%- set na = pr.a if pr is mapping and pr.a in holds
-                                   else ((('Self-consumption' if cover else 'Charge PV') if store and room > 0.05 else ('Zero import' if cover else 'Full stop'))) -%}
+                                   else ((('Self-consumption' if cover else 'Charge PV') if store and room > 0.05
+                                       else ('Zero import' if cover else 'Full stop'))) -%}
                       {%- if na != best.a -%}
-                        {%- if best.alt == na -%}{%- set best.alt = best.a -%}{%- endif -%}
+                        {%- if best.alt == na -%}
+                          {%- set best.alt = best.a -%}
+                        {%- endif -%}
                         {%- set best.a = na -%}
                       {%- endif -%}
                     {%- endif -%}
@@ -1126,34 +1458,59 @@ template:
                         power (pw, below), Sell as half the slot (it is spread out). -#}
                     {%- set then_a = '' -%}
                     {%- if best.a in ['Charge', 'Sell'] -%}
-                      {%- set pw_kw = ([[((([best.E2 - E, 0] | max) / ec / ([sl.h, 0.01] | max) * 1100 / ([ns_p.max_c, 500] | max)) | round(0, 'ceil')), 1] | max * ([ns_p.max_c, 500] | max), sl.pc * 1000] | min) / 1000 -%}
-                      {%- set fr = ([1 - (([best.E2 - E, 0] | max) / ec / ([pw_kw, 0.05] | max)) / ([sl.h, 0.01] | max), 0] | max) if best.a == 'Charge' else 0.5 -%}
+                      {%- set pw_kw = ([[((([best.E2 - E, 0] | max) / ec / ([sl.h, 0.01] | max) * 1100 / ([ns_p.max_c,
+                        500] | max)) | round(0,
+                        'ceil')),
+                        1] | max * ([ns_p.max_c, 500] | max),
+                          sl.pc * 1000] | min) / 1000 -%}
+                      {%- set fr = ([1 - (([best.E2 - E, 0] | max) / ec / ([pw_kw, 0.05] | max)) / ([sl.h, 0.01] | max),
+                        0] | max)
+                          if best.a == 'Charge' else 0.5 -%}
                       {%- if fr > 0.05 -%}
                         {%- set E1 = best.E2 -%}
-                        {%- set room1 = ([emax - E1, 0] | max) / ec -%}{%- set av1 = ([E1 - rmin, 0] | max) * ed -%}
+                        {%- set room1 = ([emax - E1, 0] | max) / ec -%}
+                        {%- set av1 = ([E1 - rmin, 0] | max) * ed -%}
                         {%- set th = namespace(v=1e9, a='', ch=0, dis=0) -%}
                         {%- for a in acts if a in holds -%}
-                          {%- set ch = ([u * fr, cc * fr, room1] | min) if a in ['Self-consumption', 'Charge PV'] else 0 -%}
-                          {%- set dis = ([d * fr, cd * fr, av1] | min) if a in ['Self-consumption', 'Zero import'] else 0 -%}
+                          {%- set ch = ([u * fr, cc * fr, room1] | min) if a in ['Self-consumption', 'Charge PV']
+                              else 0 -%}
+                          {%- set dis = ([d * fr, cd * fr, av1] | min) if a in ['Self-consumption', 'Zero import']
+                              else 0 -%}
                           {%- set net = (d - u) * fr + ch - dis -%}
                           {%- set E3 = [[E1 + ch * ec - dis / ed, 0] | max, emax] | min -%}
-                          {%- set x = E3 / dE -%}{%- set i = [x | int, K - 2] | min -%}{%- set f = x - i -%}
+                          {%- set x = E3 / dE -%}
+                          {%- set i = [x | int, K - 2] | min -%}
+                          {%- set f = x - i -%}
                           {%- set sx = [[-net, u * fr - ch] | min, 0] | max -%}
-                          {%- set v = ([net, 0] | max) * sl.b - ([-net, 0] | max) * sl.s - (([sx, cs_k * fr] | min) * cg if sx >= ck * fr else 0) + wear * dis + tie[a] + V[i] * (1 - f) + V[i + 1] * f -%}
-                          {%- if v < th.v -%}{%- set th.v = v -%}{%- set th.a = a -%}{%- set th.ch = ch -%}{%- set th.dis = dis -%}{%- endif -%}
+                          {%- set v = ([net, 0] | max) * sl.b
+                              - ([-net, 0] | max) * sl.s
+                              - (([sx, cs_k * fr] | min) * cg if sx >= ck * fr else 0)
+                              + wear * dis
+                              + tie[a]
+                              + V[i] * (1 - f) + V[i + 1] * f -%}
+                          {%- if v < th.v -%}
+                            {%- set th.v = v -%}
+                            {%- set th.a = a -%}
+                            {%- set th.ch = ch -%}
+                            {%- set th.dis = dis -%}
+                          {%- endif -%}
                         {%- endfor -%}
                         {%- set cover1 = sl.up and av1 > 0.05 and slope / ed + wear < sl.b and not car_h -%}
-                        {%- set then_a = th.a if th.dis >= 0.01 or th.ch >= 0.01 else ((('Self-consumption' if cover1 else 'Charge PV') if store and room1 > 0.05 else ('Zero import' if cover1 else 'Full stop'))) -%}
+                        {%- set then_a = th.a if th.dis >= 0.01 or th.ch >= 0.01
+                            else ((('Self-consumption' if cover1 else 'Charge PV') if store and room1 > 0.05
+                                   else ('Zero import' if cover1 else 'Full stop'))) -%}
                       {%- endif -%}
                     {%- endif -%}
                     {#- Battery to car: what the kWh it gives cost out of the batteries, and the grid energy
                         bought since plug-in that may not go to the car (grid_off) -#}
                     {%- if best.bev > 0.05 -%}
-                      {%- set fw.bkwh = fw.bkwh + best.bev -%}{%- set fw.beur = fw.beur + best.bev * bv -%}
+                      {%- set fw.bkwh = fw.bkwh + best.bev -%}
+                      {%- set fw.beur = fw.beur + best.bev * bv -%}
                       {%- set fw.bcost = fw.bcost + best.bev * (((fw.basis / E) / ed + wear) if E > 0.05 else 0) -%}
                     {%- endif -%}
                     {%- if grid_off -%}
-                      {%- set fw.gb = [fw.gb + (([best.ch - u, 0] | max) * ec if sl.ts >= c_from else 0), best.E2] | min -%}
+                      {%- set fw.gb = [fw.gb + (([best.ch - u, 0] | max) * ec if sl.ts >= c_from else 0),
+                          best.E2] | min -%}
                     {%- endif -%}
                     {#- Cost of the stored energy (EUR per kWh it delivers), carried forward -#}
                     {%- set sun_in = [best.ch, u] | min -%}
@@ -1162,15 +1519,24 @@ template:
                       {%- set fw.basis = fw.basis * ([1 - (best.dis / ed) / E, 0] | max) -%}
                     {%- endif -%}
                     {%- set cost_out = ((fw.basis / best.E2) / ed + wear) if best.E2 > 0.05 else none -%}
-                    {%- if best.a == 'Charge' -%}{%- set code = 'A' -%}
-                    {%- elif best.a == 'Sell' -%}{%- set code = 'B' -%}
-                    {%- elif best.a == 'Car' -%}{%- set code = 'H' -%}
-                    {%- elif sun_in > 0.05 -%}{%- set code = 'E' -%}
-                    {%- elif best.dis > 0.05 -%}{%- set code = 'D' -%}
-                    {%- elif (d > 0.05 and E <= rmin + 0.05) or (u > 0.05 and E >= emax - 0.05) -%}{%- set code = 'G' -%}
-                    {%- elif d > 0.05 and E > rmin + 0.05 -%}{%- set code = 'C' -%}
-                    {%- else -%}{%- set code = 'F' -%}
+                    {%- if best.a == 'Charge' -%}
+                      {%- set code = 'A' -%}
+                    {%- elif best.a == 'Sell' -%}
+                      {%- set code = 'B' -%}
+                    {%- elif best.a == 'Car' -%}
+                      {%- set code = 'H' -%}
+                    {%- elif sun_in > 0.05 -%}
+                      {%- set code = 'E' -%}
+                    {%- elif best.dis > 0.05 -%}
+                      {%- set code = 'D' -%}
+                    {%- elif (d > 0.05 and E <= rmin + 0.05) or (u > 0.05 and E >= emax - 0.05) -%}
+                      {%- set code = 'G' -%}
+                    {%- elif d > 0.05 and E > rmin + 0.05 -%}
+                      {%- set code = 'C' -%}
+                    {%- else -%}
+                      {%- set code = 'F' -%}
                     {%- endif -%}
+                    {#- The plan row (keys: top of this file) -#}
                     {%- set rw = {
                          'ts': sl.ts, 'b': sl.b | round(4), 's': sl.s | round(4), 'a': best.a,
                          'e0': E | round(2), 'e1': best.E2 | round(2),
@@ -1186,35 +1552,50 @@ template:
                     {%- if best.a == 'Charge' -%}
                       {%- set bat_w = [ns_p.max_c, 500] | max -%}
                       {%- set need_w = ([best.E2 - E, 0] | max) / ec / ([sl.h, 0.01] | max) * 1100 -%}
-                      {%- set rw = rw | combine({'pw': ([([(need_w / bat_w) | round(0, 'ceil'), 1] | max) * bat_w, sl.pc * 1000] | min) | round(0) | int}) -%}
+                      {%- set rw = rw | combine({'pw': (
+                          [([(need_w / bat_w) | round(0, 'ceil'), 1] | max) * bat_w, sl.pc * 1000] | min
+                          ) | round(0) | int}) -%}
                     {%- endif -%}
-                    {%- if 'ev' in sl -%}{%- set rw = rw | combine({'ev': sl.ev | round(1), 'ev_lim': sl.ev_lim}) -%}{%- endif -%}
+                    {%- if 'ev' in sl -%}
+                      {%- set rw = rw | combine({'ev': sl.ev | round(1), 'ev_lim': sl.ev_lim}) -%}
+                    {%- endif -%}
                     {#- Battery to car: kWh into the car, the discharge power (house + car, W) and the car's
                         limit (Leftover) -#}
                     {%- if best.a == 'Car' -%}
-                      {%- set rw = rw | combine({'bev': best.bev | round(1), 'pw': (best.dis / ([sl.h, 0.01] | max) * 1000) | round(0) | int, 'ev_lim': bt.top | int}) -%}
+                      {%- set rw = rw | combine({
+                          'bev': best.bev | round(1),
+                          'pw': (best.dis / ([sl.h, 0.01] | max) * 1000) | round(0) | int,
+                          'ev_lim': bt.top | int}) -%}
                     {%- endif -%}
                     {#- Sun into the car (kWh), and what it saves against the grid hour it replaces -#}
                     {%- if best.car > 0.05 -%}
                       {%- set rw = rw | combine({'ev_sun': best.car | round(1)}) -%}
-                      {%- set cs.got = cs.got + best.car -%}{%- set cs.eur = cs.eur + best.car * cg -%}
+                      {%- set cs.got = cs.got + best.car -%}
+                      {%- set cs.eur = cs.eur + best.car * cg -%}
                     {%- endif -%}
-                    {%- if then_a != '' -%}{%- set rw = rw | combine({'then': then_a}) -%}{%- endif -%}
+                    {%- if then_a != '' -%}
+                      {%- set rw = rw | combine({'then': then_a}) -%}
+                    {%- endif -%}
                     {#- Both in one slot (house before the sun, sun later): for the plan table -#}
-                    {%- if d > 0.05 and u > 0.05 -%}{%- set rw = rw | combine({'du': [d | round(2), u | round(2)]}) -%}{%- endif -%}
+                    {%- if d > 0.05 and u > 0.05 -%}
+                      {%- set rw = rw | combine({'du': [d | round(2), u | round(2)]}) -%}
+                    {%- endif -%}
                     {%- set fw.out = fw.out + [rw] -%}
                     {%- set fw.E = best.E2 -%}
                     {%- set fw.cost = fw.cost + best.imm -%}
                   {%- endfor -%}
+                  {#- ── Grid car hours the batteries replace ── -#}
                   {#- Battery energy beyond the extra kWh replaces grid car hours, dearest first: those
                       hours shrink (the car reaches its level sooner and stops itself anyway; the next
                       plan works with its new SoC) -#}
                   {%- set b_over = namespace(k=[fw.bkwh - bt.extra, 0] | max, cut={}) -%}
-                  {%- for w in fw.out | selectattr('ev', 'defined') | sort(attribute='b', reverse=true) if b_over.k > 0.05 -%}
+                  {%- for w in fw.out | selectattr('ev', 'defined') | sort(attribute='b', reverse=true)
+                      if b_over.k > 0.05 -%}
                     {%- set c = [w.ev, b_over.k] | min -%}
                     {%- set b_over.cut = b_over.cut | combine({w.ts | string: c}) -%}
                     {%- set b_over.k = b_over.k - c -%}
-                    {%- set car.kwh = car.kwh - c -%}{%- set car.eur = car.eur - c * w.b -%}
+                    {%- set car.kwh = car.kwh - c -%}
+                    {%- set car.eur = car.eur - c * w.b -%}
                   {%- endfor -%}
                   {%- if b_over.cut -%}
                     {%- set nw = namespace(l=[]) -%}
@@ -1222,7 +1603,9 @@ template:
                       {%- set k = w.ts | string -%}
                       {%- if k in b_over.cut and w.ev - b_over.cut[k] < 0.1 -%}
                         {%- set nd = namespace(d={}) -%}
-                        {%- for kk, vv in w.items() if kk not in ['ev', 'ev_lim'] -%}{%- set nd.d = nd.d | combine({kk: vv}) -%}{%- endfor -%}
+                        {%- for kk, vv in w.items() if kk not in ['ev', 'ev_lim'] -%}
+                          {%- set nd.d = nd.d | combine({kk: vv}) -%}
+                        {%- endfor -%}
                         {%- set nw.l = nw.l + [nd.d] -%}
                       {%- elif k in b_over.cut -%}
                         {%- set nw.l = nw.l + [w | combine({'ev': (w.ev - b_over.cut[k]) | round(1)})] -%}
@@ -1232,41 +1615,65 @@ template:
                     {%- endfor -%}
                     {%- set fw.out = nw.l -%}
                   {%- endif -%}
+                  {#- ── Summary: expected cost against Self-consumption only, the assumptions, the car's numbers ── -#}
                   {#- Same hours with Self-consumption only, for the expected gain. Both totals count
                       the energy left at the end at the same end value. -#}
                   {%- set sc = namespace(E=E0, cost=0) -%}
                   {%- for sl in slots -%}
-                    {%- set d = sl.d -%}{%- set u = sl.u -%}
+                    {%- set d = sl.d -%}
+                    {%- set u = sl.u -%}
                     {%- set ch = [u, sl.pc * sl.h, ([emax - sc.E, 0] | max) / ec] | min -%}
                     {%- set dis = [d, sl.pd * sl.h, ([sc.E - rmin, 0] | max) * ed] | min -%}
                     {%- set net = d - u + ch - dis -%}
                     {%- set sx = [[-net, u - ch] | min, 0] | max -%}
-                    {%- set sc.cost = sc.cost + ([net, 0] | max) * sl.b - ([-net, 0] | max) * sl.s - (([sx, sl.cs] | min) * (sl.cv - sl.s) if 'cs' in sl and sx >= sl.ck else 0) + wear * dis -%}
+                    {%- set sc.cost = sc.cost
+                        + ([net, 0] | max) * sl.b
+                        - ([-net, 0] | max) * sl.s
+                        - (([sx, sl.cs] | min) * (sl.cv - sl.s) if 'cs' in sl and sx >= sl.ck else 0)
+                        + wear * dis -%}
                     {%- set sc.E = [[sc.E + ch * ec - dis / ed, 0] | max, emax] | min -%}
                   {%- endfor -%}
                   {%- set plan_total = fw.cost - fw.E * endv -%}
                   {%- set sc_total = sc.cost - sc.E * endv -%}
-                  {%- set summary = {'usable': emax | round(1), 'charge_kw': pc | round(1), 'discharge_kw': pd | round(1),
-                       'efficiency': (eta * 100) | round(1), 'house_w': (load_kw * 1000) | round(0) | int,
-                       'house_profile_days': state_attr('sensor.hba_house_load_profile', 'days_used') if prof | length == 24 else 0,
-                       'reserve': rmin | round(1), 'margin': (margin * 100) | round(0) | int, 'wear': wear, 'end_value': endv | round(3), 'end_buy': end_b | round(3),
-                       'plan_cost': plan_total | round(2), 'sc_cost': sc_total | round(2),
-                       'gain': (sc_total - plan_total) | round(2),
-                       'until': (slots | last).ts + step,
-                       'slots': N, 'levels': K, 'step_kwh': dE | round(2),
-                       'car': {'soc': states('sensor.ev_car_info') | float(-1), 'along': car.along, 'prio': 'Balance' if car_bal | default(false) else 'Car first', 'sun_in': car.sun_in | round(1), 'min': car.min | round(1), 'need': car.need | round(1), 'sun': car.sun | round(1), 'home': car.home, 'dep': car.dep, 'dl': car.dl, 'dl_norm': car.dl_norm, 'dl_min': car.dl_min,
-                               'unmet': ([car.min_left + car.left, 0] | max) | round(1), 'over': car.over | round(1), 'over_eur': car.over_eur | round(2),
+                  {%- set summary = {
+                      'usable': emax | round(1), 'charge_kw': pc | round(1), 'discharge_kw': pd | round(1),
+                      'efficiency': (eta * 100) | round(1), 'house_w': (load_kw * 1000) | round(0) | int,
+                      'house_profile_days': state_attr('sensor.hba_house_load_profile', 'days_used')
+                                            if prof | length == 24 else 0,
+                      'reserve': rmin | round(1), 'margin': (margin * 100) | round(0) | int, 'wear': wear,
+                      'end_value': endv | round(3), 'end_buy': end_b | round(3),
+                      'plan_cost': plan_total | round(2), 'sc_cost': sc_total | round(2),
+                      'gain': (sc_total - plan_total) | round(2),
+                      'until': (slots | last).ts + step,
+                      'slots': N, 'levels': K, 'step_kwh': dE | round(2),
+                      'car': {'soc': states('sensor.ev_car_info') | float(-1), 'along': car.along,
+                               'prio': 'Balance' if car_bal | default(false) else 'Car first',
+                               'sun_in': car.sun_in | round(1), 'min': car.min | round(1), 'need': car.need | round(1),
+                               'sun': car.sun | round(1), 'home': car.home,
+                               'dep': car.dep, 'dl': car.dl, 'dl_norm': car.dl_norm, 'dl_min': car.dl_min,
+                               'unmet': ([car.min_left + car.left, 0] | max) | round(1),
+                               'over': car.over | round(1), 'over_eur': car.over_eur | round(2),
                                'over_from': car.over_from | timestamp_custom('%H:%M') if car.over_from != '' else '',
-                               'kwh': car.kwh | round(1), 'eur': car.eur | round(2), 'alt_kwh': car.alt_kwh | round(1), 'alt_eur': car.alt_eur | round(2),
+                               'kwh': car.kwh | round(1), 'eur': car.eur | round(2),
+                               'alt_kwh': car.alt_kwh | round(1), 'alt_eur': car.alt_eur | round(2),
                                'normal': car.nkwh | round(1), 'normal_eur': car.neur | round(2),
-                               'normal_from': car.nfrom | timestamp_custom('%H:%M' if (car.nfrom | timestamp_custom('%Y-%m-%d')) == now().strftime('%Y-%m-%d') else '%a %H:%M') if car.nfrom != '' else '',
-                               'normal_skip': car.nskip, 'home_day': car.home_day, 'home_fc': car.home_fc | round(1), 'home_sun': car.home_sun | round(1),
-                               'sun_value': cs.v | round(3), 'sun_est': cs.kwh | round(1), 'sun_off_grid': cs.norm | round(1), 'sun_kwh': cs.got | round(1), 'sun_eur': cs.eur | round(2),
-                               'bat': {'on': car_bat, 'expected': car_exp, 'plug': lp, 'kwh': fw.bkwh | round(1), 'value': fw.beur | round(2), 'cost': fw.bcost | round(2),
-                                       'extra': bt.extra | round(1), 'extra_value': bt.vx | round(3), 'slots': bt.at | length, 'top': bt.top | int, 'grid_off': grid_off,
+                               'normal_from': car.nfrom | timestamp_custom(
+                                   '%H:%M' if (car.nfrom | timestamp_custom('%Y-%m-%d')) == now().strftime('%Y-%m-%d')
+                                   else '%a %H:%M') if car.nfrom != '' else '',
+                               'normal_skip': car.nskip, 'home_day': car.home_day,
+                               'home_fc': car.home_fc | round(1), 'home_sun': car.home_sun | round(1),
+                               'sun_value': cs.v | round(3), 'sun_est': cs.kwh | round(1),
+                               'sun_off_grid': cs.norm | round(1),
+                               'sun_kwh': cs.got | round(1), 'sun_eur': cs.eur | round(2),
+                               'bat': {'on': car_bat, 'expected': car_exp, 'plug': lp,
+                                       'kwh': fw.bkwh | round(1), 'value': fw.beur | round(2),
+                                       'cost': fw.bcost | round(2),
+                                       'extra': bt.extra | round(1), 'extra_value': bt.vx | round(3),
+                                       'slots': bt.at | length, 'top': bt.top | int, 'grid_off': grid_off,
                                        'grid_cut': ([fw.bkwh - bt.extra, 0] | max - b_over.k) | round(1)}},
-                       'calc_s': (as_timestamp(now()) - t_calc0) | round(2)} -%}
-                  {{ {'plan': fw.out, 'status': 'OK', 'made': now().isoformat(), 'reason': replan, 'eta': (eta * 100) | round(1), 'summary': summary} | tojson }}
+                      'calc_s': (as_timestamp(now()) - t_calc0) | round(2)} -%}
+                  {{ {'plan': fw.out, 'status': 'OK', 'made': now().isoformat(), 'reason': replan,
+                      'eta': (eta * 100) | round(1), 'summary': summary} | tojson }}
                 {%- endif -%}
               {%- endif -%}
             {%- endif -%}
@@ -1280,7 +1687,8 @@ template:
           car_run: &planned_car_auto_run >-
             {%- set r = result if result is mapping else (result | from_json) -%}
             {%- set c = (r.get('summary') or {}).get('car') or {} -%}
-            {{ car_run if replan != '' and r.status == 'OK' and c.get('along') == true and c.get('kwh', 0) | float(0) > 0.05 else 'skip' }}
+            {{ car_run if replan != '' and r.status == 'OK' and c.get('along') == true
+                and c.get('kwh', 0) | float(0) > 0.05 else 'skip' }}
           car_prio: "{{ 'Car first' if car_prio == 'Balance' else 'Balance' }}"
           result_b: *planned_result
       # The same hours without the car (the "No car" column: what the car costs the batteries)
@@ -1310,9 +1718,11 @@ template:
                   {%- set hn.cout = w.c -%}
                 {%- endfor -%}
                 {#- cout: what a kWh from the batteries costs after the last car hour (cost out) -#}
-                {%- set ns.x = ns.x | combine({c.prio: {'hours': hn.h, 'kwh': c.kwh, 'eur': c.eur, 'bat': hn.bat | round(1), 'cout': hn.cout,
-                     'plan': r.summary.plan_cost, 'unmet': c.unmet,
-                     'total': (r.summary.plan_cost + c.eur + c.unmet * mp) | round(2)}}) -%}
+                {%- set ns.x = ns.x | combine({c.prio: {
+                    'hours': hn.h, 'kwh': c.kwh, 'eur': c.eur,
+                    'bat': hn.bat | round(1), 'cout': hn.cout,
+                    'plan': r.summary.plan_cost, 'unmet': c.unmet,
+                    'total': (r.summary.plan_cost + c.eur + c.unmet * mp) | round(2)}}) -%}
               {%- endfor -%}
               {%- set pa = a.summary.car.prio -%}
               {%- set auto = is_state('input_select.hba_strategy_planned_car_priority', 'Auto') -%}
@@ -1326,11 +1736,14 @@ template:
                 {%- set hts = ns.x[pick.summary.car.prio].hours | map(attribute=0) | list -%}
                 {%- set nn = namespace(bat=0, cout=none) -%}
                 {%- for w in n.plan if w.ts in hts -%}
-                  {%- set nn.bat = nn.bat + ([w.e1 - w.e0, 0] | max) -%}{%- set nn.cout = w.c -%}
+                  {%- set nn.bat = nn.bat + ([w.e1 - w.e0, 0] | max) -%}
+                  {%- set nn.cout = w.c -%}
                 {%- endfor -%}
-                {%- set ns.x = ns.x | combine({'No car': {'bat': nn.bat | round(1), 'cout': nn.cout, 'plan': n.summary.plan_cost}}) -%}
+                {%- set ns.x = ns.x | combine({'No car': {'bat': nn.bat | round(1), 'cout': nn.cout,
+                    'plan': n.summary.plan_cost}}) -%}
               {%- endif -%}
-              {{ pick | combine({'summary': pick.summary | combine({'car': pick.summary.car | combine({'cmp': ns.x})})}) | tojson }}
+              {{ pick | combine({'summary': pick.summary | combine(
+                   {'car': pick.summary.car | combine({'cmp': ns.x})})}) | tojson }}
             {%- endif -%}
       - variables:
           # Executed slots: when a new slot starts, the previous one moves here with the
@@ -1345,8 +1758,9 @@ template:
                   covers what was left of the slot when the last plan was made (0.0 after a late re-plan) -#}
               {%- set prof = state_attr('sensor.hba_house_load_profile', 'profile') -%}
               {%- set hr = prev_slot | timestamp_custom('%H') | int -%}
-              {%- set w = prof[hr] if prof is sequence and prof is not string and prof | length == 24 and prof[hr] is number
-                          else states('input_number.hba_strategy_solar_aware_house_load') | float(300) -%}
+              {%- set w = prof[hr]
+                  if prof is sequence and prof is not string and prof | length == 24 and prof[hr] is number
+                  else states('input_number.hba_strategy_solar_aware_house_load') | float(300) -%}
               {%- set hour_load = (w / 1000 * step / 3600) | round(2) -%}
               {#- What ran: every strategy the slot's plans had, in order (attribute slot_acts). The last
                   re-plan alone said "Full stop" for an hour that charged until 03:10 (prod 2026-11-04). -#}
@@ -1357,21 +1771,27 @@ template:
                   None without a meter. -#}
               {%- set evs = 'sensor.hba_ev_hour_energy' -%}
               {%- set evp = state_attr(evs, 'prev') -%}
-              {%- set ev_done = (states(evs) | float(0)) if state_attr(evs, 'slot') | int(0) == prev_slot and state_attr(evs, 'meter') == true
-                                else (evp.kwh if evp is mapping and evp.slot == prev_slot else none) -%}
+              {%- set ev_done = (states(evs) | float(0))
+                  if state_attr(evs, 'slot') | int(0) == prev_slot and state_attr(evs, 'meter') == true
+                  else (evp.kwh if evp is mapping and evp.slot == prev_slot else none) -%}
               {%- if done is not none and done.ts not in (ns_h.h | map(attribute='ts') | list) -%}
-                {%- set ns_h.h = ns_h.h + [{'ts': done.ts, 'b': done.b, 's': done.s, 'a': done.a, 'r': done.r, 'ev': ev_done,
-                                             'acts': acts + ([done.a] if acts | length == 0 or acts | last != done.a else []),
-                                             'e1': e_now | round(2) if e_now >= 0 else done.e1, 'pe1': done.e1, 'c': done.c, 'load': hour_load}] -%}
+                {%- set ns_h.h = ns_h.h + [{
+                    'ts': done.ts, 'b': done.b, 's': done.s, 'a': done.a, 'r': done.r, 'ev': ev_done,
+                    'acts': acts + ([done.a] if acts | length == 0 or acts | last != done.a else []),
+                    'e1': e_now | round(2) if e_now >= 0 else done.e1,
+                    'pe1': done.e1, 'c': done.c, 'load': hour_load}] -%}
               {%- endif -%}
             {%- endif -%}
             {{ ns_h.h | tojson }}
           # The running slot's strategies so far, in order (the history above takes them over)
           slot_acts: >-
-            {%- set row = (result if result is mapping else (result | from_json)).plan | selectattr('ts', 'eq', now_slot) | first | default(none) -%}
+            {%- set row = (result if result is mapping else (result | from_json)).plan
+                | selectattr('ts', 'eq', now_slot) | first | default(none) -%}
             {%- set sa = state_attr('sensor.hba_planned_strategy', 'slot_acts') -%}
             {%- set l = (sa.a | list) if sa is mapping and sa.ts == now_slot and sa.a is sequence else [] -%}
-            {%- if row is not none and (l | length == 0 or l | last != row.a) -%}{%- set l = l + [row.a] -%}{%- endif -%}
+            {%- if row is not none and (l | length == 0 or l | last != row.a) -%}
+              {%- set l = l + [row.a] -%}
+            {%- endif -%}
             {{ {'ts': now_slot, 'a': l} | tojson }}
           # Debug copy (input_boolean.hba_strategy_planned_debug): the plan as compact rows, so the
           # recorder keeps it (attributes over 16 kB are not stored; the sensor above is excluded).
@@ -1381,11 +1801,15 @@ template:
             {%- if is_state('input_boolean.hba_strategy_planned_debug', 'on') and replan != '' -%}
               {%- set ns_d = namespace(rows=[]) -%}
               {%- for x in r.plan -%}
-                {%- set ns_d.rows = ns_d.rows + [[x.ts, x.a, x.e0, x.e1, x.b, x.s, x.sun, x.load, x.c, x.alt, x.adv, x.alt_e1, x.part, x.get('pw'), x.get('ev'), x.get('du'), x.r, x.get('then'), x.get('ev_lim'), x.get('ev_sun'), x.get('bev')]] -%}
+                {%- set ns_d.rows = ns_d.rows + [[
+                    x.ts, x.a, x.e0, x.e1, x.b, x.s, x.sun, x.load, x.c, x.alt, x.adv, x.alt_e1, x.part,
+                    x.get('pw'), x.get('ev'), x.get('du'), x.r, x.get('then'), x.get('ev_lim'), x.get('ev_sun'),
+                    x.get('bev')]] -%}
               {%- endfor -%}
               {%- set d = {'made': r.made, 'reason': r.reason, 'status': r.status, 'e_now': e_now, 'drift': drift,
                            'ledger': ledger if ledger is mapping else (ledger | from_json), 'summary': r.get('summary'),
-                           'fields': ['ts', 'a', 'e0', 'e1', 'b', 's', 'sun', 'load', 'c', 'alt', 'adv', 'alt_e1', 'part', 'pw', 'ev', 'du', 'r', 'then', 'ev_lim', 'ev_sun', 'bev'],
+                           'fields': ['ts', 'a', 'e0', 'e1', 'b', 's', 'sun', 'load', 'c', 'alt', 'adv',
+                                      'alt_e1', 'part', 'pw', 'ev', 'du', 'r', 'then', 'ev_lim', 'ev_sun', 'bev'],
                            'rows': ns_d.rows} -%}
               {#- Safety: stay under the recorder's 16 kB (48 slots ~ 6.5 kB, 96 ~ 12 kB): else the first
                   rows that fit, 'cut' = how many the plan had -#}
@@ -1415,7 +1839,9 @@ template:
           plan_reason: "{{ (result if result is mapping else (result | from_json)).reason }}"
           plan_slot: "{{ now_slot if replan != '' else prev_slot }}"
           # The slot whose Charge / Sell is done and re-planned: the script asks once per slot
-          done_slot: "{{ now_slot if trigger.id == 'done' else state_attr('sensor.hba_planned_strategy', 'done_slot') | int(0) }}"
+          done_slot: >-
+            {{ now_slot if trigger.id == 'done'
+               else state_attr('sensor.hba_planned_strategy', 'done_slot') | int(0) }}
           signature: "{{ signature }}"
           efficiency: "{{ (result if result is mapping else (result | from_json)).eta }}"
           # Assumptions + expected cost of the plan vs Self-consumption only (Insights)
@@ -1424,7 +1850,8 @@ template:
           slot_acts: "{{ slot_acts if slot_acts is mapping else (slot_acts | from_json) }}"
           # Re-plans of the last 24 h: when (t) and why (r), for Insights
           replans: >-
-            {%- set l = (state_attr('sensor.hba_planned_strategy', 'replans') or []) | selectattr('t', 'ge', now_ts - 86400) | list -%}
+            {%- set l = (state_attr('sensor.hba_planned_strategy', 'replans') or [])
+                | selectattr('t', 'ge', now_ts - 86400) | list -%}
             {{ l + ([{'t': now_ts | int, 'r': replan}] if replan != '' else []) }}
           # Ledger (see the variable): stored energy at the last run and what it cost per stored kWh
           ledger_energy: "{{ (ledger if ledger is mapping else (ledger | from_json)).E }}"
@@ -1434,7 +1861,8 @@ template:
           ledger_car_grid: "{{ (ledger if ledger is mapping else (ledger | from_json)).get('g', 0) }}"
           # Stored energy the plan expects at the end of the running slot (Charge / Sell run to it)
           target_energy: >-
-            {%- set row = (result if result is mapping else (result | from_json)).plan | selectattr('ts', 'eq', now_slot) | first | default(none) -%}
+            {%- set row = (result if result is mapping else (result | from_json)).plan
+                | selectattr('ts', 'eq', now_slot) | first | default(none) -%}
             {{ row.e1 if row is not none else none }}
       # Debug copy of each new plan (see the variable debug). Between plans it keeps the last one.
       - name: "HBA Planned Strategy Debug"
@@ -1443,11 +1871,15 @@ template:
         state: >-
           {%- set d = debug if debug is mapping else (debug | from_json) -%}
           {%- set me = 'sensor.hba_planned_strategy_debug' -%}
-          {{ 'off' if is_state('input_boolean.hba_strategy_planned_debug', 'off') else (d.made if d.get('made') else (states(me) if states(me) not in ['unknown', 'unavailable', 'off'] else 'waiting for a new plan')) }}
+          {{ 'off' if is_state('input_boolean.hba_strategy_planned_debug', 'off')
+              else (d.made if d.get('made')
+                else (states(me) if states(me) not in ['unknown', 'unavailable', 'off']
+                  else 'waiting for a new plan')) }}
         attributes:
           plan: >-
             {%- set d = debug if debug is mapping else (debug | from_json) -%}
-            {{ none if is_state('input_boolean.hba_strategy_planned_debug', 'off') else (d if d.get('made') else state_attr('sensor.hba_planned_strategy_debug', 'plan')) }}
+            {{ none if is_state('input_boolean.hba_strategy_planned_debug', 'off')
+                else (d if d.get('made') else state_attr('sensor.hba_planned_strategy_debug', 'plan')) }}
 
   # Preview only: the plan with the car, next to the plan that runs (which leaves the car out). A
   # second full calculation, after each plan and only while the switch is on; a separate block, so
@@ -1473,7 +1905,9 @@ template:
           now_ts: *planned_now_ts
           now_slot: *planned_now_slot
           replan: preview
-          ledger: "{{ {'E': state_attr('sensor.hba_planned_strategy', 'ledger_energy'), 'C': state_attr('sensor.hba_planned_strategy', 'ledger_cost')} | tojson }}"
+          ledger: >-
+            {{ {'E': state_attr('sensor.hba_planned_strategy', 'ledger_energy'),
+                'C': state_attr('sensor.hba_planned_strategy', 'ledger_cost')} | tojson }}
           car_run: preview
           car_prio: *planned_car_prio
           result: *planned_result
@@ -1571,7 +2005,9 @@ script:
           # and only a house using more than that (grid target capped at 0) is normal Self-consumption.
           # Not the expected profile value: with the sun covering the house the profile value made the
           # export target 0, so the battery delivered nothing (2026-10-29, a user's prod).
-          house_net_w: "{{ states('sensor.p1_meter_power') | float(0) - states('input_number.hba_control_pid_output') | float(0) }}"
+          house_net_w: >-
+            {{ states('sensor.p1_meter_power') | float(0)
+               - states('input_number.hba_control_pid_output') | float(0) }}
       - variables:
           # The plan row's Charge power, never above what the batteries may take right now.
           # A row without pw (plan made before this existed): full power.
@@ -1648,7 +2084,8 @@ script:
                         data:
                           skip_label: true
                           charge_disabled: true
-                          setpoint_override: "{{ -(states('input_number.hba_control_power_limit_export') | float(5000)) }}"
+                          setpoint_override: >-
+                            {{ -(states('input_number.hba_control_power_limit_export') | float(5000)) }}
                 default:
                   - action: script.hba_set_batteries
                     data:
@@ -1662,7 +2099,7 @@ script:
             sequence:
               - action: script.hba_strategy_zero_import
                 data: { flow_prefix: "Planned → Car (car not charging) →" }
-          # Charge / Sell done before the end of the slot: ask once per slot for a new plan of the
+          # Charge / Sell / Car done before the end of the slot: ask once per slot for a new plan of the
           # rest of the slot (trigger hba_planned_replan; the plan may not charge / sell again then
           # only by its values) and run what it says (user 2026-11-04: "follow what is the best step
           # after"). Until it is there -- about a second -- and if it still says Charge / Sell at the
@@ -1674,7 +2111,8 @@ script:
               # yet) and, while no answer comes, once a minute: asking every cycle would start a
               # plan calculation every second when the planner cannot answer.
               - if: >-
-                  {{ (state_attr('sensor.hba_planned_strategy', 'done_slot') | int(0)) != ((as_timestamp(now()) | int) // (step | int)) * (step | int)
+                  {{ (state_attr('sensor.hba_planned_strategy', 'done_slot') | int(0))
+                         != ((as_timestamp(now()) | int) // (step | int)) * (step | int)
                      and (not flow.startswith('Planned → ' ~ act ~ ' done') or now().second < 2) }}
                 then:
                   - event: hba_planned_replan
@@ -1726,7 +2164,10 @@ script:
         default:
           - action: input_text.set_value
             target: { entity_id: input_text.hba_strategy_active_flow }
-            data: { value: "{{ 'Planned → Self-consumption' if act == 'Self-consumption' else 'Planned (' ~ act ~ ') → Self-consumption' }}" }
+            data:
+              value: >-
+                {{ 'Planned → Self-consumption' if act == 'Self-consumption'
+                   else 'Planned (' ~ act ~ ') → Self-consumption' }}
           - action: script.hba_strategy_self_consumption
             data: { skip_label: true }
 
@@ -1778,15 +2219,20 @@ automation:
           # (read here, before that choice is set back to Auto below)
           home_passed: >-
             {%- set days = states('input_text.hba_strategy_planned_car_home_days') | trim -%}
-            {%- set days = ('Sat,Sun' if days in ['', 'unknown', 'unavailable'] else days) | lower | regex_findall('[^,; ]+') -%}
-            {%- set week = ['mon','tue','wed','thu','fri','sat','sun','monday','tuesday','wednesday','thursday','friday','saturday','sunday'] -%}
+            {%- set days = ('Sat,Sun' if days in ['', 'unknown', 'unavailable']
+                else days) | lower | regex_findall('[^,; ]+') -%}
+            {%- set week = ['mon','tue','wed','thu','fri','sat','sun',
+                            'monday','tuesday','wednesday','thursday','friday','saturday','sunday'] -%}
             {%- set p = ((dl | as_datetime | as_local) - timedelta(days=1)) if dl > 0 else none -%}
-            {%- set dep = states('input_select.hba_strategy_planned_car_next_departure') if p is not none and dep_day == p.strftime('%Y-%m-%d') else 'Auto' -%}
+            {%- set dep = states('input_select.hba_strategy_planned_car_next_departure')
+                if p is not none and dep_day == p.strftime('%Y-%m-%d') else 'Auto' -%}
             {{ p is not none and skip_day != '' and p.strftime('%Y-%m-%d') >= skip_day
                and (dep == 'Not leaving'
                     or (dep != 'Leaving' and (p.strftime('%a') | lower in days or p.strftime('%A') | lower in days))
                     or days | select('in', week) | list | count == 0) }}
-      - if: "{{ states('input_select.hba_strategy_planned_car_next_departure') != 'Auto' and dep_day != '' and next_day > dep_day }}"
+      - if: >-
+          {{ states('input_select.hba_strategy_planned_car_next_departure') != 'Auto'
+             and dep_day != '' and next_day > dep_day }}
         then:
           - action: input_select.select_option
             target: { entity_id: input_select.hba_strategy_planned_car_next_departure }
@@ -1853,7 +2299,9 @@ automation:
             {%- set ns = namespace(l=[]) -%}
             {%- for i in [1, 2] -%}
               {%- set e = states('input_text.hba_solar_power_entity_' ~ i) | trim -%}
-              {%- if e not in ['', 'unknown', 'unavailable'] and states[e] is not none -%}{%- set ns.l = ns.l + [e] -%}{%- endif -%}
+              {%- if e not in ['', 'unknown', 'unavailable'] and states[e] is not none -%}
+                {%- set ns.l = ns.l + [e] -%}
+              {%- endif -%}
             {%- endfor -%}
             {{ ns.l }}
           ev: >-
@@ -1863,7 +2311,9 @@ automation:
           end: "{{ now().replace(hour=0, minute=0, second=0, microsecond=0).strftime('%Y-%m-%d %H:%M:%S') }}"
       - variables:
           ids: "{{ ['sensor.p1_meter_power', 'sensor.hba_total_battery_power'] + solar + ev }}"
-          start: "{{ (now().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=7 * weeks)).strftime('%Y-%m-%d %H:%M:%S') }}"
+          start: >-
+            {{ (now().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=7 * weeks))
+               .strftime('%Y-%m-%d %H:%M:%S') }}
       - action: recorder.get_statistics
         continue_on_error: true
         data:
@@ -1875,7 +2325,8 @@ automation:
         response_variable: stats
       - variables:
           result: >-
-            {%- set S = (stats.statistics if stats is defined and stats is mapping and 'statistics' in stats else {}) -%}
+            {%- set S = (stats.statistics if stats is defined and stats is mapping and 'statistics' in stats
+                else {}) -%}
             {%- set ns = namespace(add={}, rows=[], days={}) -%}
             {#- Everything except the P1 meter, summed per hour start (EV with a minus sign) -#}
             {%- for sid in ['sensor.hba_total_battery_power'] + solar + ev -%}
@@ -1899,13 +2350,15 @@ automation:
             {%- set skipped = ns.days.keys() | reject('in', keep) | sort | list -%}
             {%- set ns2 = namespace(p=[]) -%}
             {%- for hr in range(24) -%}
-              {%- set v = ns.rows | selectattr('h', 'eq', hr) | selectattr('d', 'in', keep) | map(attribute='w') | list -%}
+              {%- set v = ns.rows | selectattr('h', 'eq', hr) | selectattr('d', 'in',
+                  keep) | map(attribute='w') | list -%}
               {%- set ns2.p = ns2.p + [((v | sum / v | length) | round(0) | int) if v | length > 0 else none] -%}
             {%- endfor -%}
             {{ {'profile': ns2.p if keep | length > 0 else [], 'days_used': keep | length, 'skipped': skipped,
                 'window_weeks': weeks, 'sources': ids,
                 'no_statistics': ids | reject('in', S.keys() | list) | list,
-                'kwh_day': ((ns2.p | reject('none') | sum) / 1000) | round(1) if keep | length > 0 else none} | tojson }}
+                'kwh_day': ((ns2.p | reject('none') | sum) / 1000) | round(1) if keep | length > 0
+                           else none} | tojson }}
       # Nothing usable came back (the statistics call failed, or no complete day): keep the
       # profile there is. An empty one replaced it until the next night, and Planned ran on
       # the flat house load.
