@@ -1316,11 +1316,12 @@ template:
                               + msp * ([dis - d - bk, 0] | max)
                               + (eps if sl.up else eps_dark)[a]
                               + ns.V[i] * (1 - f) + ns.V[i + 1] * f -%}
-                          {#- Car only with at least 0.6 kWh per hour into the car (1e9 = never chosen). A slot
-                              is only offered to the car from 0.7 (half the hour at the car's ~1.4 kW
-                              minimum, see "Battery to car" above); why this limit is 0.6 is not recorded
-                              (0afd8f0, 2026-11-16). The same check is in the forward pass. -#}
-                          {%- set v = v if a != 'Car' or bk >= 0.6 * sl.h else 1e9 -%}
+                          {#- Car only with at least 0.7 kWh per hour into the car (1e9 = never chosen): the
+                              same limit as for offering a slot to the car (half the hour at the car's
+                              ~1.4 kW minimum, see "Battery to car" above). It was 0.6 until 2026-11-16,
+                              reason not recorded, probably room for rounding: user, make them the same.
+                              The 0.01 is that room. The same check is in the forward pass. -#}
+                          {%- set v = v if a != 'Car' or bk >= 0.7 * sl.h - 0.01 else 1e9 -%}
                           {%- if v < best.v -%}
                             {%- set best.v = v -%}
                           {%- endif -%}
@@ -1426,7 +1427,7 @@ template:
                             + msp * ([dis - d - bk, 0] | max)
                             + tie[a]
                             + V[i] * (1 - f) + V[i + 1] * f -%}
-                        {%- set v = v if a != 'Car' or bk >= 0.6 * sl.h else 1e9 -%}
+                        {%- set v = v if a != 'Car' or bk >= 0.7 * sl.h - 0.01 else 1e9 -%}
                         {#- Keep the runner-up too: Insights shows how close each decision was -#}
                         {#- (the runner-up is another strategy, not the same one with another amount) -#}
                         {%- if v < best.v -%}
