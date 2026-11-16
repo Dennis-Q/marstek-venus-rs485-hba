@@ -1267,6 +1267,9 @@ automation:
       - trigger: state
         entity_id: sensor.ev_car_info
         attribute: connected
+        # from false: a real plug-in only. After a template reload the attribute comes back from
+        # nothing to true, and the question was asked again. (An HA restart: see "settled" below.)
+        from: false
         to: true
         for: "00:06:00"
         id: plugged
@@ -1289,9 +1292,15 @@ automation:
           {%- set bat = (car.get('bat') or {}) -%}
           {%- set bat_on = bat.get('on') == true and states('sensor.ev_car_info') | float(100) < bat.get('top', 100) | float(100) -%}
           {%- set last = as_timestamp(this.attributes.last_triggered, 0) | int if this.attributes.last_triggered else 0 -%}
-          {%- set asked = last > state_attr('sensor.ev_car_info', 'connected_since') | int(0)
-                          and (last | timestamp_custom('%Y-%m-%d')) == now().strftime('%Y-%m-%d') -%}
+          {#- Asked today already (a plug-in asks again by itself, through its trigger). Not against
+              connected_since: that restarts with HA and with a reload. -#}
+          {%- set asked = (last | timestamp_custom('%Y-%m-%d')) == now().strftime('%Y-%m-%d') -%}
+          {#- After an HA restart the charger reports a little later than the EV project starts, which
+              looks like a plug-in. this.last_changed = when this automation was loaded: no plug-in
+              question in the first 15 minutes after a start or an automation reload. -#}
+          {%- set settled = (now() - this.last_changed).total_seconds() > 900 -%}
           {{ state_attr('sensor.ev_car_info', 'connected') == true
+             and (trigger.id != 'plugged' or settled)
              and ((bat_on and (trigger.id == 'plugged' or not asked))
                   or ((trigger.id == 'reminder' or t <= now().strftime('%H:%M') < '22:00')
                       and car.get('normal', 0) | float(0) > 0.1)) }}
@@ -1312,8 +1321,10 @@ automation:
             Min: {{ states('input_number.hba_strategy_planned_car_minimum') | float(0) | int }}% -
             Normal: {{ states('input_number.hba_strategy_planned_car_normal') | float(0) | int }}% ]
       - choose:
-          # Charge the car from the batteries, Normal already in: only the departure is asked (the
-          # batteries may fill the car up to Leftover until it, or past it on a home day)
+          # Charge the car from the batteries and no Normal hours in the plan (Normal is in, grid
+          # charging for it is off, nothing to buy, or no hour below the max price -- the first line
+          # says which): only the departure is asked (the batteries may fill the car up to Leftover
+          # until it, or past it on a home day)
           - conditions: "{{ field == 'Auto' and dep == 'Auto' and car.get('normal', 0) | float(0) <= 0.1 }}"
             sequence:
               - action: script.hba_notify_dispatch
@@ -1325,7 +1336,18 @@ automation:
                     Normal: {{ states('input_number.hba_strategy_planned_car_normal') | float(0) | int }}% -
                     Leftover: {{ (car.get('bat') or {}).get('top', 100) }}% ]
 
-                    Normal is in. The batteries may fill the car up to Leftover when that is worth
+                    {% set c_soc = states('sensor.ev_car_info') | float(0) -%}
+                    {%- if c_soc >= states('input_number.hba_strategy_planned_car_normal') | float(0) -%}
+                    Normal is in.
+                    {%- elif is_state('input_boolean.hba_strategy_planned_car_grid', 'off') -%}
+                    Grid charging for Normal is off, so no grid hours are planned for it.
+                    {%- elif car.get('need', 0) | float(0) <= 0.1 -%}
+                    Normal needs no grid hours: the Minimum hours or the expected solar cover it.
+                    {%- else -%}
+                    Normal has no hours in the plan: every hour is above the max price, or there is no
+                    time left.
+                    {%- endif %}
+                    The batteries may fill the car up to Leftover when that is worth
                     more than selling or keeping the energy,
                     {{ 'with no deadline at the departure' if car.get('home') == true else 'until ' ~ ((car.get('dl', 0) | int(0) - (states('input_number.hba_strategy_planned_car_battery_end') | float(1) * 3600) | int) | timestamp_custom('%a %H:%M')) }}.
                     Not leaving: no deadline. Leaving: until the departure.
