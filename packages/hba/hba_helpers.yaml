@@ -2135,6 +2135,8 @@ template:
           {# A manual Full stop overrides the assist push (hba_run_strategy checks
              it first), so assist must not stay armed either — the EV would sit in
              battery_assist mode charging from grid with no battery behind it. #}
+          {# P1 meter lost: HBA stops the batteries (hba_p1_meter_lost_stop), so the push is off as
+             well -- else the EV project keeps the car in battery mode, charging from the grid. #}
           {# Planned, charge the car from the batteries: the running plan row is Car (battery to car)
              and the stored energy is still above the row's target; the car is plugged in. The same
              push, guards and EV mode (battery) as Timed EV charge; the power is the row's (pw).
@@ -2157,6 +2159,7 @@ template:
           {{ (enabled and soc > min_soc and in_window and car_ok or planned_car)
              and ns.dischargeable
              and not is_state('binary_sensor.hba_battery_assist_stalled', 'on')
+             and not is_state('binary_sensor.hba_p1_meter_lost', 'on')
              and not is_state('input_select.hba_strategy', 'Full stop') }}
 
       # Stall watchdog for the Timed EV charge push: ON when assist is actively
@@ -2192,8 +2195,10 @@ template:
       # configured strategy, instead of cycling battery power to the grid via
       # the overflow guard. Clears (and assist resumes on the next control
       # cycle) as soon as the EV-charging entity turns on.
-      # Requires input_text.hba_strategy_ev_sensor_entity_id to be configured;
-      # without it this sensor stays off and assist behaves as before.
+      # "Drawing power" = the EV-charging entity (input_text.hba_strategy_ev_sensor_entity_id) is
+      # on; without that entity, the charger's power sensor
+      # (input_text.hba_ev_charger_power_entity_id) above 300 W. Neither set: this sensor stays
+      # off, and only the overflow guard (more than 1 kW to the grid) catches a car that stopped.
       # The 3-minute grace covers session start: the assist push is what
       # creates the export the EV controller ramps up on.
       - name: "HBA Battery Assist Waiting"
@@ -2201,10 +2206,13 @@ template:
         icon: mdi:timer-sand
         state: >
           {% set ev_e = states('input_text.hba_strategy_ev_sensor_entity_id') | trim %}
+          {% set pw_e = states('input_text.hba_ev_charger_power_entity_id') | trim %}
+          {% set none_set = ['', 'unknown', 'unavailable'] %}
           {% set assist = states.binary_sensor.hba_battery_assist_active %}
+          {% set idle = (not is_state(ev_e, 'on')) if ev_e not in none_set
+                        else (pw_e not in none_set and states(pw_e) | float(0) < 300) %}
           {{ assist is not none and assist.state == 'on'
-             and ev_e not in ['', 'unknown', 'unavailable']
-             and not is_state(ev_e, 'on')
+             and idle
              and (now() - assist.last_changed).total_seconds() > 180 }}
 
       - name: "HBA Grid Exporting Sustained"
