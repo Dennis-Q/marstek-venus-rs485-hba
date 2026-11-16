@@ -3117,7 +3117,7 @@ views:
               {%- set I = 'sensor.ev_car_info' -%}
               {%- set plan = state_attr(E, 'plan') or [] -%}
               {%- set sm = state_attr(E, 'summary') if state_attr(E, 'summary') is mapping else {} -%}
-              {%- set run = state_attr(R, 'summary') if state_attr(R, 'summary') is mapping else {} -%}
+              {%- set run_sm = state_attr(R, 'summary') if state_attr(R, 'summary') is mapping else {} -%}
               {%- set now_plan = state_attr(R, 'plan') or [] -%}
               {%- set car = sm.get('car') or {} -%}
               {%- set full = sm.get('usable', 0) | float(0) -%}
@@ -3177,14 +3177,19 @@ views:
               | **Total** | **€ {{ '%.2f' | format(A.total) }}** | **€ {{ '%.2f' | format(B.total) }}** | — | **{{ df(B.total - A.total) }}** |
 
               {%- set P = cmp[run] if run in cmp else A %}
+              {%- set given = bat.get('value', 0) | float(0) if bat.get('kwh', 0) | float(0) > 0.05 else 0 -%}
               {%- if N.get('plan') is number %}
 
-              **The car costs the batteries € {{ '%.2f' | format(P.plan - N.plan) }}** ({{ run }}: batteries + house € {{ '%.2f' | format(P.plan) }} instead of € {{ '%.2f' | format(N.plan) }}){% if P.get('cout') is number and N.get('cout') is number %}; cost out after the car hours € {{ '%.3f' | format(P.cout) }} instead of € {{ '%.3f' | format(N.cout) }}{% endif %}.
+              **The car costs the batteries € {{ '%.2f' | format(P.plan + given - N.plan) }}** ({{ run }}: batteries + house € {{ '%.2f' | format(P.plan + given) }} instead of € {{ '%.2f' | format(N.plan) }}{% if given > 0 %}, including the {{ bat.kwh }} kWh they give the car; that energy is worth € {{ '%.2f' | format(given) }} in the car{% endif %}){% if P.get('cout') is number and N.get('cout') is number %}; cost out after the car hours € {{ '%.3f' | format(P.cout) }} instead of € {{ '%.3f' | format(N.cout) }}{% endif %}.
+              {%- elif car.get('cmp_nocar', true) == false %}
+
+              No car: switch on **Insights mode** (Insights view) to have the plan worked out without the car too.
               {%- endif %}
 
               <font color=grey>Difference = Balance − Car first (+ = Balance costs more). No car: the same plan without the car, in the hours {{ run }} gives the car. Cost out: what a kWh from the batteries has cost (bought ÷ efficiency, sun at the sell price, + wear).</font>
 
               </small>
+              {%- elif car.get('cmp_other', true) == false %} · set by hand. Switch on **Insights mode** (Insights view) for the comparison with {{ 'Car first' if run == 'Balance' else 'Balance' }} and with no car.
               {%- elif setp != 'Car first' %} · Balance not possible (needs the batteries' phases and the phase limit for EV charging)
               {%- endif %}
               {% endif -%}
@@ -3207,9 +3212,9 @@ views:
 
               {% endif -%}
               Car: {{ car.get('kwh', 0) }} kWh, € {{ '%.2f' | format(car.get('eur', 0)) }} · {{ 'without' if state_attr(I, 'max_price_on') != false else 'with' }} the max price: {{ car.get('alt_kwh', 0) }} kWh, € {{ '%.2f' | format(car.get('alt_eur', 0)) }}
-              {%- if preview and sm.get('plan_cost') is not none and run.get('plan_cost') is not none %}
+              {%- if preview and sm.get('plan_cost') is not none and run_sm.get('plan_cost') is not none %}
 
-              Effect on the batteries and the house: € {{ '%+.2f' | format(sm.plan_cost - run.plan_cost) }} compared with the plan that runs now.
+              Effect on the batteries and the house: € {{ '%+.2f' | format(sm.plan_cost - run_sm.plan_cost) }} compared with the plan that runs now.
               {%- set moved = namespace(n=0) %}
               {%- for r in plan %}{%- set was = now_plan | selectattr('ts', 'eq', r.ts) | first | default(none) %}{%- if was is not none and (was.a != r.a or (was.e1 - r.e1) | abs > 0.1) %}{%- set moved.n = moved.n + 1 %}{%- endif %}{%- endfor %}
               {{ ' The car changes ' ~ moved.n ~ ' battery hour(s), marked (now ...) below.' if moved.n else ' The car does not change the battery hours.' }}

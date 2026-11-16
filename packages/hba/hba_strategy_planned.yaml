@@ -498,6 +498,11 @@ template:
         entity_id: sensor.ev_car_info
         attribute: compensated
         id: settings
+      # Insights mode on: a new plan, so the Car section gets its comparison (see "Car hours priority")
+      - trigger: state
+        entity_id: input_boolean.hba_control_is_debug_mode
+        to: "on"
+        id: settings
       - trigger: state
         entity_id: sensor.ev_car_info
         attribute: max_price
@@ -1723,18 +1728,27 @@ template:
       # (batteries + house) + the car's grid cost + car kWh that no longer fit before the departure
       # at the max price (else the dearest hour). Balance only when it saves more than 2 cents, so a
       # tie does not flip the charger's behaviour at every re-plan. A fixed choice runs as set.
+      # Each extra calculation stops HA for as long as the first, so only what decides is worked
+      # out: the other choice when the setting is Auto, else only with Insights mode on; "No car"
+      # only with Insights mode on (the Car section says so where the numbers are missing).
       - variables:
           car_run: &planned_car_auto_run >-
             {%- set r = result if result is mapping else (result | from_json) -%}
             {%- set c = (r.get('summary') or {}).get('car') or {} -%}
             {{ car_run if replan != '' and r.status == 'OK' and c.get('along') == true
                 and c.get('kwh', 0) | float(0) > 0.05 else 'skip' }}
+      - variables:
+          car_run_ab: "{{ car_run }}"
+          car_run: &planned_car_other_run >-
+            {{ car_run if is_state('input_select.hba_strategy_planned_car_priority', 'Auto')
+               or is_state('input_boolean.hba_control_is_debug_mode', 'on') else 'skip' }}
           car_prio: "{{ 'Car first' if car_prio == 'Balance' else 'Balance' }}"
           result_b: *planned_result
       # The same hours without the car (the "No car" column: what the car costs the batteries)
       - variables:
-          car_run_ab: "{{ car_run }}"
-          car_run: &planned_car_nocar_run "{{ 'skip' if car_run == 'skip' else 'nocar' }}"
+          car_run: &planned_car_nocar_run >-
+            {{ 'nocar' if car_run_ab != 'skip' and is_state('input_boolean.hba_control_is_debug_mode', 'on')
+               else 'skip' }}
           result_n: *planned_result
       - variables:
           car_run: "{{ car_run_ab }}"
@@ -1782,8 +1796,10 @@ template:
                 {%- set ns.x = ns.x | combine({'No car': {'bat': nn.bat | round(1), 'cout': nn.cout,
                     'plan': n.summary.plan_cost}}) -%}
               {%- endif -%}
+              {#- cmp_other / cmp_nocar: false = that calculation was left out (Insights mode off) -#}
               {{ pick | combine({'summary': pick.summary | combine(
-                   {'car': pick.summary.car | combine({'cmp': ns.x})})}) | tojson }}
+                   {'car': pick.summary.car | combine({'cmp': ns.x,
+                      'cmp_other': b.status != 'skip', 'cmp_nocar': n.status != 'skip'})})}) | tojson }}
             {%- endif -%}
       - variables:
           # Executed slots: when a new slot starts, the previous one moves here with the
@@ -1953,10 +1969,12 @@ template:
           result: *planned_result
       - variables:
           car_run: *planned_car_auto_run
+      - variables:
+          car_run_ab: "{{ car_run }}"
+          car_run: *planned_car_other_run
           car_prio: "{{ 'Car first' if car_prio == 'Balance' else 'Balance' }}"
           result_b: *planned_result
       - variables:
-          car_run_ab: "{{ car_run }}"
           car_run: *planned_car_nocar_run
           result_n: *planned_result
       - variables:
