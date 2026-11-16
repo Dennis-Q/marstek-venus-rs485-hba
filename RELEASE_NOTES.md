@@ -19,8 +19,28 @@ This document covers HBA-specific changes only.
   step it still works, but *Saved* dips once by the value of the energy below the cutoffs (~€0.35 per
   battery) the first time the batteries run empty, and the sensor's own value keeps its start offset.
 
+### Added
+
+- **Planned: charge the car from the batteries** (`input_boolean.hba_strategy_planned_car_battery`, default
+  off; needs the EV project with *Follow assisted*). A new plan action **Car** (🔋→🚗 in the plan table):
+  the batteries cover the house and the rest goes into the car, when a battery kWh is worth more there
+  than sold, used in the house or kept. A kWh in the car is worth the all-in price of a grid car hour it
+  replaces (that hour then charges less, dearest first); above those hours, up to Leftover, the max price
+  for a car whose charging is compensated (new per-car switch in the EV project) or else the cheapest known
+  price — never more than refilling the batteries from the grid would cost, so the plan never buys for
+  the car through the batteries. With *Allow grid charging for Normal* off, grid energy bought after
+  plug-in never goes to the car. It runs through the Timed EV charge push (same guards, the EV project's
+  `assisted_battery` mode) at the plan's power. New settings: *ends before departure* (hours, default 1;
+  grid car hours run up to the departure) and *latest plug-in time* (default 18:00: until then the plan
+  may keep battery energy for a car that is not plugged in yet; at that time without the car it is free
+  again). With the switch on, the car question also comes at plug-in when Normal is already in, as long
+  as the car is below Leftover, and at the reminder time only when it did not ask yet that day.
+  The Car section shows what the batteries give, its value and cost.
+
 ### Changed
 
+- **Planned: "Allow grid charging for the car" is now "Allow grid charging for Normal"** — the same
+  switch and entity; it always meant the grid above Minimum.
 - **Planned: plan out of date is no longer silent.** When no new plan could be made for the running
   slot (usually an error in the plan calculation), Planned already ran Self-consumption; now
   `binary_sensor.hba_plan_out_of_date` turns on, with a banner in the Overview, a notification

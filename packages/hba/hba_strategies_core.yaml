@@ -763,15 +763,26 @@ script:
                       - action: script.hba_strategy_self_consumption
                         data: { skip_label: true }
                 default:
+                  # Planned battery to car (plan row Car): the row's power, house + car (pw).
+                  # Timed EV charge: its max discharge power setting, else full power.
+                  - variables:
+                      p_row: >-
+                        {%- set plan = state_attr('sensor.hba_planned_strategy', 'plan') or [] -%}
+                        {%- set cur = plan | selectattr('ts', 'le', as_timestamp(now()) | int) | list | last | default(none) -%}
+                        {{ cur.pw if strategy == 'Planned' and cur is not none and cur.a == 'Car' and cur.pw is defined else 0 }}
                   - action: input_text.set_value
                     target: { entity_id: input_text.hba_strategy_active_flow }
-                    data: { value: "Timed EV charge → Discharge to EV" }
+                    data: { value: "{{ 'Planned → Car from the batteries → Discharge to EV' if p_row | int(0) > 0 else 'Timed EV charge → Discharge to EV' }}" }
                   - action: script.hba_set_batteries
                     data:
                       desired_power_w: >-
                         {% set hw_max = states('sensor.hba_total_max_discharge_power') | float(2500) %}
                         {% set cap = states('input_number.hba_battery_assist_max_discharge_power') | float(0) %}
-                        {{ -([hw_max, cap] | min | int) if cap > 0 else -(hw_max | int) }}
+                        {% if p_row | int(0) > 0 %}
+                          {{ -([hw_max, p_row | int] | min | int) }}
+                        {% else %}
+                          {{ -([hw_max, cap] | min | int) if cap > 0 else -(hw_max | int) }}
+                        {% endif %}
                       mode: "discharge"
           # EV stop trigger overrides all strategies. What runs instead is set by
           # input_select.hba_control_strategy_during_ev_charge.
@@ -2026,6 +2037,12 @@ script:
       - action: input_number.set_value
         target: { entity_id: input_number.hba_strategy_planned_energy_step }
         data: { value: 0 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.hba_strategy_planned_car_battery_end }
+        data: { value: 1 }
+      - action: input_datetime.set_datetime
+        target: { entity_id: input_datetime.hba_strategy_planned_car_latest_plugin }
+        data: { time: "18:00:00" }
       - action: input_boolean.turn_off
         target:
           entity_id:
@@ -2036,6 +2053,7 @@ script:
             - input_boolean.hba_strategy_planned_car_preview
             - input_boolean.hba_strategy_planned_car_grid
             - input_boolean.hba_strategy_planned_car_ask_normal
+            - input_boolean.hba_strategy_planned_car_battery
       - action: input_select.select_option
         target:
           entity_id:

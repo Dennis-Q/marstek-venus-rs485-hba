@@ -41,10 +41,17 @@ input_boolean:
   hba_strategy_planned_car_preview:
     name: "Planned: car preview only"
     icon: mdi:car-search
-  # Off: the grid only fills the car up to Minimum.
+  # Off: the grid only fills the car up to Minimum (Minimum is the must-have level, any price).
+  # Name since 2026-11: "for Normal" says what it does (was "allow grid charging for the car");
+  # the entity id stays.
   hba_strategy_planned_car_grid:
-    name: "Planned: allow grid charging for the car"
+    name: "Planned: allow grid charging for Normal"
     icon: mdi:transmission-tower-import
+  # On: the plan may charge the car from the batteries (plan action "Car"), when a battery kWh is
+  # worth more in the car than sold, used in the house or kept. See hba_strategy_planned.yaml.
+  hba_strategy_planned_car_battery:
+    name: "Planned: charge the car from the batteries"
+    icon: mdi:home-battery
   # On: an evening question whether Normal may charge the coming night (hba_notifications.yaml).
   hba_strategy_planned_car_ask_normal:
     name: "Planned: ask before Normal"
@@ -69,6 +76,13 @@ input_boolean:
     icon: mdi:bug-outline
 
 input_datetime:
+  # Planned, charge the car from the batteries: until this time the plan may keep battery energy
+  # for a car that is not plugged in yet (it counts as plugged in from this time). Unset (00:00)
+  # = 18:00.
+  hba_strategy_planned_car_latest_plugin:
+    name: "Planned: latest car plug-in time"
+    has_date: false
+    has_time: true
   hba_strategy_timed_period_a1:
     name: "Period A start"
     has_date: false
@@ -508,8 +522,8 @@ input_number:
     unit_of_measurement: "EUR/kWh"
     icon: mdi:cash-check
   # Planned: the car's levels, same for every car. Minimum = must be there by departure, at any
-  # price. Normal = from the grid below the max price, with Allow grid charging. Leftover = as
-  # far as solar may fill it.
+  # price. Normal = from the grid below the max price, with Allow grid charging for Normal.
+  # Leftover = as far as solar (and, with Charge the car from the batteries, the batteries) may fill it.
   hba_strategy_planned_car_minimum:
     name: "Planned: car minimum"
     min: 0
@@ -534,6 +548,15 @@ input_number:
     mode: box
     unit_of_measurement: "%"
     icon: mdi:battery-high
+  # Battery to car stops this many hours before the departure (grid car hours run up to it).
+  hba_strategy_planned_car_battery_end:
+    name: "Planned: car from the batteries ends before departure"
+    min: 0
+    max: 6
+    step: 0.5
+    mode: box
+    unit_of_measurement: "h"
+    icon: mdi:clock-end
   # Planned: the energy levels the plan works with (and the steps of a partial Charge / Sell
   # target). 0 = auto: usable energy / 20 (17.8 kWh -> 0.89 kWh). Smaller = more precise targets,
   # longer calculation: ~0.5 s at auto, ~1 s at usable / 40 (48 hourly slots; 15-minute prices x4) --
@@ -2112,7 +2135,20 @@ template:
           {# A manual Full stop overrides the assist push (hba_run_strategy checks
              it first), so assist must not stay armed either — the EV would sit in
              battery_assist mode charging from grid with no battery behind it. #}
-          {{ enabled and soc > min_soc and ns.dischargeable and in_window and car_ok
+          {# Planned, charge the car from the batteries: the running plan row is Car (battery to car)
+             and the stored energy is still above the row's target; the car is plugged in. The same
+             push, guards and EV mode (battery) as Timed EV charge; the power is the row's (pw). #}
+          {% set plan = state_attr('sensor.hba_planned_strategy', 'plan') or [] %}
+          {% set cur = plan | selectattr('ts', 'le', as_timestamp(now()) | int) | list | last | default(none) %}
+          {% set planned_car = cur is not none and cur.a == 'Car'
+             and is_state('input_select.hba_strategy', 'Planned')
+             and is_state('input_select.hba_marstek_master_battery_mode', 'Full control')
+             and is_state('input_boolean.hba_strategy_planned_car_battery', 'on')
+             and state_attr('sensor.ev_car_info', 'connected') == true
+             and states('sensor.hba_charge_available_energy') | float(0) > cur.e1 | float(0)
+                 + (0.3 if states('input_text.hba_strategy_active_flow').startswith('Planned → Car done') else 0.05) %}
+          {{ (enabled and soc > min_soc and in_window and car_ok or planned_car)
+             and ns.dischargeable
              and not is_state('binary_sensor.hba_battery_assist_stalled', 'on')
              and not is_state('input_select.hba_strategy', 'Full stop') }}
 

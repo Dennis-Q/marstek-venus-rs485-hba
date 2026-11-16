@@ -1277,13 +1277,24 @@ automation:
       - condition: state
         entity_id: binary_sensor.hba_ev_assist
         state: "on"
+      # Charge the car from the batteries on (user 2026-11-16): the departure also matters when Normal
+      # is already in -- the batteries may fill the car up to Leftover until then. So it asks at
+      # plug-in whatever the time, as long as the car is below Leftover, and at the reminder time
+      # only when it did not ask yet that day since plug-in.
       - condition: template
         value_template: >-
           {%- set t = states('input_datetime.ev_assisted_reminder')[:5] -%}
           {%- set t = '20:00' if t in ['00:00', 'unkno', 'unava', ''] else t -%}
+          {%- set car = (state_attr('sensor.hba_planned_strategy', 'summary') or {}).get('car') or {} -%}
+          {%- set bat = (car.get('bat') or {}) -%}
+          {%- set bat_on = bat.get('on') == true and states('sensor.ev_car_info') | float(100) < bat.get('top', 100) | float(100) -%}
+          {%- set last = as_timestamp(this.attributes.last_triggered, 0) | int if this.attributes.last_triggered else 0 -%}
+          {%- set asked = last > state_attr('sensor.ev_car_info', 'connected_since') | int(0)
+                          and (last | timestamp_custom('%Y-%m-%d')) == now().strftime('%Y-%m-%d') -%}
           {{ state_attr('sensor.ev_car_info', 'connected') == true
-             and (trigger.id == 'reminder' or t <= now().strftime('%H:%M') < '22:00')
-             and ((state_attr('sensor.hba_planned_strategy', 'summary') or {}).get('car') or {}).get('normal', 0) | float(0) > 0.1 }}
+             and ((bat_on and (trigger.id == 'plugged' or not asked))
+                  or ((trigger.id == 'reminder' or t <= now().strftime('%H:%M') < '22:00')
+                      and car.get('normal', 0) | float(0) > 0.1)) }}
     actions:
       - variables:
           car: "{{ (state_attr('sensor.hba_planned_strategy', 'summary') or {}).get('car') or {} }}"
@@ -1301,6 +1312,30 @@ automation:
             Min: {{ states('input_number.hba_strategy_planned_car_minimum') | float(0) | int }}% -
             Normal: {{ states('input_number.hba_strategy_planned_car_normal') | float(0) | int }}% ]
       - choose:
+          # Charge the car from the batteries, Normal already in: only the departure is asked (the
+          # batteries may fill the car up to Leftover until it, or past it on a home day)
+          - conditions: "{{ field == 'Auto' and dep == 'Auto' and car.get('normal', 0) | float(0) <= 0.1 }}"
+            sequence:
+              - action: script.hba_notify_dispatch
+                data:
+                  title: >-
+                    Car: {{ car.get('dl', 0) | int(0) | timestamp_custom('%A') }} {{ 'counts as a home day' if car.get('home') == true else 'is a departure' }}
+                  message: >-
+                    [ Car: {{ states('sensor.ev_car_info') | float(0) | round(0) | int }}% -
+                    Normal: {{ states('input_number.hba_strategy_planned_car_normal') | float(0) | int }}% -
+                    Leftover: {{ (car.get('bat') or {}).get('top', 100) }}% ]
+
+                    Normal is in. The batteries may fill the car up to Leftover when that is worth
+                    more than selling or keeping the energy,
+                    {{ 'with no deadline at the departure' if car.get('home') == true else 'until ' ~ ((car.get('dl', 0) | int(0) - (states('input_number.hba_strategy_planned_car_battery_end') | float(1) * 3600) | int) | timestamp_custom('%a %H:%M')) }}.
+                    Not leaving: no deadline. Leaving: until the departure.
+                    Without an answer it stays like this.
+                  tag: hba_car_normal
+                  color: blue
+                  priority: normal
+                  actions:
+                    - { action: HBA_CAR_NOT_LEAVING, title: "Not leaving" }
+                    - { action: HBA_CAR_LEAVING, title: "Leaving" }
           # The next departure is on a home day (the list): the plan assumes the car stays, for
           # Normal only. Asked because the list is a guess.
           - conditions: "{{ field == 'Auto' and dep == 'Auto' and car.get('home') == true }}"
