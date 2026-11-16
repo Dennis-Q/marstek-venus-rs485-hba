@@ -951,10 +951,12 @@ automation:
             {%- set w = state_attr('sensor.hba_power_limits', 'charge') -%}
             {{ w is mapping and (bat | string) in w and is_state('sensor.hba_power_limits', 'Active') }}
           lc: >-
-            {%- set w = state_attr('sensor.hba_power_limits', 'charge') if managed else state_attr('sensor.hba_power_limits', 'last_known_charge') -%}
+            {%- set w = state_attr('sensor.hba_power_limits', 'charge') if managed
+                else state_attr('sensor.hba_power_limits', 'last_known_charge') -%}
             {{ (w[bat | string] if w is mapping and (bat | string) in w else 0) | int(0) }}
           ld: >-
-            {%- set w = state_attr('sensor.hba_power_limits', 'discharge') if managed else state_attr('sensor.hba_power_limits', 'last_known_discharge') -%}
+            {%- set w = state_attr('sensor.hba_power_limits', 'discharge') if managed
+                else state_attr('sensor.hba_power_limits', 'last_known_discharge') -%}
             {{ (w[bat | string] if w is mapping and (bat | string) in w else 0) | int(0) }}
       - if: "{{ trigger.id == 'limits' and not managed }}"
         then:
@@ -1290,8 +1292,10 @@ automation:
           {%- set t = '20:00' if t in ['00:00', 'unkno', 'unava', ''] else t -%}
           {%- set car = (state_attr('sensor.hba_planned_strategy', 'summary') or {}).get('car') or {} -%}
           {%- set bat = (car.get('bat') or {}) -%}
-          {%- set bat_on = bat.get('on') == true and states('sensor.ev_car_info') | float(100) < bat.get('top', 100) | float(100) -%}
-          {%- set last = as_timestamp(this.attributes.last_triggered, 0) | int if this.attributes.last_triggered else 0 -%}
+          {%- set bat_on = bat.get('on') == true
+              and states('sensor.ev_car_info') | float(100) < bat.get('top', 100) | float(100) -%}
+          {%- set last = as_timestamp(this.attributes.last_triggered, 0) | int if this.attributes.last_triggered
+              else 0 -%}
           {#- Asked today already (a plug-in asks again by itself, through its trigger). Not against
               connected_since: that restarts with HA and with a reload. -#}
           {%- set asked = (last | timestamp_custom('%Y-%m-%d')) == now().strftime('%Y-%m-%d') -%}

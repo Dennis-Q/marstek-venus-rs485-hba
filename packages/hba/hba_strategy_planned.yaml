@@ -2375,7 +2375,7 @@ automation:
       # At start only when needed: the profile sensor keeps its value across restarts, so only
       # without a profile (new install) or when the 03:15 run was missed (HA down). Running (and
       # waiting) at every start put this automation in HA's "running, will be interrupted" list
-      # at each quick restart (user 2026-10-30).
+      # at each quick restart (user 2026-10-29, commit a201117).
       - condition: template
         value_template: >-
           {%- set upd = state_attr('sensor.hba_house_load_profile', 'updated') -%}
