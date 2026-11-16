@@ -1052,7 +1052,9 @@ template:
                   {#- Car hours priority (input_select.hba_strategy_planned_car_priority; car_prio is set per
                       run, Auto runs both and keeps the cheaper). Balance: the batteries leave the car its
                       6 A minimum + 1 A margin per phase, so the charger keeps charging next to them instead
-                      of pausing (its own CT limit, ~22 A per phase on prod). The car then counts at its
+                      of pausing. Measured on prod 2026-11-15: the charger throttles the car at its own
+                      grid limit (25 A per phase there, fixed), so the car got 9-12 A, and a house load of
+                      ~2 kW on a battery phase still paused it for 10-15 s. The car then counts at its
                       minimum (6 A x 3 phases = 4.1 kW, a 1-phase car 1.4 kW) for the whole hour and needs
                       more hours; when the batteries are done early it speeds up, finishes sooner, and the
                       next plan sees that.
@@ -1470,8 +1472,8 @@ template:
                     {%- set cover = sl.up and av > 0.05 and slope / ed + wear < sl.b and not car_h -%}
                     {%- set store = store and (u > 0.05 or not car_h) -%}
                     {%- if best.a in holds and best.dis < 0.01 and best.ch < 0.01 -%}
-                      {%- set pr = (state_attr('sensor.hba_planned_strategy', 'plan') or []) | selectattr('ts', 'eq',
-                        sl.ts) | first | default(none)
+                      {%- set pr = (state_attr('sensor.hba_planned_strategy', 'plan') or [])
+                          | selectattr('ts', 'eq', sl.ts) | first | default(none)
                           if t == 0 else none -%}
                       {%- set na = pr.a if pr is mapping and pr.a in holds
                                    else ((('Self-consumption' if cover else 'Charge PV') if store and room > 0.05
@@ -1491,13 +1493,17 @@ template:
                         that was done fell back to Full stop: the house on the grid for the rest. -#}
                     {%- set then_a = '' -%}
                     {%- if best.a in ['Charge', 'Sell', 'Car'] -%}
-                      {%- set pw_kw = ([[((([best.E2 - E, 0] | max) / ec / ([sl.h, 0.01] | max) * 1100 / ([ns_p.max_c,
-                        500] | max)) | round(0,
-                        'ceil')),
-                        1] | max * ([ns_p.max_c, 500] | max),
-                          sl.pc * 1000] | min) / 1000 -%}
-                      {%- set fr = ([1 - (([best.E2 - E, 0] | max) / ec / ([pw_kw, 0.05] | max)) / ([sl.h, 0.01] | max),
-                        0] | max)
+                      {#- pw_kw = the Charge power in whole batteries (as the row's pw, below): the average
+                          power needed + 10 %, rounded up to a number of batteries, at most the slot's
+                          max charge power. fr = the share of the slot that is left after it. -#}
+                      {%- set pw_kw = ([
+                            [((([best.E2 - E, 0] | max) / ec / ([sl.h, 0.01] | max) * 1100
+                                / ([ns_p.max_c, 500] | max)) | round(0, 'ceil')), 1] | max
+                              * ([ns_p.max_c, 500] | max),
+                            sl.pc * 1000
+                          ] | min) / 1000 -%}
+                      {%- set fr = ([1 - (([best.E2 - E, 0] | max) / ec / ([pw_kw, 0.05] | max))
+                                        / ([sl.h, 0.01] | max), 0] | max)
                           if best.a == 'Charge' else 0.5 -%}
                       {%- if fr > 0.05 -%}
                         {%- set E1 = best.E2 -%}
