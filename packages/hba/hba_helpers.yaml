@@ -1551,7 +1551,7 @@ template:
         unit_of_measurement: "%"
         device_class: battery
         state_class: measurement
-        icon: mdi:battery-half
+        icon: mdi:battery-50
         state: >
           {#- Average over the batteries whose SoC can be read. A missing one used to count as 0 %
               (one of four away: the average a quarter lower, and a Sell "state of charge" goal
@@ -2536,7 +2536,7 @@ template:
       - name: "HBA RS485 Mode Mismatch"
         unique_id: hba_rs485_mode_mismatch
         device_class: problem
-        icon: mdi:connection-off
+        icon: mdi:lan-disconnect
         delay_on: "00:00:30"
         state: >
           {% if not is_state('input_select.hba_marstek_master_battery_mode', 'Full control') %}
