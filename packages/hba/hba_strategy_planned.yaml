@@ -108,6 +108,7 @@
 # Namespaces: ns_p power limits · ns_in inputs · car the car's grid hours and totals · cs sun into
 #   the car · bt battery to car · fw forward pass (running totals, fw.out = the plan rows) ·
 #   sc Self-consumption only, for the expected gain · b_over grid car hours the batteries replace
+#   (cut = kWh off per grid hour, k = their total)
 # A plan row (attribute plan; fw.out):
 #   ts, b, s, sun, load as the slot · a strategy · e0, e1 stored energy at its start / end ·
 #   c cost out (EUR per kWh the batteries deliver after it) · r reason code · alt, adv, alt_e1
@@ -369,7 +370,10 @@ template:
                            else (p_prev if p_prev is mapping else none) -%}
             {%- set plan = state_attr('sensor.hba_planned_strategy', 'plan') or [] -%}
             {%- set cur = plan | selectattr('ts', 'eq', slot) | first | default(none) -%}
-            {%- set ev = (cur.ev | float(0)) if cur is not none and cur.ev is defined else 0 -%}
+            {#- A grid car hour (ev) or a battery-to-car row (bev): the kWh the car gets this slot -#}
+            {%- set ev = (cur.ev | float(0)) if cur is not none and cur.ev is defined
+                else ((cur.bev | float(0))
+                      if cur is not none and cur.a == 'Car' and cur.bev is defined else 0) -%}
             {%- if m < 0 -%}
               {{ {'kwh': 0, 'slot': slot, 'start': p_start if p_slot == slot else none, 'planned': ev, 'done': false,
                   'meter': false, 'prev': prev} | tojson }}
@@ -405,7 +409,8 @@ template:
           # Meter when the running plan was made (= start for a plan made before the slot)
           base: "{{ (res | from_json if res is string else res).get('base') }}"
           made: "{{ (res | from_json if res is string else res).get('made') }}"
-          # Planned kWh are in: the car waits for the rest of the slot
+          # Planned kWh are in: the car waits for the rest of the slot (a grid car hour), the push
+          # from the batteries stops (a Car row, binary_sensor.hba_battery_assist_active)
           done: "{{ (res | from_json if res is string else res).done }}"
           meter: "{{ (res | from_json if res is string else res).meter }}"
           prev: "{{ (res | from_json if res is string else res).get('prev') }}"
@@ -1126,17 +1131,23 @@ template:
                     {%- for sl in slots | selectattr('ts', 'ge', [now_slot, c_from] | max) | sort(attribute='b')
                         if (sl.ts | string) not in car.picks -%}
                       {%- set cap = [car_kw * sl.h, [sl.pd * sl.h - sl.d, 0] | max] | min -%}
-                      {%- set acc = namespace(k=0, v=0, l=[]) -%}
+                      {#- src = where this slot's kWh come from: the grid hour they replace (its ts), or
+                          the extra kWh (ts 9999999999). Used after the forward pass, see b_over. -#}
+                      {%- set acc = namespace(k=0, v=0, l=[], src=[]) -%}
                       {%- for g in bt.segs -%}
                         {%- set take = ([g.k, cap - acc.k] | min) if sl.ts + step <= g.dl and sl.ts < g.ts else 0 -%}
                         {%- set take = take if take > 0.01 else 0 -%}
                         {%- set acc.k = acc.k + take -%}
                         {%- set acc.v = acc.v + take * g.v -%}
                         {%- set acc.l = acc.l + [g | combine({'k': g.k - take})] -%}
+                        {%- if take > 0 -%}
+                          {%- set acc.src = acc.src + [{'ts': g.ts, 'k': take, 'v': g.v}] -%}
+                        {%- endif -%}
                       {%- endfor -%}
                       {%- if acc.k >= 0.7 * sl.h -%}
                         {%- set bt.segs = acc.l -%}
-                        {%- set bt.at = bt.at | combine({sl.ts | string: {'k': acc.k, 'v': acc.v / acc.k}}) -%}
+                        {%- set bt.at = bt.at | combine(
+                            {sl.ts | string: {'k': acc.k, 'v': acc.v / acc.k, 'src': acc.src}}) -%}
                       {%- endif -%}
                     {%- endfor -%}
                   {%- endif -%}
@@ -1311,7 +1322,8 @@ template:
                       was plugged in (ledger g, then the planned Charge kWh) may not go to the car (gb) -#}
                   {%- set grid_off = not is_state('input_boolean.hba_strategy_planned_car_grid', 'on') -%}
                   {%- set fw = namespace(E=E0, basis=E0 * per_kwh, out=[], cost=0,
-                      gb=[lg.get('g', 0) | float(0), E0] | min if grid_off else 0, bkwh=0, beur=0, bcost=0) -%}
+                      gb=[lg.get('g', 0) | float(0), E0] | min if grid_off else 0, bkwh=0, beur=0, bcost=0,
+                      bl={}) -%}
                   {%- for t in range(N) -%}
                     {%- set sl = slots[t] -%}
                     {%- set V = ns.Vs[t + 1] -%}
@@ -1455,9 +1467,11 @@ template:
                     {#- Charge / Sell that ends before the slot does: the best hold strategy for the rest
                         of the slot, by the same values and the same naming (the dashboard's second line;
                         HBA re-plans when it is done and runs what that plan says). Charge at the row's
-                        power (pw, below), Sell as half the slot (it is spread out). -#}
+                        power (pw, below), Sell and Car as half the slot (Sell is spread out; Car ends
+                        when the car has its kWh and the house had its share). Without it a Car row
+                        that was done fell back to Full stop: the house on the grid for the rest. -#}
                     {%- set then_a = '' -%}
-                    {%- if best.a in ['Charge', 'Sell'] -%}
+                    {%- if best.a in ['Charge', 'Sell', 'Car'] -%}
                       {%- set pw_kw = ([[((([best.E2 - E, 0] | max) / ec / ([sl.h, 0.01] | max) * 1100 / ([ns_p.max_c,
                         500] | max)) | round(0,
                         'ceil')),
@@ -1504,6 +1518,7 @@ template:
                     {#- Battery to car: what the kWh it gives cost out of the batteries, and the grid energy
                         bought since plug-in that may not go to the car (grid_off) -#}
                     {%- if best.bev > 0.05 -%}
+                      {%- set fw.bl = fw.bl | combine({sl.ts | string: best.bev}) -%}
                       {%- set fw.bkwh = fw.bkwh + best.bev -%}
                       {%- set fw.beur = fw.beur + best.bev * bv -%}
                       {%- set fw.bcost = fw.bcost + best.bev * (((fw.basis / E) / ed + wear) if E > 0.05 else 0) -%}
@@ -1559,12 +1574,19 @@ template:
                     {%- if 'ev' in sl -%}
                       {%- set rw = rw | combine({'ev': sl.ev | round(1), 'ev_lim': sl.ev_lim}) -%}
                     {%- endif -%}
-                    {#- Battery to car: kWh into the car, the discharge power (house + car, W) and the car's
-                        limit (Leftover) -#}
+                    {#- Battery to car: kWh into the car, the discharge power (W) and the car's limit
+                        (Leftover). Power = the house forecast + what the car can take (never above what
+                        the batteries give): the EV project lets the car follow the export, so it charges
+                        at its own power and never below its minimum with the grid filling in (the row's
+                        average could be under the 1.4 kW a car needs at least). The car has its kWh
+                        before the slot ends; the push stops then (sensor.hba_ev_hour_energy, done) and
+                        the batteries cover the house for the rest. -#}
                     {%- if best.a == 'Car' -%}
+                      {%- set h1 = [sl.h, 0.01] | max -%}
                       {%- set rw = rw | combine({
                           'bev': best.bev | round(1),
-                          'pw': (best.dis / ([sl.h, 0.01] | max) * 1000) | round(0) | int,
+                          'pw': ([[best.dis / h1, d / h1 + car_kw | default(11)] | max, sl.pd] | min * 1000)
+                                | round(0) | int,
                           'ev_lim': bt.top | int}) -%}
                     {%- endif -%}
                     {#- Sun into the car (kWh), and what it saves against the grid hour it replaces -#}
@@ -1585,17 +1607,35 @@ template:
                     {%- set fw.cost = fw.cost + best.imm -%}
                   {%- endfor -%}
                   {#- ── Grid car hours the batteries replace ── -#}
-                  {#- Battery energy beyond the extra kWh replaces grid car hours, dearest first: those
-                      hours shrink (the car reaches its level sooner and stops itself anyway; the next
-                      plan works with its new SoC) -#}
-                  {%- set b_over = namespace(k=[fw.bkwh - bt.extra, 0] | max, cut={}) -%}
-                  {%- for w in fw.out | selectattr('ev', 'defined') | sort(attribute='b', reverse=true)
-                      if b_over.k > 0.05 -%}
-                    {%- set c = [w.ev, b_over.k] | min -%}
-                    {%- set b_over.cut = b_over.cut | combine({w.ts | string: c}) -%}
-                    {%- set b_over.k = b_over.k - c -%}
-                    {%- set car.kwh = car.kwh - c -%}
-                    {%- set car.eur = car.eur - c * w.b -%}
+                  {#- Battery energy into the car replaces grid car hours: those hours shrink (the car
+                      reaches its level sooner and stops itself anyway; the next plan works with its
+                      new SoC). Per Car row, the grid hours its slot was given the energy for (src,
+                      above): always later than that row and with their own deadline, so no grid hour
+                      disappears for battery energy that comes after it or after the car may leave
+                      (until 2026-11-16 the dearest grid hours shrank, whenever they were). A row that
+                      gives less than its slot was offered counts the extra kWh first: they replace
+                      nothing, then the dearest grid hour. b_over: cut = kWh off per grid hour, k = their
+                      total. -#}
+                  {%- set b_over = namespace(k=0, cut={}) -%}
+                  {%- for w in fw.out if w.a == 'Car' and (w.ts | string) in bt.at -%}
+                    {%- set left = namespace(k=fw.bl.get(w.ts | string, 0)) -%}
+                    {%- set src = bt.at[w.ts | string].src -%}
+                    {%- for g in (src | selectattr('ts', 'eq', 9999999999) | list)
+                        + (src | rejectattr('ts', 'eq', 9999999999) | sort(attribute='v', reverse=true))
+                        if left.k > 0.01 -%}
+                      {%- set gk = g.ts | string -%}
+                      {%- set row = fw.out | selectattr('ts', 'eq', g.ts) | selectattr('ev', 'defined')
+                          | first | default(none) -%}
+                      {%- set c = [g.k, left.k] | min -%}
+                      {%- set left.k = left.k - c -%}
+                      {%- if row is not none -%}
+                        {%- set c = [c, row.ev - b_over.cut.get(gk, 0)] | min -%}
+                        {%- set b_over.cut = b_over.cut | combine({gk: b_over.cut.get(gk, 0) + c}) -%}
+                        {%- set b_over.k = b_over.k + c -%}
+                        {%- set car.kwh = car.kwh - c -%}
+                        {%- set car.eur = car.eur - c * row.b -%}
+                      {%- endif -%}
+                    {%- endfor -%}
                   {%- endfor -%}
                   {%- if b_over.cut -%}
                     {%- set nw = namespace(l=[]) -%}
@@ -1670,7 +1710,7 @@ template:
                                        'cost': fw.bcost | round(2),
                                        'extra': bt.extra | round(1), 'extra_value': bt.vx | round(3),
                                        'slots': bt.at | length, 'top': bt.top | int, 'grid_off': grid_off,
-                                       'grid_cut': ([fw.bkwh - bt.extra, 0] | max - b_over.k) | round(1)}},
+                                       'grid_cut': b_over.k | round(1)}},
                       'calc_s': (as_timestamp(now()) - t_calc0) | round(2)} -%}
                   {{ {'plan': fw.out, 'status': 'OK', 'made': now().isoformat(), 'reason': replan,
                       'eta': (eta * 100) | round(1), 'summary': summary} | tojson }}
@@ -2093,8 +2133,9 @@ script:
                       mode: "discharge"
           # Car (battery to car): the push itself runs in hba_run_strategy while
           # binary_sensor.hba_battery_assist_active is on. Here only when it is not: the car does not
-          # draw (yet), or the row's target is reached (done, below). Not done: the batteries cover
-          # the house only (Zero import), nothing exported.
+          # draw (yet), the car has the row's kWh (sensor.hba_ev_hour_energy, done), or the row's
+          # target is reached (done, below). Not done: the batteries cover the house only (Zero
+          # import), nothing exported.
           # Once done, "not done" again only 0.3 kWh above the target, as for Charge / Sell and as
           # binary_sensor.hba_battery_assist_active does: the stored energy hovers around the target
           # and each flip would switch the EV project in and out of battery mode.
@@ -2103,7 +2144,11 @@ script:
                  and avail > target + (0.3 if flow.startswith('Planned → Car done') else 0.05) }}
             sequence:
               - action: script.hba_strategy_zero_import
-                data: { flow_prefix: "Planned → Car (car not charging) →" }
+                data:
+                  flow_prefix: >-
+                    {{ 'Planned → Car (car has its kWh) →'
+                       if state_attr('sensor.hba_ev_hour_energy', 'done') == true
+                       else 'Planned → Car (car not charging) →' }}
           # Charge / Sell / Car done before the end of the slot: ask once per slot for a new plan of the
           # rest of the slot (trigger hba_planned_replan; the plan may not charge / sell again then
           # only by its values) and run what it says (user 2026-11-04: "follow what is the best step
