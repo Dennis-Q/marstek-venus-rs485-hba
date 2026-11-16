@@ -591,8 +591,11 @@ template:
             {%- if row is none or e_now < 0 -%}-1
             {%- else -%}
               {#- Expected stored energy now. Charge runs at the row's power (pw) until the target,
-                  so it is done early in the slot (2.8 kWh at 5 kW in ~35 min); Sell is spread over
-                  the slot, and the other strategies follow house use and sun: a straight line.
+                  so it is done early in the slot (2.8 kWh at 5 kW in ~35 min); a Car row pushes at
+                  the row's power too (house + car, since 2026-11-16) and is done early the same way
+                  -- as a straight line it read as "off by" kWh half-way and re-planned every check.
+                  Sell is spread over the slot, and the other strategies follow house use and sun: a
+                  straight line.
                   The row's e0 is the energy when the plan was made, so the elapsed time counts
                   from then. -#}
               {%- set made = as_timestamp(state_attr('sensor.hba_planned_strategy', 'plan_made'), 0) | int -%}
@@ -601,7 +604,12 @@ template:
               {%- set start = row.get('e0', row.e1) | float(0) -%}
               {%- set end = row.e1 | float(0) -%}
               {%- set sm = state_attr('sensor.hba_planned_strategy', 'summary') -%}
-              {%- if row.a == 'Charge' and sm is mapping -%}
+              {%- if row.a == 'Car' and sm is mapping and row.pw is defined -%}
+                {#- Out of the batteries: the push power / the discharge efficiency -#}
+                {%- set kw = (row.pw / 1000 / ((sm.efficiency | float(83)) / 100) ** 0.5) | float(0) -%}
+                {%- set moved = kw * ([now_ts - t0, 0] | max) / 3600 -%}
+                {%- set expected = start - [moved, [start - end, 0] | max] | min -%}
+              {%- elif row.a == 'Charge' and sm is mapping -%}
                 {%- set kw = ((row.pw / 1000 * ((sm.efficiency | float(83)) / 100) ** 0.5) if row.pw is defined
                     else sm.charge_kw) | float(0) -%}
                 {%- set moved = kw * ([now_ts - t0, 0] | max) / 3600 -%}
