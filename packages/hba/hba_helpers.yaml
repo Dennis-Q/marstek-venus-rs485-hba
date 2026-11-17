@@ -167,6 +167,8 @@ input_datetime:
     name: "Period E stop"
     has_date: false
     has_time: true
+  # When each battery last charged or discharged (W != 0). hba_set_batteries keeps a battery that
+  # was active less than the idle timeout ago at 1 W instead of stopping it (keeps the relay closed).
   hba_last_active_m1:
     name: "Battery M1 last active"
     has_date: true
@@ -228,6 +230,8 @@ input_number:
     mode: box
     unit_of_measurement: W
     icon: mdi:transmission-tower
+  # Self-consumption: when the PID wants to switch between charging and discharging, it only does
+  # so above this many W; below it the output is 0 (no relay ticking around zero).
   hba_control_hysteresis:
     name: "Hysteresis"
     min: 0
@@ -250,6 +254,8 @@ input_number:
     mode: box
     unit_of_measurement: W
     icon: mdi:power-plug-battery-outline
+  # How long a battery that got no share stays at 1 W in its last direction before it is
+  # stopped (see hba_last_active_m1). Decided 2026-10: 5 min.
   hba_control_idle_time:
     name: "Idle timeout"
     min: 0
@@ -295,6 +301,8 @@ input_number:
     step: 0.01
     mode: box
     icon: mdi:tune-vertical
+  # Smoothing of the PID output: this % of the previous output is kept each cycle (0 = none).
+  # Set by the PID presets (hba_strategies_core.yaml).
   hba_control_pid_output_dampening:
     name: "PID output dampening"
     min: 0
@@ -303,6 +311,8 @@ input_number:
     mode: box
     unit_of_measurement: "%"
     icon: mdi:waves
+  # Smoothing of the error (P1 against its target) before the PID: this % of the previous
+  # error is kept each cycle (0 = none). Set by the PID presets.
   hba_control_error_signal_dampening:
     name: "Error signal dampening"
     min: 0
@@ -367,6 +377,7 @@ input_number:
     step: 1
     unit_of_measurement: W
     icon: mdi:chart-bell-curve-cumulative
+  # Not read anywhere in HBA (2026-11-17); kept from HBC. Recorder- and logbook-excluded.
   hba_control_debug:
     name: "Debug value"
     min: -10000
@@ -445,6 +456,8 @@ input_number:
     mode: box
     unit_of_measurement: "%"
     icon: mdi:battery-80
+  # kWh of today's forecast the house uses itself: the solar forecast surplus sensors subtract
+  # it (scaled to the part of the day still to come) before counting sun for the batteries.
   hba_solar_reserved_for_house:
     name: "Solar reserved for house"
     min: 0
@@ -515,6 +528,8 @@ input_number:
     mode: box
     unit_of_measurement: "%"
     icon: mdi:battery-sync-outline
+  # An extra cost per kWh the batteries discharge, so the plan only cycles them when the price
+  # difference is worth the wear.
   hba_strategy_planned_wear_cost:
     name: "Planned: wear cost per kWh cycled"
     min: 0
@@ -544,6 +559,8 @@ input_number:
     mode: box
     unit_of_measurement: "%"
     icon: mdi:home-plus-outline
+  # Taken off the sell price (or off the buy price when no sell price sensor is set) for every
+  # kWh exported: what the supplier keeps. The savings bookkeeping uses it too.
   hba_strategy_planned_sell_deduction:
     name: "Planned: sell price deduction"
     min: 0
@@ -613,6 +630,7 @@ input_number:
     mode: box
     unit_of_measurement: kWh
     icon: mdi:stairs
+  # A new plan when the stored energy is this far from what the plan expects at this moment.
   hba_strategy_planned_replan_drift:
     name: "Planned: re-plan when off by more than"
     min: 0.5
@@ -621,6 +639,8 @@ input_number:
     mode: box
     unit_of_measurement: kWh
     icon: mdi:chart-timeline-variant-shimmer
+  # Dynamic: a cheap and an expensive slot only form a pair when the expensive one costs at
+  # least this much more (0 = any difference).
   hba_strategy_dynamic_threshold_delta:
     name: "Dynamic min price difference"
     min: 0
@@ -727,6 +747,9 @@ input_number:
     mode: box
     unit_of_measurement: "%"
     icon: mdi:battery-alert
+  # Timed EV charge: the push only runs while the average SoC is above this (not for a Planned
+  # Car row, which has its own target). sensor.hba_battery_assist_reserved_energy shows the kWh
+  # between each battery's cutoff and this SoC (display only).
   hba_battery_assist_min_soc:
     name: "Battery assist minimum SoC"
     min: 5
@@ -1043,6 +1066,8 @@ input_text:
     name: "Notify entity_id"
     max: 100
     icon: mdi:bell-outline
+  # Optional binary_sensor that is on while the car is plugged in; empty = Timed EV charge does
+  # not check it.
   hba_battery_assist_car_connected_entity:
     name: "Car connected entity"
     max: 100
