@@ -427,16 +427,28 @@ automation:
         data:
           title: "HBA: RS485 control mismatch"
           message: >-
+            {%- set m = state_attr('binary_sensor.hba_rs485_mode_mismatch', 'mismatched_batteries') -%}
+            {%- if is_state('input_boolean.hba_maintenance_mode', 'on') -%}
+            RS485 is off on {{ m }}. Maintenance mode is on, so HBA leaves it
+            that way, sends it no commands and gives its share to the other batteries. Switch
+            the option off when the maintenance is done.
+            {%- else -%}
             HBA master mode is Full control but the following batteries have RS485
-            disabled: {{ state_attr('binary_sensor.hba_rs485_mode_mismatch', 'mismatched_batteries') }}.
+            disabled: {{ m }}.
             HBA Modbus writes to these batteries are being silently ignored.
             HBA re-applies RS485 right away and every 5 minutes; if this keeps
             recurring, check the Marstek app or firmware.
+            {%- endif -%}
           tag: hba_rs485_mode_mismatch
           color: red
           priority: high
           persistent_id: hba_rs485_mode_mismatch
           persistent_message: >-
+            {%- if is_state('input_boolean.hba_maintenance_mode', 'on') %}
+            **Maintenance:** Maintenance mode is on, so HBA leaves these batteries alone
+            and does not switch RS485 back on until you switch the option off.
+
+            {% endif -%}
             HBA master mode is **Full control** but the following batteries have
             RS485 control **disabled**:
             {{ state_attr('binary_sensor.hba_rs485_mode_mismatch', 'mismatched_batteries') }}.

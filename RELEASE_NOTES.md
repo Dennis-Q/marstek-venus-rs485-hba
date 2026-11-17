@@ -21,6 +21,18 @@ This document covers HBA-specific changes only.
 
 ### Added
 
+- **Maintenance mode** (`input_boolean.hba_maintenance_mode`, default off; Advanced
+  settings → Battery maintenance). For a battery that support works on: switch it on, then switch RS485
+  off on that battery. HBA no longer switches RS485 back on and leaves that battery alone: no commands,
+  no limit-register writes, no work-mode change, and its share goes to the other batteries. In a power
+  group its own max charge / discharge power stays reserved (or its register, when higher), because HBA
+  does not know what it will do. A warning banner shows while the option is on; the RS485 alert comes
+  once with the maintenance text. A battery that restarts meanwhile also stays at RS485 off. Switching
+  the option off switches RS485 back on at once.
+- **A battery with RS485 off gets no share** (Full control, also without the option): it ignores every
+  command, so its share goes to the other batteries, also in the seconds after a restart until RS485 is
+  back on. The limit source shows *RS485 off* for it.
+
 - **Planned: charge the car from the batteries** (`input_boolean.hba_strategy_planned_car_battery`, default
   off; needs the EV project with *Follow assisted*). A new plan action **Car** (🔋→🚗 in the plan table):
   the batteries cover the house and the rest goes into the car, when a battery kWh is worth more there

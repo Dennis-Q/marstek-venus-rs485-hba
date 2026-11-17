@@ -64,6 +64,13 @@ input_boolean:
   hba_control_is_debug_mode:
     name: "Insight mode"
     icon: mdi:bug-outline
+  # Maintenance (user 2026-11-17: a battery in support must keep the RS485 setting support
+  # gave it). On = HBA no longer switches RS485 back on and leaves a battery with RS485
+  # off alone: no share, no writes, in a power group its own limits stay reserved.
+  # Banner: binary_sensor.hba_rs485_mode_mismatch. Off = RS485 back on at once.
+  hba_maintenance_mode:
+    name: "Maintenance mode"
+    icon: mdi:wrench-clock
   hba_control_onboarding_finished:
     name: "Finish onboarding"
     icon: mdi:check-circle-outline
@@ -2936,6 +2943,14 @@ template:
           - sensor.hba_battery_order
           - input_number.hba_control_prioritize_battery
           - input_select.hba_control_priority_change_interval
+          # Maintenance: reserve the battery's own limits at once
+          - input_boolean.hba_maintenance_mode
+          - select.marstek_m1_rs485_control_mode
+          - select.marstek_m2_rs485_control_mode
+          - select.marstek_m3_rs485_control_mode
+          - select.marstek_m4_rs485_control_mode
+          - select.marstek_m5_rs485_control_mode
+          - select.marstek_m6_rs485_control_mode
     actions:
       - variables:
           plan: >-
@@ -2967,6 +2982,14 @@ template:
               {%- set live = hb is not none and hb.state not in ['unavailable', 'unknown']
                              and (now() - hb.last_reported).total_seconds() <= 30
                              and inv not in ['unavailable', 'unknown', ''] -%}
+              {#- maint = in maintenance (input_boolean.hba_maintenance_mode on, RS485 off, Full
+                  control): HBA does not write it and does not know what support lets it do, so
+                  below it is handled like an unreachable battery, but with its own limits reserved
+                  (user 2026-11-17) -#}
+              {%- set maint = is_state('input_boolean.hba_maintenance_mode', 'on')
+                  and is_state('input_select.hba_marstek_master_battery_mode', 'Full control')
+                  and is_state('select.marstek_m' ~ i ~ '_rs485_control_mode', 'disable') -%}
+              {%- set live = live and not maint -%}
               {#- Read-back of the two limit registers. 50 W or less is no real limit (0 = the battery
                   restarted, -1 = no reading): then the last known limit counts (lkc / lkd) -#}
               {%- set rbc = states('sensor.marstek_m' ~ i ~ '_max_charge_power_number') | float(-1) -%}
@@ -3006,7 +3029,8 @@ template:
                     'i': i, 'g': states('input_select.hba_marstek_m' ~ i ~ '_power_group'),
                     'capc': states('input_number.hba_marstek_m' ~ i ~ '_max_charge_power') | float(0) | int,
                     'capd': states('input_number.hba_marstek_m' ~ i ~ '_max_discharge_power') | float(0) | int,
-                    'soc': soc, 'hi': hi, 'lo': lo, 'live': live, 'full': full, 'empty': empty, 'latched': latched,
+                    'soc': soc, 'hi': hi, 'lo': lo, 'live': live, 'maint': maint,
+                    'full': full, 'empty': empty, 'latched': latched,
                     'lkc': lkc | int, 'lkd': lkd | int}] -%}
             {%- endfor -%}
             {#- The order hba_set_batteries fills batteries in, per direction (for
@@ -3068,10 +3092,13 @@ template:
                     {%- set prev = p.c if d == 'charge' else p.d -%}
                     {%- set cap = 'capc' if d == 'charge' else 'capd' -%}
                     {%- set w = namespace(R=budget, out={}, add={}, elig=[]) -%}
-                    {#- Unreachable: keep what it has, its share is not ours to hand out -#}
+                    {#- Unreachable: keep what it has, its share is not ours to hand out. In
+                        maintenance: its own limit, or its register when that is higher (support
+                        may run it at anything up to that) -#}
                     {%- for m in members | rejectattr('live') -%}
-                      {%- set keep = m[lk] if m[lk] > 0
-                          else (prev[m.i | string] if (m.i | string) in prev else m[cap]) -%}
+                      {%- set keep = ([m[cap], m[lk]] | max) if m.maint
+                          else (m[lk] if m[lk] > 0
+                                else (prev[m.i | string] if (m.i | string) in prev else m[cap])) -%}
                       {%- set w.out = w.out | combine({m.i | string: keep | int}) -%}
                       {%- set w.R = w.R - keep -%}
                     {%- endfor -%}
@@ -3151,6 +3178,7 @@ template:
                 'full': ns.bats | selectattr('full') | map(attribute='i') | list,
                 'empty': ns.bats | selectattr('empty') | map(attribute='i') | list,
                 'latched': ns.bats | selectattr('latched') | map(attribute='i') | list,
+                'maintenance': ns.bats | selectattr('maint') | map(attribute='i') | list,
                 'last_known_charge': ns.lkc, 'last_known_discharge': ns.lkd} | tojson }}
     sensor:
       - name: "HBA Power Limits"
@@ -3172,6 +3200,8 @@ template:
           latched: "{{ (plan | from_json if plan is string else plan).latched }}"
           last_known_charge: "{{ (plan | from_json if plan is string else plan).last_known_charge }}"
           last_known_discharge: "{{ (plan | from_json if plan is string else plan).last_known_discharge }}"
+          # Batteries in maintenance (input_boolean.hba_maintenance_mode + RS485 off): not written
+          maintenance: "{{ (plan | from_json if plan is string else plan).maintenance | default([]) }}"
 
   # ── Room per phase: main fuse limit and Charge alongside EV ───────────────────
   # What the batteries on each phase may still charge / discharge in total (W), used by
@@ -3452,6 +3482,9 @@ template:
                   {%- set best.w = 0 -%}{%- set best.r = 'Offline' -%}
                 {%- elif inv == 'Fault' -%}
                   {%- set best.w = 0 -%}{%- set best.r = 'Fault' -%}
+                {%- elif is_state('select.marstek_m' ~ bat ~ '_rs485_control_mode', 'disable') -%}
+                  {#- Ignores HBA's commands: after a restart, or in maintenance -#}
+                  {%- set best.w = 0 -%}{%- set best.r = 'RS485 off' -%}
                 {%- elif dir == 'charge'
                     and soc >= states('input_number.hba_marstek_m' ~ bat ~ '_charging_cutoff_capacity') | float(100) -%}
                   {%- set best.w = 0 -%}{%- set best.r = 'Full' -%}

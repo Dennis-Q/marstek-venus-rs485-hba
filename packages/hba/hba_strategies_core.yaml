@@ -182,6 +182,10 @@ automation:
           - select.marstek_m6_user_work_mode
         not_to: ["unavailable", "unknown"]
         for: "00:00:10"
+      # Maintenance over: RS485 back on now, not at the next 5-minute tick
+      - trigger: state
+        entity_id: input_boolean.hba_maintenance_mode
+        to: "off"
     conditions:
       - condition: state
         entity_id: input_select.hba_marstek_master_battery_mode
@@ -199,15 +203,21 @@ automation:
                 rs_entity: "select.marstek_m{{ repeat.index }}_rs485_control_mode"
             # Unreachable batteries report unavailable/unknown, never a wrong mode —
             # writing to them only produces log spam.
+            # Maintenance (input_boolean.hba_maintenance_mode on): a battery with RS485 off
+            # keeps what support set, RS485 and work mode both (no condition step: that would
+            # end the whole run, not only this battery).
+            - variables:
+                maint: >-
+                  {{ is_state('input_boolean.hba_maintenance_mode', 'on') and is_state(rs_entity, 'disable') }}
             - if:
-                - "{{ want_work_mode != '' and states(wm_entity) not in ['unavailable', 'unknown', want_work_mode] }}"
+                - "{{ not maint and want_work_mode != '' and states(wm_entity) not in ['unavailable', 'unknown', want_work_mode] }}"
               then:
                 - action: select.select_option
                   continue_on_error: true
                   target: { entity_id: "{{ wm_entity }}" }
                   data: { option: "{{ want_work_mode }}" }
             - if:
-                - "{{ want_rs485 != '' and states(rs_entity) not in ['unavailable', 'unknown', want_rs485] }}"
+                - "{{ not maint and want_rs485 != '' and states(rs_entity) not in ['unavailable', 'unknown', want_rs485] }}"
               then:
                 - action: select.select_option
                   continue_on_error: true
@@ -580,6 +590,10 @@ automation:
                value, the register reads 0), w.up (raises, as far as the group has room:
                u.sum = what the group's batteries add up to now) -#}
             {%- set w = namespace(lower=[], heal=[], up=[]) -%}
+            {#- In maintenance (sensor.hba_power_limits reserves its own limits): never written, its
+                read-back still counts against the group like an unreachable battery's -#}
+            {%- set v = state_attr(S, 'maintenance') -%}
+            {%- set maint = (v if v is sequence and v is not string else []) | map('string') | list -%}
             {%- for d in ['charge', 'discharge'] -%}
               {%- set v = state_attr(S, d) -%}
               {%- set want = v if v is mapping else {} -%}
@@ -593,7 +607,7 @@ automation:
                 {%- set hb = states.sensor['marstek_m' ~ i ~ '_battery_power'] -%}
                 {%- set live = rb >= 0 and hb is not none and hb.state not in ['unavailable', 'unknown']
                                and (now() - hb.last_reported).total_seconds() <= 30
-                               and inv not in ['unavailable', 'unknown', ''] -%}
+                               and inv not in ['unavailable', 'unknown', ''] and k not in maint -%}
                 {%- set eff = rb if rb > 50 else (lk[k] if k in lk else (want[k] if k in want else 0)) -%}
                 {%- set c.eff = c.eff | combine({k: eff | int}) -%}
                 {%- set c.rb = c.rb | combine({k: rb}) -%}
@@ -977,7 +991,9 @@ script:
                   {{ states('select.marstek_' ~ bat ~ '_forcible_charge_discharge')
                        not in ['unavailable', 'unknown', 'none']
                      and hb is not none and hb.state not in ['unavailable', 'unknown']
-                     and (now() - hb.last_reported).total_seconds() <= 30 }}
+                     and (now() - hb.last_reported).total_seconds() <= 30
+                     and not (is_state('input_boolean.hba_maintenance_mode', 'on')
+                              and is_state('select.marstek_' ~ bat ~ '_rs485_control_mode', 'disable')) }}
             # Stop any in-flight forcible charge/discharge BEFORE changing mode,
             # for any mode that doesn't actively keep commanding (everything
             # except Full control). Has to run while RS485 is still enabled so
@@ -1171,6 +1187,22 @@ script:
               entity_id: "input_text.hba_last_cmd_m{{ _bat }}"
             data: { value: "" }
           - stop: "Battery silent on Modbus for 30+ s — write skipped"
+      # Maintenance (input_boolean.hba_maintenance_mode on, user 2026-11-17): a battery with
+      # RS485 off is left alone, also by a forced stop — support sees no writes from HBA. It
+      # ignores forcible commands with RS485 off anyway. Cache cleared: the first cycle after
+      # maintenance writes again.
+      - alias: "Battery in maintenance (RS485 off, maintenance mode) — skip"
+        if:
+          - condition: template
+            value_template: >-
+              {{ is_state('input_boolean.hba_maintenance_mode', 'on')
+                 and is_state('select.marstek_m' ~ _bat ~ '_rs485_control_mode', 'disable') }}
+        then:
+          - action: input_text.set_value
+            target:
+              entity_id: "input_text.hba_last_cmd_m{{ _bat }}"
+            data: { value: "" }
+          - stop: "Battery in maintenance (RS485 off, maintenance mode) — write skipped"
       - alias: "Unchanged and still fresh — skip the three Modbus round trips"
         if:
           - condition: template
@@ -1265,6 +1297,11 @@ script:
           - condition: state
             entity_id: input_select.hba_marstek_master_battery_mode
             state: "Disabled"
+      # Maintenance: a battery with RS485 off keeps what support set (input_boolean.hba_maintenance_mode)
+      - condition: template
+        value_template: >-
+          {{ not (is_state('input_boolean.hba_maintenance_mode', 'on')
+                  and is_state('select.marstek_m' ~ _bat ~ '_rs485_control_mode', 'disable')) }}
       - if: "{{ _lc > 0 and states('sensor.marstek_m' ~ _bat ~ '_max_charge_power_number') | float(-1) == 0 }}"
         then:
           - action: number.set_value
@@ -1465,7 +1502,12 @@ script:
                       {%- set hb = states.sensor['marstek_m' ~ bat ~ '_battery_power'] -%}
                       {%- set live = hb is not none and hb.state not in ['unavailable', 'unknown']
                                      and (now() - hb.last_reported).total_seconds() <= 30 -%}
-                      {%- set eligible = live and soc < soc_max and inv not in ['Fault','unknown','unavailable'] -%}
+                      {#- RS485 off: it ignores every forcible command (after a restart until
+                          hba_master_mode_periodic_reapply switches it back on, or in maintenance),
+                          so its share goes to the next battery -#}
+                      {%- set rs_off = is_state('select.marstek_m' ~ bat ~ '_rs485_control_mode', 'disable') -%}
+                      {%- set eligible = live and not rs_off and soc < soc_max
+                          and inv not in ['Fault','unknown','unavailable'] -%}
                       {%- if eligible -%}
                         {%- set eff_max = hw_max -%}
                         {%- if sc_lim2 > 0 and soc >= sc_thr2 -%}
@@ -1652,7 +1694,9 @@ script:
                       {%- set live = hb is not none and hb.state not in ['unavailable', 'unknown']
                                      and (now() - hb.last_reported).total_seconds() <= 30 -%}
                       {#- Low-SoC latch: the firmware refuses, give its share to the next battery -#}
-                      {%- set eligible = live and soc > soc_min
+                      {#- RS485 off: ignores forcible commands, see the charge side -#}
+                      {%- set rs_off = is_state('select.marstek_m' ~ bat ~ '_rs485_control_mode', 'disable') -%}
+                      {%- set eligible = live and not rs_off and soc > soc_min
                           and bat not in (state_attr('sensor.hba_power_limits', 'latched') or [])
                                          and inv not in ['Fault','unknown','unavailable'] -%}
                       {%- if eligible -%}

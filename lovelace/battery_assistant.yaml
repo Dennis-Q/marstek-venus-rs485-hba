@@ -164,6 +164,32 @@ views:
 
               </ha-alert>
 
+      # Maintenance banner — input_boolean.hba_maintenance_mode on: HBA leaves a battery with
+      # RS485 off alone (replaces the mismatch banner below while on).
+      - type: grid
+        visibility:
+          - condition: state
+            entity: input_boolean.hba_maintenance_mode
+            state: 'on'
+        cards:
+          - type: markdown
+            grid_options:
+              columns: full
+            content: |-
+              <ha-alert alert-type="warning" title="Maintenance mode: HBA leaves batteries with RS485 off alone">
+
+              {%- set m = state_attr('binary_sensor.hba_rs485_mode_mismatch', 'mismatched_batteries') %}
+              {% if m and m != 'none' -%}
+              **{{ m }}** has RS485 switched off. HBA leaves it alone: no commands, no limit writes, its share goes to the other batteries.
+              {%- else -%}
+              No battery has RS485 switched off right now.
+              {%- endif %}
+              While this is on, HBA does not switch RS485 back on, also not after a battery restart.
+
+              Switch **Maintenance mode** off when the maintenance is done (Advanced settings, Battery maintenance); HBA then switches RS485 back on at once.
+
+              </ha-alert>
+
       # RS485 mode mismatch alert — mirrors hba_notify_rs485_mode_mismatch (master mode
       # Full control but a battery has RS485 control disabled, so it ignores HBA).
       - type: grid
@@ -171,6 +197,9 @@ views:
           - condition: state
             entity: binary_sensor.hba_rs485_mode_mismatch
             state: 'on'
+          - condition: state
+            entity: input_boolean.hba_maintenance_mode
+            state: 'off'
         cards:
           - type: markdown
             grid_options:
@@ -3219,6 +3248,28 @@ views:
               **0 = send every cycle** (old behaviour); lower it to 5–10 s first
               if a battery ever drifts out of its commanded
               mode.</i></font>
+            text_only: true
+          - type: heading
+            icon: mdi:wrench-clock
+            heading: Battery maintenance
+            heading_style: subtitle
+          - type: entities
+            entities:
+              - entity: input_boolean.hba_maintenance_mode
+                name: Maintenance mode
+                secondary_info: none
+          - type: markdown
+            content: >-
+              <font color="grey"><i>For when a battery needs to be left
+              alone, e.g. while Marstek support investigates it. How to use: switch
+              this on, then switch RS485 off on that battery (Marstek app or its
+              RS485 control mode); afterwards switch this off. While it is on, for
+              every battery with RS485 off HBA: does not switch RS485 back on (also
+              not after a restart), sends it no commands and no limit or work-mode
+              writes, and gives its share to the other batteries. In a power group
+              its own max charge / discharge power (or its register, when higher)
+              stays reserved, because HBA does not know what it will do. Switching
+              this off switches RS485 back on at once.</i></font>
             text_only: true
 
       # Links to settings that live in other views — one section instead of three

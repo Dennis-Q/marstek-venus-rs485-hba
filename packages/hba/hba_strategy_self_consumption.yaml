@@ -135,7 +135,8 @@ script:
               {% set live = hb is not none and hb.state not in ['unavailable', 'unknown']
                             and (now() - hb.last_reported).total_seconds() <= 30
                             and states('sensor.marstek_m' ~ i ~ '_inverter_state') not in ['Fault', 'unknown',
-                                'unavailable'] %}
+                                'unavailable']
+                            and not is_state('select.marstek_m' ~ i ~ '_rs485_control_mode', 'disable') %}
               {% if soc < cutoff and live %}
                 {% set pw = states('number.marstek_m' ~ i ~ '_max_charge_power') | float(0) %}
                 {% set eff_max = pw if pw > 50 else 2500 %}
@@ -163,7 +164,8 @@ script:
               {% set live = hb is not none and hb.state not in ['unavailable', 'unknown']
                             and (now() - hb.last_reported).total_seconds() <= 30
                             and states('sensor.marstek_m' ~ i ~ '_inverter_state') not in ['Fault', 'unknown',
-                                'unavailable'] %}
+                                'unavailable']
+                            and not is_state('select.marstek_m' ~ i ~ '_rs485_control_mode', 'disable') %}
               {% if soc > cutoff and live and not not_responding
                   and i not in (state_attr('sensor.hba_power_limits', 'latched') or []) %}
                 {% set pw = states('number.marstek_m' ~ i ~ '_max_discharge_power') | float(0) %}
