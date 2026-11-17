@@ -18,6 +18,12 @@ modbus:
     port: 502
     delay: 1
     message_wait_milliseconds: 35
+    # HBA (2026-11-11): 5 s instead of 20 s. While a battery's link hangs, every request waits
+    # for the timeout until pymodbus closes the connection (8th failure), and the control loop
+    # waits with it: measured on prod 2026-11-11 (port switched off) 149 s at 5 s against 641 s
+    # at 20 s. Registers that change slowly (Wi-Fi / BT state,
+    # versions, capacity, ...) are polled every 300 s instead of 30 s: fewer requests queued
+    # in front of the control loop's writes.
     timeout: 5
 
     sensors:
