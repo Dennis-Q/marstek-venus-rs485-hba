@@ -262,7 +262,7 @@ automation:
 
   # ── Battery not responding ────────────────────────────────────────────────────
   # Notifies when any battery has RS485 enabled but its actual output deviates
-  # from the commanded value by >15% for 2+ minutes. One automation handles all
+  # from the commanded value by >15% for 90+ seconds. One automation handles all
   # 6 batteries in parallel; battery identity is extracted from trigger.entity_id.
   - id: hba_notify_battery_not_responding
     alias: "HBA: Notify battery not responding to RS485 command"
@@ -322,7 +322,7 @@ automation:
           title: "HBA: Battery {{ batt | upper }} not responding"
           message: >-
             Commanded {{ cmd_w | abs }} W {{ 'discharge' if cmd_w | int > 0 else 'charge' }}
-            but actual AC output is {{ actual_w }} W (>15% mismatch for 2+ min).
+            but actual AC output is {{ actual_w }} W (>15% mismatch for 90+ s).
             {% if capped_800 -%}
             It looks capped at ~800 W: probably Marstek's 800 W output limit (default
             until unlocked in the Marstek app). Unlock it in the app, or set
@@ -338,7 +338,7 @@ automation:
           persistent_id: "hba_battery_not_responding_{{ batt }}"
           persistent_message: |-
             Commanded **{{ cmd_w | abs }} W {{ 'discharge' if cmd_w | int > 0 else 'charge' }}**
-            but actual AC output is **{{ actual_w }} W** (>15% mismatch sustained 2+ min).
+            but actual AC output is **{{ actual_w }} W** (>15% mismatch sustained 90+ s).
 
             {% if capped_800 -%}
             **The output looks capped at ~800 W.** That is almost always Marstek's

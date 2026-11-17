@@ -302,6 +302,8 @@ The files differ from fonske's in a few small ways:
 - Hub `timeout: 5` (was 20): a battery that stops answering holds up the others four times shorter
 - 24 slow registers (cell voltages, Wi-Fi / cloud state, monthly counters, total energy) are read
   every 5 minutes instead of every 30 seconds, so commands wait less behind the reads
+- The three BMS limit registers (charge voltage, charge and discharge current) are read every
+  60 seconds instead of 90, so HBA follows the BMS sooner when it cuts the charge near full
 
 The installer never overwrites a battery file (it holds your battery's IP address), so it checks
 them at every install and warns: HBA's own files are compared with the release (a differing one

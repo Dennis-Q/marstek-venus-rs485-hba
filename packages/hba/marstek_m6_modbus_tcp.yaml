@@ -686,11 +686,13 @@ modbus:
         # 5 OTA Upgrade
         # 6 Bypass
 
+      # The BMS limits: every 60 s (was 90). HBA lowers its command when the BMS cuts
+      # the charge near full; the not-responding alert (90 s) waits for this read.
       - name: "Marstek m6 Battery Charge Voltage Limit"
         unique_id: marstek_m6_battery_charge_voltage_limit
         address: 35110
         slave: 1
-        scan_interval: 90
+        scan_interval: 60
         input_type: holding
         data_type: uint16
         unit_of_measurement: "V"
@@ -703,7 +705,7 @@ modbus:
         unique_id: marstek_m6_battery_charge_current_limit
         address: 35111
         slave: 1
-        scan_interval: 90
+        scan_interval: 60
         input_type: holding
         data_type: uint16
         unit_of_measurement: "A"
@@ -716,7 +718,7 @@ modbus:
         unique_id: marstek_m6_battery_discharge_current_limit
         address: 35112
         slave: 1
-        scan_interval: 90
+        scan_interval: 60
         input_type: holding
         data_type: uint16
         unit_of_measurement: "A"
