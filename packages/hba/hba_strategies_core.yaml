@@ -1530,7 +1530,8 @@ script:
                         # battery was recently active; hard-stop only after idle_time.
                         - variables:
                             bat_last_ts: >
-                              {% set ts = as_timestamp(states('input_datetime.hba_last_active_m' ~ bat_idx), 0) | float(0) %}
+                              {% set ts = as_timestamp(states('input_datetime.hba_last_active_m' ~ bat_idx),
+                              0) | float(0) %}
                               {{ ts if ts > 0 else as_timestamp(now()) }}
                             bat_time_idle: "{{ as_timestamp(now()) - bat_last_ts }}"
                             idle_secs: "{{ states('input_number.hba_control_idle_time') | float(5) * 60 }}"
@@ -1710,7 +1711,8 @@ script:
                         # the battery was recently active; hard-stop after idle_time.
                         - variables:
                             bat_last_ts: >
-                              {% set ts = as_timestamp(states('input_datetime.hba_last_active_m' ~ bat_idx), 0) | float(0) %}
+                              {% set ts = as_timestamp(states('input_datetime.hba_last_active_m' ~ bat_idx),
+                              0) | float(0) %}
                               {{ ts if ts > 0 else as_timestamp(now()) }}
                             bat_time_idle: "{{ as_timestamp(now()) - bat_last_ts }}"
                             idle_secs: "{{ states('input_number.hba_control_idle_time') | float(5) * 60 }}"
