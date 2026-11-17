@@ -3204,7 +3204,8 @@ template:
   # ── What limits charging / discharging right now (like the Peblar's limit source) ──
   # The hba_set_batteries waterfall replayed at full request: per battery the most it could
   # take now and the tightest limit — register limit (power group / own limit / set in the
-  # battery), BMS charge current, slow charge, the per-phase room (main fuse, car first) shared
+  # battery), BMS charge current, slow charge, the per-phase room (main fuse, car first or
+  # Balance) shared
   # in battery order, or not available at all (full / empty / offline / fault / never
   # discharging while charging alongside the EV). The Limit Source sensors name the limit
   # costing the most watts below 2500 W per battery ("Not limited" when none). Only reports;
@@ -3238,7 +3239,8 @@ template:
             {%- set er = state_attr('sensor.hba_phase_room', 'ev_bal_w' if evbal else 'ev_room_w') if evfirst else {} -%}
             {%- set car_lbl = 'Balance ' if evbal else 'Car first ' -%}
             {%- set er = er if er is mapping else {} -%}
-            {#- Room per phase as [W, reason]: the tighter of main fuse and car first -#}
+            {#- Room per phase as [W, reason]: the tighter of main fuse and car first / Balance (charging);
+                main fuse only (discharging) -#}
             {%- set rc = namespace(d={}) -%}
             {%- set rd = namespace(d={}) -%}
             {%- for ph in ['L1', 'L2', 'L3'] -%}
@@ -3302,11 +3304,17 @@ template:
                 {%- set rbc = states('number.marstek_m' ~ bat ~ '_max_charge_power') | float(2500) -%}
                 {%- set rbd = states('number.marstek_m' ~ bat ~ '_max_discharge_power') | float(2500) -%}
                 {%- set rb = rbc if dir == 'charge' else rbd -%}
+                {#- reg = the battery's limit register. Both registers reading 0 = the battery restarted and
+                    the read-back is empty while it still limits at its stored value: use the last known
+                    limit (sensor.hba_power_limits). reg_r names it: the power group when that set it lower
+                    than the battery's own setting, else the own setting, else whatever is in the battery -#}
                 {%- set reg = ((lk[k] if k in lk else 2500) if rbc == 0 and rbd == 0 else rb) | int -%}
                 {%- set own = states('input_number.hba_marstek_m' ~ bat ~ '_max_' ~ dir ~ '_power') | float(0) -%}
                 {%- set grp = states('input_select.hba_marstek_m' ~ bat ~ '_power_group') -%}
                 {%- set reg_r = ('Power group ' ~ grp) if grp in ['A', 'B', 'C'] and (own <= 0 or reg < own - 1)
                                 else ('Own limit' if own > 0 else 'Battery setting') -%}
+                {#- best = the most this battery can do now (W) and the tightest limit. First the cases
+                    where it can do nothing at all, then the lowest of its limits -#}
                 {%- set best = namespace(w=nominal, r='None') -%}
                 {%- if not live -%}
                   {%- set best.w = 0 -%}{%- set best.r = 'Offline' -%}
@@ -3323,6 +3331,7 @@ template:
                 {%- else -%}
                   {%- set cands = [[reg, reg_r]] -%}
                   {%- if dir == 'charge' -%}
+                    {#- BMS: the charge current it allows x the battery voltage (DC side) -#}
                     {%- set bms_a = states('sensor.marstek_m' ~ bat ~ '_battery_charge_current_limit') | float(-1) -%}
                     {%- set volt = states('sensor.marstek_m' ~ bat ~ '_battery_voltage') | float(0) -%}
                     {%- if bms_a >= 0 and volt > 40 -%}
@@ -3348,6 +3357,8 @@ template:
                   {%- for w, r in cands if w < best.w -%}
                     {%- set best.w = [w, 0] | max | int -%}{%- set best.r = r -%}
                   {%- endfor -%}
+                  {#- What this battery takes comes off its phase's room before the next battery in the
+                      order (a battery without a phase: off every phase) -#}
                   {%- if room.d and ph in room.d -%}
                     {%- set room.d = room.d | combine({ph: [room.d[ph][0] - best.w, room.d[ph][1]]}) -%}
                   {%- elif room.d -%}
@@ -3356,6 +3367,7 @@ template:
                     {%- set room.d = nd.d -%}
                   {%- endif -%}
                 {%- endif -%}
+                {#- Per battery and direction: W possible and why; per reason the W it costs below 2500 W -#}
                 {%- set item = {k: {'w': best.w, 'reason': best.r}} -%}
                 {%- if dir == 'charge' -%}
                   {%- set out.c = out.c | combine(item) -%}
