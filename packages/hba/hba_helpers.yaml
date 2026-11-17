@@ -1907,7 +1907,8 @@ template:
           seconds_since_cycle: >-
             {%- set lt = state_attr('automation.hba_control_loop_p1_meter_triggered', 'last_triggered') -%}
             {%- set s = ((now() - lt).total_seconds()) | int if lt is not none else none -%}
-            {{ s if s is not none and s > 90 and is_state('input_select.hba_marstek_master_battery_mode', 'Full control') else none }}
+            {{ s if s is not none and s > 90
+                and is_state('input_select.hba_marstek_master_battery_mode', 'Full control') else none }}
 
       # A battery is offline when Modbus lost it (inverter_state unavailable) OR its link
       # hangs: battery_power (polled every 10 s) has not reported for 30+ s. A hung link
@@ -2022,7 +2023,8 @@ template:
         icon: mdi:solar-power-variant-outline
         state: >-
           {{ is_state('input_select.hba_strategy_charge_goal', 'solar forecast')
-             and states('input_select.hba_strategy_charge_goal_reached') in ['Full stop', 'Sell', 'Zero import', 'Standby / peak shave'] }}
+             and states('input_select.hba_strategy_charge_goal_reached') in ['Full stop', 'Sell', 'Zero import',
+                 'Standby / peak shave'] }}
         attributes:
           next_strategy: "{{ states('input_select.hba_strategy_charge_goal_reached') }}"
 
@@ -2043,8 +2045,11 @@ template:
           missing: >-
             {%- set e = states('input_text.hba_strategy_ev_sensor_entity_id') | trim -%}
             {%- set m = state_attr('sensor.hba_phase_room', 'missing_sensors') -%}
-            {%- set l = [] if e not in ['', 'unknown', 'unavailable'] and states(e) in ['on', 'off'] else ['the EV charging entity'] -%}
-            {%- set l = l + ([] if m == '' else ['per-phase grid power ' ~ (m if m else 'sensors (sensor.p1_meter_power_l1..l3)')]) -%}
+            {%- set l = [] if e not in ['', 'unknown', 'unavailable'] and states(e) in ['on', 'off']
+                else ['the EV charging entity'] -%}
+            {%- set l = l
+                + ([] if m == ''
+                  else ['per-phase grid power ' ~ (m if m else 'sensors (sensor.p1_meter_power_l1..l3)')]) -%}
             {{ l | join(' and ') }}
 
       # "Charge alongside EV" is in effect: the car charges (EV stop trigger entity on),
@@ -2069,7 +2074,8 @@ template:
                            and not is_state('binary_sensor.hba_battery_assist_waiting', 'on') -%}
           {{ ev and not assist
              and (is_state('input_select.hba_control_strategy_during_ev_charge', 'Charge alongside EV')
-                  or (is_state('input_select.hba_strategy', 'Planned') and is_state('binary_sensor.hba_ev_alongside_ready', 'on')))
+                  or (is_state('input_select.hba_strategy', 'Planned')
+                      and is_state('binary_sensor.hba_ev_alongside_ready', 'on')))
              and not is_state('input_select.hba_strategy', 'Full stop') }}
         attributes:
           # Batteries first below the reserve, EV first again only 0.2 kWh above it: with the
@@ -2082,11 +2088,19 @@ template:
             {%- set was = is_state_attr('binary_sensor.hba_ev_charge_alongside', 'mode', 'Batteries first') -%}
             {%- set n = states('input_number.hba_battery_count') | int(1) -%}
             {%- set q = namespace(ok=true) -%}
-            {%- for i in range(1, n + 1) if not is_number(states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge')) -%}{%- set q.ok = false -%}{%- endfor -%}
+            {%- for i in range(1, n + 1)
+                if not is_number(states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge')) -%}
+              {%- set q.ok = false -%}
+            {%- endfor -%}
             {%- set ok = q.ok -%}
-            {%- if is_state('binary_sensor.hba_ev_assist', 'on') and is_state_attr('binary_sensor.hba_ev_assist', 'ev_mode', 'force') -%}
-            {{ 'Balance' if ((state_attr('sensor.hba_planned_strategy', 'summary') or {}).get('car') or {}).get('prio') == 'Balance' else 'EV first' }}
-            {%- elif not ok and state_attr('binary_sensor.hba_ev_charge_alongside', 'mode') in ['Batteries first', 'EV first'] -%}
+            {%- if is_state('binary_sensor.hba_ev_assist', 'on')
+                and is_state_attr('binary_sensor.hba_ev_assist', 'ev_mode', 'force') -%}
+            {{ 'Balance'
+                if ((state_attr('sensor.hba_planned_strategy', 'summary') or {}).get('car')
+                  or {}).get('prio') == 'Balance'
+                else 'EV first' }}
+            {%- elif not ok
+                and state_attr('binary_sensor.hba_ev_charge_alongside', 'mode') in ['Batteries first', 'EV first'] -%}
             {{ state_attr('binary_sensor.hba_ev_charge_alongside', 'mode') }}
             {%- else -%}
             {{ 'Batteries first' if e < r or (was and r > 0 and e < r + 0.2) else 'EV first' }}
@@ -2109,7 +2123,9 @@ template:
           {%- set was = is_state('binary_sensor.hba_batteries_before_ev', 'on') -%}
           {%- set n = states('input_number.hba_battery_count') | int(1) -%}
           {%- set q = namespace(ok=true) -%}
-          {%- for i in range(1, n + 1) if not is_number(states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge')) -%}{%- set q.ok = false -%}{%- endfor -%}
+          {%- for i in range(1, n + 1) if not is_number(states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge')) -%}
+            {%- set q.ok = false -%}
+          {%- endfor -%}
           {%- set ok = q.ok -%}
           {%- if not ok and states('binary_sensor.hba_batteries_before_ev') in ['on', 'off'] -%}
           {{ was }}
@@ -2120,7 +2136,8 @@ template:
           {%- set ea = 'binary_sensor.hba_ev_assist' -%}
           {%- set planned = is_state(ea, 'on') and state_attr(ea, 'ev_mode') in ['solar', 'wait'] -%}
           {{ (is_state('input_select.hba_control_strategy_during_ev_charge', 'Charge alongside EV')
-              or (is_state('input_select.hba_strategy', 'Planned') and is_state('binary_sensor.hba_ev_alongside_ready', 'on')))
+              or (is_state('input_select.hba_strategy', 'Planned')
+                  and is_state('binary_sensor.hba_ev_alongside_ready', 'on')))
              and not is_state('input_select.hba_strategy', 'Full stop')
              and ((state_attr('binary_sensor.hba_ev_solar_allowed', 'reason') not in ['target', 'export']) if planned
                   else (e < r or (was and r > 0 and e < r + 0.2))) }}
@@ -2167,7 +2184,8 @@ template:
             {% set b_soc = states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') | float(0) %}
             {% set b_cut = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) %}
             {% set inv   = states('sensor.marstek_m' ~ i ~ '_inverter_state') %}
-            {% if b_soc > b_cut and inv not in ['Fault', 'unknown', 'unavailable'] and i not in (state_attr('sensor.hba_power_limits', 'latched') or []) %}
+            {% if b_soc > b_cut and inv not in ['Fault', 'unknown', 'unavailable']
+                and i not in (state_attr('sensor.hba_power_limits', 'latched') or []) %}
               {% set ns.dischargeable = true %}
             {% endif %}
           {% endfor %}
@@ -2606,7 +2624,8 @@ template:
             {% for i in range(1, count + 1) %}
               {# unknown / unavailable = not read (battery offline): the offline banner covers
                  that, it is not a mismatch (prod 2026-10-25: M2 power cycle raised both) #}
-              {% if states('select.marstek_m' ~ i ~ '_rs485_control_mode') not in ['enable', 'unknown', 'unavailable'] %}
+              {% if states('select.marstek_m' ~ i ~ '_rs485_control_mode')
+                    not in ['enable', 'unknown', 'unavailable'] %}
                 {% set ns.mismatch = true %}
               {% endif %}
             {% endfor %}
@@ -2617,7 +2636,8 @@ template:
             {% set count = states('input_number.hba_battery_count') | int(1) %}
             {% set ns = namespace(result=[]) %}
             {% for i in range(1, count + 1) %}
-              {% if states('select.marstek_m' ~ i ~ '_rs485_control_mode') not in ['enable', 'unknown', 'unavailable'] %}
+              {% if states('select.marstek_m' ~ i ~ '_rs485_control_mode')
+                    not in ['enable', 'unknown', 'unavailable'] %}
                 {% set mode = states('select.marstek_m' ~ i ~ '_rs485_control_mode') %}
                 {% set ns.result = ns.result + ['M' ~ i ~ ' (' ~ mode ~ ')'] %}
               {% endif %}
@@ -2742,8 +2762,12 @@ template:
               {%- set prev = state_attr('sensor.hba_battery_order', key) or [] -%}
               {%- set prev = (prev if prev is sequence and prev is not string else []) | map('int') | list -%}
               {%- set o = namespace(l=[]) -%}
-              {%- for b in prev if 1 <= b <= count and b not in o.l -%}{%- set o.l = o.l + [b] -%}{%- endfor -%}
-              {%- for b in range(1, count + 1) if b not in o.l -%}{%- set o.l = o.l + [b] -%}{%- endfor -%}
+              {%- for b in prev if 1 <= b <= count and b not in o.l -%}
+                {%- set o.l = o.l + [b] -%}
+              {%- endfor -%}
+              {%- for b in range(1, count + 1) if b not in o.l -%}
+                {%- set o.l = o.l + [b] -%}
+              {%- endfor -%}
               {#- Bubble sort that only swaps neighbours more than 3 points apart. -#}
               {%- for _ in range(count) -%}
                 {%- for k in range(count - 1) -%}
@@ -2857,7 +2881,8 @@ template:
             {%- set p = namespace(full=[], empty=[], latched=[], lkc={}, lkd={}, c={}, d={}, lead={}) -%}
             {%- set v = state_attr(S, 'full') -%}{%- set p.full = v if v is sequence and v is not string else [] -%}
             {%- set v = state_attr(S, 'empty') -%}{%- set p.empty = v if v is sequence and v is not string else [] -%}
-            {%- set v = state_attr(S, 'latched') -%}{%- set p.latched = v if v is sequence and v is not string else [] -%}
+            {%- set v = state_attr(S, 'latched') -%}
+            {%- set p.latched = v if v is sequence and v is not string else [] -%}
             {%- set v = state_attr(S, 'last_known_charge') -%}{%- set p.lkc = v if v is mapping else {} -%}
             {%- set v = state_attr(S, 'last_known_discharge') -%}{%- set p.lkd = v if v is mapping else {} -%}
             {%- set v = state_attr(S, 'charge') -%}{%- set p.c = v if v is mapping else {} -%}
@@ -2883,8 +2908,12 @@ template:
               {%- set rbd = states('sensor.marstek_m' ~ i ~ '_max_discharge_power_number') | float(-1) -%}
               {%- set lkc = rbc if rbc > 50 else (p.lkc[k] if k in p.lkc else 0) -%}
               {%- set lkd = rbd if rbd > 50 else (p.lkd[k] if k in p.lkd else 0) -%}
-              {%- if lkc > 0 -%}{%- set ns.lkc = ns.lkc | combine({k: lkc | int}) -%}{%- endif -%}
-              {%- if lkd > 0 -%}{%- set ns.lkd = ns.lkd | combine({k: lkd | int}) -%}{%- endif -%}
+              {%- if lkc > 0 -%}
+                {%- set ns.lkc = ns.lkc | combine({k: lkc | int}) -%}
+              {%- endif -%}
+              {%- if lkd > 0 -%}
+                {%- set ns.lkd = ns.lkd | combine({k: lkd | int}) -%}
+              {%- endif -%}
               {#- The BMS reporting 0 A charge limit is an exact "full" (Venus E 3.0 at 100 %) -#}
               {%- set bms_a = states('sensor.marstek_m' ~ i ~ '_battery_charge_current_limit') | float(-1) -%}
               {#- The three flags, each with hysteresis: no SoC reading or inside the band = keep the
@@ -2892,15 +2921,22 @@ template:
               {%- if soc < 0 -%}{%- set full = i in p.full -%}
               {%- elif soc >= hi - 1 or (bms_a == 0 and soc >= 90) -%}{%- set full = true -%}
               {%- elif soc < hi - 4 -%}{%- set full = false -%}
-              {%- else -%}{%- set full = i in p.full -%}{%- endif -%}
+              {%- else -%}
+                {%- set full = i in p.full -%}
+              {%- endif -%}
               {%- if soc < 0 -%}{%- set latched = i in p.latched -%}
-              {%- elif soc < 13 and states('sensor.marstek_m' ~ i ~ '_device_name') | trim is match('VNSE3') -%}{%- set latched = true -%}
+              {%- elif soc < 13 and states('sensor.marstek_m' ~ i ~ '_device_name') | trim is match('VNSE3') -%}
+                {%- set latched = true -%}
               {%- elif soc >= 18 -%}{%- set latched = false -%}
-              {%- else -%}{%- set latched = i in p.latched -%}{%- endif -%}
+              {%- else -%}
+                {%- set latched = i in p.latched -%}
+              {%- endif -%}
               {%- if soc < 0 -%}{%- set empty = i in p.empty -%}
               {%- elif soc <= lo + 1 or latched -%}{%- set empty = true -%}
               {%- elif soc > lo + 4 -%}{%- set empty = false -%}
-              {%- else -%}{%- set empty = i in p.empty -%}{%- endif -%}
+              {%- else -%}
+                {%- set empty = i in p.empty -%}
+              {%- endif -%}
               {%- set ns.bats = ns.bats + [{
                     'i': i, 'g': states('input_select.hba_marstek_m' ~ i ~ '_power_group'),
                     'capc': states('input_number.hba_marstek_m' ~ i ~ '_max_charge_power') | float(0) | int,
@@ -2918,13 +2954,16 @@ template:
               {%- set o = namespace(l=[]) -%}
               {%- if is_state('input_select.hba_control_priority_change_interval', 'Auto balance (SoC)') -%}
                 {%- set so = state_attr('sensor.hba_battery_order', dd ~ '_order') -%}
-                {%- for b in (so if so is sequence and so is not string else []) | map('int') if 1 <= b <= count and b not in o.l -%}
+                {%- for b in (so if so is sequence and so is not string else []) | map('int') if 1 <= b <= count
+                    and b not in o.l -%}
                   {%- set o.l = o.l + [b] -%}
                 {%- endfor -%}
               {%- endif -%}
               {%- for k in range(count) -%}
                 {%- set b = ((pr - 1 + k) % count) + 1 -%}
-                {%- if b not in o.l -%}{%- set o.l = o.l + [b] -%}{%- endif -%}
+                {%- if b not in o.l -%}
+                  {%- set o.l = o.l + [b] -%}
+                {%- endif -%}
               {%- endfor -%}
               {%- set ordr.d = ordr.d | combine({dd: o.l}) -%}
             {%- endfor -%}
@@ -2933,14 +2972,16 @@ template:
             {%- for G in ['A', 'B', 'C'] -%}
               {%- set members = ns.bats | selectattr('g', 'eq', G) | list -%}
               {%- if members | length > 0 -%}
-                {%- set budget = states('input_number.hba_power_group_' ~ (G | lower) ~ '_max_power') | float(0) | int -%}
+                {%- set budget = states('input_number.hba_power_group_' ~ (G | lower) ~ '_max_power')
+                    | float(0) | int -%}
                 {%- set policy = states('input_select.hba_power_group_' ~ (G | lower) ~ '_policy') -%}
                 {#- Settings that make the group unusable go into problems (state "Check settings"); the
                     group then gets no limits from HBA -#}
                 {%- set bad = namespace(p=[]) -%}
                 {%- for m in members if m.capc <= 0 or m.capd <= 0 -%}
                   {%- set bad.p = bad.p + ['M' ~ m.i ~ ' (group ' ~ G ~ '): set its max '
-                        ~ ('charge and discharge' if m.capc <= 0 and m.capd <= 0 else ('charge' if m.capc <= 0 else 'discharge'))
+                        ~ ('charge and discharge' if m.capc <= 0 and m.capd <= 0
+                            else ('charge' if m.capc <= 0 else 'discharge'))
                         ~ ' power'] -%}
                 {%- endfor -%}
                 {%- if budget <= 0 -%}
@@ -2964,7 +3005,8 @@ template:
                     {%- set w = namespace(R=budget, out={}, add={}, elig=[]) -%}
                     {#- Unreachable: keep what it has, its share is not ours to hand out -#}
                     {%- for m in members | rejectattr('live') -%}
-                      {%- set keep = m[lk] if m[lk] > 0 else (prev[m.i | string] if (m.i | string) in prev else m[cap]) -%}
+                      {%- set keep = m[lk] if m[lk] > 0
+                          else (prev[m.i | string] if (m.i | string) in prev else m[cap]) -%}
                       {%- set w.out = w.out | combine({m.i | string: keep | int}) -%}
                       {%- set w.R = w.R - keep -%}
                     {%- endfor -%}
@@ -2977,21 +3019,25 @@ template:
                         all empty): the first in the order keeps the high ceiling, so nothing
                         flips back and forth when they become eligible again. -#}
                     {%- set follow_pool = w.elig if w.elig else rest -%}
-                    {%- if (policy == 'One at a time' and w.elig) or (policy == 'Follow battery order' and follow_pool) -%}
+                    {%- if (policy == 'One at a time' and w.elig)
+                        or (policy == 'Follow battery order' and follow_pool) -%}
                       {%- set key = G ~ '_' ~ d -%}
                       {%- if policy == 'Follow battery order' -%}
                         {%- set ids = follow_pool | map(attribute='i') | list -%}
                         {%- set first = ordr.d[d] | select('in', ids) | list -%}
-                        {%- set cand = follow_pool | selectattr('i', 'eq', first[0] if first else 0) | list or follow_pool -%}
+                        {%- set cand = follow_pool | selectattr('i', 'eq', first[0] if first else 0) | list
+                            or follow_pool -%}
                         {#- Hand over only when the new first battery is 5 SoC points further
                             along than the current leader (charging: more room below its charge
                             cutoff; discharging: more above its discharge cutoff). Each handover
                             rewrites 44002/44003 (EEPROM) on the group's batteries; without this a
                             sunny day swaps at almost every 30-min order update. A leader that
                             is full / empty is not in the pool and hands over at once. -#}
-                        {%- set cur = follow_pool | selectattr('i', 'eq', p.lead[key] if key in p.lead else 0) | list -%}
+                        {%- set cur = follow_pool
+                            | selectattr('i', 'eq', p.lead[key] if key in p.lead else 0) | list -%}
                         {%- if cur and cur[0].i != cand[0].i and cur[0].soc >= 0 and cand[0].soc >= 0 -%}
-                          {%- set sc_new = (cand[0].hi - cand[0].soc) if d == 'charge' else (cand[0].soc - cand[0].lo) -%}
+                          {%- set sc_new = (cand[0].hi - cand[0].soc) if d == 'charge'
+                              else (cand[0].soc - cand[0].lo) -%}
                           {%- set sc_cur = (cur[0].hi - cur[0].soc) if d == 'charge' else (cur[0].soc - cur[0].lo) -%}
                           {%- if sc_new < sc_cur + 5 -%}
                             {%- set cand = cur -%}
@@ -3028,7 +3074,9 @@ template:
                       {%- set w.out = w.out | combine({k: 100 + (w.add[k] if k in w.add else 0)}) -%}
                     {%- endfor -%}
                     {%- if d == 'charge' -%}{%- set gs.c = gs.c | combine(w.out) -%}
-                    {%- else -%}{%- set gs.d = gs.d | combine(w.out) -%}{%- endif -%}
+                    {%- else -%}
+                      {%- set gs.d = gs.d | combine(w.out) -%}
+                    {%- endif -%}
                   {%- endfor -%}
                 {%- endif -%}
               {%- endif -%}
@@ -3137,12 +3185,14 @@ template:
             {#- The car's power per GRID phase (per-phase sensors win over the total) -#}
             {%- set evmax = states('input_number.hba_ev_max_current') | float(0) -%}
             {%- set charging = is_state('binary_sensor.hba_ev_charge_alongside', 'on') -%}
-            {%- set per = ['l1', 'l2', 'l3'] | map('regex_replace', '^', 'sensor.ev_charger_power_') | select('has_value') | list -%}
+            {%- set per = ['l1', 'l2', 'l3'] | map('regex_replace', '^', 'sensor.ev_charger_power_')
+                | select('has_value') | list -%}
             {%- set src = 'per phase' if per else ('total' if has_value('sensor.ev_charger_power') else 'none') -%}
             {%- set evw = namespace(d={'L1': 0, 'L2': 0, 'L3': 0}) -%}
             {%- for ph in ['L1', 'L2', 'L3'] -%}
               {%- if src == 'per phase' -%}
-                {%- set evw.d = evw.d | combine({ph: [states('sensor.ev_charger_power_' ~ (ph | lower)) | float(0), 0] | max}) -%}
+                {%- set evw.d = evw.d | combine(
+                    {ph: [states('sensor.ev_charger_power_' ~ (ph | lower)) | float(0), 0] | max}) -%}
               {%- elif src == 'total' -%}
                 {%- set evw.d = evw.d | combine({ph: ([states('sensor.ev_charger_power') | float(0), 0] | max) / 3}) -%}
               {%- endif -%}
@@ -3157,7 +3207,8 @@ template:
               {%- set n = ph | lower -%}
               {%- set v = states('sensor.p1_meter_voltage_' ~ n) | float(0) -%}
               {%- set v = v if v > 100 else 230 -%}
-              {%- set r = ([evmax * v - evw.d[ph], 0] | max) if (charging and evmax > 0 and src != 'none' and ph in used) else 0 -%}
+              {%- set r = ([evmax * v - evw.d[ph], 0] | max)
+                  if (charging and evmax > 0 and src != 'none' and ph in used) else 0 -%}
               {%- set out.res = out.res | combine({ph: r | round(0) | int}) -%}
               {%- if has_value('sensor.p1_meter_power_' ~ n) -%}
                 {%- set net = states('sensor.p1_meter_power_' ~ n) | float(0) -%}
@@ -3166,7 +3217,8 @@ template:
                 {%- set out.ev = out.ev | combine({ph: [evlim * v - other_imp - r, 0] | max | round(0) | int}) -%}
                 {#- Balance: the car's own draw out, its minimum + margin in (also while it pauses) -#}
                 {%- set car_b = 7 * v if (src != 'none' and ph in used) else 0 -%}
-                {%- set out.bal = out.bal | combine({ph: [evlim * v - (other_imp - evw.d[ph]) - car_b, 0] | max | round(0) | int}) -%}
+                {%- set out.bal = out.bal | combine(
+                    {ph: [evlim * v - (other_imp - evw.d[ph]) - car_b, 0] | max | round(0) | int}) -%}
                 {%- set out.fc = out.fc | combine({ph: [fuse * v - other_imp, 0] | max | round(0) | int}) -%}
                 {%- set out.fd = out.fd | combine({ph: [fuse * v + other_imp, 0] | max | round(0) | int}) -%}
               {%- else -%}
@@ -3176,7 +3228,8 @@ template:
                 {%- set out.fd = out.fd | combine({ph: 0}) -%}
               {%- endif -%}
             {%- endfor -%}
-            {%- set miss = bat.need | unique | sort | map('lower') | map('regex_replace', '^', 'sensor.p1_meter_power_') | reject('has_value') | list -%}
+            {%- set miss = bat.need | unique | sort | map('lower')
+                | map('regex_replace', '^', 'sensor.p1_meter_power_') | reject('has_value') | list -%}
             {{ {'ev': out.ev, 'bal': out.bal, 'res': out.res, 'src': src, 'fc': out.fc if fuse > 0 else {},
                  'fd': out.fd if fuse > 0 else {}, 'miss': miss | join(', ')} | tojson }}
     sensor:
@@ -3190,7 +3243,8 @@ template:
           {%- set x = room | from_json if room is string else room -%}
           {%- set bal = is_state_attr('binary_sensor.hba_ev_charge_alongside', 'mode', 'Balance') -%}
           {%- set ev = x.get('bal', {}) if bal else x.ev -%}
-          {%- set vals = (x.fc.values() | list) + ((ev.values() | list) if is_state('binary_sensor.hba_ev_charge_alongside', 'on') else []) -%}
+          {%- set vals = (x.fc.values() | list)
+              + ((ev.values() | list) if is_state('binary_sensor.hba_ev_charge_alongside', 'on') else []) -%}
           {{ (vals | min) if vals else 0 }}
         attributes:
           ev_room_w: "{{ (room | from_json if room is string else room).ev }}"
@@ -3231,12 +3285,14 @@ template:
             {%- set nominal = 2500 -%}
             {%- set along = is_state('binary_sensor.hba_ev_charge_alongside', 'on') -%}
             {%- set evbal = along and is_state_attr('binary_sensor.hba_ev_charge_alongside', 'mode', 'Balance') -%}
-            {%- set evfirst = along and is_state_attr('binary_sensor.hba_ev_charge_alongside', 'mode', 'EV first') or evbal -%}
+            {%- set evfirst = along and is_state_attr('binary_sensor.hba_ev_charge_alongside', 'mode', 'EV first')
+                or evbal -%}
             {%- set fc = state_attr('sensor.hba_phase_room', 'fuse_charge_w') -%}
             {%- set fc = fc if fc is mapping else {} -%}
             {%- set fd = state_attr('sensor.hba_phase_room', 'fuse_discharge_w') -%}
             {%- set fd = fd if fd is mapping else {} -%}
-            {%- set er = state_attr('sensor.hba_phase_room', 'ev_bal_w' if evbal else 'ev_room_w') if evfirst else {} -%}
+            {%- set er = state_attr('sensor.hba_phase_room', 'ev_bal_w' if evbal else 'ev_room_w') if evfirst
+                else {} -%}
             {%- set car_lbl = 'Balance ' if evbal else 'Car first ' -%}
             {%- set er = er if er is mapping else {} -%}
             {#- Room per phase as [W, reason]: the tighter of main fuse and car first / Balance (charging);
@@ -3245,7 +3301,8 @@ template:
             {%- set rd = namespace(d={}) -%}
             {%- for ph in ['L1', 'L2', 'L3'] -%}
               {%- if ph in fc and ph in er -%}
-                {%- set rc.d = rc.d | combine({ph: ([fc[ph], 'Main fuse ' ~ ph] if fc[ph] <= er[ph] else [er[ph], car_lbl ~ ph])}) -%}
+                {%- set rc.d = rc.d | combine({ph: ([fc[ph], 'Main fuse ' ~ ph] if fc[ph] <= er[ph]
+                    else [er[ph], car_lbl ~ ph])}) -%}
               {%- elif ph in fc -%}
                 {%- set rc.d = rc.d | combine({ph: [fc[ph], 'Main fuse ' ~ ph]}) -%}
               {%- elif ph in er -%}
@@ -3274,7 +3331,9 @@ template:
               {%- endif -%}
               {%- for k in range(count) -%}
                 {%- set b = ((p - 1 + k) % count) + 1 -%}
-                {%- if b not in o.l -%}{%- set o.l = o.l + [b] -%}{%- endif -%}
+                {%- if b not in o.l -%}
+                  {%- set o.l = o.l + [b] -%}
+                {%- endif -%}
               {%- endfor -%}
               {#- Power group leader first, as in hba_set_batteries -#}
               {%- set plg = state_attr('sensor.hba_power_limits', 'groups') -%}
@@ -3285,12 +3344,18 @@ template:
                   {%- set fm = o.l | select('in', x.members | map('int') | list) | list -%}
                   {%- if fm and fm[0] != L and L in o.l -%}
                     {%- set sw = namespace(l=[]) -%}
-                    {%- for b in o.l -%}{%- set sw.l = sw.l + [L if b == fm[0] else (fm[0] if b == L else b)] -%}{%- endfor -%}
+                    {%- for b in o.l -%}
+                      {%- set sw.l = sw.l + [L if b == fm[0] else (fm[0] if b == L else b)] -%}
+                    {%- endfor -%}
                     {%- set o.l = sw.l -%}
                   {%- endif -%}
                 {%- endfor -%}
               {%- endif -%}
-              {%- if dir == 'charge' -%}{%- set out.co = o.l -%}{%- else -%}{%- set out.do = o.l -%}{%- endif -%}
+              {%- if dir == 'charge' -%}
+                {%- set out.co = o.l -%}
+              {%- else -%}
+                {%- set out.do = o.l -%}
+              {%- endif -%}
               {%- set room = namespace(d=(rc.d if dir == 'charge' else rd.d)) -%}
               {%- set lk = state_attr('sensor.hba_power_limits', 'last_known_' ~ dir) -%}
               {%- set lk = lk if lk is mapping else {} -%}
@@ -3322,11 +3387,14 @@ template:
                   {%- set best.w = 0 -%}{%- set best.r = 'Offline' -%}
                 {%- elif inv == 'Fault' -%}
                   {%- set best.w = 0 -%}{%- set best.r = 'Fault' -%}
-                {%- elif dir == 'charge' and soc >= states('input_number.hba_marstek_m' ~ bat ~ '_charging_cutoff_capacity') | float(100) -%}
+                {%- elif dir == 'charge'
+                    and soc >= states('input_number.hba_marstek_m' ~ bat ~ '_charging_cutoff_capacity') | float(100) -%}
                   {%- set best.w = 0 -%}{%- set best.r = 'Full' -%}
                 {%- elif dir == 'discharge' and along -%}
                   {%- set best.w = 0 -%}{%- set best.r = 'Charge alongside EV' -%}
-                {%- elif dir == 'discharge' and soc <= states('input_number.hba_marstek_m' ~ bat ~ '_discharging_cutoff_capacity') | float(13) -%}
+                {%- elif dir == 'discharge'
+                    and soc <= states('input_number.hba_marstek_m' ~ bat ~ '_discharging_cutoff_capacity')
+                               | float(13) -%}
                   {%- set best.w = 0 -%}{%- set best.r = 'Empty' -%}
                 {%- else -%}
                   {%- set cands = [[reg, reg_r]] -%}
@@ -3350,7 +3418,9 @@ template:
                     {%- else -%}
                       {#- No phase set: counts against every phase, so the tightest one -#}
                       {%- set t = namespace(x=none) -%}
-                      {%- for x in room.d.values() if t.x is none or x[0] < t.x[0] -%}{%- set t.x = x -%}{%- endfor -%}
+                      {%- for x in room.d.values() if t.x is none or x[0] < t.x[0] -%}
+                        {%- set t.x = x -%}
+                      {%- endfor -%}
                       {%- set cands = cands + [t.x] -%}
                     {%- endif -%}
                   {%- endif -%}
@@ -3363,7 +3433,9 @@ template:
                     {%- set room.d = room.d | combine({ph: [room.d[ph][0] - best.w, room.d[ph][1]]}) -%}
                   {%- elif room.d -%}
                     {%- set nd = namespace(d={}) -%}
-                    {%- for q, x in room.d.items() -%}{%- set nd.d = nd.d | combine({q: [x[0] - best.w, x[1]]}) -%}{%- endfor -%}
+                    {%- for q, x in room.d.items() -%}
+                      {%- set nd.d = nd.d | combine({q: [x[0] - best.w, x[1]]}) -%}
+                    {%- endfor -%}
                     {%- set room.d = nd.d -%}
                   {%- endif -%}
                 {%- endif -%}
@@ -3395,17 +3467,22 @@ template:
                 stays in sensor.hba_limits_now and the Overview line. -#}
             {%- set kinds = namespace(c={}, d={}) -%}
             {%- for r, w in out.cl.items() -%}
-              {%- set k = r[:-3] if (r.startswith('Car first ') or r.startswith('Balance ') or r.startswith('Main fuse ')) else r -%}
+              {%- set k = r[:-3]
+                  if (r.startswith('Car first ') or r.startswith('Balance ') or r.startswith('Main fuse ')) else r -%}
               {%- set kinds.c = kinds.c | combine({k: kinds.c.get(k, 0) + w}) -%}
             {%- endfor -%}
             {%- for r, w in out.dl.items() -%}
-              {%- set k = r[:-3] if (r.startswith('Car first ') or r.startswith('Balance ') or r.startswith('Main fuse ')) else r -%}
+              {%- set k = r[:-3]
+                  if (r.startswith('Car first ') or r.startswith('Balance ') or r.startswith('Main fuse ')) else r -%}
               {%- set kinds.d = kinds.d | combine({k: kinds.d.get(k, 0) + w}) -%}
             {%- endfor -%}
             {%- set nowts = as_timestamp(now()) | int -%}
             {%- set sel = namespace(cs='Not limited', ds='Not limited', cp={}, dp={}) -%}
-            {%- for dir, lost, cur, pend in [('c', kinds.c, states('sensor.hba_charge_limit_source'), state_attr('sensor.hba_limits_now', 'charge_pending')),
-                                            ('d', kinds.d, states('sensor.hba_discharge_limit_source'), state_attr('sensor.hba_limits_now', 'discharge_pending'))] -%}
+            {%- for dir, lost, cur, pend in [
+                  ('c', kinds.c, states('sensor.hba_charge_limit_source'),
+                   state_attr('sensor.hba_limits_now', 'charge_pending')),
+                  ('d', kinds.d, states('sensor.hba_discharge_limit_source'),
+                   state_attr('sensor.hba_limits_now', 'discharge_pending'))] -%}
               {%- set pend = pend if pend is mapping else {} -%}
               {%- set top = (lost.items() | sort(attribute='1', reverse=true) | first) if lost else none -%}
               {%- set res = namespace(r='Not limited', p={}) -%}
@@ -3418,8 +3495,13 @@ template:
                 {%- set res.r = cur -%}
                 {%- set res.p = pend if pend.get('r') == top[0] else {'r': top[0], 's': nowts} -%}
               {%- endif -%}
-              {%- if dir == 'c' -%}{%- set sel.cs = res.r -%}{%- set sel.cp = res.p -%}
-              {%- else -%}{%- set sel.ds = res.r -%}{%- set sel.dp = res.p -%}{%- endif -%}
+              {%- if dir == 'c' -%}
+                {%- set sel.cs = res.r -%}
+                {%- set sel.cp = res.p -%}
+              {%- else -%}
+                {%- set sel.ds = res.r -%}
+                {%- set sel.dp = res.p -%}
+              {%- endif -%}
             {%- endfor -%}
             {{ {'c': out.c, 'd': out.d, 'cl': out.cl, 'dl': out.dl, 'ct': out.ct, 'dt': out.dt,
                 'cs': sel.cs, 'ds': sel.ds, 'co': out.co, 'do': out.do, 'cp': sel.cp, 'dp': sel.dp} | tojson }}
@@ -3467,7 +3549,8 @@ template:
           {%- set x = lim | from_json if lim is string else lim -%}
           {%- set p = states('sensor.hba_total_battery_power') | float(0) -%}
           {%- set m = 400 if is_state('binary_sensor.hba_battery_power_limited', 'on') else 150 -%}
-          {%- set c = (x.cs.startswith('Main fuse') or x.cs.startswith('Car first') or x.cs.startswith('Balance') or x.cs == 'BMS')
+          {%- set c = (x.cs.startswith('Main fuse') or x.cs.startswith('Car first') or x.cs.startswith('Balance')
+              or x.cs == 'BMS')
                       and p < -50 and -p >= x.ct - m -%}
           {%- set d = x.ds.startswith('Main fuse') and p > 50 and p >= x.dt - m -%}
           {{ c or d }}
@@ -3498,20 +3581,25 @@ template:
         unique_id: hba_planned_car_choice
         icon: mdi:car-clock
         state: >-
-          {{ [states('input_select.hba_strategy_planned_car_next_departure'), states('input_select.hba_strategy_planned_car_normal_skip')] | reject('eq', 'Auto') | list | join(', ') or 'Auto' }}
+          {{ [states('input_select.hba_strategy_planned_car_next_departure'),
+            states('input_select.hba_strategy_planned_car_normal_skip')] | reject('eq', 'Auto') | list | join(', ')
+              or 'Auto' }}
         attributes:
           dep_day: >-
             {%- set dl = state_attr('sensor.ev_car_info', 'deadline') | int(0) -%}
             {%- set d = (dl | timestamp_custom('%Y-%m-%d')) if dl > 0 else now().strftime('%Y-%m-%d') -%}
-            {%- set old = this.attributes.get('dep_day', '') if this is defined and this.attributes is defined else '' -%}
-            {%- if states('input_select.hba_strategy_planned_car_next_departure') in ['Auto', 'unknown', 'unavailable'] -%}
+            {%- set old = this.attributes.get('dep_day', '') if this is defined and this.attributes is defined
+                else '' -%}
+            {%- if states('input_select.hba_strategy_planned_car_next_departure')
+                in ['Auto', 'unknown', 'unavailable'] -%}
             {%- elif trigger.platform == 'state' and trigger.entity_id == 'input_select.hba_strategy_planned_car_next_departure' or not old -%}{{ d }}
             {%- else -%}{{ old }}
             {%- endif -%}
           skip_day: >-
             {%- set dl = state_attr('sensor.ev_car_info', 'deadline') | int(0) -%}
             {%- set d = (dl | timestamp_custom('%Y-%m-%d')) if dl > 0 else now().strftime('%Y-%m-%d') -%}
-            {%- set old = this.attributes.get('skip_day', '') if this is defined and this.attributes is defined else '' -%}
+            {%- set old = this.attributes.get('skip_day', '') if this is defined and this.attributes is defined
+                else '' -%}
             {%- if states('input_select.hba_strategy_planned_car_normal_skip') in ['Auto', 'unknown', 'unavailable'] -%}
             {%- elif trigger.platform == 'state' and trigger.entity_id == 'input_select.hba_strategy_planned_car_normal_skip' or not old -%}{{ d }}
             {%- else -%}{{ old }}
@@ -3580,7 +3668,9 @@ template:
           {%- set ns = namespace(v=[]) -%}
           {%- for i in range(1, count + 1) -%}
             {%- set r = states('sensor.marstek_m' ~ i ~ '_lifetime_round_trip_efficiency') | float(0) -%}
-            {%- if 60 <= r <= 90 -%}{%- set ns.v = ns.v + [r] -%}{%- endif -%}
+            {%- if 60 <= r <= 90 -%}
+              {%- set ns.v = ns.v + [r] -%}
+            {%- endif -%}
           {%- endfor -%}
           {%- set last = this.state | default('') -%}
           {%- if ns.v -%}{{ (ns.v | sum / ns.v | length) | round(1) }}
@@ -3643,7 +3733,9 @@ template:
               {%- set k = i | string -%}
               {%- set c = states('sensor.marstek_m' ~ i ~ '_battery_total_energy') | float(0) -%}
               {%- set v = c if c > 0 else (prev[k] if k in prev else 0) | float(0) -%}
-              {%- if v > 0 -%}{%- set ns.d = ns.d | combine({k: v}) -%}{%- endif -%}
+              {%- if v > 0 -%}
+                {%- set ns.d = ns.d | combine({k: v}) -%}
+              {%- endif -%}
             {%- endfor -%}
             {{ ns.d | tojson }}
     sensor:
