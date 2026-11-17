@@ -3147,6 +3147,9 @@ template:
                 {%- set evw.d = evw.d | combine({ph: ([states('sensor.ev_charger_power') | float(0), 0] | max) / 3}) -%}
               {%- endif -%}
             {%- endfor -%}
+            {#- used = the phases the car charges on: with per-phase sensors the ones above 230 W
+                (a 1-phase car reserves room on one phase only); with only the total, or while the
+                car draws nothing yet, all three -#}
             {%- set used = evw.d.items() | selectattr(1, 'gt', 230) | map(attribute=0) | list -%}
             {%- set used = used if (src == 'per phase' and used) else ['L1', 'L2', 'L3'] -%}
             {%- set out = namespace(ev={}, bal={}, res={}, fc={}, fd={}) -%}
