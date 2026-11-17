@@ -78,7 +78,9 @@ automation:
   # (SoC limit reached) correctly allows the notification to fire.
   - id: hba_unexpected_export_notify
     alias: "HBA: Notify on unexpected sustained grid export"
-    description: "Alerts when grid export >1 kW sustains for 1+ min with batteries discharging but neither battery assist nor Sell strategy is active."
+    description: >-
+      Alerts when grid export >1 kW sustains for 1+ min with batteries discharging
+      but neither battery assist nor Sell strategy is active.
     triggers:
       - trigger: state
         entity_id: binary_sensor.hba_grid_exporting_sustained
@@ -807,7 +809,8 @@ automation:
           title: "HBA: Planned has no current plan"
           message: >-
             No new plan could be made since
-            {{ as_timestamp(state_attr('sensor.hba_planned_strategy', 'plan_made'), 0) | timestamp_custom('%a %H:%M') }}.
+            {{ as_timestamp(state_attr('sensor.hba_planned_strategy', 'plan_made'), 0)
+            | timestamp_custom('%a %H:%M') }}.
             HBA runs Self-consumption until a plan is made again. Usually an error in the plan
             calculation: check the Home Assistant log, or press refresh in the Planned view.
           tag: hba_plan_out_of_date
@@ -909,7 +912,8 @@ automation:
           message: >-
             The strategy has been {{ st }} for {{ hours }} h (since {{ since }}), battery
             {{ states('sensor.hba_average_battery_soc') | float(0) | round(0) | int }} %.
-            {{ 'Done: ' ~ ('full' if st == 'Charge' else 'goal reached') ~ '.' if is_state('binary_sensor.hba_manual_strategy_done', 'on') else 'Not done yet.' }}
+            {{ 'Done: ' ~ ('full' if st == 'Charge' else 'goal reached') ~ '.'
+            if is_state('binary_sensor.hba_manual_strategy_done', 'on') else 'Not done yet.' }}
             Switch back to your usual strategy (e.g. Dynamic) when it has done its job.
           tag: hba_manual_strategy
           color: orange
@@ -1365,7 +1369,8 @@ automation:
               - action: script.hba_notify_dispatch
                 data:
                   title: >-
-                    Car: {{ car.get('dl', 0) | int(0) | timestamp_custom('%A') }} {{ 'counts as a home day' if car.get('home') == true else 'is a departure' }}
+                    Car: {{ car.get('dl', 0) | int(0) | timestamp_custom('%A') }} {{ 'counts as a home day'
+                    if car.get('home') == true else 'is a departure' }}
                   message: >-
                     [ Car: {{ states('sensor.ev_car_info') | float(0) | round(0) | int }}% -
                     Normal: {{ states('input_number.hba_strategy_planned_car_normal') | float(0) | int }}% -
@@ -1384,7 +1389,10 @@ automation:
                     {%- endif %}
                     The batteries may fill the car up to Leftover when that is worth
                     more than selling or keeping the energy,
-                    {{ 'with no deadline at the departure' if car.get('home') == true else 'until ' ~ ((car.get('dl', 0) | int(0) - (states('input_number.hba_strategy_planned_car_battery_end') | float(1) * 3600) | int) | timestamp_custom('%a %H:%M')) }}.
+                    {{ 'with no deadline at the departure' if car.get('home') == true
+                    else 'until ' ~ ((car.get('dl', 0) | int(0)
+                    - (states('input_number.hba_strategy_planned_car_battery_end') | float(1) * 3600) | int)
+                    | timestamp_custom('%a %H:%M')) }}.
                     Not leaving: no deadline. Leaving: until the departure.
                     Without an answer it stays like this.
                   tag: hba_car_normal
@@ -1403,8 +1411,10 @@ automation:
                   message: >-
                     {{ levels }}
 
-                    Normal ({{ car.normal }} kWh, € {{ '%.2f' | format(car.normal_eur | float(0)) }}) is planned from {{ car.normal_from }}:
-                    the cheapest known hours, the departure is no deadline for it. Minimum is in by {{ car.get('dl', 0) | int(0) | timestamp_custom('%a %H:%M') }}.
+                    Normal ({{ car.normal }} kWh, € {{ '%.2f'
+                    | format(car.normal_eur | float(0)) }}) is planned from {{ car.normal_from }}:
+                    the cheapest known hours, the departure is no deadline for it. Minimum is in by {{ car.get('dl', 0)
+                    | int(0) | timestamp_custom('%a %H:%M') }}.
                     Not leaving: Minimum may wait too. Leaving: Normal before the departure.
                     Without an answer it stays like this.
                   tag: hba_car_normal
@@ -1422,7 +1432,8 @@ automation:
                   message: >-
                     {{ levels }}
 
-                    Normal plans {{ car.normal }} kWh for € {{ '%.2f' | format(car.normal_eur | float(0)) }}, from {{ car.normal_from }}.
+                    Normal plans {{ car.normal }} kWh for € {{ '%.2f'
+                    | format(car.normal_eur | float(0)) }}, from {{ car.normal_from }}.
                     {% if day == '' -%}
                       No home day coming up.
                     {%- elif sun < 0 -%}
@@ -1450,7 +1461,8 @@ automation:
                     {{ levels }}
 
                     {{ day }}: about {{ sun | round(1) }} kWh spare solar of the {{ want }} kWh Normal needs.
-                    Charging now would be {{ car.normal }} kWh for € {{ '%.2f' | format(car.normal_eur | float(0)) }}, from {{ car.normal_from }}.
+                    Charging now would be {{ car.normal }} kWh for € {{ '%.2f'
+                    | format(car.normal_eur | float(0)) }}, from {{ car.normal_from }}.
                     Without an answer Normal stays skipped.
                   tag: hba_car_normal
                   color: orange
@@ -1467,9 +1479,12 @@ automation:
                   message: >-
                     {{ levels }}
 
-                    {% set names = {'Mon': 'Monday', 'Tue': 'Tuesday', 'Wed': 'Wednesday', 'Thu': 'Thursday', 'Fri': 'Friday', 'Sat': 'Saturday', 'Sun': 'Sunday'} -%}
-                    Min. until home day: no Normal from the grid until {{ names.get(day, day) if day != '' else 'the next departure' }}.
-                    Charging now would be {{ car.normal }} kWh for € {{ '%.2f' | format(car.normal_eur | float(0)) }}, from {{ car.normal_from }}.
+                    {% set names = {'Mon': 'Monday', 'Tue': 'Tuesday', 'Wed': 'Wednesday', 'Thu': 'Thursday',
+                    'Fri': 'Friday', 'Sat': 'Saturday', 'Sun': 'Sunday'} -%}
+                    Min. until home day: no Normal from the grid until {{ names.get(day, day)
+                    if day != '' else 'the next departure' }}.
+                    Charging now would be {{ car.normal }} kWh for € {{ '%.2f'
+                    | format(car.normal_eur | float(0)) }}, from {{ car.normal_from }}.
                   tag: hba_car_normal
                   color: blue
                   priority: normal
