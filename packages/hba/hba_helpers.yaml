@@ -2852,6 +2852,8 @@ template:
           plan: >-
             {%- set S = 'sensor.hba_power_limits' -%}
             {%- set count = states('input_number.hba_battery_count') | int(1) -%}
+            {#- p = the previous result (this sensor's own attributes): the full / empty / latched flags
+                have hysteresis, and the last known limits and the leaders must carry over -#}
             {%- set p = namespace(full=[], empty=[], latched=[], lkc={}, lkd={}, c={}, d={}, lead={}) -%}
             {%- set v = state_attr(S, 'full') -%}{%- set p.full = v if v is sequence and v is not string else [] -%}
             {%- set v = state_attr(S, 'empty') -%}{%- set p.empty = v if v is sequence and v is not string else [] -%}
@@ -2869,10 +2871,14 @@ template:
               {%- set hi = states('input_number.hba_marstek_m' ~ i ~ '_charging_cutoff_capacity') | float(100) -%}
               {%- set lo = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) -%}
               {%- set inv = states('sensor.marstek_m' ~ i ~ '_inverter_state') -%}
+              {#- live = the battery can be reached: its power was reported in the last 30 s and the
+                  inverter state is readable -#}
               {%- set hb = states.sensor['marstek_m' ~ i ~ '_battery_power'] -%}
               {%- set live = hb is not none and hb.state not in ['unavailable', 'unknown']
                              and (now() - hb.last_reported).total_seconds() <= 30
                              and inv not in ['unavailable', 'unknown', ''] -%}
+              {#- Read-back of the two limit registers. 50 W or less is no real limit (0 = the battery
+                  restarted, -1 = no reading): then the last known limit counts (lkc / lkd) -#}
               {%- set rbc = states('sensor.marstek_m' ~ i ~ '_max_charge_power_number') | float(-1) -%}
               {%- set rbd = states('sensor.marstek_m' ~ i ~ '_max_discharge_power_number') | float(-1) -%}
               {%- set lkc = rbc if rbc > 50 else (p.lkc[k] if k in p.lkc else 0) -%}
@@ -2881,6 +2887,8 @@ template:
               {%- if lkd > 0 -%}{%- set ns.lkd = ns.lkd | combine({k: lkd | int}) -%}{%- endif -%}
               {#- The BMS reporting 0 A charge limit is an exact "full" (Venus E 3.0 at 100 %) -#}
               {%- set bms_a = states('sensor.marstek_m' ~ i ~ '_battery_charge_current_limit') | float(-1) -%}
+              {#- The three flags, each with hysteresis: no SoC reading or inside the band = keep the
+                  previous flag (the numbers: see the header above) -#}
               {%- if soc < 0 -%}{%- set full = i in p.full -%}
               {%- elif soc >= hi - 1 or (bms_a == 0 and soc >= 90) -%}{%- set full = true -%}
               {%- elif soc < hi - 4 -%}{%- set full = false -%}
@@ -2927,6 +2935,8 @@ template:
               {%- if members | length > 0 -%}
                 {%- set budget = states('input_number.hba_power_group_' ~ (G | lower) ~ '_max_power') | float(0) | int -%}
                 {%- set policy = states('input_select.hba_power_group_' ~ (G | lower) ~ '_policy') -%}
+                {#- Settings that make the group unusable go into problems (state "Check settings"); the
+                    group then gets no limits from HBA -#}
                 {%- set bad = namespace(p=[]) -%}
                 {%- for m in members if m.capc <= 0 or m.capd <= 0 -%}
                   {%- set bad.p = bad.p + ['M' ~ m.i ~ ' (group ' ~ G ~ '): set its max '
@@ -2943,6 +2953,9 @@ template:
                 {%- else -%}
                   {%- set gs.groups = gs.groups | combine({G: {'max_power': budget, 'policy': policy,
                         'members': members | map(attribute='i') | list}}) -%}
+                  {#- Per direction. w.R = W of the group's max power still to hand out · w.out = the limit
+                      per battery (the result) · w.add = what a battery gets above its 100 W · w.elig = the
+                      batteries that can go this way (not full / not empty) · rest = the ones that cannot -#}
                   {%- for d in ['charge', 'discharge'] -%}
                     {%- set latch = 'full' if d == 'charge' else 'empty' -%}
                     {%- set lk = 'lkc' if d == 'charge' else 'lkd' -%}
@@ -2955,6 +2968,7 @@ template:
                       {%- set w.out = w.out | combine({m.i | string: keep | int}) -%}
                       {%- set w.R = w.R - keep -%}
                     {%- endfor -%}
+                    {#- Every reachable battery keeps 100 W; w.R is what is left to share above that -#}
                     {%- set active = members | selectattr('live') | list -%}
                     {%- set w.R = [w.R - 100 * (active | length), 0] | max -%}
                     {%- set w.elig = active | rejectattr(latch) | list -%}
@@ -2990,6 +3004,7 @@ template:
                           {%- set cand = w.elig | sort(attribute='soc', reverse=(d == 'charge')) | list -%}
                         {%- endif -%}
                       {%- endif -%}
+                      {#- The leader gets up to its own max power from what is left, and leaves the pools -#}
                       {%- set L = cand[0] -%}
                       {%- set gs.lead = gs.lead | combine({key: L.i}) -%}
                       {%- set give = [[L[cap] - 100, 0] | max, w.R] | min -%}
@@ -3007,6 +3022,7 @@ template:
                         {%- set w.R = w.R - give -%}
                       {%- endfor -%}
                     {%- endfor -%}
+                    {#- The limit of each reachable battery: its 100 W + its share -#}
                     {%- for m in active -%}
                       {%- set k = m.i | string -%}
                       {%- set w.out = w.out | combine({k: 100 + (w.add[k] if k in w.add else 0)}) -%}
