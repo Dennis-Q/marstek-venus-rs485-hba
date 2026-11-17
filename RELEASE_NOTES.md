@@ -193,6 +193,11 @@ This document covers HBA-specific changes only.
   to 540 W); HBA only lowers its command once it reads the new BMS limit, so the alert fired and cleared
   seconds later. **Replace your battery files** (the installer puts the new ones next to them as `.new`):
   with the old files (90 s) the alert can still fire now and then.
+- **BMS discharge current limit read ten times too low:** the battery files read register 35112 with
+  scale 0.01, so *Battery Discharge Current Limit* showed 10 A where the BMS allows 100 A (the battery
+  discharged 2.7 kW meanwhile). Now 0.1, like the charge current limit: 100 / 80 / 50 / 40 / 20 A. HBA did
+  not use this value yet; its long-term statistics jump by a factor of ten once. **Replace your battery
+  files** (`.new` next to them).
 - **Battery files M2–M6: RS485 control select unavailable while the battery cannot be read**, as M1's
   already was. Before, an offline battery's select kept showing the last value HA sent. New installs only:
   the installer never overwrites an existing battery file (copy the `availability:` of that select by hand

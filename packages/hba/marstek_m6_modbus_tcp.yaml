@@ -714,6 +714,8 @@ modbus:
         offset: 0
         precision: 1
 
+      # Scale 0.1 like 35111 (was 0.01 from the original file: read 10 A while the battery
+      # discharged 2.7 kW at ~52 V; prod 2026-11-17). Steps 100/80/50/40/20/0 A.
       - name: "Marstek m6 Battery Discharge Current Limit"
         unique_id: marstek_m6_battery_discharge_current_limit
         address: 35112
@@ -723,7 +725,7 @@ modbus:
         data_type: uint16
         unit_of_measurement: "A"
         state_class: measurement
-        scale: 0.01
+        scale: 0.1
         offset: 0
         precision: 1
 

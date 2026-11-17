@@ -304,6 +304,8 @@ The files differ from fonske's in a few small ways:
   every 5 minutes instead of every 30 seconds, so commands wait less behind the reads
 - The three BMS limit registers (charge voltage, charge and discharge current) are read every
   60 seconds instead of 90, so HBA follows the BMS sooner when it cuts the charge near full
+- The BMS discharge current limit (35112) reads with scale 0.1 like the charge current limit (it
+  showed a tenth of the real value)
 
 The installer never overwrites a battery file (it holds your battery's IP address), so it checks
 them at every install and warns: HBA's own files are compared with the release (a differing one
