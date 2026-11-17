@@ -2341,7 +2341,7 @@ template:
             {{ ns.result }}
 
       # ── Per-battery RS485 non-response detection ──────────────────────────────
-      # Turns on (delay_on 60 s) when a battery has RS485 enabled, is being commanded
+      # Turns on (delay_on 120 s) when a battery has RS485 enabled, is being commanded
       # ≥ 300 W charge or discharge, but its actual AC output differs from the commanded
       # value by more than 15%. Typical causes: BMS blocking near SoC cutoff, or the
       # battery silently rejecting a Modbus write (e.g. after a BMS fault).
@@ -2366,7 +2366,12 @@ template:
         # Raising the ac_power poll rate instead was considered and rejected: it cannot
         # remove the slew-driven error, and the extra Modbus reads compete with the
         # control writes on the same hub.
-        delay_on: "00:01:00"
+        #
+        # 120 s since 2026-11-17: longer than the 90 s poll of the BMS charge current
+        # limit. Near full the BMS cuts the charge (M2 at 92-93 %: 1630 -> 540 W, prod
+        # 11-13 and 11-16); HBA only lowers its command once it reads the new limit, so
+        # at 60 s the alert fired and cleared seconds later.
+        delay_on: "00:02:00"
         state: >
           {% if states('select.marstek_m1_rs485_control_mode') != 'enable' %}
             false
@@ -2413,7 +2418,12 @@ template:
         # Raising the ac_power poll rate instead was considered and rejected: it cannot
         # remove the slew-driven error, and the extra Modbus reads compete with the
         # control writes on the same hub.
-        delay_on: "00:01:00"
+        #
+        # 120 s since 2026-11-17: longer than the 90 s poll of the BMS charge current
+        # limit. Near full the BMS cuts the charge (M2 at 92-93 %: 1630 -> 540 W, prod
+        # 11-13 and 11-16); HBA only lowers its command once it reads the new limit, so
+        # at 60 s the alert fired and cleared seconds later.
+        delay_on: "00:02:00"
         state: >
           {% if states('input_number.hba_battery_count') | int(1) < 2
                or states('select.marstek_m2_rs485_control_mode') != 'enable' %}
@@ -2461,7 +2471,12 @@ template:
         # Raising the ac_power poll rate instead was considered and rejected: it cannot
         # remove the slew-driven error, and the extra Modbus reads compete with the
         # control writes on the same hub.
-        delay_on: "00:01:00"
+        #
+        # 120 s since 2026-11-17: longer than the 90 s poll of the BMS charge current
+        # limit. Near full the BMS cuts the charge (M2 at 92-93 %: 1630 -> 540 W, prod
+        # 11-13 and 11-16); HBA only lowers its command once it reads the new limit, so
+        # at 60 s the alert fired and cleared seconds later.
+        delay_on: "00:02:00"
         state: >
           {% if states('input_number.hba_battery_count') | int(1) < 3
                or states('select.marstek_m3_rs485_control_mode') != 'enable' %}
@@ -2509,7 +2524,12 @@ template:
         # Raising the ac_power poll rate instead was considered and rejected: it cannot
         # remove the slew-driven error, and the extra Modbus reads compete with the
         # control writes on the same hub.
-        delay_on: "00:01:00"
+        #
+        # 120 s since 2026-11-17: longer than the 90 s poll of the BMS charge current
+        # limit. Near full the BMS cuts the charge (M2 at 92-93 %: 1630 -> 540 W, prod
+        # 11-13 and 11-16); HBA only lowers its command once it reads the new limit, so
+        # at 60 s the alert fired and cleared seconds later.
+        delay_on: "00:02:00"
         state: >
           {% if states('input_number.hba_battery_count') | int(1) < 4
                or states('select.marstek_m4_rs485_control_mode') != 'enable' %}
@@ -2557,7 +2577,12 @@ template:
         # Raising the ac_power poll rate instead was considered and rejected: it cannot
         # remove the slew-driven error, and the extra Modbus reads compete with the
         # control writes on the same hub.
-        delay_on: "00:01:00"
+        #
+        # 120 s since 2026-11-17: longer than the 90 s poll of the BMS charge current
+        # limit. Near full the BMS cuts the charge (M2 at 92-93 %: 1630 -> 540 W, prod
+        # 11-13 and 11-16); HBA only lowers its command once it reads the new limit, so
+        # at 60 s the alert fired and cleared seconds later.
+        delay_on: "00:02:00"
         state: >
           {% if states('input_number.hba_battery_count') | int(1) < 5
                or states('select.marstek_m5_rs485_control_mode') != 'enable' %}
@@ -2605,7 +2630,12 @@ template:
         # Raising the ac_power poll rate instead was considered and rejected: it cannot
         # remove the slew-driven error, and the extra Modbus reads compete with the
         # control writes on the same hub.
-        delay_on: "00:01:00"
+        #
+        # 120 s since 2026-11-17: longer than the 90 s poll of the BMS charge current
+        # limit. Near full the BMS cuts the charge (M2 at 92-93 %: 1630 -> 540 W, prod
+        # 11-13 and 11-16); HBA only lowers its command once it reads the new limit, so
+        # at 60 s the alert fired and cleared seconds later.
+        delay_on: "00:02:00"
         state: >
           {% if states('input_number.hba_battery_count') | int(1) < 6
                or states('select.marstek_m6_rs485_control_mode') != 'enable' %}

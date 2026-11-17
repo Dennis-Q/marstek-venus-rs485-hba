@@ -176,6 +176,9 @@ This document covers HBA-specific changes only.
 
 ### Fixed
 
+- **No more false "battery not responding" near full:** the alert now waits 2 minutes instead of 60 s.
+  Near full the BMS cuts the charge (M2 at 92-93 %: 1630 to 540 W); HBA only lowers its command once it
+  reads the new BMS limit, which is polled every 90 s, so the alert fired and cleared seconds later.
 - **Battery files M2–M6: RS485 control select unavailable while the battery cannot be read**, as M1's
   already was. Before, an offline battery's select kept showing the last value HA sent. New installs only:
   the installer never overwrites an existing battery file (copy the `availability:` of that select by hand
