@@ -2264,11 +2264,19 @@ views:
                 {%- set ts = as_timestamp(e.start, 0) | int -%}
                 {%- set key = ts | timestamp_custom('%H:%M') -%}
                 {%- if ts >= day0 and ts < day1 -%}
-                  {%- if key in ns.t -%}{%- set key = key ~ '²' -%}{%- set ns.extra = ns.extra + [key] -%}{%- endif -%}
+                  {%- if key in ns.t -%}
+                    {%- set key = key ~ '²' -%}
+                    {%- set ns.extra = ns.extra + [key] -%}
+                  {%- endif -%}
                   {%- set ns.t = ns.t | combine({ key: e }) -%}
-                  {%- if e.is_now -%}{%- set ns.nowkey = key -%}{%- endif -%}
+                  {%- if e.is_now -%}
+                    {%- set ns.nowkey = key -%}
+                  {%- endif -%}
                 {%- elif ts >= day1 and ts < day2 -%}
-                  {%- if key in ns.m -%}{%- set key = key ~ '²' -%}{%- set ns.extra = ns.extra + [key] -%}{%- endif -%}
+                  {%- if key in ns.m -%}
+                    {%- set key = key ~ '²' -%}
+                    {%- set ns.extra = ns.extra + [key] -%}
+                  {%- endif -%}
                   {%- set ns.m = ns.m | combine({ key: e }) -%}
                 {%- endif -%}
               {%- endfor -%}
@@ -2276,7 +2284,9 @@ views:
               {%- for r in range(ppd) -%}
                 {%- set base = "%02d"|format((r // pph) | int) ~ ':' ~ "%02d"|format(((r % pph) * step) | int) -%}
                 {%- set rows.l = rows.l + [base] -%}
-                {%- if (base ~ '²') in ns.extra -%}{%- set rows.l = rows.l + [base ~ '²'] -%}{%- endif -%}
+                {%- if (base ~ '²') in ns.extra -%}
+                  {%- set rows.l = rows.l + [base ~ '²'] -%}
+                {%- endif -%}
               {%- endfor -%}
               {%- set t_vals = ns.t.values() | map(attribute='price') | list -%}
               {%- set m_vals = ns.m.values() | map(attribute='price') | list -%}
@@ -2963,13 +2973,17 @@ views:
                       {%- if s == ns.ce -%}
                         {%- set ns.ce = e -%}
                       {%- else -%}
-                        {%- if ns.cs >= 0 -%}{%- set ns.out = ns.out + [(ns.cs, ns.ce)] -%}{%- endif -%}
+                        {%- if ns.cs >= 0 -%}
+                          {%- set ns.out = ns.out + [(ns.cs, ns.ce)] -%}
+                        {%- endif -%}
                         {%- set ns.cs = s -%}{%- set ns.ce = e -%}
                       {%- endif -%}
                     {%- endif -%}
                   {%- endif -%}
                 {%- endfor -%}
-                {%- if ns.cs >= 0 -%}{%- set ns.out = ns.out + [(ns.cs, ns.ce)] -%}{%- endif -%}
+                {%- if ns.cs >= 0 -%}
+                  {%- set ns.out = ns.out + [(ns.cs, ns.ce)] -%}
+                {%- endif -%}
                 {%- if ns.out | length == 0 -%}none today
                 {%- else -%}
                   {%- for r in ns.out -%}{{ r[0] | timestamp_custom('%H:%M') }}–{{ r[1] | timestamp_custom('%H:%M') }}{{ ', ' if not loop.last }}{%- endfor -%}
