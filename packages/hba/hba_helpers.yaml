@@ -1,3 +1,47 @@
+# HBA helpers: the settings (input_* helpers) and the shared template sensors of HBA.
+# The strategies, the control loop and the notifications are in their own files; everything
+# here is read by more than one of them, or is a setting on the dashboard.
+#
+# ── Map of this file (in this order; search for the name) ──────────────────────────────
+# input_boolean / input_datetime / input_number / input_text / input_select
+#     The settings. Grouped per feature inside each block; the Planned strategy's settings have
+#     their own heading in input_number. input_text also holds the command cache per battery
+#     (hba_last_cmd_m<N>, see hba_strategies_core.yaml) and the entity ids the user fills in
+#     (EV charging entity, charger power, solar forecast, notify target).
+# template:
+#   sensor (plain, re-evaluated on every change of what they read)
+#     Version, Active strategy (the last part of the flow label)
+#     Totals over the batteries: Total Battery Power, Total Commanded Power, Total Max Charge /
+#       Discharge Power, Average Battery SoC, Usable Battery Energy
+#     Energy: Charge Remaining / Available Energy, Battery Assist Reserved Energy, Time Remaining
+#     Solar forecast: Today / Tomorrow and the surplus above the house
+#     Charge goal: Charge Target Energy, Grid / Solar Energy Portion
+#   binary_sensor
+#     State: EV Is Active, Is Charging, Solar Surplus Covers Battery Capacity (+ Tomorrow),
+#       Charge Goal Reached, Manual Strategy Done / Long
+#     Faults (each has a banner + notification in hba_notifications.yaml): Control Loop Stalled,
+#       Any Battery Offline, Power Limits Not Restored, Charge Goal Conflict, Phase Sensors
+#       Missing, Notify Target Invalid, Marstek M1..M6 Not Responding, RS485 Mode Mismatch,
+#       Entity Health
+#     Car next to the batteries: EV Alongside Ready, EV Charge Alongside (mode Batteries first /
+#       EV first / Balance), Batteries Before EV
+#     Push to the car: Battery Assist Active (Timed EV charge, or a Planned Car row), Battery
+#       Assist Stalled, Battery Assist Waiting, Grid Exporting Sustained (the overflow guard)
+#   trigger-based sensors (calculated once per trigger; they keep their value over a restart)
+#     Battery Order            the order for "Auto balance (SoC)"
+#     Power Limits             power groups: the limit each battery's registers should have
+#     Phase Room               W left per phase: main fuse, Charge alongside EV, Balance
+#     Charge / Discharge Limit Source, Limits Now, Battery Power Limited
+#                              what limits the batteries right now, and to how much
+#     Planned Car Choice       which departure the car choices belong to
+#     Manual Strategy Since    for the Charge / Sell reminder
+#     Round Trip Efficiency    measured, for the advisory card
+#     P1 Meter Lost            no P1 reading for 60 s
+#     Battery Capacity         capacity that still counts when a battery drops out
+#     Last Automation Reload   so alerts can ignore the minutes after a reload
+# recorder / logbook
+#     What HBA keeps out of the recorder (fast-changing sensors) and the logbook.
+
 input_boolean:
   hba_strategy_timed_has_period_b:
     name: "Enable additional period B"
