@@ -176,6 +176,10 @@ This document covers HBA-specific changes only.
 
 ### Fixed
 
+- **Battery files M2–M6: RS485 control select unavailable while the battery cannot be read**, as M1's
+  already was. Before, an offline battery's select kept showing the last value HA sent. New installs only:
+  the installer never overwrites an existing battery file (copy the `availability:` of that select by hand
+  if you want it).
 - **Ask before Normal: no repeat after a restart or reload.** The plug-in question came again when HA
   restarted or templates were reloaded with the car connected. When it only asks for the departure, the
   first line now says why Normal has no grid hours (already in, grid charging off, covered by Minimum or
