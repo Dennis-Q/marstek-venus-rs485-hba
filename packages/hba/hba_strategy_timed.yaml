@@ -31,12 +31,15 @@ template:
           {%- set t = now().strftime('%H:%M:%S') -%}
           {%- set ns = namespace(p='Default') -%}
           {%- for k in ['a', 'b', 'c', 'd', 'e'] -%}
-            {%- if ns.p == 'Default' and (k == 'a' or is_state('input_boolean.hba_strategy_timed_has_period_' ~ k, 'on')) -%}
+            {%- if ns.p == 'Default'
+                and (k == 'a' or is_state('input_boolean.hba_strategy_timed_has_period_' ~ k, 'on')) -%}
               {%- set s = states('input_datetime.hba_strategy_timed_period_' ~ k ~ '1') -%}
               {%- set e = states('input_datetime.hba_strategy_timed_period_' ~ k ~ '2') -%}
               {%- if s not in ['unknown', 'unavailable'] and e not in ['unknown', 'unavailable'] -%}
                 {%- set hit = (s <= t < e) if s < e else ((t >= s or t < e) if s > e else false) -%}
-                {%- if hit -%}{%- set ns.p = k | upper -%}{%- endif -%}
+                {%- if hit -%}
+                  {%- set ns.p = k | upper -%}
+                {%- endif -%}
               {%- endif -%}
             {%- endif -%}
           {%- endfor -%}
