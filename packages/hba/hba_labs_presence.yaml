@@ -74,7 +74,9 @@ template:
               {%- for fl in all if m.f is none and (floor_name(fl) or '') | lower == item | lower -%}
                 {%- set m.f = fl -%}
               {%- endfor -%}
-              {%- if m.f is not none and m.f not in ns.ids -%}{%- set ns.ids = ns.ids + [m.f] -%}{%- endif -%}
+              {%- if m.f is not none and m.f not in ns.ids -%}
+                {%- set ns.ids = ns.ids + [m.f] -%}
+              {%- endif -%}
             {%- endfor -%}
           {%- endif -%}
           {{ ns.ids[:4] | join(',') }}
@@ -87,7 +89,9 @@ template:
             {%- set ns = namespace(l=[]) -%}
             {%- if raw not in ['', 'unknown', 'unavailable'] -%}
               {%- for item in raw.split(',') | map('trim') | reject('eq', '') -%}
-                {%- if item not in all and item | lower not in names -%}{%- set ns.l = ns.l + [item] -%}{%- endif -%}
+                {%- if item not in all and item | lower not in names -%}
+                  {%- set ns.l = ns.l + [item] -%}
+                {%- endif -%}
               {%- endfor -%}
             {%- endif -%}
             {{ ns.l }}
@@ -170,16 +174,21 @@ template:
             {%- for e in states('input_text.hba_labs_presence_sources').split(',') | map('trim') | reject('eq', '') -%}
               {%- set st = states(e) -%}
               {%- if e.startswith('binary_sensor.') -%}
-                {%- if st == 'on' and floor_id(e) == fl -%}{%- set ns.by = ns.by + [e] -%}{%- endif -%}
+                {%- if st == 'on' and floor_id(e) == fl -%}
+                  {%- set ns.by = ns.by + [e] -%}
+                {%- endif -%}
               {%- elif (tr.get(e) or {}).get('s') == fl -%}
                 {%- set ns.by = ns.by + [e] -%}
               {%- endif -%}
             {%- endfor -%}
             {%- if is_state('input_boolean.hba_labs_presence_motion', 'on') -%}
-              {%- for s in states.binary_sensor | selectattr('state', 'eq', 'on') | selectattr('attributes.device_class', 'defined')
+              {%- for s in states.binary_sensor
+                  | selectattr('state', 'eq', 'on') | selectattr('attributes.device_class', 'defined')
                     | selectattr('attributes.device_class', 'in', ['motion', 'occupancy', 'presence'])
                     | rejectattr('entity_id', 'search', '^binary_sensor\.hba_labs_') -%}
-                {%- if floor_id(s.entity_id) == fl and s.entity_id not in ns.by -%}{%- set ns.by = ns.by + [s.entity_id] -%}{%- endif -%}
+                {%- if floor_id(s.entity_id) == fl and s.entity_id not in ns.by -%}
+                  {%- set ns.by = ns.by + [s.entity_id] -%}
+                {%- endif -%}
               {%- endfor -%}
             {%- endif -%}
           {%- endif -%}
@@ -192,10 +201,13 @@ template:
             {%- set ns = namespace(by=[]) -%}
             {%- set tr = state_attr('sensor.hba_labs_presence_trackers', 'trackers') or {} -%}
             {%- if fl -%}
-              {%- for e in states('input_text.hba_labs_presence_sources').split(',') | map('trim') | reject('eq', '') -%}
+              {%- for e in states('input_text.hba_labs_presence_sources').split(',')
+                  | map('trim') | reject('eq', '') -%}
                 {%- set st = states(e) -%}
                 {%- if e.startswith('binary_sensor.') -%}
-                  {%- if st == 'on' and floor_id(e) == fl -%}{%- set ns.by = ns.by + [e] -%}{%- endif -%}
+                  {%- if st == 'on' and floor_id(e) == fl -%}
+                    {%- set ns.by = ns.by + [e] -%}
+                  {%- endif -%}
                 {%- elif (tr.get(e) or {}).get('s') == fl -%}
                   {%- set ns.by = ns.by + [e] -%}
                 {%- endif -%}
@@ -204,12 +216,17 @@ template:
                   between them (an mmWave's moving / still target, prod 2026-11-08: ~1300 rows a day) -#}
               {%- if is_state('input_boolean.hba_labs_presence_motion', 'on') -%}
                 {%- set nm = namespace(on=false) -%}
-                {%- for s in states.binary_sensor | selectattr('state', 'eq', 'on') | selectattr('attributes.device_class', 'defined')
+                {%- for s in states.binary_sensor
+                    | selectattr('state', 'eq', 'on') | selectattr('attributes.device_class', 'defined')
                         | selectattr('attributes.device_class', 'in', ['motion', 'occupancy', 'presence'])
                         | rejectattr('entity_id', 'search', '^binary_sensor\.hba_labs_') -%}
-                  {%- if floor_id(s.entity_id) == fl and s.entity_id not in ns.by -%}{%- set nm.on = true -%}{%- endif -%}
+                  {%- if floor_id(s.entity_id) == fl and s.entity_id not in ns.by -%}
+                    {%- set nm.on = true -%}
+                  {%- endif -%}
                 {%- endfor -%}
-                {%- if nm.on -%}{%- set ns.by = ns.by + ['Motion sensors'] -%}{%- endif -%}
+                {%- if nm.on -%}
+                  {%- set ns.by = ns.by + ['Motion sensors'] -%}
+                {%- endif -%}
               {%- endif -%}
             {%- endif -%}
             {{ ns.by }}
