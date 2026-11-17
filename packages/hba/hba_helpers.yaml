@@ -168,7 +168,9 @@ input_datetime:
     has_date: false
     has_time: true
   # When each battery last charged or discharged (W != 0). hba_set_batteries keeps a battery that
-  # was active less than the idle timeout ago at 1 W instead of stopping it (keeps the relay closed).
+  # was active less than the idle timeout ago at 1 W instead of stopping it: it answers at once
+  # when it is needed again, with fewer relay operations (measured 2026-10-04: about 20 closes
+  # per battery per day at 5 min; the hold costs 15-25 W from the battery).
   hba_last_active_m1:
     name: "Battery M1 last active"
     has_date: true
@@ -231,7 +233,8 @@ input_number:
     unit_of_measurement: W
     icon: mdi:transmission-tower
   # Self-consumption: when the PID wants to switch between charging and discharging, it only does
-  # so above this many W; below it the output is 0 (no relay ticking around zero).
+  # so above this many W; below it the output is 0 (no flipping around zero; only matters near
+  # solar balance -- at night the base load keeps the output far from 0).
   hba_control_hysteresis:
     name: "Hysteresis"
     min: 0
@@ -255,7 +258,8 @@ input_number:
     unit_of_measurement: W
     icon: mdi:power-plug-battery-outline
   # How long a battery that got no share stays at 1 W in its last direction before it is
-  # stopped (see hba_last_active_m1). Decided 2026-10: 5 min.
+  # stopped (see hba_last_active_m1). 5 min (2026-10-04): relay life above ~10 years of battery
+  # life at about 20 closes a day; 10 min cost ~0.4 kWh/day of hold power for four batteries.
   hba_control_idle_time:
     name: "Idle timeout"
     min: 0

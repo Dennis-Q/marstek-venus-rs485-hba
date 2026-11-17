@@ -11,7 +11,7 @@
 # Zero import resets because a stale (negative) I-term from a previous charging sub-strategy
 # sits inside the charge_disabled clamp range [−assignable_discharge, 0] and is NOT corrected
 # by anti-windup — without a reset it drives a large initial discharge spike.
-# The reset is done by automation hba_zero_import_pid_reset (hba_strategies_core.yaml) which
+# The reset is done by automation hba_direct_mode_pid_reset (hba_strategies_core.yaml) which
 # fires once on entry via sensor.hba_active_strategy → "Zero import", covering
 # both direct entry and entry via Solar-aware. The script no longer resets per cycle.
 #
@@ -330,8 +330,9 @@ script:
   # is wrong -- no clicking is audible at the Venus E at all (the co-located SolarEdge
   # clicks plainly), and stop->active measures ~7 s median, far under the ~60 s an
   # anti-islanding reconnect would cost. The hold is still correct, but the benefit is
-  # RESPONSE LATENCY, not relay wear.
-  # when peak shaving activates. This matches the original Node-RED standby behaviour.
+  # RESPONSE LATENCY when peak shaving activates. (It does save relay operations too: they were
+  # counted on prod 2026-10-04 to set the idle timeout, see packages/hba/CLAUDE.md "Idle hold".)
+  # This matches the original Node-RED standby behaviour.
   #
   # When called from hba_run_strategy via the EV stop trigger path
   # (input_select.hba_control_strategy_during_ev_charge = "Standby / peak shave"),
@@ -396,7 +397,7 @@ script:
 
   # ── Solar-aware ───────────────────────────────────────────────────────────────
   # Dispatches to Zero import or Self-consumption using sensor.hba_solar_charge_outlook.
-  # Zero import PID reset is handled by automation hba_zero_import_pid_reset on entry.
+  # Zero import PID reset is handled by automation hba_direct_mode_pid_reset on entry.
   #
   # Decision tree (evaluated in order):
   #   1. no cheap slots remain today             → Self-consumption (strategy expired)
