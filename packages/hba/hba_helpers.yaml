@@ -71,6 +71,11 @@ input_boolean:
   hba_maintenance_mode:
     name: "Maintenance mode"
     icon: mdi:wrench-clock
+  # Power groups: count a battery at what its BMS allows, so the rest of the group's power
+  # goes to the others (experimental, user 2026-11-17; see HBA Power Limits)
+  hba_power_group_bms_share:
+    name: "Share BMS shortfall in power groups"
+    icon: mdi:battery-sync
   hba_control_onboarding_finished:
     name: "Finish onboarding"
     icon: mdi:check-circle-outline
@@ -2885,6 +2890,16 @@ template:
   #     else cyclic from the priority battery) — it moves with that order (frozen 30 min),
   #     but only once the new first battery is 5 SoC points further along than the
   #     current leader (or the leader is full / empty): fewer EEPROM rewrites
+  #   - BMS shortfall (input_boolean.hba_power_group_bms_share, experimental, default off;
+  #     user 2026-11-17): a battery whose BMS allows less than its own limit (cold cells: 30 A
+  #     ~1.6 kW; near full / empty: 20-0 A) counts at the BMS power instead (current limit
+  #     35111 / 35112 x battery voltage + 100 W, rounded up to 100 W), so the rest of the group's
+  #     power goes to the other batteries. Only when it is 200 W or more below the own limit, and
+  #     only a BMS level that has held 2 minutes (the value is kept while the level stays: no
+  #     write per voltage step). 0 A is left to the full / empty latch. Prod 2026-11-14/15: a
+  #     cold leader at 1570 W left its follower at 1100 W, 900 W of the group unused.
+  #     charge_nominal / discharge_nominal = the split without it (the planner plans later hours
+  #     with the full limits, see hba_strategy_planned)
   # Full/empty latch with hysteresis so a battery at its cutoff does not flip the split:
   # full at charge cutoff − 1 %, not full again below cutoff − 4 %; empty at discharge
   # cutoff + 1 %, not empty again above cutoff + 4 %: a Venus E 3.0 stops itself just
@@ -2945,6 +2960,7 @@ template:
           - input_select.hba_control_priority_change_interval
           # Maintenance: reserve the battery's own limits at once
           - input_boolean.hba_maintenance_mode
+          - input_boolean.hba_power_group_bms_share
           - select.marstek_m1_rs485_control_mode
           - select.marstek_m2_rs485_control_mode
           - select.marstek_m3_rs485_control_mode
@@ -2958,7 +2974,8 @@ template:
             {%- set count = states('input_number.hba_battery_count') | int(1) -%}
             {#- p = the previous result (this sensor's own attributes): the full / empty / latched flags
                 have hysteresis, and the last known limits and the leaders must carry over -#}
-            {%- set p = namespace(full=[], empty=[], latched=[], lkc={}, lkd={}, c={}, d={}, lead={}) -%}
+            {%- set p = namespace(full=[], empty=[], latched=[], lkc={}, lkd={}, c={}, d={}, lead={},
+                                  bmsc={}, bmsd={}) -%}
             {%- set v = state_attr(S, 'full') -%}{%- set p.full = v if v is sequence and v is not string else [] -%}
             {%- set v = state_attr(S, 'empty') -%}{%- set p.empty = v if v is sequence and v is not string else [] -%}
             {%- set v = state_attr(S, 'latched') -%}
@@ -2968,8 +2985,11 @@ template:
             {%- set v = state_attr(S, 'charge') -%}{%- set p.c = v if v is mapping else {} -%}
             {%- set v = state_attr(S, 'discharge') -%}{%- set p.d = v if v is mapping else {} -%}
             {%- set v = state_attr(S, 'leaders') -%}{%- set p.lead = v if v is mapping else {} -%}
+            {%- set v = state_attr(S, 'bms_charge') -%}{%- set p.bmsc = v if v is mapping else {} -%}
+            {%- set v = state_attr(S, 'bms_discharge') -%}{%- set p.bmsd = v if v is mapping else {} -%}
+            {%- set share = is_state('input_boolean.hba_power_group_bms_share', 'on') -%}
             {#- 1. Per battery: reachability, read-back, last known limits, full/empty latch -#}
-            {%- set ns = namespace(bats=[], lkc={}, lkd={}) -%}
+            {%- set ns = namespace(bats=[], lkc={}, lkd={}, bmsc={}, bmsd={}) -%}
             {%- for i in range(1, count + 1) -%}
               {%- set k = i | string -%}
               {%- set soc = states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') | float(-1) -%}
@@ -3025,10 +3045,37 @@ template:
               {%- else -%}
                 {%- set empty = i in p.empty -%}
               {%- endif -%}
+              {#- BMS shortfall (see the header): per direction [level A, W] once a level held 2 min;
+                  the previous entry while the level is unchanged or not settled yet -#}
+              {%- set bm = namespace(c=none, d=none) -%}
+              {%- set volt = states('sensor.marstek_m' ~ i ~ '_battery_voltage') | float(0) -%}
+              {%- if share and live and volt > 40 -%}
+                {%- for dir in ['charge', 'discharge'] -%}
+                  {%- set st = states.sensor['marstek_m' ~ i ~ '_battery_' ~ dir ~ '_current_limit'] -%}
+                  {%- set a = (st.state | float(-1)) if st is not none else -1 -%}
+                  {%- set pm = p.bmsc if dir == 'charge' else p.bmsd -%}
+                  {%- set old = pm[k] if k in pm and pm[k] is sequence and pm[k] | length == 2 else none -%}
+                  {%- if a <= 0 -%}
+                    {%- set e = none -%}
+                  {%- elif old is not none and old[0] | float(-1) == a -%}
+                    {%- set e = old -%}
+                  {%- elif (now() - st.last_changed).total_seconds() >= 120 -%}
+                    {%- set e = [a, (((a * volt + 100) / 100) | round(0, 'ceil') * 100) | int] -%}
+                  {%- else -%}
+                    {%- set e = old -%}
+                  {%- endif -%}
+                  {%- if dir == 'charge' -%}{%- set bm.c = e -%}{%- else -%}{%- set bm.d = e -%}{%- endif -%}
+                {%- endfor -%}
+              {%- endif -%}
+              {%- if bm.c is not none -%}{%- set ns.bmsc = ns.bmsc | combine({k: bm.c}) -%}{%- endif -%}
+              {%- if bm.d is not none -%}{%- set ns.bmsd = ns.bmsd | combine({k: bm.d}) -%}{%- endif -%}
+              {%- set capc = states('input_number.hba_marstek_m' ~ i ~ '_max_charge_power') | float(0) | int -%}
+              {%- set capd = states('input_number.hba_marstek_m' ~ i ~ '_max_discharge_power') | float(0) | int -%}
+              {%- set capc_e = bm.c[1] if bm.c is not none and capc - bm.c[1] >= 200 else capc -%}
+              {%- set capd_e = bm.d[1] if bm.d is not none and capd - bm.d[1] >= 200 else capd -%}
               {%- set ns.bats = ns.bats + [{
                     'i': i, 'g': states('input_select.hba_marstek_m' ~ i ~ '_power_group'),
-                    'capc': states('input_number.hba_marstek_m' ~ i ~ '_max_charge_power') | float(0) | int,
-                    'capd': states('input_number.hba_marstek_m' ~ i ~ '_max_discharge_power') | float(0) | int,
+                    'capc': capc, 'capd': capd, 'capc_e': capc_e | int, 'capd_e': capd_e | int,
                     'soc': soc, 'hi': hi, 'lo': lo, 'live': live, 'maint': maint,
                     'full': full, 'empty': empty, 'latched': latched,
                     'lkc': lkc | int, 'lkd': lkd | int}] -%}
@@ -3057,7 +3104,7 @@ template:
               {%- set ordr.d = ordr.d | combine({dd: o.l}) -%}
             {%- endfor -%}
             {#- 2. Per group and direction: the intended limits -#}
-            {%- set gs = namespace(c={}, d={}, lead={}, groups={}, problems=[]) -%}
+            {%- set gs = namespace(c={}, d={}, cn={}, dn={}, lead={}, groups={}, problems=[]) -%}
             {%- for G in ['A', 'B', 'C'] -%}
               {%- set members = ns.bats | selectattr('g', 'eq', G) | list -%}
               {%- if members | length > 0 -%}
@@ -3086,19 +3133,25 @@ template:
                   {#- Per direction. w.R = W of the group's max power still to hand out · w.out = the limit
                       per battery (the result) · w.add = what a battery gets above its 100 W · w.elig = the
                       batteries that can go this way (not full / not empty) · rest = the ones that cannot -#}
-                  {%- for d in ['charge', 'discharge'] -%}
+                  {#- Two passes when the BMS share is on: 'act' with the BMS caps (written), 'nom' with
+                      the own limits only (charge_nominal / discharge_nominal for the planner) -#}
+                  {%- for vr in [['charge', 'act'], ['discharge', 'act']]
+                      + ([['charge', 'nom'], ['discharge', 'nom']] if share else []) -%}
+                    {%- set d = vr[0] -%}
+                    {%- set act = vr[1] == 'act' -%}
                     {%- set latch = 'full' if d == 'charge' else 'empty' -%}
                     {%- set lk = 'lkc' if d == 'charge' else 'lkd' -%}
                     {%- set prev = p.c if d == 'charge' else p.d -%}
-                    {%- set cap = 'capc' if d == 'charge' else 'capd' -%}
+                    {%- set cap = ('capc' if d == 'charge' else 'capd') ~ ('_e' if act else '') -%}
+                    {%- set cap_own = 'capc' if d == 'charge' else 'capd' -%}
                     {%- set w = namespace(R=budget, out={}, add={}, elig=[]) -%}
                     {#- Unreachable: keep what it has, its share is not ours to hand out. In
                         maintenance: its own limit, or its register when that is higher (support
                         may run it at anything up to that) -#}
                     {%- for m in members | rejectattr('live') -%}
-                      {%- set keep = ([m[cap], m[lk]] | max) if m.maint
+                      {%- set keep = ([m[cap_own], m[lk]] | max) if m.maint
                           else (m[lk] if m[lk] > 0
-                                else (prev[m.i | string] if (m.i | string) in prev else m[cap])) -%}
+                                else (prev[m.i | string] if (m.i | string) in prev else m[cap_own])) -%}
                       {%- set w.out = w.out | combine({m.i | string: keep | int}) -%}
                       {%- set w.R = w.R - keep -%}
                     {%- endfor -%}
@@ -3144,7 +3197,7 @@ template:
                       {%- endif -%}
                       {#- The leader gets up to its own max power from what is left, and leaves the pools -#}
                       {%- set L = cand[0] -%}
-                      {%- set gs.lead = gs.lead | combine({key: L.i}) -%}
+                      {%- if act -%}{%- set gs.lead = gs.lead | combine({key: L.i}) -%}{%- endif -%}
                       {%- set give = [[L[cap] - 100, 0] | max, w.R] | min -%}
                       {%- set w.add = w.add | combine({L.i | string: give}) -%}
                       {%- set w.R = w.R - give -%}
@@ -3165,15 +3218,18 @@ template:
                       {%- set k = m.i | string -%}
                       {%- set w.out = w.out | combine({k: 100 + (w.add[k] if k in w.add else 0)}) -%}
                     {%- endfor -%}
-                    {%- if d == 'charge' -%}{%- set gs.c = gs.c | combine(w.out) -%}
-                    {%- else -%}
-                      {%- set gs.d = gs.d | combine(w.out) -%}
+                    {%- if act and d == 'charge' -%}{%- set gs.c = gs.c | combine(w.out) -%}
+                    {%- elif act -%}{%- set gs.d = gs.d | combine(w.out) -%}
+                    {%- elif d == 'charge' -%}{%- set gs.cn = gs.cn | combine(w.out) -%}
+                    {%- else -%}{%- set gs.dn = gs.dn | combine(w.out) -%}
                     {%- endif -%}
                   {%- endfor -%}
                 {%- endif -%}
               {%- endif -%}
             {%- endfor -%}
             {{ {'charge': gs.c, 'discharge': gs.d, 'leaders': gs.lead, 'groups': gs.groups,
+                'charge_nominal': gs.cn if share else gs.c, 'discharge_nominal': gs.dn if share else gs.d,
+                'bms_charge': ns.bmsc, 'bms_discharge': ns.bmsd,
                 'problems': gs.problems,
                 'full': ns.bats | selectattr('full') | map(attribute='i') | list,
                 'empty': ns.bats | selectattr('empty') | map(attribute='i') | list,
@@ -3202,6 +3258,12 @@ template:
           last_known_discharge: "{{ (plan | from_json if plan is string else plan).last_known_discharge }}"
           # Batteries in maintenance (input_boolean.hba_maintenance_mode + RS485 off): not written
           maintenance: "{{ (plan | from_json if plan is string else plan).maintenance | default([]) }}"
+          # Without the BMS share (= charge / discharge when it is off): for the planner's later hours
+          charge_nominal: "{{ (plan | from_json if plan is string else plan).charge_nominal }}"
+          discharge_nominal: "{{ (plan | from_json if plan is string else plan).discharge_nominal }}"
+          # BMS share: per battery [BMS current limit A, W it counts at] (settled level)
+          bms_charge: "{{ (plan | from_json if plan is string else plan).bms_charge }}"
+          bms_discharge: "{{ (plan | from_json if plan is string else plan).bms_discharge }}"
 
   # ── Room per phase: main fuse limit and Charge alongside EV ───────────────────
   # What the batteries on each phase may still charge / discharge in total (W), used by

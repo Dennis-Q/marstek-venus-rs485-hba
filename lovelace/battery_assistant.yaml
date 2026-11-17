@@ -4592,6 +4592,12 @@ views:
               share to the others, an empty one its *discharge* share. HBA lowers a battery
               first and raises the other only once the battery reports the lower value.
 
+              **Share BMS shortfall (experimental):** when a battery's BMS allows less than its
+              own max power (cold cells below ~5 °C: about 1.6 kW, or nearly full / empty), HBA
+              counts it at what the BMS allows and gives the rest of the group's power to the
+              other batteries. Only from 200 W less and after the BMS level held 2 minutes, so
+              the registers are not rewritten for every small change.
+
               <ha-alert alert-type="warning" title="Use at your own risk">
 
               This is a software limit, not electrical protection. A firmware bug, a battery
@@ -4765,6 +4771,8 @@ views:
                 row:
                   entity: input_select.hba_power_group_c_policy
                   name: Group C spread
+              - entity: input_boolean.hba_power_group_bms_share
+                name: Share BMS shortfall (experimental)
             visibility:
               - condition: state
                 entity: sensor.hba_power_limits

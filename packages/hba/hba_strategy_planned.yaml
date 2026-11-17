@@ -747,8 +747,12 @@ template:
                   register, else 2500 W. -#}
               {%- set pc_now = states('sensor.hba_total_max_charge_power') | float(0) / 1000 -%}
               {%- set pd_now = states('sensor.hba_total_max_discharge_power') | float(0) / 1000 -%}
-              {%- set pl_c = state_attr('sensor.hba_power_limits', 'charge') -%}
-              {%- set pl_d = state_attr('sensor.hba_power_limits', 'discharge') -%}
+              {#- _nominal: without the BMS share of the power groups (that one follows the momentary
+                  BMS limit too) -#}
+              {%- set pl_c = state_attr('sensor.hba_power_limits', 'charge_nominal')
+                  or state_attr('sensor.hba_power_limits', 'charge') -%}
+              {%- set pl_d = state_attr('sensor.hba_power_limits', 'discharge_nominal')
+                  or state_attr('sensor.hba_power_limits', 'discharge') -%}
               {%- set lk_c = state_attr('sensor.hba_power_limits', 'last_known_charge') -%}
               {%- set lk_d = state_attr('sensor.hba_power_limits', 'last_known_discharge') -%}
               {%- set pl_c = pl_c if pl_c is mapping and is_state('sensor.hba_power_limits', 'Active') else {} -%}

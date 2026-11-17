@@ -29,6 +29,15 @@ This document covers HBA-specific changes only.
   does not know what it will do. A warning banner shows while the option is on; the RS485 alert comes
   once with the maintenance text. A battery that restarts meanwhile also stays at RS485 off. Switching
   the option off switches RS485 back on at once.
+- **Power groups: share BMS shortfall** (`input_boolean.hba_power_group_bms_share`, experimental, default
+  off; Power groups settings). When a battery's BMS allows less than its own max power — cold cells (below
+  ~5 °C a Venus E 3.0 allows 30 A, about 1.6 kW), or nearly full / empty — HBA counts it at what the BMS
+  allows (current limit × battery voltage + 100 W) and gives the rest of the group's power to the other
+  batteries. Example: group 3600 W, cold leader at 1.6 kW: the other battery gets 1900 W instead of 1100 W.
+  Only from 200 W below the own limit and once the BMS level has held 2 minutes, so the registers are not
+  rewritten at every small change; lowering first, as always. Charge and discharge. The planner keeps
+  planning later hours with the full limits (`charge_nominal` / `discharge_nominal`). Needs the battery
+  files with the discharge-limit fix below.
 - **A battery with RS485 off gets no share** (Full control, also without the option): it ignores every
   command, so its share goes to the other batteries, also in the seconds after a restart until RS485 is
   back on. The limit source shows *RS485 off* for it.
