@@ -206,6 +206,7 @@ electrical protection; have an electrician check the installation.
 | `input_number.hba_marstek_m{1-6}_max_charge_power` / `…_max_discharge_power` | `0` W | The battery's own limits while in a group (in Own they are its registers). 0 = not set. Prefilled from the registers when it joins a group |
 | `input_number.hba_power_group_{a,b,c}_max_power` | `3500` W | 16 A breaker ≈ 3680 W |
 | `input_select.hba_power_group_{a,b,c}_policy` | `Follow battery order` | Follow battery order / Equal / One at a time |
+| `input_boolean.hba_power_group_bms_share` | `off` | Experimental: a battery whose BMS allows less than its own limit counts at the BMS power, the rest of the group goes to the others |
 | `input_number.hba_phase_current_limit` | `0` A (off) | Main fuse limit per phase, every strategy (charge = import, discharge = export); e.g. 24 A for a 25 A fuse; needs per-phase P1 sensors |
 
 ## Charge Strategy
@@ -365,6 +366,7 @@ or set these manually in Advanced Settings before using the solar forecast charg
 | Helper | Default |
 |---|---|
 | `input_boolean.hba_control_is_debug_mode` | `off` |
+| `input_boolean.hba_maintenance_mode` | `off` (on = a battery with RS485 switched off is left alone: no RS485 re-enable, no commands, no limit writes) |
 | `input_select.hba_control_strategy_during_ev_charge` | `Full stop` |
 | `input_text.hba_strategy_ev_saturated_entity_id` | `""` (empty — Charge PV runs whenever the EV charges; set to the EV side's saturated binary_sensor to gate it) |
 | `input_text.hba_strategy_ev_sensor_entity_id` | `""` (empty) |

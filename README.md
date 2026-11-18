@@ -399,8 +399,19 @@ over once another is 5 % further along), *Equal* or
 *One at a time*; a full battery hands its charge share to the others, an empty one its
 discharge share. A **main fuse limit per phase** (same section) keeps each phase below a
 current in every strategy, for charging and discharging (needs the per-phase P1 sensors).
+**Share BMS shortfall** (experimental, default off): when a battery's BMS allows less than its own
+limit — cold cells (30 A, about 1.6 kW below ~6 °C until they warm to ~10 °C) or nearly full / empty — it
+counts at what the BMS allows, so the rest of the group's power goes to the other batteries.
 **Use at your own risk:** it is a software limit, not electrical protection —
 always have an electrician check your installation.
+
+### Battery maintenance
+
+**Maintenance mode** (Advanced settings, *Battery maintenance*, default off): for a battery that support
+is looking into. Switch RS485 off on that battery in the Marstek app; HBA then leaves it alone — it does
+not switch RS485 back on, sends it no commands and no limit writes, and in a power group keeps its own
+limits reserved for it. A banner shows while the mode is on. Switch it off when the maintenance is done:
+HBA switches RS485 back on at once.
 
 ### Preview dashboard
 
@@ -476,6 +487,10 @@ charge at night → sell tomorrow morning".
   the Timed EV charge push at the house's expected use + the car's charge power and stops when the
   charger's energy meter says the car has that hour's kWh. Settings: *ends before departure* (hours) and
   *latest plug-in time* (an expected car).
+- **Ask before Normal** (switch, default off): a phone question with buttons (charge Normal tonight or not,
+  is the car leaving) right after the car is plugged in — as soon as the plan has the car, a second or two —
+  and at the EV project's reminder time (default 20:00) when it did not ask yet that day. No answer = it
+  charges.
 - Charge and Sell run to the energy the plan expects at the end of the hour. Charge uses the power the
   hour needs, rounded up to whole batteries, so a small target runs on one battery. Sell is spread over the
   hour when full power is not needed, never below the minimum start power (200 W), and always covers the
@@ -484,8 +499,9 @@ charge at night → sell tomorrow morning".
   where the plan uses it next.
 - What the stored energy cost is tracked in a ledger from what actually went in (grid charging at the buy
   price, sun at the sell price), so the profit per kWh reflects what you really paid.
-- Re-plans every hour, on new prices or a new forecast, on a setting change, and when the stored
-  energy drifts from the plan.
+- Re-plans every hour, on new prices or a new forecast, on a setting change, when the stored
+  energy drifts from the plan, when the car is plugged in or out, and when the car reaches its Minimum,
+  Normal or Leftover (the batteries get the car's room at once).
 - Settings: wear cost per kWh (default 0), a reserve for unexpected loads, a separate sell-price
   sensor + deduction, a minimum advantage of selling (only sell from the battery when it beats keeping
   the energy by at least this much per kWh), and switches to leave out grid charging, Sell or Zero import.
