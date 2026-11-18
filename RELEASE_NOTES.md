@@ -211,8 +211,10 @@ This document covers HBA-specific changes only.
   already was. Before, an offline battery's select kept showing the last value HA sent. New installs only:
   the installer never overwrites an existing battery file (copy the `availability:` of that select by hand
   if you want it).
-- **Ask before Normal: no repeat after a restart.** The plug-in question came again when HA restarted
-  with the car connected (a template reload with the car connected may still ask again). When it only asks for the departure, the
+- **Ask before Normal: the question comes ~10 s after plug-in instead of 6 minutes.** Planned makes a new
+  plan as soon as the car is plugged in or out (before: at the next 5-minute check), and the question waits
+  for that plan. It asks once per plug-in; after an HA restart or a template reload with the car connected
+  it may ask once more. When it only asks for the departure, the
   first line now says why Normal has no grid hours (already in, grid charging off, covered by Minimum or
   solar, or no hour below the max price).
 - **Timed EV charge / battery to car: waiting for the car without an EV-charging entity.** With no

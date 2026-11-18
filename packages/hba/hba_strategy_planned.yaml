@@ -458,6 +458,11 @@ template:
       - trigger: event
         event_type: hba_planned_refresh
         id: manual
+      # The car plugged in or out: a plan with it now, not at the next 5-minute check (the car
+      # question in hba_notifications.yaml waits for this plan). Re-plans by the signature.
+      - trigger: state
+        entity_id: sensor.ev_car_info
+        attribute: connected
       - trigger: state
         entity_id: sensor.hba_energy_prices_data
       - trigger: state
@@ -2027,8 +2032,8 @@ template:
 
 script:
   # A new plan now, from the refresh icon in the Planned view. The plan re-makes itself on new
-  # prices, a new slot, changed settings and drift; plugging the car in or out is only seen at
-  # the next 5-minute check, which is what this is for.
+  # prices, a new slot, changed settings, drift and the car plugged in or out; a new car SoC is
+  # only seen at the next 5-minute check, which is what this is for.
   hba_planned_refresh:
     alias: "HBA: Planned - refresh the plan"
     icon: mdi:refresh

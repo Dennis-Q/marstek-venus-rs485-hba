@@ -1302,7 +1302,8 @@ automation:
   # On a home day from the list it asks whether the car really stays (Not leaving / Leaving).
   # While Min. until home day runs: a short notice that Normal stays skipped, or the solar-low
   # message when that day's solar looks too low.
-  # 6 minutes after plug-in: the plan sees a connected car at its next 5-minute check.
+  # At plug-in it asks at the first plan that has the car: the plan re-makes itself when the car is
+  # plugged in, so that is ~10 s after the plug-in (until 2026-11-18 a fixed 6 minutes after it).
   - id: hba_notify_planned_car_normal
     alias: "HBA: Planned car Normal question"
     mode: single
@@ -1313,13 +1314,10 @@ automation:
           {% set t = states('input_datetime.ev_assisted_reminder')[:5] %}
           {{ now().strftime('%H:%M') == ('20:00' if t in ['00:00', 'unkno', 'unava', ''] else t) }}
         id: reminder
+      # Every new plan; the condition picks the first one after a plug-in
       - trigger: state
-        entity_id: sensor.ev_car_info
-        attribute: connected
-        # No "from: false" (2026-11-18): with it, two plug-ins on prod on 11-17 never asked. A
-        # template reload with the car connected may ask again; an HA restart: see "settled" below.
-        to: true
-        for: "00:06:00"
+        entity_id: sensor.hba_planned_strategy
+        attribute: plan_made
         id: plugged
     conditions:
       - condition: state
@@ -1345,12 +1343,16 @@ automation:
           {#- Asked today already (a plug-in asks again by itself, through its trigger). Not against
               connected_since: that restarts with HA and with a reload. -#}
           {%- set asked = (last | timestamp_custom('%Y-%m-%d')) == now().strftime('%Y-%m-%d') -%}
-          {#- After an HA restart the charger reports a little later than the EV project starts, which
-              looks like a plug-in. this.last_changed = when this automation was loaded: no plug-in
-              question in the first 15 minutes after a start or an automation reload. -#}
-          {%- set settled = (now() - this.last_changed).total_seconds() > 900 -%}
+          {#- The first plan made after this plug-in, and not asked since it. connected_since also
+              restarts with HA and with a template reload: then it asks again (accepted, user
+              2026-11-18). Not within 30 minutes of the last question either: after a restart the
+              charger may report the car a little later, a second "plug-in". -#}
+          {%- set since = state_attr('sensor.ev_car_info', 'connected_since') | int(0) -%}
+          {%- set made = as_timestamp(state_attr('sensor.hba_planned_strategy', 'plan_made'), 0) -%}
+          {%- set new_plug = since > 0 and made >= since and last < since
+              and as_timestamp(now()) - last > 1800 -%}
           {{ state_attr('sensor.ev_car_info', 'connected') == true
-             and (trigger.id != 'plugged' or settled)
+             and (trigger.id != 'plugged' or new_plug)
              and ((bat_on and (trigger.id == 'plugged' or not asked))
                   or ((trigger.id == 'reminder' or t <= now().strftime('%H:%M') < '22:00')
                       and car.get('normal', 0) | float(0) > 0.1)) }}
