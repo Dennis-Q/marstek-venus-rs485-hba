@@ -562,7 +562,10 @@ template:
           now_ts: &planned_now_ts "{{ as_timestamp(now()) | int }}"
           now_slot: &planned_now_slot "{{ ((as_timestamp(now()) | int) // step) * step }}"
           # New prices or a new solar forecast: number + last start of the price marks, and
-          # the two forecast totals.
+          # the two forecast totals. The car parts re-plan as "car changed". The car SoC counts in
+          # 5 % steps, plus how many of Minimum / Normal / Leftover it has reached: the car reaching
+          # its target re-plans at once (prod 2026-11-18: full at 05:15, 98 -> 100 % is the same 5 %
+          # step, the batteries kept the room next to the car until 05:54; user 2026-11-18).
           signature: >-
             {%- set raw = state_attr('sensor.hba_energy_prices_data', 'marks') -%}
             {%- set ev_e = 'sensor.ev_car_info' -%}
@@ -588,7 +591,12 @@ template:
               state_attr(ev_e, 'deadline') }}|{{
               is_state('input_boolean.hba_strategy_planned_car_battery', 'on')
               and state_attr(ev_e, 'connected') != true
-              and now().strftime('%H:%M') < lp }}
+              and now().strftime('%H:%M') < lp }}|{{
+              [states('input_number.hba_strategy_planned_car_minimum'),
+               states('input_number.hba_strategy_planned_car_normal'),
+               states('input_number.hba_strategy_planned_car_leftover')]
+                | map('float', 0) | select('gt', 0)
+                | select('le', states(ev_e) | float(0)) | list | length }}
       - variables:
           # The slot that was running according to the previous plan, to measure the drift
           drift: >-
@@ -2058,7 +2066,29 @@ script:
             {%- set ps = state_attr('sensor.hba_planned_strategy', 'plan_slot') | int(0) -%}
             {{ 'plan out of date' if ps > 0 and as_timestamp(now()) - (ps + step) > 300
                else states('sensor.hba_planned_strategy') }}
-          target: "{{ state_attr('sensor.hba_planned_strategy', 'target_energy') | float(-1) }}"
+          # The row's end-of-slot energy. In the last 5 minutes of a Charge slot followed by another
+          # Charge slot, the next slot's target instead -- when this slot's buy price is not higher
+          # (Sell: the next Sell, sell price not lower). Then the batteries go straight on: prod
+          # 2026-11-18 05:58:56 reached the target with 64 s left, stopped and started again at 06:00
+          # (user 2026-11-18). With a dearer slot next it still stops: the plan chose that.
+          target: >-
+            {%- set t = state_attr('sensor.hba_planned_strategy', 'target_energy') | float(-1) -%}
+            {%- set plan = state_attr('sensor.hba_planned_strategy', 'plan') or [] -%}
+            {%- set n = as_timestamp(now()) | int -%}
+            {%- set cur = plan | selectattr('ts', 'le', n) | list | last | default(none) -%}
+            {%- set nxt = plan | selectattr('ts', 'gt', n) | first | default(none) -%}
+            {%- set near = t >= 0 and cur is not none and nxt is not none
+                and act in ['Charge', 'Sell'] and cur.a == act and nxt.a == act
+                and nxt.ts - n <= 300 and nxt.e1 is defined -%}
+            {%- if near and act == 'Charge' and cur.b | float(9) <= nxt.b | float(0)
+                and nxt.e1 | float(0) > t -%}
+              {{ nxt.e1 | float(0) }}
+            {%- elif near and act == 'Sell' and cur.s | float(0) >= nxt.s | float(9)
+                and nxt.e1 | float(0) < t -%}
+              {{ nxt.e1 | float(0) }}
+            {%- else -%}
+              {{ t }}
+            {%- endif -%}
           avail: "{{ states('sensor.hba_charge_available_energy') | float(0) }}"
           # Hysteresis (prod 2026-10-29 04:32-04:44: Charge <-> Charge PV every ~30 s near full).
           # Stored energy moves in steps of ~0.05 kWh (1 % SoC of one battery) and near 100 % the

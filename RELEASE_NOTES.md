@@ -196,7 +196,12 @@ This document covers HBA-specific changes only.
     Assistant then loads the copy instead of the new file.
 
 ### Fixed
-
+- **Planned: the batteries get the car's room back as soon as the car is full.** The plan only noticed the car's
+  SoC in 5 % steps, so a car reaching its target (98 -> 100 %) did not re-plan and the batteries kept charging at
+  the lower power next to the car for up to 40 minutes. Reaching Minimum, Normal or Leftover now re-plans at once.
+- **Planned: no one-minute stop between two Charge (or Sell) hours.** When Charge reaches its target in the last
+  5 minutes and the next hour charges too at a price that is not lower, the batteries go straight on to the next
+  hour's target instead of stopping until the hour ends.
 - **No more false "battery not responding" near full:** the battery files read the BMS limits every 60 s
   (was 90 s) and the alert waits 90 s (was 60 s). Near full the BMS cuts the charge (M2 at 92-93 %: 1630
   to 540 W); HBA only lowers its command once it reads the new BMS limit, so the alert fired and cleared
