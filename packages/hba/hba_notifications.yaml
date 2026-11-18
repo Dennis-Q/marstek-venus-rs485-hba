@@ -1316,9 +1316,8 @@ automation:
       - trigger: state
         entity_id: sensor.ev_car_info
         attribute: connected
-        # from false: a real plug-in only. After a template reload the attribute comes back from
-        # nothing to true, and the question was asked again. (An HA restart: see "settled" below.)
-        from: false
+        # No "from: false" (2026-11-18): with it, two plug-ins on prod on 11-17 never asked. A
+        # template reload with the car connected may ask again; an HA restart: see "settled" below.
         to: true
         for: "00:06:00"
         id: plugged
