@@ -2896,8 +2896,9 @@ template:
   #     35111 / 35112 x battery voltage + 100 W, rounded up to 100 W), so the rest of the group's
   #     power goes to the other batteries. Only when it is 200 W or more below the own limit, and
   #     only a BMS level that has held 2 minutes (the value is kept while the level stays: no
-  #     write per voltage step). 0 A is left to the full / empty latch. Prod 2026-11-14/15: a
-  #     cold leader at 1570 W left its follower at 1100 W, 900 W of the group unused.
+  #     write per voltage step). 0 A is left to the full / empty latch. Why: prod 2026-11-14/15,
+  #     M2 at 30 A (cold) charged at most 1570 W; as a 2500 W leader in a 3600 W group its
+  #     follower gets 1100 W (user's example 2026-11-17), so ~900 W of the group stays unused.
   #     charge_nominal / discharge_nominal = the split without it (the planner plans later hours
   #     with the full limits, see hba_strategy_planned)
   # Full/empty latch with hysteresis so a battery at its cutoff does not flip the split:
@@ -2976,17 +2977,26 @@ template:
                 have hysteresis, and the last known limits and the leaders must carry over -#}
             {%- set p = namespace(full=[], empty=[], latched=[], lkc={}, lkd={}, c={}, d={}, lead={},
                                   bmsc={}, bmsd={}) -%}
-            {%- set v = state_attr(S, 'full') -%}{%- set p.full = v if v is sequence and v is not string else [] -%}
-            {%- set v = state_attr(S, 'empty') -%}{%- set p.empty = v if v is sequence and v is not string else [] -%}
+            {%- set v = state_attr(S, 'full') -%}
+            {%- set p.full = v if v is sequence and v is not string else [] -%}
+            {%- set v = state_attr(S, 'empty') -%}
+            {%- set p.empty = v if v is sequence and v is not string else [] -%}
             {%- set v = state_attr(S, 'latched') -%}
             {%- set p.latched = v if v is sequence and v is not string else [] -%}
-            {%- set v = state_attr(S, 'last_known_charge') -%}{%- set p.lkc = v if v is mapping else {} -%}
-            {%- set v = state_attr(S, 'last_known_discharge') -%}{%- set p.lkd = v if v is mapping else {} -%}
-            {%- set v = state_attr(S, 'charge') -%}{%- set p.c = v if v is mapping else {} -%}
-            {%- set v = state_attr(S, 'discharge') -%}{%- set p.d = v if v is mapping else {} -%}
-            {%- set v = state_attr(S, 'leaders') -%}{%- set p.lead = v if v is mapping else {} -%}
-            {%- set v = state_attr(S, 'bms_charge') -%}{%- set p.bmsc = v if v is mapping else {} -%}
-            {%- set v = state_attr(S, 'bms_discharge') -%}{%- set p.bmsd = v if v is mapping else {} -%}
+            {%- set v = state_attr(S, 'last_known_charge') -%}
+            {%- set p.lkc = v if v is mapping else {} -%}
+            {%- set v = state_attr(S, 'last_known_discharge') -%}
+            {%- set p.lkd = v if v is mapping else {} -%}
+            {%- set v = state_attr(S, 'charge') -%}
+            {%- set p.c = v if v is mapping else {} -%}
+            {%- set v = state_attr(S, 'discharge') -%}
+            {%- set p.d = v if v is mapping else {} -%}
+            {%- set v = state_attr(S, 'leaders') -%}
+            {%- set p.lead = v if v is mapping else {} -%}
+            {%- set v = state_attr(S, 'bms_charge') -%}
+            {%- set p.bmsc = v if v is mapping else {} -%}
+            {%- set v = state_attr(S, 'bms_discharge') -%}
+            {%- set p.bmsd = v if v is mapping else {} -%}
             {%- set share = is_state('input_boolean.hba_power_group_bms_share', 'on') -%}
             {#- 1. Per battery: reachability, read-back, last known limits, full/empty latch -#}
             {%- set ns = namespace(bats=[], lkc={}, lkd={}, bmsc={}, bmsd={}) -%}
@@ -3026,22 +3036,30 @@ template:
               {%- set bms_a = states('sensor.marstek_m' ~ i ~ '_battery_charge_current_limit') | float(-1) -%}
               {#- The three flags, each with hysteresis: no SoC reading or inside the band = keep the
                   previous flag (the numbers: see the header above) -#}
-              {%- if soc < 0 -%}{%- set full = i in p.full -%}
-              {%- elif soc >= hi - 1 or (bms_a == 0 and soc >= 90) -%}{%- set full = true -%}
-              {%- elif soc < hi - 4 -%}{%- set full = false -%}
+              {%- if soc < 0 -%}
+                {%- set full = i in p.full -%}
+              {%- elif soc >= hi - 1 or (bms_a == 0 and soc >= 90) -%}
+              {%- set full = true -%}
+              {%- elif soc < hi - 4 -%}
+              {%- set full = false -%}
               {%- else -%}
                 {%- set full = i in p.full -%}
               {%- endif -%}
-              {%- if soc < 0 -%}{%- set latched = i in p.latched -%}
+              {%- if soc < 0 -%}
+                {%- set latched = i in p.latched -%}
               {%- elif soc < 13 and states('sensor.marstek_m' ~ i ~ '_device_name') | trim is match('VNSE3') -%}
                 {%- set latched = true -%}
-              {%- elif soc >= 18 -%}{%- set latched = false -%}
+              {%- elif soc >= 18 -%}
+              {%- set latched = false -%}
               {%- else -%}
                 {%- set latched = i in p.latched -%}
               {%- endif -%}
-              {%- if soc < 0 -%}{%- set empty = i in p.empty -%}
-              {%- elif soc <= lo + 1 or latched -%}{%- set empty = true -%}
-              {%- elif soc > lo + 4 -%}{%- set empty = false -%}
+              {%- if soc < 0 -%}
+                {%- set empty = i in p.empty -%}
+              {%- elif soc <= lo + 1 or latched -%}
+              {%- set empty = true -%}
+              {%- elif soc > lo + 4 -%}
+              {%- set empty = false -%}
               {%- else -%}
                 {%- set empty = i in p.empty -%}
               {%- endif -%}
@@ -3064,11 +3082,19 @@ template:
                   {%- else -%}
                     {%- set e = old -%}
                   {%- endif -%}
-                  {%- if dir == 'charge' -%}{%- set bm.c = e -%}{%- else -%}{%- set bm.d = e -%}{%- endif -%}
+                  {%- if dir == 'charge' -%}
+                    {%- set bm.c = e -%}
+                  {%- else -%}
+                    {%- set bm.d = e -%}
+                  {%- endif -%}
                 {%- endfor -%}
               {%- endif -%}
-              {%- if bm.c is not none -%}{%- set ns.bmsc = ns.bmsc | combine({k: bm.c}) -%}{%- endif -%}
-              {%- if bm.d is not none -%}{%- set ns.bmsd = ns.bmsd | combine({k: bm.d}) -%}{%- endif -%}
+              {%- if bm.c is not none -%}
+                {%- set ns.bmsc = ns.bmsc | combine({k: bm.c}) -%}
+              {%- endif -%}
+              {%- if bm.d is not none -%}
+                {%- set ns.bmsd = ns.bmsd | combine({k: bm.d}) -%}
+              {%- endif -%}
               {%- set capc = states('input_number.hba_marstek_m' ~ i ~ '_max_charge_power') | float(0) | int -%}
               {%- set capd = states('input_number.hba_marstek_m' ~ i ~ '_max_discharge_power') | float(0) | int -%}
               {%- set capc_e = bm.c[1] if bm.c is not none and capc - bm.c[1] >= 200 else capc -%}
@@ -3197,7 +3223,9 @@ template:
                       {%- endif -%}
                       {#- The leader gets up to its own max power from what is left, and leaves the pools -#}
                       {%- set L = cand[0] -%}
-                      {%- if act -%}{%- set gs.lead = gs.lead | combine({key: L.i}) -%}{%- endif -%}
+                      {%- if act -%}
+                        {%- set gs.lead = gs.lead | combine({key: L.i}) -%}
+                      {%- endif -%}
                       {%- set give = [[L[cap] - 100, 0] | max, w.R] | min -%}
                       {%- set w.add = w.add | combine({L.i | string: give}) -%}
                       {%- set w.R = w.R - give -%}
@@ -3218,10 +3246,14 @@ template:
                       {%- set k = m.i | string -%}
                       {%- set w.out = w.out | combine({k: 100 + (w.add[k] if k in w.add else 0)}) -%}
                     {%- endfor -%}
-                    {%- if act and d == 'charge' -%}{%- set gs.c = gs.c | combine(w.out) -%}
-                    {%- elif act -%}{%- set gs.d = gs.d | combine(w.out) -%}
-                    {%- elif d == 'charge' -%}{%- set gs.cn = gs.cn | combine(w.out) -%}
-                    {%- else -%}{%- set gs.dn = gs.dn | combine(w.out) -%}
+                    {%- if act and d == 'charge' -%}
+                      {%- set gs.c = gs.c | combine(w.out) -%}
+                    {%- elif act -%}
+                    {%- set gs.d = gs.d | combine(w.out) -%}
+                    {%- elif d == 'charge' -%}
+                    {%- set gs.cn = gs.cn | combine(w.out) -%}
+                    {%- else -%}
+                    {%- set gs.dn = gs.dn | combine(w.out) -%}
                     {%- endif -%}
                   {%- endfor -%}
                 {%- endif -%}
@@ -3539,23 +3571,30 @@ template:
                     where it can do nothing at all, then the lowest of its limits -#}
                 {%- set best = namespace(w=nominal, r='None') -%}
                 {%- if not live -%}
-                  {%- set best.w = 0 -%}{%- set best.r = 'Offline' -%}
+                  {%- set best.w = 0 -%}
+                  {%- set best.r = 'Offline' -%}
                 {%- elif inv in ['unknown', 'unavailable'] -%}
-                  {%- set best.w = 0 -%}{%- set best.r = 'Offline' -%}
+                  {%- set best.w = 0 -%}
+                  {%- set best.r = 'Offline' -%}
                 {%- elif inv == 'Fault' -%}
-                  {%- set best.w = 0 -%}{%- set best.r = 'Fault' -%}
+                  {%- set best.w = 0 -%}
+                  {%- set best.r = 'Fault' -%}
                 {%- elif is_state('select.marstek_m' ~ bat ~ '_rs485_control_mode', 'disable') -%}
                   {#- Ignores HBA's commands: after a restart, or in maintenance -#}
-                  {%- set best.w = 0 -%}{%- set best.r = 'RS485 off' -%}
+                  {%- set best.w = 0 -%}
+                  {%- set best.r = 'RS485 off' -%}
                 {%- elif dir == 'charge'
                     and soc >= states('input_number.hba_marstek_m' ~ bat ~ '_charging_cutoff_capacity') | float(100) -%}
-                  {%- set best.w = 0 -%}{%- set best.r = 'Full' -%}
+                  {%- set best.w = 0 -%}
+                  {%- set best.r = 'Full' -%}
                 {%- elif dir == 'discharge' and along -%}
-                  {%- set best.w = 0 -%}{%- set best.r = 'Charge alongside EV' -%}
+                  {%- set best.w = 0 -%}
+                  {%- set best.r = 'Charge alongside EV' -%}
                 {%- elif dir == 'discharge'
                     and soc <= states('input_number.hba_marstek_m' ~ bat ~ '_discharging_cutoff_capacity')
                                | float(13) -%}
-                  {%- set best.w = 0 -%}{%- set best.r = 'Empty' -%}
+                  {%- set best.w = 0 -%}
+                  {%- set best.r = 'Empty' -%}
                 {%- else -%}
                   {%- set cands = [[reg, reg_r]] -%}
                   {%- if dir == 'charge' -%}
@@ -3585,7 +3624,8 @@ template:
                     {%- endif -%}
                   {%- endif -%}
                   {%- for w, r in cands if w < best.w -%}
-                    {%- set best.w = [w, 0] | max | int -%}{%- set best.r = r -%}
+                    {%- set best.w = [w, 0] | max | int -%}
+                    {%- set best.r = r -%}
                   {%- endfor -%}
                   {#- What this battery takes comes off its phase's room before the next battery in the
                       order (a battery without a phase: off every phase) -#}

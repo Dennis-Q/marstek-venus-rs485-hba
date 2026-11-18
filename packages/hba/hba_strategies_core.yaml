@@ -210,14 +210,18 @@ automation:
                 maint: >-
                   {{ is_state('input_boolean.hba_maintenance_mode', 'on') and is_state(rs_entity, 'disable') }}
             - if:
-                - "{{ not maint and want_work_mode != '' and states(wm_entity) not in ['unavailable', 'unknown', want_work_mode] }}"
+                - >-
+                  {{ not maint and want_work_mode != ''
+                     and states(wm_entity) not in ['unavailable', 'unknown', want_work_mode] }}
               then:
                 - action: select.select_option
                   continue_on_error: true
                   target: { entity_id: "{{ wm_entity }}" }
                   data: { option: "{{ want_work_mode }}" }
             - if:
-                - "{{ not maint and want_rs485 != '' and states(rs_entity) not in ['unavailable', 'unknown', want_rs485] }}"
+                - >-
+                  {{ not maint and want_rs485 != ''
+                     and states(rs_entity) not in ['unavailable', 'unknown', want_rs485] }}
               then:
                 - action: select.select_option
                   continue_on_error: true
