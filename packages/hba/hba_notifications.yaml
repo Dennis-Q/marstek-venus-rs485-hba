@@ -46,6 +46,8 @@
 #                                        Plan the car or Timed EV charge on, but the EV project
 #                                        does not listen
 #   hba_notify_entity_health / _resolved an HBA entity is missing or has the wrong entity_id
+#   hba_planned_car_plugged              a real plug-in: waits for the plan with the car, then
+#                                        starts the car question (event hba_planned_car_plugged)
 #   hba_notify_planned_car_normal / _answer
 #                                        the car question at plug-in / in the evening, and
 #                                        what the buttons do
@@ -1302,8 +1304,30 @@ automation:
   # On a home day from the list it asks whether the car really stays (Not leaving / Leaving).
   # While Min. until home day runs: a short notice that Normal stays skipped, or the solar-low
   # message when that day's solar looks too low.
-  # At plug-in it asks at the first plan that has the car: the plan re-makes itself when the car is
-  # plugged in, so that is ~10 s after the plug-in (until 2026-11-18 a fixed 6 minutes after it).
+  # At a real plug-in it asks as soon as the plan has the car (~2 s after it, through
+  # hba_planned_car_plugged below; until 2026-11-18 a fixed 6 minutes after the plug-in).
+  - id: hba_planned_car_plugged
+    alias: "HBA: Planned car plugged in"
+    # restart: plugged in again within the wait = only the last plug-in asks
+    mode: restart
+    triggers:
+      # from false: a real plug-in only. After an HA start the car info's first state is already
+      # connected (no "from false"), so a restart does not ask (prod 2026-11-18 07:14: it looked
+      # like a plug-in through connected_since, user 2026-11-18).
+      - trigger: state
+        entity_id: sensor.ev_car_info
+        attribute: connected
+        from: false
+        to: true
+    actions:
+      # Planned re-plans at a plug-in (about a second); the question needs that plan
+      - wait_template: >-
+          {{ as_timestamp(state_attr('sensor.hba_planned_strategy', 'plan_made'), 0)
+             >= as_timestamp(trigger.to_state.last_updated) }}
+        timeout: "00:02:00"
+        continue_on_timeout: false
+      - event: hba_planned_car_plugged
+
   - id: hba_notify_planned_car_normal
     alias: "HBA: Planned car Normal question"
     mode: single
@@ -1314,10 +1338,10 @@ automation:
           {% set t = states('input_datetime.ev_assisted_reminder')[:5] %}
           {{ now().strftime('%H:%M') == ('20:00' if t in ['00:00', 'unkno', 'unava', ''] else t) }}
         id: reminder
-      # Every new plan; the condition picks the first one after a plug-in
-      - trigger: state
-        entity_id: sensor.hba_planned_strategy
-        attribute: plan_made
+      # A real plug-in, once the plan has the car (hba_planned_car_plugged). A separate automation,
+      # so that last_triggered here stays "a question was sent" for the reminder's "asked today".
+      - trigger: event
+        event_type: hba_planned_car_plugged
         id: plugged
     conditions:
       - condition: state
@@ -1343,16 +1367,7 @@ automation:
           {#- Asked today already (a plug-in asks again by itself, through its trigger). Not against
               connected_since: that restarts with HA and with a reload. -#}
           {%- set asked = (last | timestamp_custom('%Y-%m-%d')) == now().strftime('%Y-%m-%d') -%}
-          {#- The first plan made after this plug-in, and not asked since it. connected_since also
-              restarts with HA and with a template reload: then it asks again (accepted, user
-              2026-11-18). Not within 30 minutes of the last question either: after a restart the
-              charger may report the car a little later, a second "plug-in". -#}
-          {%- set since = state_attr('sensor.ev_car_info', 'connected_since') | int(0) -%}
-          {%- set made = as_timestamp(state_attr('sensor.hba_planned_strategy', 'plan_made'), 0) -%}
-          {%- set new_plug = since > 0 and made >= since and last < since
-              and as_timestamp(now()) - last > 1800 -%}
           {{ state_attr('sensor.ev_car_info', 'connected') == true
-             and (trigger.id != 'plugged' or new_plug)
              and ((bat_on and (trigger.id == 'plugged' or not asked))
                   or ((trigger.id == 'reminder' or t <= now().strftime('%H:%M') < '22:00')
                       and car.get('normal', 0) | float(0) > 0.1)) }}
