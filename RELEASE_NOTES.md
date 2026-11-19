@@ -198,7 +198,7 @@ This document covers HBA-specific changes only.
 ### Fixed
 - **Planned: the batteries get the car's room back as soon as the car is full.** The plan only noticed the car's
   SoC in 5 % steps, so a car reaching its target (98 -> 100 %) did not re-plan and the batteries kept charging at
-  the lower power next to the car for up to 40 minutes. Reaching Minimum, Normal or Leftover now re-plans at once.
+  the lower power next to the car for up to 40 minutes. Reaching Minimum, Normal or Leftover now re-plans at the next 5-minute check.
 - **Planned: no one-minute stop between two Charge (or Sell) hours.** When Charge reaches its target in the last
   5 minutes and the next hour charges too at a price that is not lower, the batteries go straight on to the next
   hour's target instead of stopping until the hour ends.

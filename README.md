@@ -500,8 +500,8 @@ charge at night → sell tomorrow morning".
 - What the stored energy cost is tracked in a ledger from what actually went in (grid charging at the buy
   price, sun at the sell price), so the profit per kWh reflects what you really paid.
 - Re-plans every hour, on new prices or a new forecast, on a setting change, when the stored
-  energy drifts from the plan, when the car is plugged in or out, and when the car reaches its Minimum,
-  Normal or Leftover (the batteries get the car's room at once).
+  energy drifts from the plan, when the car is plugged in or out (at once), and when the car reaches its
+  Minimum, Normal or Leftover (within 5 minutes; the batteries then get the car's room).
 - Settings: wear cost per kWh (default 0), a reserve for unexpected loads, a separate sell-price
   sensor + deduction, a minimum advantage of selling (only sell from the battery when it beats keeping
   the energy by at least this much per kWh), and switches to leave out grid charging, Sell or Zero import.

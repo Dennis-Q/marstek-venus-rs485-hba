@@ -564,8 +564,9 @@ template:
           # New prices or a new solar forecast: number + last start of the price marks, and
           # the two forecast totals. The car parts re-plan as "car changed". The car SoC counts in
           # 5 % steps, plus how many of Minimum / Normal / Leftover it has reached: the car reaching
-          # its target re-plans at once (prod 2026-11-18: full at 05:15, 98 -> 100 % is the same 5 %
-          # step, the batteries kept the room next to the car until 05:54; user 2026-11-18).
+          # its target re-plans at the next 5-minute check (prod 2026-11-18: full at 05:15, 98 -> 100 %
+          # is the same 5 % step, the batteries kept the room next to the car until 05:54; with this:
+          # 2026-11-19 SoC 100 at 00:21:30, re-plan 00:25:01; user 2026-11-18).
           signature: >-
             {%- set raw = state_attr('sensor.hba_energy_prices_data', 'marks') -%}
             {%- set ev_e = 'sensor.ev_car_info' -%}
