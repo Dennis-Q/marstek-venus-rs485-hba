@@ -196,6 +196,9 @@ This document covers HBA-specific changes only.
     Assistant then loads the copy instead of the new file.
 
 ### Fixed
+- **EV banner wording:** "They charge only when Full stop wants to" (the running strategy's name put into the
+  sentence) now says the batteries are idle while Full stop runs, and otherwise "as far as <strategy> charges
+  them". Both dashboards.
 - **Prices missing: HBA keeps the hours it knew.** When the price source gave no prices (Frank Energie
   unavailable for hours on 2026-11-20 from 00:45), HBA's price data went empty at the next refresh, Planned had
   no plan and ran Self-consumption, and a planned car hour was lost. HBA now keeps the known prices of today
