@@ -503,6 +503,17 @@ views:
               columns: full
             visibility:
               - condition: state
+                entity: binary_sensor.hba_prices_stale
+                state: "on"
+            content: >
+              {%- set B = 'binary_sensor.hba_prices_stale' -%}
+              {%- set u = state_attr(B, 'known_until') -%}
+              <ha-alert alert-type="warning">Prices missing — the price source has given no prices since {{ as_timestamp(state_attr(B, 'since'), 0) | timestamp_custom('%a %H:%M') }}. HBA plans with the prices it already knew{{ ', until ' ~ (as_timestamp(u, 0) | timestamp_custom('%a %H:%M')) if u else ', but none are left' }}. Check the price integration.</ha-alert>
+          - type: markdown
+            grid_options:
+              columns: full
+            visibility:
+              - condition: state
                 entity: binary_sensor.hba_p1_meter_lost
                 state: "on"
             content: >

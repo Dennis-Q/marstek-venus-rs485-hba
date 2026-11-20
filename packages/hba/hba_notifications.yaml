@@ -32,6 +32,8 @@
 #   hba_notify_p1_meter_lost / _resolved no P1 reading for 60 s: the batteries were stopped
 #   hba_notify_plan_out_of_date / _resolved
 #                                        Planned has no plan for the running slot
+#   hba_notify_prices_stale / _resolved  the price source gives no prices for an hour (HBA uses
+#                                        the slots it already knew)
 #   hba_notify_manual_strategy_done / _reminder / _resolved
 #                                        Charge or Sell chosen by hand: done, or still on after
 #                                        1 / 2 / 4 h
@@ -854,6 +856,69 @@ automation:
           tag: hba_plan_out_of_date
           color: green
           resolve_id: hba_plan_out_of_date
+
+  # ── Prices missing ────────────────────────────────────────────────────────────
+  # binary_sensor.hba_prices_stale: the price source gives no prices; Planned and Dynamic use the
+  # slots already known. Reported after an hour (like the EV project), resolved when prices return.
+  - id: hba_notify_prices_stale
+    alias: "HBA: Notify prices missing"
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_prices_stale
+        to: "on"
+        for: "01:00:00"
+      # After an HA start or an automation reload (automation hba_alert_recheck): a running
+      # "for" is lost at a reload, so report here when it has been on for an hour already
+      - trigger: event
+        event_type: hba_alert_recheck
+        id: recheck
+    conditions:
+      - condition: template
+        value_template: >-
+          {%- set s = states.binary_sensor.hba_prices_stale -%}
+          {%- set mine = this.attributes.last_triggered if this is defined and this.attributes is defined else none -%}
+          {{ trigger.id != 'recheck'
+             or (s is not none and s.state == 'on' and (now() - s.last_changed).total_seconds() >= 3600
+                 and (mine is none or s.last_changed > mine)) }}
+    actions:
+      - action: script.hba_notify_dispatch
+        data:
+          title: "HBA: Prices missing"
+          message: >-
+            {%- set u = state_attr('binary_sensor.hba_prices_stale', 'known_until') -%}
+            {{ states('input_text.hba_strategy_dynamic_frank_sensor_entity_id') }} has given no prices
+            since {{ as_timestamp(state_attr('binary_sensor.hba_prices_stale', 'since'), 0)
+            | timestamp_custom('%a %H:%M') }}. HBA plans with the prices it already knew,
+            {{ 'until ' ~ (as_timestamp(u, 0) | timestamp_custom('%a %H:%M')) if u else 'but none are left' }}.
+            Check the price integration (reload it in Settings, Devices & services).
+          tag: hba_prices_stale
+          color: red
+          priority: high
+          persistent_id: hba_prices_stale
+
+  - id: hba_notify_prices_stale_resolved
+    alias: "HBA: Prices missing — resolved"
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_prices_stale
+        from: "on"
+        to: "off"
+    conditions:
+      - condition: template
+        value_template: >-
+          {% set raised = state_attr('automation.hba_notify_prices_missing', 'last_triggered') %}
+          {% set mine = this.attributes.last_triggered if this is defined and this.attributes is defined else none %}
+          {{ raised is not none and (mine is none or raised > mine) }}
+    actions:
+      - action: script.hba_notify_dispatch
+        data:
+          title: "HBA: Prices are back"
+          message: "The price source gives prices again; HBA plans with them."
+          tag: hba_prices_stale
+          color: green
+          resolve_id: hba_prices_stale
 
   # ── Charge / Sell chosen by hand ──────────────────────────────────────────────
   # A reminder so a one-off Charge or Sell is not forgotten (e.g. the evening Sell of Dynamic

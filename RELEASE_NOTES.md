@@ -196,6 +196,12 @@ This document covers HBA-specific changes only.
     Assistant then loads the copy instead of the new file.
 
 ### Fixed
+- **Prices missing: HBA keeps the hours it knew.** When the price source gave no prices (Frank Energie
+  unavailable for hours on 2026-11-20 from 00:45), HBA's price data went empty at the next refresh, Planned had
+  no plan and ran Self-consumption, and a planned car hour was lost. HBA now keeps the known prices of today
+  and tomorrow (`sensor.hba_energy_prices_data` attributes `stale` / `stale_since`), so Planned and Dynamic run
+  on until those hours end. New: `binary_sensor.hba_prices_stale` with a banner on both dashboards, a
+  notification after an hour and a resolved message.
 - **Planned: the batteries get the car's room back as soon as the car is full.** The plan only noticed the car's
   SoC in 5 % steps, so a car reaching its target (98 -> 100 %) did not re-plan and the batteries kept charging at
   the lower power next to the car for up to 40 minutes. Reaching Minimum, Normal or Leftover now re-plans at the next 5-minute check.

@@ -2757,6 +2757,7 @@ template:
             'binary_sensor.hba_control_loop_stalled',
             'binary_sensor.hba_p1_meter_lost',
             'binary_sensor.hba_plan_out_of_date',
+            'binary_sensor.hba_prices_stale',
             'sensor.hba_battery_capacity',
           ] %}
           {{ expected | reject('has_value') | list | length > 0 }}
@@ -2785,6 +2786,7 @@ template:
               'binary_sensor.hba_control_loop_stalled',
               'binary_sensor.hba_p1_meter_lost',
               'binary_sensor.hba_plan_out_of_date',
+              'binary_sensor.hba_prices_stale',
               'sensor.hba_battery_capacity',
             ] %}
             {% set ns = namespace(missing=[]) %}

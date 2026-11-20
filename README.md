@@ -457,6 +457,10 @@ update the entity ID there — for example:
 - `sensor.frank_energie_prices_average_electricity_price_all_hours_all_in` (English, all-in)
 - `sensor.frank_energie_prices_current_electricity_market_price` (English, market price ex taxes)
 
+**When the price source drops out** (Frank Energie unavailable, no prices), HBA keeps the prices it
+already knew for today and tomorrow, so Dynamic and Planned run on until those hours end. A banner
+shows while prices are missing, and after an hour a notification (resolved when they are back).
+
 ### Planned strategy
 
 **HBA-only, preview.** *Planned* plans per price slot over all known prices (today, and
