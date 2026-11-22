@@ -3960,13 +3960,13 @@ views:
               {%- set pr = state_attr(S, 'problems') or [] -%}
               **{{ states(S) }}**{{ ' — ' ~ (pr | join('; ')) if pr else '' }}
               {% for G, x in g.items() %}
-              **Group {{ G }}** — {{ x.policy }}, max {{ x.max_power }} W{{ ' · leader charge M' ~ lead[G ~ '_charge'] if (G ~ '_charge') in lead else '' }}{{ ' · leader discharge M' ~ lead[G ~ '_discharge'] if (G ~ '_discharge') in lead else '' }}
+              **Group {{ G }}** — {{ x.policy }}, max {{ x.max_power }} W{{ ' · leader charge M' ~ lead[G ~ '_charge'] if (G ~ '_charge') in lead else '' }}{{ ' · leader discharge M' ~ lead[G ~ '_discharge'] if (G ~ '_discharge') in lead else '' }}{% set st = x.members | select('in', full + empty + latched) | list %}
 
-              | | Charge set / read | Discharge set / read | |
-              |---|---|---|---|
+              | | Charge set / read | Discharge set / read |{{ ' State |' if st }}
+              |---|---|---|{{ '---|' if st }}
               {% for b in x.members -%}
               {%- set k = b | string -%}
-              | M{{ b }} | {{ c[k] if k in c else '–' }} / {{ states('sensor.marstek_m' ~ b ~ '_max_charge_power_number') }} | {{ d[k] if k in d else '–' }} / {{ states('sensor.marstek_m' ~ b ~ '_max_discharge_power_number') }} | {{ 'full ' if b in full else '' }}{{ 'latched until 18 %' if b in latched else ('empty' if b in empty else '') }} |
+              | M{{ b }} | {{ c[k] if k in c else '–' }} / {{ states('sensor.marstek_m' ~ b ~ '_max_charge_power_number') }} | {{ d[k] if k in d else '–' }} / {{ states('sensor.marstek_m' ~ b ~ '_max_discharge_power_number') }} |{% if st %} {{ 'full ' if b in full else '' }}{{ 'latched until 18 %' if b in latched else ('empty' if b in empty else '') }} |{% endif %}
               {% endfor %}
               {% endfor -%}
             visibility:
@@ -4031,8 +4031,8 @@ views:
               {%- set car = is_state('input_select.hba_control_strategy_during_ev_charge', 'Charge alongside EV') -%}
               {%- set fz = fuse > 0 %}
 
-              | Phase | Grid A | Batteries |{{ ' Car room W | Held for car W |' if car }}{{ ' Fuse room ↑ W | Fuse room ↓ W |' if fz }}
-              |---|---|---|{{ '---|---|' if car }}{{ '---|---|' if fz }}
+              | Phase | Batteries | Grid A |{{ ' Car room W | Held for car W |' if car }}
+              |---|---|---|{{ '---|---|' if car }}
               {% for n in ['L1', 'L2', 'L3'] -%}
               {%- set l = n | lower -%}
               {%- set v = states('sensor.p1_meter_voltage_' ~ l) | float(0) -%}
@@ -4041,8 +4041,16 @@ views:
               {%- for i in range(1, states('input_number.hba_battery_count') | int(1) + 1) if states('input_select.hba_marstek_m' ~ i ~ '_phase') == n -%}
                 {%- set ns.b = ns.b + ['M' ~ i] -%}
               {%- endfor -%}
-              | {{ n }} | {{ ((states('sensor.p1_meter_power_' ~ l) | float(0)) / v) | round(1) if has_value('sensor.p1_meter_power_' ~ l) else 'no sensor' }} | {{ ns.b | join(', ') or '–' }} |{% if car %} {{ room[n] if n in room else '–' }} | {{ hold[n] if n in hold else '–' }} |{% endif %}{% if fz %} {{ fc[n] if n in fc else '–' }} | {{ fd[n] if n in fd else '–' }} |{% endif %}
+              | {{ n }} | {{ ns.b | join(', ') or '–' }} | {{ ((states('sensor.p1_meter_power_' ~ l) | float(0)) / v) | round(1) if has_value('sensor.p1_meter_power_' ~ l) else 'no sensor' }} |{% if car %} {{ room[n] if n in room else '–' }} | {{ hold[n] if n in hold else '–' }} |{% endif %}
               {% endfor %}
+              {%- if fz %}
+
+              | Phase | Fuse room charge W | Fuse room discharge W |
+              |---|---|---|
+              {% for n in ['L1', 'L2', 'L3'] -%}
+              | {{ n }} | {{ fc[n] if n in fc else '–' }} | {{ fd[n] if n in fd else '–' }} |
+              {% endfor %}
+              {%- endif %}
               {%- if miss %}⚠ Missing: {{ miss }}{% endif %}
             visibility:
               - condition: or

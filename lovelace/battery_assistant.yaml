@@ -2662,13 +2662,13 @@ views:
               {%- set pr = state_attr(S, 'problems') or [] -%}
               **{{ states(S) }}**{{ ' — ' ~ (pr | join('; ')) if pr else '' }}
               {% for G, x in g.items() %}
-              **Group {{ G }}** — {{ x.policy }}, max {{ x.max_power }} W{{ ' · leader charge M' ~ lead[G ~ '_charge'] if (G ~ '_charge') in lead else '' }}{{ ' · leader discharge M' ~ lead[G ~ '_discharge'] if (G ~ '_discharge') in lead else '' }}
+              **Group {{ G }}** — {{ x.policy }}, max {{ x.max_power }} W{{ ' · leader charge M' ~ lead[G ~ '_charge'] if (G ~ '_charge') in lead else '' }}{{ ' · leader discharge M' ~ lead[G ~ '_discharge'] if (G ~ '_discharge') in lead else '' }}{% set st = x.members | select('in', full + empty) | list %}
 
-              | | Charge set / read | Discharge set / read | |
-              |---|---|---|---|
+              | | Charge set / read | Discharge set / read |{{ ' State |' if st }}
+              |---|---|---|{{ '---|' if st }}
               {% for b in x.members -%}
               {%- set k = b | string -%}
-              | M{{ b }} | {{ c[k] if k in c else '–' }} / {{ states('sensor.marstek_m' ~ b ~ '_max_charge_power_number') }} | {{ d[k] if k in d else '–' }} / {{ states('sensor.marstek_m' ~ b ~ '_max_discharge_power_number') }} | {{ 'full ' if b in full else '' }}{{ 'empty' if b in empty else '' }} |
+              | M{{ b }} | {{ c[k] if k in c else '–' }} / {{ states('sensor.marstek_m' ~ b ~ '_max_charge_power_number') }} | {{ d[k] if k in d else '–' }} / {{ states('sensor.marstek_m' ~ b ~ '_max_discharge_power_number') }} |{% if st %} {{ 'full ' if b in full else '' }}{{ 'empty' if b in empty else '' }} |{% endif %}
               {% endfor %}
               {% endfor -%}
             visibility:
