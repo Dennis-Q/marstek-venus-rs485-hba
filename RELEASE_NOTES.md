@@ -11,11 +11,15 @@ This document covers HBA-specific changes only.
 
 ---
 
-## Unreleased (dev builds report v4.10.1-r26)
+## v4.10.1-r26 — November 2026
 
-### Upgrading from r23 — read this first
+### Upgrading — read this first
 
-- Install r25 first if you can: r26 no longer converts the savings running total of r23. Without that
+- **Replace your battery files** (`marstek_m*_modbus_tcp.yaml`). The installer never overwrites them; it
+  puts the new ones next to them as `.new` and warns. Copy each `.new` over your file (keep your own IP
+  address and slave id). They read the BMS discharge limit at the right scale (it read ten times too low),
+  read the BMS limits every 60 s, use `timeout: 5` and poll slow values less often. See *Fixed* below.
+- **From r23:** install r25 first if you can: r26 no longer converts the savings running total of r23. Without that
   step it still works, but *Saved* dips once by the value of the energy below the cutoffs (~€0.35 per
   battery) the first time the batteries run empty, and the sensor's own value keeps its start offset.
 
