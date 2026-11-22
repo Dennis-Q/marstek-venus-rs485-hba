@@ -10,7 +10,7 @@
 #     (EV charging entity, charger power, solar forecast, notify target).
 # template:
 #   sensor (plain, re-evaluated on every change of what they read)
-#     Version, Active strategy (the last part of the flow label)
+#     Version, Decision Log (anchor of the Logbook lines), Active strategy (the last part of the flow label)
 #     Totals over the batteries: Total Battery Power, Total Commanded Power, Total Max Charge /
 #       Discharge Power, Average Battery SoC, Usable Battery Energy
 #     Energy: Charge Remaining / Available Energy, Battery Assist Reserved Energy, Time Remaining
@@ -1466,6 +1466,16 @@ template:
         unique_id: hba_version
         icon: mdi:tag
         state: "v4.10.1-r26"
+
+      # Anchor of the decision log: HBA's Logbook lines (names "HBA Planned", "HBA BMS", "HBA Limits") are
+      # written on this entity, so the Logbook filtered on it, and the Decisions card in Insights, show
+      # only those lines. On the automations that write them, each line came with the automation's own
+      # "triggered by" entry (dev 2026-11-22). The state never changes, so it adds no lines of its own;
+      # the recorder must keep it (the lines are events on it).
+      - name: "HBA Decision Log"
+        unique_id: hba_decision_log
+        icon: mdi:notebook-outline
+        state: "Logbook"
 
       - name: "HBA Active strategy"
         unique_id: hba_active_strategy

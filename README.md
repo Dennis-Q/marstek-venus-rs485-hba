@@ -507,15 +507,18 @@ charge at night → sell tomorrow morning".
   energy drifts from the plan, when the car is plugged in or out (at once), and when the car reaches its
   Minimum, Normal or Leftover (within 5 minutes; the batteries then get the car's room).
 - **Decision log:** every decision of Planned is one line in HA's Logbook (*HBA Planned*, on the entity
-  `automation.hba_planned_decision_log`): why it re-planned and what changed (new solar forecast with the
+  `sensor.hba_decision_log`; also the **Decisions** card at the top of Insights in the preview dashboard): why it re-planned and what changed (new solar forecast with the
   old and new kWh, new prices, the car, the stored energy off the plan, Charge / Sell done), the running
   and the next hour as now planned with what they were before, and each change of what runs ("Runs
   Planned → Charge done → Full stop"). Only while Planned is the strategy; kept as long as the recorder
   keeps its history.
-- **BMS limit log** (any strategy): a Logbook line *HBA BMS* (on `automation.hba_bms_limit_log`) when a
+- **BMS limit log** (any strategy): a Logbook line *HBA BMS* (on `sensor.hba_decision_log`) when a
   battery's BMS starts or stops limiting its charge or discharge power, after the level has held 2 minutes,
   e.g. "M3 discharge limited by the BMS: 40 A, about 2.1 kW (own limit 2.5 kW) (was 100 A). Coldest cell
   5.2 °C, SoC 25 %." Levels above the battery's own limit write nothing.
+- **Power limit log** (any strategy): a line *HBA Limits* when the batteries start or stop running at the
+  main fuse, car first, Balance or BMS limit (the Overview's "limited" line), with what they can do and,
+  with Planned in a Charge / Sell / Car hour, the power the plan counted on.
 - Settings: wear cost per kWh (default 0), a reserve for unexpected loads, a separate sell-price
   sensor + deduction, a minimum advantage of selling (only sell from the battery when it beats keeping
   the energy by at least this much per kWh), and switches to leave out grid charging, Sell or Zero import.

@@ -3750,6 +3750,22 @@ views:
       - type: grid
         cards:
           - type: heading
+            heading: Decisions
+            heading_style: title
+            icon: mdi:notebook-outline
+          - type: markdown
+            content: >-
+              Why HBA did what it did: every Planned re-plan with what changed, each change of what runs,
+              BMS limits and other limits that cut the battery power. Kept as long as the recorder keeps its history.
+          - type: logbook
+            target:
+              entity_id: sensor.hba_decision_log
+            hours_to_show: 24
+            grid_options:
+              columns: full
+      - type: grid
+        cards:
+          - type: heading
             heading: Flows used
             heading_style: title
             icon: mdi:sitemap

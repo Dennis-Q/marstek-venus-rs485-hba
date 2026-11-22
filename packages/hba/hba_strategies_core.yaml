@@ -25,7 +25,8 @@
 #   • hba_battery_assist_pid_reset, hba_direct_mode_pid_reset — PID memory cleared on transitions
 #   • hba_power_limits_apply, hba_power_group_prefill_max_power,
 #     hba_power_group_restore_own_limits — power groups: the batteries' limit registers
-#   • hba_bms_limit_log — a Logbook line when a battery's BMS starts / stops limiting its power
+#   • hba_bms_limit_log, hba_power_limit_log — Logbook lines when the BMS / a limit (main fuse, car first,
+#     Balance, BMS) starts or stops limiting the batteries (decision log, sensor.hba_decision_log)
 #   scripts
 #   • hba_run_strategy   — strategy dispatcher (reads input_select.hba_strategy)
 #   • hba_apply_master_mode — pushes RS485/work-mode settings to all batteries
@@ -770,7 +771,7 @@ automation:
                     value: "{{ own }}"
 
   # ── BMS limit log ─────────────────────────────────────────────────────────────
-  # One Logbook line ("HBA BMS", on automation.hba_bms_limit_log) when a battery's BMS starts or stops
+  # One Logbook line ("HBA BMS", on sensor.hba_decision_log) when a battery's BMS starts or stops
   # limiting its charge or discharge power, so a drop in power can be explained afterwards (user
   # 2026-11-22; prod 11-21 19:09: the BMS cut discharge to 40 A and no HBA sensor named it -- only the
   # raw register sensor had it; sensor.hba_discharge_limit_source only names the limit that costs the
@@ -820,7 +821,7 @@ automation:
       - action: logbook.log
         data:
           name: "HBA BMS"
-          entity_id: automation.hba_bms_limit_log
+          entity_id: sensor.hba_decision_log
           message: >-
             {%- set kw = '%.1f' | format(a1 * volt / 1000) -%}
             {%- set was = (' (was ' ~ a0 | round(0) | int ~ ' A)') if a0 >= 0 else '' -%}
@@ -836,6 +837,52 @@ automation:
               {{ 'M' ~ bat ~ ' ' ~ dir ~ ' limited by the BMS: ' ~ a1 | round(0) | int ~ ' A, about ' ~ kw
                  ~ ' kW (own limit ' ~ '%.1f' | format(own / 1000) ~ ' kW)' ~ was ~ '. Coldest cell ' ~ cell
                  ~ ' °C, SoC ' ~ soc ~ ' %.' }}
+            {%- endif -%}
+
+
+  # ── Power limit log ───────────────────────────────────────────────────────────
+  # One Logbook line ("HBA Limits", on sensor.hba_decision_log) when the batteries start or stop running
+  # at a limit worth knowing about: binary_sensor.hba_battery_power_limited (main fuse, car first,
+  # Balance or the BMS while charging, the main fuse while discharging; it has its own hysteresis and
+  # 30 s / 60 s delays). Power groups, full / empty and offline are left out there, and so here. With
+  # Planned and a Charge / Sell / Car slot running, the line also says what the plan counted on (row
+  # pw, else the planned kWh over the slot). User 2026-11-22 (log what cuts the power);
+  # prod 11-20..22: on 3 times, all Car first at midday.
+  - id: hba_power_limit_log
+    alias: "HBA: Power limit log"
+    mode: queued
+    max: 10
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_battery_power_limited
+        from: ["on", "off"]
+        to: ["on", "off"]
+    actions:
+      - action: logbook.log
+        data:
+          name: "HBA Limits"
+          entity_id: sensor.hba_decision_log
+          message: >-
+            {%- set a = trigger.to_state.attributes -%}
+            {%- set o = trigger.from_state.attributes -%}
+            {%- set p = states('sensor.hba_total_battery_power') | float(0) | abs -%}
+            {%- set plan = state_attr('sensor.hba_planned_strategy', 'plan') or [] -%}
+            {%- set row = plan | selectattr('ts', 'le', as_timestamp(now())) | list | last | default(none) -%}
+            {%- set step = 3600 // ([state_attr('sensor.hba_energy_prices_data', 'datapoints_per_hour') | int(1), 1]
+                | max) -%}
+            {%- set kw = (row.pw / 1000) if row is not none and row.pw is defined
+                else (((row.e1 - row.e0) | abs) / (step / 3600) if row is not none else 0) -%}
+            {%- set planned = is_state('input_select.hba_strategy', 'Planned') and row is not none
+                and row.a in ['Charge', 'Sell', 'Car'] -%}
+            {%- if trigger.to_state.state == 'on' -%}
+              {{ (a.direction | capitalize) ~ ' limited by ' ~ a.reason ~ ': the batteries can do '
+                 ~ '%.1f' | format(a.max_w | float(0) / 1000) ~ ' kW now and run at ' ~ '%.1f' | format(p / 1000)
+                 ~ ' kW'
+                 ~ (("; the plan's " ~ (row.ts | timestamp_custom('%H:%M')) ~ ' ' ~ row.a ~ ' counts on '
+                     ~ '%.1f' | format(kw) ~ ' kW') if planned else '') ~ '.' }}
+            {%- else -%}
+              {{ (o.direction | capitalize) ~ ' no longer limited (was ' ~ o.reason ~ '); the batteries can do '
+                 ~ '%.1f' | format(a.max_w | float(0) / 1000) ~ ' kW now.' }}
             {%- endif -%}
 
 script:

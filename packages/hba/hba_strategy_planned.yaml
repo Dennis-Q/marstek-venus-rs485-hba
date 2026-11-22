@@ -2520,10 +2520,9 @@ automation:
   # One Logbook line per Planned decision, so why it stopped or started can be read back later (user
   # 2026-11-22: a stop by the solar forecast is hard to explain otherwise; prod 11-21 13:28 Charge done,
   # then a new forecast at 13:30 raised the target: only visible by comparing two plans by hand).
-  # Logbook -> this automation (automation.hba_planned_decision_log), or the HA Logbook filtered on it.
-  # The lines are logbook_entry events on this automation's entity: an entity the recorder keeps, as the
-  # plan sensor itself is recorder-excluded and events of an excluded entity are not stored. They go
-  # with the recorder's purge, like everything else (prod: 2-3 days).
+  # Read: the Decisions card in Insights, or the HA Logbook filtered on sensor.hba_decision_log (the
+  # anchor, hba_helpers.yaml). Not on the plan sensor: it is recorder-excluded, and events of an excluded
+  # entity are not stored. The lines go with the recorder's purge, like everything else (prod: 2-3 days).
   # plan: a new plan (attribute plan_made) that changes the running or the next slot, or any plan
   #   made by a setting, the refresh icon, a Charge / Sell / Car done, an HA start or a status change.
   #   Line: why (the re-plan reason, plus what changed: forecast / prices / car / drift) and the
@@ -2648,4 +2647,4 @@ automation:
         data:
           name: "HBA Planned"
           message: "{{ message | trim }}"
-          entity_id: automation.hba_planned_decision_log
+          entity_id: sensor.hba_decision_log
