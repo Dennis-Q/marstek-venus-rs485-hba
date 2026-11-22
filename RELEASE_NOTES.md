@@ -28,6 +28,11 @@ This document covers HBA-specific changes only.
   Car done with the stored energy, and every change of what runs (*Runs Planned → Charge done → Full
   stop*). A re-plan that changes neither the running nor the next hour writes nothing, unless a setting,
   the refresh icon or an HA start caused it. Only while Planned is the strategy.
+- **BMS limit log.** A Logbook line (name *HBA BMS*; filter on `automation.hba_bms_limit_log`) when a
+  battery's BMS starts or stops limiting its charge or discharge power (cold cells, near full or empty),
+  with the current, the power it allows, the battery's own limit, the coldest cell and the SoC. A level
+  must hold 2 minutes, as for the BMS share; levels that still allow the battery's own limit write
+  nothing. Works with every strategy.
 
 - **Maintenance mode** (`input_boolean.hba_maintenance_mode`, default off; Advanced
   settings → Battery maintenance). For a battery that support works on: switch it on, then switch RS485

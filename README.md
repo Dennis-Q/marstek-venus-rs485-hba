@@ -512,6 +512,10 @@ charge at night → sell tomorrow morning".
   and the next hour as now planned with what they were before, and each change of what runs ("Runs
   Planned → Charge done → Full stop"). Only while Planned is the strategy; kept as long as the recorder
   keeps its history.
+- **BMS limit log** (any strategy): a Logbook line *HBA BMS* (on `automation.hba_bms_limit_log`) when a
+  battery's BMS starts or stops limiting its charge or discharge power, after the level has held 2 minutes,
+  e.g. "M3 discharge limited by the BMS: 40 A, about 2.1 kW (own limit 2.5 kW) (was 100 A). Coldest cell
+  5.2 °C, SoC 25 %." Levels above the battery's own limit write nothing.
 - Settings: wear cost per kWh (default 0), a reserve for unexpected loads, a separate sell-price
   sensor + deduction, a minimum advantage of selling (only sell from the battery when it beats keeping
   the energy by at least this much per kWh), and switches to leave out grid charging, Sell or Zero import.

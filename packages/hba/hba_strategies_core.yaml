@@ -25,6 +25,7 @@
 #   • hba_battery_assist_pid_reset, hba_direct_mode_pid_reset — PID memory cleared on transitions
 #   • hba_power_limits_apply, hba_power_group_prefill_max_power,
 #     hba_power_group_restore_own_limits — power groups: the batteries' limit registers
+#   • hba_bms_limit_log — a Logbook line when a battery's BMS starts / stops limiting its power
 #   scripts
 #   • hba_run_strategy   — strategy dispatcher (reads input_select.hba_strategy)
 #   • hba_apply_master_mode — pushes RS485/work-mode settings to all batteries
@@ -767,6 +768,75 @@ automation:
                     entity_id: "number.marstek_m{{ bat }}_max_{{ repeat.item }}_power"
                   data:
                     value: "{{ own }}"
+
+  # ── BMS limit log ─────────────────────────────────────────────────────────────
+  # One Logbook line ("HBA BMS", on automation.hba_bms_limit_log) when a battery's BMS starts or stops
+  # limiting its charge or discharge power, so a drop in power can be explained afterwards (user
+  # 2026-11-22; prod 11-21 19:09: the BMS cut discharge to 40 A and no HBA sensor named it -- only the
+  # raw register sensor had it; sensor.hba_discharge_limit_source only names the limit that costs the
+  # most, and has no BMS kind for discharge).
+  # A level must hold 2 minutes, as for the BMS share of the power groups (hba_helpers.yaml). Limiting =
+  # current limit x battery voltage at least 200 W below the battery's own limit (the same margin as the
+  # share): 70 A charge or 80 A discharge at ~52 V is above 2500 W and writes nothing. Own limit = its
+  # power-group setting (input_number.hba_marstek_m<n>_max_*_power), else its register, else 2500 W.
+  # Prod 11-20..22: 6-8 level changes per battery and direction in 3 days (30 / 70 A charge with the
+  # cold, 40 / 80 / 100 A discharge).
+  - id: hba_bms_limit_log
+    alias: "HBA: BMS limit log"
+    mode: queued
+    max: 20
+    triggers:
+      - trigger: state
+        entity_id:
+          - sensor.marstek_m1_battery_charge_current_limit
+          - sensor.marstek_m2_battery_charge_current_limit
+          - sensor.marstek_m3_battery_charge_current_limit
+          - sensor.marstek_m4_battery_charge_current_limit
+          - sensor.marstek_m5_battery_charge_current_limit
+          - sensor.marstek_m6_battery_charge_current_limit
+          - sensor.marstek_m1_battery_discharge_current_limit
+          - sensor.marstek_m2_battery_discharge_current_limit
+          - sensor.marstek_m3_battery_discharge_current_limit
+          - sensor.marstek_m4_battery_discharge_current_limit
+          - sensor.marstek_m5_battery_discharge_current_limit
+          - sensor.marstek_m6_battery_discharge_current_limit
+        not_to: ["unavailable", "unknown"]
+        for: "00:02:00"
+    actions:
+      - variables:
+          bat: "{{ trigger.entity_id.split('_')[1][1:] | int(0) }}"
+          dir: "{{ 'discharge' if '_discharge_' in trigger.entity_id else 'charge' }}"
+          a1: "{{ trigger.to_state.state | float(-1) }}"
+          a0: "{{ trigger.from_state.state | float(-1) if trigger.from_state else -1 }}"
+          volt: "{{ states('sensor.marstek_m' ~ bat ~ '_battery_voltage') | float(0) }}"
+          own: >-
+            {%- set g = states('input_number.hba_marstek_m' ~ bat ~ '_max_' ~ dir ~ '_power') | float(0) -%}
+            {%- set r = states('number.marstek_m' ~ bat ~ '_max_' ~ dir ~ '_power') | float(0) -%}
+            {{ (g if g > 0 else (r if r > 50 else 2500)) | int }}
+      - condition: template
+        value_template: >-
+          {{ bat <= states('input_number.hba_battery_count') | int(1) and a1 >= 0 and volt > 40
+             and (a1 * volt < own - 200 or (a0 >= 0 and a0 * volt < own - 200)) }}
+      - action: logbook.log
+        data:
+          name: "HBA BMS"
+          entity_id: automation.hba_bms_limit_log
+          message: >-
+            {%- set kw = '%.1f' | format(a1 * volt / 1000) -%}
+            {%- set was = (' (was ' ~ a0 | round(0) | int ~ ' A)') if a0 >= 0 else '' -%}
+            {%- set cell = states('sensor.marstek_m' ~ bat ~ '_min_cell_temperature') -%}
+            {%- set soc = states('sensor.marstek_m' ~ bat ~ '_battery_state_of_charge') -%}
+            {%- if a1 * volt >= own - 200 -%}
+              {{ 'M' ~ bat ~ ' ' ~ dir ~ ' no longer limited by the BMS: ' ~ a1 | round(0) | int ~ ' A, about '
+                 ~ kw ~ ' kW' ~ was ~ '.' }}
+            {%- elif a1 == 0 -%}
+              {{ 'M' ~ bat ~ ' ' ~ dir ~ ' stopped by the BMS (0 A, '
+                 ~ ('full' if dir == 'charge' else 'empty') ~ ')' ~ was ~ '. SoC ' ~ soc ~ ' %.' }}
+            {%- else -%}
+              {{ 'M' ~ bat ~ ' ' ~ dir ~ ' limited by the BMS: ' ~ a1 | round(0) | int ~ ' A, about ' ~ kw
+                 ~ ' kW (own limit ' ~ '%.1f' | format(own / 1000) ~ ' kW)' ~ was ~ '. Coldest cell ' ~ cell
+                 ~ ' °C, SoC ' ~ soc ~ ' %.' }}
+            {%- endif -%}
 
 script:
   # ── Strategy dispatcher ───────────────────────────────────────────────────────
