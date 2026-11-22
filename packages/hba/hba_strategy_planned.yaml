@@ -1837,18 +1837,30 @@ template:
               {%- set b = result_b if result_b is mapping else (result_b | from_json) -%}
               {%- set mp = state_attr('sensor.ev_car_info', 'max_price') | float(0) -%}
               {%- set mp = mp if mp > 0 else (a.plan | map(attribute='b') | max) -%}
+              {#- One window for all columns: from the first to the last car hour of either choice. The
+                  batteries' stored kWh and their cost out are compared over it; per choice over its own
+                  car hours, Balance (3 hours) was compared with Car first and No car over 2 (user
+                  2026-11-22: "it should be about the same amount of hours"). -#}
+              {%- set wn = namespace(t=[]) -%}
+              {%- for r in [a, b] if r.status == 'OK' -%}
+                {%- set wn.t = wn.t + (r.plan | selectattr('ev', 'defined') | map(attribute='ts') | list) -%}
+              {%- endfor -%}
+              {%- set w0 = wn.t | min if wn.t else 0 -%}
+              {%- set w1 = wn.t | max if wn.t else 0 -%}
               {#- Key numbers per choice: car hours (start, kWh), car kWh / cost, energy the batteries
-                  store in car hours, batteries + house cost, kWh that do not fit, total -#}
+                  store in the window, batteries + house cost, kWh that do not fit, total -#}
               {%- set ns = namespace(x={}) -%}
               {%- for r in [a, b] if r.status == 'OK' and r.summary.car.prio not in ns.x -%}
                 {%- set c = r.summary.car -%}
                 {%- set hn = namespace(h=[], bat=0, cout=none) -%}
                 {%- for w in r.plan if w.get('ev', 0) | float(0) > 0 -%}
                   {%- set hn.h = hn.h + [[w.ts, w.ev]] -%}
+                {%- endfor -%}
+                {#- cout: what a kWh from the batteries costs after the window (cost out) -#}
+                {%- for w in r.plan if w0 <= w.ts <= w1 -%}
                   {%- set hn.bat = hn.bat + ([w.e1 - w.e0, 0] | max) -%}
                   {%- set hn.cout = w.c -%}
                 {%- endfor -%}
-                {#- cout: what a kWh from the batteries costs after the last car hour (cost out) -#}
                 {%- set ns.x = ns.x | combine({c.prio: {
                     'hours': hn.h, 'kwh': c.kwh, 'eur': c.eur,
                     'bat': hn.bat | round(1), 'cout': hn.cout,
@@ -1860,13 +1872,11 @@ template:
               {%- set use_b = auto and b.status == 'OK' and pa == 'Car first' and b.summary.car.prio == 'Balance'
                               and ns.x['Balance'].total < ns.x['Car first'].total - 0.02 -%}
               {%- set pick = b if use_b else a -%}
-              {#- No car: batteries + house, what they store and their cost out in the hours the
-                  running choice gives the car -#}
+              {#- No car: batteries + house, what they store and their cost out in the same window -#}
               {%- set n = result_n if result_n is mapping else (result_n | from_json) -%}
               {%- if n.status == 'OK' and pick.summary.car.prio in ns.x -%}
-                {%- set hts = ns.x[pick.summary.car.prio].hours | map(attribute=0) | list -%}
                 {%- set nn = namespace(bat=0, cout=none) -%}
-                {%- for w in n.plan if w.ts in hts -%}
+                {%- for w in n.plan if w0 <= w.ts <= w1 -%}
                   {%- set nn.bat = nn.bat + ([w.e1 - w.e0, 0] | max) -%}
                   {%- set nn.cout = w.c -%}
                 {%- endfor -%}
@@ -1875,7 +1885,7 @@ template:
               {%- endif -%}
               {#- cmp_other / cmp_nocar: false = that calculation was left out (Insights mode off) -#}
               {{ pick | combine({'summary': pick.summary | combine(
-                   {'car': pick.summary.car | combine({'cmp': ns.x,
+                   {'car': pick.summary.car | combine({'cmp': ns.x, 'cmp_win': [w0, w1 + step | int],
                       'cmp_other': b.status != 'skip', 'cmp_nocar': n.status != 'skip'})})}) | tojson }}
             {%- endif -%}
       - variables:

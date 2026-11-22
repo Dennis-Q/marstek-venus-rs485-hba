@@ -23,6 +23,13 @@ This document covers HBA-specific changes only.
   (Normal spread over 4 hours). A setting still on Balance falls back to Auto. Options now: Auto, Car first.
   The Car section shows the Balance column with its number of hours.
 
+### Fixed
+
+- **Car section: Car first / Balance / No car compared over the same hours.** *Batteries store* and *cost
+  out* were counted per column over that column's own car hours, so a Balance plan with three car hours
+  was compared with Car first and No car over two, and No car seemed to store less. All columns now use
+  one window, from the first to the end of the last car hour of either choice; the row names it.
+
 ---
 
 ## v4.10.1-r26 — November 2026

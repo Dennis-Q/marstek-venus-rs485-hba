@@ -3279,8 +3279,10 @@ views:
               | Car hours (kWh) | {{ ch.c }} | {{ ch.b }} | — | |
               | Car kWh · cost | {{ A.kwh }} · € {{ '%.2f' | format(A.eur) }} | {{ B.kwh }} · € {{ '%.2f' | format(B.eur) }} | — | {{ df(B.eur - A.eur) }} |
               | Car price per kWh | {{ ('€ ' ~ df(pa, '%.3f')) if pa is number else '—' }} | {{ ('€ ' ~ df(pb, '%.3f')) if pb is number else '—' }} | — | {{ df(pb - pa, '%+.3f') if pa is number and pb is number else '—' }} |
-              | Batteries store in car hours | {{ A.bat }} kWh | {{ B.bat }} kWh | {{ (N.bat ~ ' kWh') if N.get('bat') is not none else '—' }} | {{ df(B.bat - A.bat, '%+.1f') }} |
-              | Battery kWh cost out after the car hours | {{ ('€ ' ~ df(A.cout, '%.3f')) if A.get('cout') is number else '—' }} | {{ ('€ ' ~ df(B.cout, '%.3f')) if B.get('cout') is number else '—' }} | {{ ('€ ' ~ df(N.cout, '%.3f')) if N.get('cout') is number else '—' }} | {{ df(B.cout - A.cout, '%+.3f') if A.get('cout') is number and B.get('cout') is number else '—' }} |
+              {%- set cw = car.get('cmp_win') or [] -%}
+              {%- set wtxt = (cw[0] | timestamp_custom('%H:%M') ~ '–' ~ cw[1] | timestamp_custom('%H:%M')) if cw | length == 2 and cw[0] > 0 else 'the car hours' %}
+              | Batteries store {{ wtxt }} | {{ A.bat }} kWh | {{ B.bat }} kWh | {{ (N.bat ~ ' kWh') if N.get('bat') is not none else '—' }} | {{ df(B.bat - A.bat, '%+.1f') }} |
+              | Battery kWh cost out after {{ wtxt }} | {{ ('€ ' ~ df(A.cout, '%.3f')) if A.get('cout') is number else '—' }} | {{ ('€ ' ~ df(B.cout, '%.3f')) if B.get('cout') is number else '—' }} | {{ ('€ ' ~ df(N.cout, '%.3f')) if N.get('cout') is number else '—' }} | {{ df(B.cout - A.cout, '%+.3f') if A.get('cout') is number and B.get('cout') is number else '—' }} |
               | Batteries + house | € {{ '%.2f' | format(A.plan) }} | € {{ '%.2f' | format(B.plan) }} | {{ ('€ %.2f' | format(N.plan)) if N.get('plan') is number else '—' }} | {{ df(B.plan - A.plan) }} |
               {%- if A.unmet > 0 or B.unmet > 0 %}
               | Car kWh that do not fit | {{ A.unmet }} | {{ B.unmet }} | — | {{ df(B.unmet - A.unmet, '%+.1f') }} |
@@ -3297,7 +3299,7 @@ views:
               No car: switch on **Insights mode** (Insights view) to have the plan worked out without the car too.
               {%- endif %}
 
-              <font color=grey>Balance = the same plan with Balance in the car hours above Minimum where the batteries charge next to the car (up to Minimum the car always goes first). Difference = Balance − Car first (+ = Balance costs more). No car: the same plan without the car, in the hours {{ run }} gives the car. Cost out: what a kWh from the batteries has cost (bought ÷ efficiency, sun at the sell price, + wear). Balance keeps the car charging at a low rate next to the batteries; a large house load (about 2 kW) on a battery phase can still pause the car for about 15 seconds. With Car first that happens less often: the car charges at full power, so the charger can slow it further before it has to pause.</font>
+              <font color=grey>Balance = the same plan with Balance in the car hours above Minimum where the batteries charge next to the car (up to Minimum the car always goes first). Difference = Balance − Car first (+ = Balance costs more). No car: the same plan without the car. Stored kWh and cost out are compared over one window for all columns: from the first to the end of the last car hour of either choice. Cost out: what a kWh from the batteries has cost (bought ÷ efficiency, sun at the sell price, + wear). Balance keeps the car charging at a low rate next to the batteries; a large house load (about 2 kW) on a battery phase can still pause the car for about 15 seconds. With Car first that happens less often: the car charges at full power, so the charger can slow it further before it has to pause.</font>
 
               </small>
               {%- elif car.get('cmp_other', true) == false and setp == 'Auto' %} · no hour where Balance could pay (no grid charging of the batteries next to the car above Minimum)
