@@ -445,6 +445,9 @@ version prefix stays at 4.10.1 for now.
 
 ### Fixed
 
+- **Car question twice in one evening:** a question at plug-in (e.g. 19:32) was followed by the same
+  question at the reminder time (20:00) when Normal had hours in the plan. The reminder now asks only when
+  no question went out that day yet, as it already did for battery to car. A new plug-in still asks.
 - **Entity health checks the core sensors** — `binary_sensor.hba_entity_health` now also warns when
   total commanded / max charge / max discharge power, average SoC, remaining / available / usable
   energy, battery offline, RS485 mode mismatch or the control-loop watchdog is missing. Before, it

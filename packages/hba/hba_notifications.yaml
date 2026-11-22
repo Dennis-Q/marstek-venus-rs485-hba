@@ -1417,8 +1417,10 @@ automation:
         state: "on"
       # Charge the car from the batteries on (user 2026-11-16): the departure also matters when Normal
       # is already in -- the batteries may fill the car up to Leftover until then. So it asks at
-      # plug-in whatever the time, as long as the car is below Leftover, and at the reminder time
-      # only when it did not ask yet that day (see "asked" below).
+      # plug-in whatever the time, as long as the car is below Leftover.
+      # The reminder asks only when no question went out that day yet (see "asked" below), in both
+      # cases: the Normal case had no such check, so a plug-in at 19:32 asked and 20:00 asked again
+      # (prod 2026-11-18; user 2026-11-22: build).
       - condition: template
         value_template: >-
           {%- set t = states('input_datetime.ev_assisted_reminder')[:5] -%}
@@ -1433,7 +1435,8 @@ automation:
               connected_since: that restarts with HA and with a reload. -#}
           {%- set asked = (last | timestamp_custom('%Y-%m-%d')) == now().strftime('%Y-%m-%d') -%}
           {{ state_attr('sensor.ev_car_info', 'connected') == true
-             and ((bat_on and (trigger.id == 'plugged' or not asked))
+             and (trigger.id == 'plugged' or not asked)
+             and (bat_on
                   or ((trigger.id == 'reminder' or t <= now().strftime('%H:%M') < '22:00')
                       and car.get('normal', 0) | float(0) > 0.1)) }}
     actions:
