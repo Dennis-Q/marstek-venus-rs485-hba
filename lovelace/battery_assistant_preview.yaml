@@ -2912,6 +2912,15 @@ views:
     icon: mdi:car-electric
     cards: []
     badges:
+      # Insights mode here too: the Car section's Balance / No car comparison needs it (user 2026-11-22)
+      - type: entity
+        show_name: true
+        show_state: true
+        show_icon: true
+        entity: input_boolean.hba_control_is_debug_mode
+        tap_action:
+          action: toggle
+        name: Insights mode
       - type: entity
         show_name: true
         show_state: true
