@@ -87,7 +87,15 @@ fi
 if [ -z "$BRANCH" ] && [[ "$VERSION" =~ ^v[0-9] ]]; then
     BASE_URL="https://raw.githubusercontent.com/${REPO}/${VERSION}"
     DISPLAY_REF="version : ${VERSION}"
-elif resolve_commit "$REF_NAME"; then
+elif [ -n "${HBA_INSTALLER_SHA:-}" ] || resolve_commit "$REF_NAME"; then
+    # Handed over by the installer that started this run: use the commit it resolved. A
+    # second lookup can fail (GitHub API rate limit) or find a newer commit, and then the
+    # files would come from another commit than this installer.
+    if [ -n "${HBA_INSTALLER_SHA:-}" ]; then
+        COMMIT_SHA="$HBA_INSTALLER_SHA"
+        COMMIT_DATE="${HBA_INSTALLER_DATE:-}"
+        COMMIT_MSG="${HBA_INSTALLER_MSG:-}"
+    fi
     # Not a release: show which commit this is, and download every file from that
     # exact commit. Fetching by branch name can mix commits within one run, because
     # raw.githubusercontent.com caches each branch file for a few minutes.
@@ -108,16 +116,25 @@ fi
 # change simply run their own script.
 if [ -z "${HBA_INSTALLER_SELF:-}" ]; then
     _self=$(mktemp)
-    if curl -fsSL "${BASE_URL}/install.sh" -o "$_self" 2>/dev/null; then
+    if curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 60 \
+            "${BASE_URL}/install.sh" -o "$_self" 2>/dev/null && [ -s "$_self" ]; then
         export HBA_INSTALLER_SELF=1
+        export HBA_INSTALLER_TMP="$_self"
         [ -n "$BRANCH" ] && export HBA_BRANCH="$BRANCH"
         [ -z "$BRANCH" ] && export HBA_VERSION="$VERSION"
+        if [ -n "${COMMIT_SHA:-}" ]; then
+            export HBA_INSTALLER_SHA="$COMMIT_SHA"
+            export HBA_INSTALLER_DATE="${COMMIT_DATE:-}"
+            export HBA_INSTALLER_MSG="${COMMIT_MSG:-}"
+        fi
         exec bash "$_self"
     fi
     rm -f "$_self"
     warn "Could not fetch the installer of ${REF_NAME}; continuing with this one."
     echo ""
 fi
+# The temporary copy this run was started from (see above): bash has read it by now
+[ -n "${HBA_INSTALLER_TMP:-}" ] && rm -f "$HBA_INSTALLER_TMP"
 
 if [ -n "$BRANCH" ] || ! [[ "$VERSION" =~ ^v[0-9] ]]; then
     warn "Installing '${REF_NAME}', not a release — this may be unstable."
@@ -125,10 +142,49 @@ if [ -n "$BRANCH" ] || ! [[ "$VERSION" =~ ^v[0-9] ]]; then
 fi
 
 # ── Download helper ───────────────────────────────────────────────────────────
+# Nothing is written into the configuration until every file has been downloaded and
+# checked. A download that fails halfway (network, GitHub) used to stop the script with
+# some files new and the rest old -- and HBA's files only work as one set -- or left a
+# file cut off in the middle. download() fetches into a staging folder inside the config
+# directory (same disk, so putting a file in place is a rename); install_staged moves
+# them all at the end. Any failure before that leaves the installation as it was.
+
+STAGE="${CONFIG_DIR}/.hba_install.$$"
+STAGED=()
+INSTALLED=false
+mkdir -p "$STAGE"
+
+cleanup() {
+    rm -rf "$STAGE"
+    if [ "$INSTALLED" = false ]; then
+        echo ""
+        warn "Installation stopped before any file was changed. Your HBA files are as they were."
+    fi
+}
+trap cleanup EXIT
 
 download() {
-    local src="$1" dst="$2"
-    curl -fsSL "${BASE_URL}/${src}" -o "${dst}"
+    local src="$1" dst="$2" tmp
+    tmp="${STAGE}/$(printf '%s' "${dst#"${CONFIG_DIR}/"}" | tr '/' '_')"
+    if ! curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 120 \
+            "${BASE_URL}/${src}" -o "$tmp"; then
+        echo "ERROR: could not download ${src}."
+        return 1
+    fi
+    # Complete? Every HBA file is text that ends with a line break.
+    if [ ! -s "$tmp" ] || [ -n "$(tail -c1 "$tmp")" ]; then
+        echo "ERROR: ${src} arrived empty or cut off."
+        return 1
+    fi
+    STAGED+=("${tmp}|${dst}")
+}
+
+install_staged() {
+    local pair
+    for pair in "${STAGED[@]}"; do
+        mv -f "${pair%%|*}" "${pair#*|}"
+    done
+    INSTALLED=true
 }
 
 # ── Header ────────────────────────────────────────────────────────────────────
@@ -147,50 +203,10 @@ echo ""
 mkdir -p "${CONFIG_DIR}/packages/hba"
 mkdir -p "${CONFIG_DIR}/lovelace"
 
-# ── Migration: old-location HBA files ────────────────────────────────────────
-# Before v4.11, HBA files lived directly in packages/. They now live in
-# packages/hba/. If both locations contain files HA loads them twice —
-# duplicate entity definitions cause YAML to silently drop one block.
-
-shopt -s nullglob
-OLD_HBA=(
-    "${CONFIG_DIR}"/packages/hba_*.yaml
-    "${CONFIG_DIR}"/packages/marstek_m*.yaml
-)
-shopt -u nullglob
-
-if [ ${#OLD_HBA[@]} -gt 0 ]; then
-    warn "Old-location HBA files found directly in packages/:"
-    echo ""
-    for _f in "${OLD_HBA[@]}"; do
-        say "  $_f"
-    done
-    echo ""
-    warn "These will clash with packages/hba/ (HA loads both → duplicate entities)."
-    echo ""
-    if ask "Move them to packages/hba/ now?"; then
-        for _f in "${OLD_HBA[@]}"; do
-            _name=$(basename "$_f")
-            _dst="${CONFIG_DIR}/packages/hba/${_name}"
-            if [ -f "$_dst" ]; then
-                rm "$_f"
-                say "  removed old ${_name} (already exists at packages/hba/)"
-            else
-                mv "$_f" "$_dst"
-                say "  moved: ${_name} → packages/hba/"
-            fi
-        done
-        ok "Migration complete."
-    else
-        warn "Skipped — HA will load files from both locations. Re-run to fix."
-    fi
-    echo ""
-fi
-
 # ── Core HBA files — always overwrite ────────────────────────────────────────
 # Safe to overwrite on every update; no user-editable content in these files.
 
-echo "Core files:"
+echo "Downloading (nothing is changed until all files are in):"
 
 CORE_FILES=(
     packages/hba/hba_helpers.yaml
@@ -217,23 +233,6 @@ done
 # see README "Preview dashboard"). Downloaded on every install so it stays in step.
 download "lovelace/battery_assistant_preview.yaml" "${CONFIG_DIR}/lovelace/battery_assistant_preview.yaml"
 ok "lovelace/battery_assistant_preview.yaml  (preview dashboard, optional)"
-
-# ── Obsolete files — removed on update ───────────────────────────────────────
-# Files a previous HBA version shipped that no longer exist. Left on disk they
-# would keep loading. hba_strategy_dynamic_v2.yaml (renamed to
-# hba_strategy_dynamic.yaml in r22, which also replaced the old Dynamic v1 file
-# of that name) would define sensor.hba_energy_prices_data a second time.
-
-OBSOLETE_FILES=(
-    packages/hba/hba_strategy_dynamic_v2.yaml
-)
-
-for f in "${OBSOLETE_FILES[@]}"; do
-    if [ -f "${CONFIG_DIR}/${f}" ]; then
-        rm -f "${CONFIG_DIR}/${f}"
-        ok "$f (obsolete — removed)"
-    fi
-done
 
 echo ""
 
@@ -309,6 +308,96 @@ else
     say "Marstek files already present — skipped."
     echo ""
 fi
+
+# ── Put the downloaded files in place ─────────────────────────────────────────
+
+install_staged
+ok "${#STAGED[@]} files installed"
+
+# ── Obsolete files — removed on update ───────────────────────────────────────
+# Files a previous HBA version shipped that no longer exist. Left on disk they
+# would keep loading. hba_strategy_dynamic_v2.yaml (renamed to
+# hba_strategy_dynamic.yaml in r22, which also replaced the old Dynamic v1 file
+# of that name) would define sensor.hba_energy_prices_data a second time.
+
+OBSOLETE_FILES=(
+    packages/hba/hba_strategy_dynamic_v2.yaml
+)
+
+for f in "${OBSOLETE_FILES[@]}"; do
+    if [ -f "${CONFIG_DIR}/${f}" ]; then
+        rm -f "${CONFIG_DIR}/${f}"
+        ok "$f (obsolete — removed)"
+    fi
+done
+
+echo ""
+
+# ── Battery files: still up to date? ──────────────────────────────────────────
+# Battery files hold the user's IP address, so the installer never overwrites them --
+# and fixes made to them never arrive (a hub timeout of 5 s instead of 20 s: a battery
+# that drops out holds up the others 4x shorter; 24 slow registers polled every 5 min
+# instead of every 30 s). This only looks and warns; it changes no battery file.
+#   - HBA's own files (packages/hba/marstek_mN_modbus_tcp.yaml): compared with this
+#     version, host and port lines aside. Different -> the new version is put next to
+#     it as <file>.new (HA only loads *.yaml), to copy the IP address into.
+#   - Other Marstek Modbus files anywhere under packages/ (fonske's originals, as HBC
+#     users have them): checked for the two settings above.
+#   - Two files with the same name under packages/: HA keeps only one of them, and
+#     which one is not obvious (an old copy in a subfolder replaced the new file on a
+#     production install, 2026-11-11).
+
+echo "Battery files:"
+BAT_WARN=false
+while IFS= read -r _f; do
+    grep -q "forcible_charge" "$_f" 2>/dev/null || continue
+    grep -q "^modbus:" "$_f" 2>/dev/null || continue
+    _rel="${_f#"${CONFIG_DIR}/"}"
+    if [[ "$_rel" =~ ^packages/hba/marstek_m[1-6]_modbus_tcp\.yaml$ ]]; then
+        _ref="${STAGE}/ref_$(basename "$_rel")"
+        if curl -fsSL --retry 2 --connect-timeout 15 --max-time 60 "${BASE_URL}/${_rel}" -o "$_ref" 2>/dev/null \
+                && [ -s "$_ref" ]; then
+            if cmp -s <(grep -vE '^[[:space:]]*(host|port):' "$_f") \
+                      <(grep -vE '^[[:space:]]*(host|port):' "$_ref"); then
+                rm -f "${_f}.new"
+            else
+                cp "$_ref" "${_f}.new"
+                BAT_WARN=true
+                warn "${_rel} is not the version of this release."
+                say "The new one is next to it as $(basename "$_rel").new: put your battery's IP"
+                say "address (host:) in it, rename it over the old file, restart Home Assistant."
+            fi
+        fi
+    else
+        _issues=""
+        _t=$(grep -m1 -E '^[[:space:]]*timeout:' "$_f" | grep -oE '[0-9]+' | head -n1 || true)
+        if [ -n "$_t" ] && [ "$_t" -gt 5 ]; then
+            _issues="timeout: ${_t} (HBA's files use 5: a battery that drops out holds up the others much shorter)"
+        fi
+        _slow=$(grep -cE '^[[:space:]]*scan_interval:[[:space:]]*300' "$_f" || true)
+        if [ "${_slow:-0}" -lt 20 ]; then
+            [ -n "$_issues" ] && _issues="${_issues}; "
+            _issues="${_issues}cell voltages and counters polled every 30 s (HBA's files: every 5 min, so commands wait less)"
+        fi
+        if [ -n "$_issues" ]; then
+            BAT_WARN=true
+            warn "${_rel} is a Marstek battery file that is not HBA's current one:"
+            say "${_issues}."
+            say "It works, but see README → Marstek battery files for what HBA's files change."
+        fi
+    fi
+done < <(find "${CONFIG_DIR}/packages" -type f -name '*.yaml' 2>/dev/null | sort)
+
+_dups=$(find "${CONFIG_DIR}/packages" -type f \( -name 'hba_*.yaml' -o -name 'marstek_*.yaml' \) 2>/dev/null \
+        | sed 's|.*/||' | sort | uniq -d)
+for _b in $_dups; do
+    BAT_WARN=true
+    warn "More than one file named ${_b} under packages/ — Home Assistant loads only one of them:"
+    find "${CONFIG_DIR}/packages" -type f -name "$_b" | sed "s|^${CONFIG_DIR}/|      |"
+    say "Remove the old copy, or rename it so it no longer ends in .yaml."
+done
+[ "$BAT_WARN" = false ] && ok "battery files are up to date"
+echo ""
 
 # ── configuration.yaml checks ─────────────────────────────────────────────────
 

@@ -1,4 +1,4 @@
-# HBA Factory Defaults — v4.10.1-r21
+# HBA Factory Defaults — v4.10.1-r26
 
 All values set by `script.hba_apply_defaults`. Run once after fresh install via
 Developer Tools → Services → `script.turn_on` → `script.hba_apply_defaults`.
@@ -206,6 +206,7 @@ electrical protection; have an electrician check the installation.
 | `input_number.hba_marstek_m{1-6}_max_charge_power` / `…_max_discharge_power` | `0` W | The battery's own limits while in a group (in Own they are its registers). 0 = not set. Prefilled from the registers when it joins a group |
 | `input_number.hba_power_group_{a,b,c}_max_power` | `3500` W | 16 A breaker ≈ 3680 W |
 | `input_select.hba_power_group_{a,b,c}_policy` | `Follow battery order` | Follow battery order / Equal / One at a time |
+| `input_boolean.hba_power_group_bms_share` | `off` | Experimental: a battery whose BMS allows less than its own limit counts at the BMS power, the rest of the group goes to the others |
 | `input_number.hba_phase_current_limit` | `0` A (off) | Main fuse limit per phase, every strategy (charge = import, discharge = export); e.g. 24 A for a 25 A fuse; needs per-phase P1 sensors |
 
 ## Charge Strategy
@@ -265,7 +266,7 @@ Every minimum is also the default, so a new install plans sensibly before *Apply
 
 | Helper | Default |
 |---|---|
-| `input_number.hba_strategy_planned_efficiency` | `0` % = `sensor.hba_round_trip_efficiency`, the batteries' measured lifetime round-trip efficiency (83 % until measured) |
+| `input_number.hba_strategy_planned_efficiency` | `0` % = `sensor.hba_round_trip_efficiency`, the batteries' measured lifetime round-trip efficiency, values outside 60–90 % skipped (83 % until measured); Savings uses the same value |
 | `input_number.hba_strategy_planned_wear_cost` | `0` EUR/kWh cycled |
 | `input_number.hba_strategy_planned_reserve` | `0` kWh |
 | `input_number.hba_strategy_planned_sell_deduction` | `0` EUR/kWh |
@@ -277,9 +278,13 @@ Every minimum is also the default, so a new install plans sensibly before *Apply
 | `input_boolean.hba_strategy_planned_car_preview` | `off` (on = the car is planned and shown, nothing is applied) |
 | `input_number.hba_strategy_planned_car_minimum` / `_car_normal` / `_car_leftover` | `0` / `80` / `100` % |
 | `input_text.hba_strategy_planned_car_home_days` | `Sat,Sun` (filled at HA start; empty = Sat,Sun, `none` = never; commas, English day names, any case) |
-| `input_select.hba_strategy_planned_car_tomorrow` | Auto (back to Auto at 08:00) |
+| `input_select.hba_strategy_planned_car_next_departure` | Auto (Not leaving / Leaving: back to Auto once that departure has passed) |
 | `input_boolean.hba_strategy_planned_car_ask_normal` | `off` (on = evening question whether Normal may charge) |
-| `input_select.hba_strategy_planned_car_normal_tonight` | Auto (Skip tonight ends at departure, Skip until home day at the departure of a home day) |
+| `input_select.hba_strategy_planned_car_normal_skip` | Auto (Minimum only ends once the next departure has passed, Min. until home day once a departure on a day the car was home has passed) |
+| `input_select.hba_strategy_planned_car_priority` | Auto (the plan works out Car first and Balance and keeps the cheaper) |
+| `input_boolean.hba_strategy_planned_car_battery` | off (charge the car from the batteries) |
+| `input_number.hba_strategy_planned_car_battery_end` | 1 h (battery to car ends before the departure) |
+| `input_datetime.hba_strategy_planned_car_latest_plugin` | 18:00 (unset counts as 18:00) |
 | `input_text.hba_strategy_planned_sell_price_entity_id` | empty = sell at the buy price (net metering) |
 | `input_boolean.hba_strategy_planned_skip_charge` / `_skip_sell` / `_skip_zero_import` | `off` (all strategies allowed) |
 | `input_boolean.hba_strategy_planned_car_solar_export` | `off` (the car only gets sun the plan would export when selling pays less than a kWh in the car is worth) |
@@ -361,6 +366,7 @@ or set these manually in Advanced Settings before using the solar forecast charg
 | Helper | Default |
 |---|---|
 | `input_boolean.hba_control_is_debug_mode` | `off` |
+| `input_boolean.hba_maintenance_mode` | `off` (on = a battery with RS485 switched off is left alone: no RS485 re-enable, no commands, no limit writes) |
 | `input_select.hba_control_strategy_during_ev_charge` | `Full stop` |
 | `input_text.hba_strategy_ev_saturated_entity_id` | `""` (empty — Charge PV runs whenever the EV charges; set to the EV side's saturated binary_sensor to gate it) |
 | `input_text.hba_strategy_ev_sensor_entity_id` | `""` (empty) |

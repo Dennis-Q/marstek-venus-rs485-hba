@@ -1,26 +1,79 @@
 # hba_notifications.yaml
 #
-# All HBA notification logic in one place:
-#   • hba_notify_dispatch             — central script; routes to configured notify action
-#   • hba_notify_test                 — sends a test notification
-#   • hba_notify_target_validation    — persistent alert when notify entity_id is invalid
-#   • hba_unexpected_export_notify / _resolved — sustained grid export while discharging
-#   • hba_notify_battery_assist_waiting / _resolved — Timed EV charge armed but EV not drawing
-#   • hba_notify_battery_not_responding / _resolved — RS485 non-response per battery
-#   • hba_notify_rs485_mode_mismatch / _resolved    — Full control vs RS485 state
-#   • hba_notify_battery_overtemperature / _resolved — internal temp ≥ 60 °C per battery
-#   • hba_notify_battery_offline / _resolved         — battery unreachable or silent 3+ min
-#   • hba_notify_entity_health / _resolved           — critical HBA entity missing / wrong entity_id
-#   • hba_notify_dynamic_migration / _resolved       — r22 Dynamic v1/v2 leftovers to clean up
-#   • hba_notify_control_loop_stalled / _resolved   — no control cycle for 90+ s (battery link hang or P1 meter)
-#   • hba_notify_manual_strategy_done / _reminder / _resolved — Charge or Sell chosen by hand: done, still on after 1/2/4 h
-#   • hba_notify_battery_restarted                   — a battery restarted (limit registers 0, or RS485 back as disabled); limits restored (event, no banner)
-#   • hba_notify_power_limits_not_restored / _resolved — limit registers still read 0 after a restart
-#   • hba_notify_charge_goal_conflict / _resolved   — Charge goal "solar forecast" followed by a strategy that does not store PV
-#   • hba_notify_ev_link_problem / _resolved         — Plan the car or Timed EV charge on, but the EV project does not listen
-#   • hba_notify_planned_car_normal / _answer        — evening question: skip Normal for the car, or solar looks low
+# All HBA notification logic in one place. Most problems have three parts: a banner on the
+# dashboard (reads the problem sensor), a notification when it starts and a "resolved" one
+# when it ends. Everything is sent through script hba_notify_dispatch.
+#
+# Scripts
+#   hba_notify_dispatch     the central script: sends to the configured notify action, or a
+#                           persistent notification; queued, so two alerts at once both arrive
+#   hba_notify_test         sends a test notification
+# Automations (id, _resolved = the matching "it is over" message)
+#   hba_alert_recheck                    5 min after a start / reload: alerts re-check their
+#                                        problem (see the comment at it)
+#   hba_unexpected_export_notify / _resolved
+#                                        more than 1 kW export for 1 min while the batteries
+#                                        discharge, without Timed EV charge or Sell
+#   hba_notify_battery_assist_waiting / _resolved
+#                                        Timed EV charge armed, but the car does not draw
+#   hba_notify_battery_assist_stalled    Timed EV charge commands, the batteries do not deliver
+#   hba_notify_target_validation         the notify entity_id is not valid
+#   hba_notify_battery_not_responding / _resolved
+#                                        a battery's output is more than 15 % off its command
+#                                        for 60 s while RS485 control is on
+#   hba_notify_rs485_mode_mismatch / _resolved
+#                                        Full control, but a battery's RS485 control is off
+#   hba_notify_battery_overtemperature / _resolved
+#                                        a battery above 60 °C inside for 2 min
+#   hba_notify_battery_offline / _resolved
+#                                        a battery unreachable or silent for 3+ min
+#   hba_notify_control_loop_stalled / _resolved
+#                                        no control cycle for 90 s (a hanging battery write)
+#   hba_notify_p1_meter_lost / _resolved no P1 reading for 60 s: the batteries were stopped
+#   hba_notify_plan_out_of_date / _resolved
+#                                        Planned has no plan for the running slot
+#   hba_notify_prices_stale / _resolved  the price source gives no prices for an hour (HBA uses
+#                                        the slots it already knew)
+#   hba_notify_manual_strategy_done / _reminder / _resolved
+#                                        Charge or Sell chosen by hand: done, or still on after
+#                                        1 / 2 / 4 h
+#   hba_notify_battery_restarted         a battery restarted (limit registers 0, or RS485 back
+#                                        as disabled); limits restored (event, no banner)
+#   hba_notify_power_limits_not_restored / _resolved
+#                                        limit registers still read 0 after a restart
+#   hba_notify_charge_goal_conflict / _resolved
+#                                        Charge goal "solar forecast" followed by a strategy
+#                                        that does not store the sun
+#   hba_notify_ev_link_problem / _resolved
+#                                        Plan the car or Timed EV charge on, but the EV project
+#                                        does not listen
+#   hba_notify_entity_health / _resolved an HBA entity is missing or has the wrong entity_id
+#   hba_planned_car_plugged              a real plug-in: waits for the plan with the car, then
+#                                        starts the car question (event hba_planned_car_plugged)
+#   hba_notify_planned_car_normal / _answer
+#                                        the car question at plug-in / in the evening, and
+#                                        what the buttons do
 
 automation:
+  # ── Recheck alerts after a start or reload ────────────────────────────────────
+  # The alerts below start on a problem sensor turning on. A problem that is already there
+  # when HA starts, or whose `for:` time was running when the automations were reloaded,
+  # is no state change and was never reported (and HA's bell entries do not survive a
+  # restart). So 5 minutes after a start or reload -- the longest `for:` below -- this fires
+  # hba_alert_recheck; each alert takes it as a trigger and reports when its problem is on
+  # and has not been reported since it began. restart: several reloads in a row give one check.
+  - id: hba_alert_recheck
+    alias: "HBA: Recheck alerts after a start or reload"
+    mode: restart
+    triggers:
+      - trigger: homeassistant
+        event: start
+      - trigger: event
+        event_type: automation_reloaded
+    actions:
+      - delay: "00:05:00"
+      - event: hba_alert_recheck
+
   # ── Unexpected sustained export notification ──────────────────────────────────
   # Fires only when battery assist is OFF and the active sub-strategy is not Sell.
   # Battery assist active: batteries discharging into EV charger (expected).
@@ -29,7 +82,9 @@ automation:
   # (SoC limit reached) correctly allows the notification to fire.
   - id: hba_unexpected_export_notify
     alias: "HBA: Notify on unexpected sustained grid export"
-    description: "Alerts when grid export >1 kW sustains for 1+ min with batteries discharging but neither battery assist nor Sell strategy is active."
+    description: >-
+      Alerts when grid export >1 kW sustains for 1+ min with batteries discharging
+      but neither battery assist nor Sell strategy is active.
     triggers:
       - trigger: state
         entity_id: binary_sensor.hba_grid_exporting_sustained
@@ -211,7 +266,7 @@ automation:
 
   # ── Battery not responding ────────────────────────────────────────────────────
   # Notifies when any battery has RS485 enabled but its actual output deviates
-  # from the commanded value by >15% for 60+ seconds. One automation handles all
+  # from the commanded value by >15% for 90+ seconds. One automation handles all
   # 6 batteries in parallel; battery identity is extracted from trigger.entity_id.
   - id: hba_notify_battery_not_responding
     alias: "HBA: Notify battery not responding to RS485 command"
@@ -271,7 +326,7 @@ automation:
           title: "HBA: Battery {{ batt | upper }} not responding"
           message: >-
             Commanded {{ cmd_w | abs }} W {{ 'discharge' if cmd_w | int > 0 else 'charge' }}
-            but actual AC output is {{ actual_w }} W (>15% mismatch for 60+ s).
+            but actual AC output is {{ actual_w }} W (>15% mismatch for 90+ s).
             {% if capped_800 -%}
             It looks capped at ~800 W: probably Marstek's 800 W output limit (default
             until unlocked in the Marstek app). Unlock it in the app, or set
@@ -287,7 +342,7 @@ automation:
           persistent_id: "hba_battery_not_responding_{{ batt }}"
           persistent_message: |-
             Commanded **{{ cmd_w | abs }} W {{ 'discharge' if cmd_w | int > 0 else 'charge' }}**
-            but actual AC output is **{{ actual_w }} W** (>15% mismatch sustained 60+ s).
+            but actual AC output is **{{ actual_w }} W** (>15% mismatch sustained 90+ s).
 
             {% if capped_800 -%}
             **The output looks capped at ~800 W.** That is almost always Marstek's
@@ -359,21 +414,45 @@ automation:
       - trigger: state
         entity_id: binary_sensor.hba_rs485_mode_mismatch
         to: "on"
+      # After an HA start or an automation reload (automation hba_alert_recheck)
+      - trigger: event
+        event_type: hba_alert_recheck
+        id: recheck
+    conditions:
+      # Recheck: only when the problem is there and has not been reported since it began
+      - condition: template
+        value_template: >-
+          {%- set s = states.binary_sensor.hba_rs485_mode_mismatch -%}
+          {%- set mine = this.attributes.last_triggered if this is defined and this.attributes is defined else none -%}
+          {{ trigger.id != 'recheck'
+             or (s is not none and s.state == 'on' and (mine is none or s.last_changed > mine)) }}
     actions:
       - action: script.hba_notify_dispatch
         data:
           title: "HBA: RS485 control mismatch"
           message: >-
+            {%- set m = state_attr('binary_sensor.hba_rs485_mode_mismatch', 'mismatched_batteries') -%}
+            {%- if is_state('input_boolean.hba_maintenance_mode', 'on') -%}
+            RS485 is off on {{ m }}. Maintenance mode is on, so HBA leaves it
+            that way, sends it no commands and gives its share to the other batteries. Switch
+            the option off when the maintenance is done.
+            {%- else -%}
             HBA master mode is Full control but the following batteries have RS485
-            disabled: {{ state_attr('binary_sensor.hba_rs485_mode_mismatch', 'mismatched_batteries') }}.
+            disabled: {{ m }}.
             HBA Modbus writes to these batteries are being silently ignored.
             HBA re-applies RS485 right away and every 5 minutes; if this keeps
             recurring, check the Marstek app or firmware.
+            {%- endif -%}
           tag: hba_rs485_mode_mismatch
           color: red
           priority: high
           persistent_id: hba_rs485_mode_mismatch
           persistent_message: >-
+            {%- if is_state('input_boolean.hba_maintenance_mode', 'on') %}
+            **Maintenance:** Maintenance mode is on, so HBA leaves these batteries alone
+            and does not switch RS485 back on until you switch the option off.
+
+            {% endif -%}
             HBA master mode is **Full control** but the following batteries have
             RS485 control **disabled**:
             {{ state_attr('binary_sensor.hba_rs485_mode_mismatch', 'mismatched_batteries') }}.
@@ -535,6 +614,18 @@ automation:
         entity_id: binary_sensor.hba_any_battery_offline
         to: "on"
         for: "00:03:00"
+      # After an HA start or an automation reload (automation hba_alert_recheck)
+      - trigger: event
+        event_type: hba_alert_recheck
+        id: recheck
+    conditions:
+      # Recheck: only when the problem is there and has not been reported since it began
+      - condition: template
+        value_template: >-
+          {%- set s = states.binary_sensor.hba_any_battery_offline -%}
+          {%- set mine = this.attributes.last_triggered if this is defined and this.attributes is defined else none -%}
+          {{ trigger.id != 'recheck'
+             or (s is not none and s.state == 'on' and (mine is none or s.last_changed > mine)) }}
     actions:
       - variables:
           offline: "{{ state_attr('binary_sensor.hba_any_battery_offline', 'batteries') or 'unknown' }}"
@@ -603,20 +694,27 @@ automation:
       - trigger: state
         entity_id: binary_sensor.hba_control_loop_stalled
         to: "on"
+      # After an HA start or an automation reload (automation hba_alert_recheck)
+      - trigger: event
+        event_type: hba_alert_recheck
+        id: recheck
+    conditions:
+      # Recheck: only when the problem is there and has not been reported since it began
+      - condition: template
+        value_template: >-
+          {%- set s = states.binary_sensor.hba_control_loop_stalled -%}
+          {%- set mine = this.attributes.last_triggered if this is defined and this.attributes is defined else none -%}
+          {{ trigger.id != 'recheck'
+             or (s is not none and s.state == 'on' and (mine is none or s.last_changed > mine)) }}
     actions:
-      - variables:
-          p1ok: "{{ state_attr('binary_sensor.hba_control_loop_stalled', 'p1_updating') }}"
       - action: script.hba_notify_dispatch
         data:
           title: "HBA: control stalled"
           message: >-
             HBA has not run a control cycle for over 90 s; the batteries keep their last
-            command.
-            {%- if p1ok %} The P1 meter does update, so a cycle is hanging — usually a battery
+            command. The P1 meter does update, so a cycle is hanging — usually a battery
             whose network link dropped while HBA wrote to it. HBA continues once that battery
             is reachable again (up to ~10 min); check cables and power.
-            {%- else %} The P1 meter (sensor.p1_meter_power) has stopped updating — check the
-            meter / DSMR connection.{% endif %}
           tag: hba_control_loop_stalled
           color: red
           priority: high
@@ -638,6 +736,189 @@ automation:
           tag: hba_control_loop_stalled
           color: green
           resolve_id: hba_control_loop_stalled
+
+  # ── P1 meter lost ─────────────────────────────────────────────────────────────
+  # binary_sensor.hba_p1_meter_lost: no P1 reading for 60 s. In Full control automation
+  # hba_p1_meter_lost_stop (hba_strategies_core.yaml) has stopped the batteries.
+  - id: hba_notify_p1_meter_lost
+    alias: "HBA: Notify P1 meter lost"
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_p1_meter_lost
+        to: "on"
+      # After an HA start or an automation reload (automation hba_alert_recheck)
+      - trigger: event
+        event_type: hba_alert_recheck
+        id: recheck
+    conditions:
+      # Recheck: only when the problem is there and has not been reported since it began
+      - condition: template
+        value_template: >-
+          {%- set s = states.binary_sensor.hba_p1_meter_lost -%}
+          {%- set mine = this.attributes.last_triggered if this is defined and this.attributes is defined else none -%}
+          {{ trigger.id != 'recheck'
+             or (s is not none and s.state == 'on' and (mine is none or s.last_changed > mine)) }}
+      - condition: state
+        entity_id: input_select.hba_marstek_master_battery_mode
+        state: "Full control"
+    actions:
+      - action: script.hba_notify_dispatch
+        data:
+          title: "HBA: P1 meter lost, batteries stopped"
+          message: >-
+            The P1 meter (sensor.p1_meter_power) has given no reading for over a minute.
+            HBA cannot regulate without it and has stopped the batteries. Check the meter
+            and its connection; HBA continues by itself at the first reading.
+          tag: hba_p1_meter_lost
+          color: red
+          priority: high
+          persistent_id: hba_p1_meter_lost
+
+  - id: hba_notify_p1_meter_lost_resolved
+    alias: "HBA: P1 meter lost — resolved"
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_p1_meter_lost
+        from: "on"
+        to: "off"
+    conditions:
+      - condition: template
+        value_template: >-
+          {% set raised = state_attr('automation.hba_notify_p1_meter_lost', 'last_triggered') %}
+          {% set mine = this.attributes.last_triggered if this is defined and this.attributes is defined else none %}
+          {{ raised is not none and (mine is none or raised > mine) }}
+    actions:
+      - action: script.hba_notify_dispatch
+        data:
+          title: "HBA: P1 meter is back"
+          message: "The P1 meter gives readings again; HBA controls the batteries again."
+          tag: hba_p1_meter_lost
+          color: green
+          resolve_id: hba_p1_meter_lost
+
+  # ── Planned: plan out of date ─────────────────────────────────────────────────
+  # binary_sensor.hba_plan_out_of_date: no new plan for the running slot; Planned runs
+  # Self-consumption until a plan is made again.
+  - id: hba_notify_plan_out_of_date
+    alias: "HBA: Notify plan out of date"
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_plan_out_of_date
+        to: "on"
+      # After an HA start or an automation reload (automation hba_alert_recheck)
+      - trigger: event
+        event_type: hba_alert_recheck
+        id: recheck
+    conditions:
+      - condition: template
+        value_template: >-
+          {%- set s = states.binary_sensor.hba_plan_out_of_date -%}
+          {%- set mine = this.attributes.last_triggered if this is defined and this.attributes is defined else none -%}
+          {{ trigger.id != 'recheck'
+             or (s is not none and s.state == 'on' and (mine is none or s.last_changed > mine)) }}
+    actions:
+      - action: script.hba_notify_dispatch
+        data:
+          title: "HBA: Planned has no current plan"
+          message: >-
+            No new plan could be made since
+            {{ as_timestamp(state_attr('sensor.hba_planned_strategy', 'plan_made'), 0)
+            | timestamp_custom('%a %H:%M') }}.
+            HBA runs Self-consumption until a plan is made again. Usually an error in the plan
+            calculation: check the Home Assistant log, or press refresh in the Planned view.
+          tag: hba_plan_out_of_date
+          color: red
+          priority: high
+          persistent_id: hba_plan_out_of_date
+
+  - id: hba_notify_plan_out_of_date_resolved
+    alias: "HBA: Plan out of date — resolved"
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_plan_out_of_date
+        from: "on"
+        to: "off"
+    conditions:
+      - condition: template
+        value_template: >-
+          {% set raised = state_attr('automation.hba_notify_plan_out_of_date', 'last_triggered') %}
+          {% set mine = this.attributes.last_triggered if this is defined and this.attributes is defined else none %}
+          {{ raised is not none and (mine is none or raised > mine) }}
+    actions:
+      - action: script.hba_notify_dispatch
+        data:
+          title: "HBA: Planned has a current plan again"
+          message: "A new plan was made; HBA follows the plan again."
+          tag: hba_plan_out_of_date
+          color: green
+          resolve_id: hba_plan_out_of_date
+
+  # ── Prices missing ────────────────────────────────────────────────────────────
+  # binary_sensor.hba_prices_stale: the price source gives no prices; Planned and Dynamic use the
+  # slots already known. Reported after an hour (like the EV project), resolved when prices return.
+  - id: hba_notify_prices_stale
+    alias: "HBA: Notify prices missing"
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_prices_stale
+        to: "on"
+        for: "01:00:00"
+      # After an HA start or an automation reload (automation hba_alert_recheck): a running
+      # "for" is lost at a reload, so report here when it has been on for an hour already
+      - trigger: event
+        event_type: hba_alert_recheck
+        id: recheck
+    conditions:
+      - condition: template
+        value_template: >-
+          {%- set s = states.binary_sensor.hba_prices_stale -%}
+          {%- set mine = this.attributes.last_triggered if this is defined and this.attributes is defined else none -%}
+          {{ trigger.id != 'recheck'
+             or (s is not none and s.state == 'on' and (now() - s.last_changed).total_seconds() >= 3600
+                 and (mine is none or s.last_changed > mine)) }}
+    actions:
+      - action: script.hba_notify_dispatch
+        data:
+          title: "HBA: Prices missing"
+          message: >-
+            {%- set u = state_attr('binary_sensor.hba_prices_stale', 'known_until') -%}
+            {{ states('input_text.hba_strategy_dynamic_frank_sensor_entity_id') }} has given no prices
+            since {{ as_timestamp(state_attr('binary_sensor.hba_prices_stale', 'since'), 0)
+            | timestamp_custom('%a %H:%M') }}. HBA plans with the prices it already knew,
+            {{ 'until ' ~ (as_timestamp(u, 0) | timestamp_custom('%a %H:%M')) if u else 'but none are left' }}.
+            Check the price integration (reload it in Settings, Devices & services).
+          tag: hba_prices_stale
+          color: red
+          priority: high
+          persistent_id: hba_prices_stale
+
+  - id: hba_notify_prices_stale_resolved
+    alias: "HBA: Prices missing — resolved"
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hba_prices_stale
+        from: "on"
+        to: "off"
+    conditions:
+      - condition: template
+        value_template: >-
+          {% set raised = state_attr('automation.hba_notify_prices_missing', 'last_triggered') %}
+          {% set mine = this.attributes.last_triggered if this is defined and this.attributes is defined else none %}
+          {{ raised is not none and (mine is none or raised > mine) }}
+    actions:
+      - action: script.hba_notify_dispatch
+        data:
+          title: "HBA: Prices are back"
+          message: "The price source gives prices again; HBA plans with them."
+          tag: hba_prices_stale
+          color: green
+          resolve_id: hba_prices_stale
 
   # ── Charge / Sell chosen by hand ──────────────────────────────────────────────
   # A reminder so a one-off Charge or Sell is not forgotten (e.g. the evening Sell of Dynamic
@@ -710,7 +991,8 @@ automation:
           message: >-
             The strategy has been {{ st }} for {{ hours }} h (since {{ since }}), battery
             {{ states('sensor.hba_average_battery_soc') | float(0) | round(0) | int }} %.
-            {{ 'Done: ' ~ ('full' if st == 'Charge' else 'goal reached') ~ '.' if is_state('binary_sensor.hba_manual_strategy_done', 'on') else 'Not done yet.' }}
+            {{ 'Done: ' ~ ('full' if st == 'Charge' else 'goal reached') ~ '.'
+            if is_state('binary_sensor.hba_manual_strategy_done', 'on') else 'Not done yet.' }}
             Switch back to your usual strategy (e.g. Dynamic) when it has done its job.
           tag: hba_manual_strategy
           color: orange
@@ -783,10 +1065,12 @@ automation:
             {%- set w = state_attr('sensor.hba_power_limits', 'charge') -%}
             {{ w is mapping and (bat | string) in w and is_state('sensor.hba_power_limits', 'Active') }}
           lc: >-
-            {%- set w = state_attr('sensor.hba_power_limits', 'charge') if managed else state_attr('sensor.hba_power_limits', 'last_known_charge') -%}
+            {%- set w = state_attr('sensor.hba_power_limits', 'charge') if managed
+                else state_attr('sensor.hba_power_limits', 'last_known_charge') -%}
             {{ (w[bat | string] if w is mapping and (bat | string) in w else 0) | int(0) }}
           ld: >-
-            {%- set w = state_attr('sensor.hba_power_limits', 'discharge') if managed else state_attr('sensor.hba_power_limits', 'last_known_discharge') -%}
+            {%- set w = state_attr('sensor.hba_power_limits', 'discharge') if managed
+                else state_attr('sensor.hba_power_limits', 'last_known_discharge') -%}
             {{ (w[bat | string] if w is mapping and (bat | string) in w else 0) | int(0) }}
       - if: "{{ trigger.id == 'limits' and not managed }}"
         then:
@@ -827,6 +1111,18 @@ automation:
         entity_id: binary_sensor.hba_power_limits_not_restored
         to: "on"
         for: "00:05:00"
+      # After an HA start or an automation reload (automation hba_alert_recheck)
+      - trigger: event
+        event_type: hba_alert_recheck
+        id: recheck
+    conditions:
+      # Recheck: only when the problem is there and has not been reported since it began
+      - condition: template
+        value_template: >-
+          {%- set s = states.binary_sensor.hba_power_limits_not_restored -%}
+          {%- set mine = this.attributes.last_triggered if this is defined and this.attributes is defined else none -%}
+          {{ trigger.id != 'recheck'
+             or (s is not none and s.state == 'on' and (mine is none or s.last_changed > mine)) }}
     actions:
       - variables:
           bats: "{{ state_attr('binary_sensor.hba_power_limits_not_restored', 'batteries') or 'unknown' }}"
@@ -885,13 +1181,21 @@ automation:
         entity_id: binary_sensor.hba_charge_goal_conflict
         to: "on"
         for: "00:01:00"
-      # Already mismatched at start (e.g. right after updating to the version that adds
-      # this sensor): the state trigger never sees the change to on. Repeats once per
-      # restart while the settings stay wrong.
-      - trigger: homeassistant
-        event: start
+      # After an HA start or an automation reload (automation hba_alert_recheck): a mismatch
+      # that is already there is never seen as a change to on. Repeats once per restart
+      # while the settings stay wrong.
+      - trigger: event
+        event_type: hba_alert_recheck
+        id: recheck
+    conditions:
+      # Recheck: only when the problem is there and has not been reported since it began
+      - condition: template
+        value_template: >-
+          {%- set s = states.binary_sensor.hba_charge_goal_conflict -%}
+          {%- set mine = this.attributes.last_triggered if this is defined and this.attributes is defined else none -%}
+          {{ trigger.id != 'recheck'
+             or (s is not none and s.state == 'on' and (mine is none or s.last_changed > mine)) }}
     actions:
-      - delay: "{{ '00:01:00' if trigger.platform == 'homeassistant' else '00:00:00' }}"
       - condition: state
         entity_id: binary_sensor.hba_charge_goal_conflict
         state: "on"
@@ -953,10 +1257,19 @@ automation:
       - trigger: state
         entity_id: binary_sensor.hba_ev_link_problem
         to: "on"
-      - trigger: homeassistant
-        event: start
+      # After an HA start or an automation reload (automation hba_alert_recheck)
+      - trigger: event
+        event_type: hba_alert_recheck
+        id: recheck
+    conditions:
+      # Recheck: only when the problem is there and has not been reported since it began
+      - condition: template
+        value_template: >-
+          {%- set s = states.binary_sensor.hba_ev_link_problem -%}
+          {%- set mine = this.attributes.last_triggered if this is defined and this.attributes is defined else none -%}
+          {{ trigger.id != 'recheck'
+             or (s is not none and s.state == 'on' and (mine is none or s.last_changed > mine)) }}
     actions:
-      - delay: "{{ '00:03:00' if trigger.platform == 'homeassistant' else '00:00:00' }}"
       - condition: state
         entity_id: binary_sensor.hba_ev_link_problem
         state: "on"
@@ -1050,66 +1363,36 @@ automation:
           color: green
           resolve_id: hba_entity_health
 
-  # ── Dynamic migration (r22) ───────────────────────────────────────────────────
-  # binary_sensor.hba_dynamic_migration_needed: v1 / _v2 leftovers or missing new
-  # Dynamic entities after the r22 update. Mirrors the Overview banner, which lists
-  # the exact entities; this only has to make sure the user goes and looks.
-  - id: hba_notify_dynamic_migration
-    alias: "HBA: Notify dynamic migration"
-    mode: single
-    triggers:
-      - trigger: state
-        entity_id: binary_sensor.hba_dynamic_migration_needed
-        to: "on"
-        for: "00:02:00"
-    actions:
-      - action: script.hba_notify_dispatch
-        data:
-          title: "HBA: Dynamic strategy changed — action needed"
-          message: >-
-            This HBA update removed Dynamic v1 and renamed Dynamic v2 to Dynamic.
-            If the strategy shows Full stop, select Dynamic again; re-enter the max
-            cheap/expensive hours; then delete the leftover entities (Developer Tools →
-            States, filter "hba" + state "unavailable", ⓘ → cog → Delete).
-          tag: hba_dynamic_migration
-          color: orange
-          persistent_id: hba_dynamic_migration
-          persistent_message: |-
-            This HBA update removed **Dynamic v1** and renamed **Dynamic v2** to **Dynamic**.
-
-            - If *Choose strategy* shows **Full stop**, select **Dynamic** again.
-            - Re-enter **max cheap / expensive hours** (Dynamic view).
-            - Delete the leftover entities (listed in the banner on the **HBA Overview**): in
-              **Developer Tools → States**, filter entities on `hba` and state on `unavailable`;
-              for each one click the ⓘ icon, then the cog → **Delete**.
-
-  - id: hba_notify_dynamic_migration_resolved
-    alias: "HBA: Dynamic migration — resolved"
-    mode: single
-    triggers:
-      - trigger: state
-        entity_id: binary_sensor.hba_dynamic_migration_needed
-        to: "off"
-    conditions:
-      - condition: template
-        value_template: >-
-          {% set raised = state_attr('automation.hba_notify_dynamic_migration', 'last_triggered') %}
-          {% set mine = this.attributes.last_triggered if this is defined and this.attributes is defined else none %}
-          {{ raised is not none and (mine is none or raised > mine) }}
-    actions:
-      - action: script.hba_notify_dispatch
-        data:
-          title: "HBA: Dynamic migration complete"
-          message: "No Dynamic v1 / v2 leftovers remain."
-          tag: hba_dynamic_migration
-          color: green
-          resolve_id: hba_dynamic_migration
-
   # ── Planned: skip Normal for the car ─────────────────────────────────────────────
   # Ask before Normal on, car connected, plan in charge, and Normal has hours tonight: asked at
   # the EV project's reminder time, or after plug-in until 22:00. No answer = it charges.
-  # While Skip until home day runs, it only speaks up when that day's solar looks too low.
-  # 6 minutes after plug-in: the plan sees a connected car at its next 5-minute check.
+  # On a home day from the list it asks whether the car really stays (Not leaving / Leaving).
+  # While Min. until home day runs: a short notice that Normal stays skipped, or the solar-low
+  # message when that day's solar looks too low.
+  # At a real plug-in it asks as soon as the plan has the car (~2 s after it, through
+  # hba_planned_car_plugged below; until 2026-11-18 a fixed 6 minutes after the plug-in).
+  - id: hba_planned_car_plugged
+    alias: "HBA: Planned car plugged in"
+    # restart: plugged in again within the wait = only the last plug-in asks
+    mode: restart
+    triggers:
+      # from false: a real plug-in only. After an HA start the car info's first state is already
+      # connected (no "from false"), so a restart does not ask (prod 2026-11-18 07:14: it looked
+      # like a plug-in through connected_since, user 2026-11-18).
+      - trigger: state
+        entity_id: sensor.ev_car_info
+        attribute: connected
+        from: false
+        to: true
+    actions:
+      # Planned re-plans at a plug-in (about a second); the question needs that plan
+      - wait_template: >-
+          {{ as_timestamp(state_attr('sensor.hba_planned_strategy', 'plan_made'), 0)
+             >= as_timestamp(trigger.to_state.last_updated) }}
+        timeout: "00:02:00"
+        continue_on_timeout: false
+      - event: hba_planned_car_plugged
+
   - id: hba_notify_planned_car_normal
     alias: "HBA: Planned car Normal question"
     mode: single
@@ -1120,11 +1403,10 @@ automation:
           {% set t = states('input_datetime.ev_assisted_reminder')[:5] %}
           {{ now().strftime('%H:%M') == ('20:00' if t in ['00:00', 'unkno', 'unava', ''] else t) }}
         id: reminder
-      - trigger: state
-        entity_id: sensor.ev_car_info
-        attribute: connected
-        to: true
-        for: "00:06:00"
+      # A real plug-in, once the plan has the car (hba_planned_car_plugged). A separate automation,
+      # so that last_triggered here stays "a question was sent" for the reminder's "asked today".
+      - trigger: event
+        event_type: hba_planned_car_plugged
         id: plugged
     conditions:
       - condition: state
@@ -1133,79 +1415,214 @@ automation:
       - condition: state
         entity_id: binary_sensor.hba_ev_assist
         state: "on"
+      # Charge the car from the batteries on (user 2026-11-16): the departure also matters when Normal
+      # is already in -- the batteries may fill the car up to Leftover until then. So it asks at
+      # plug-in whatever the time, as long as the car is below Leftover.
+      # The reminder asks only when no question went out that day yet (see "asked" below), in both
+      # cases: the Normal case had no such check, so a plug-in at 19:32 asked and 20:00 asked again
+      # (prod 2026-11-18; user 2026-11-22: build).
       - condition: template
         value_template: >-
           {%- set t = states('input_datetime.ev_assisted_reminder')[:5] -%}
           {%- set t = '20:00' if t in ['00:00', 'unkno', 'unava', ''] else t -%}
+          {%- set car = (state_attr('sensor.hba_planned_strategy', 'summary') or {}).get('car') or {} -%}
+          {%- set bat = (car.get('bat') or {}) -%}
+          {%- set bat_on = bat.get('on') == true
+              and states('sensor.ev_car_info') | float(100) < bat.get('top', 100) | float(100) -%}
+          {%- set last = as_timestamp(this.attributes.last_triggered, 0) | int if this.attributes.last_triggered
+              else 0 -%}
+          {#- Asked today already (a plug-in asks again by itself, through its trigger). Not against
+              connected_since: that restarts with HA and with a reload. -#}
+          {%- set asked = (last | timestamp_custom('%Y-%m-%d')) == now().strftime('%Y-%m-%d') -%}
           {{ state_attr('sensor.ev_car_info', 'connected') == true
-             and (trigger.id == 'reminder' or t <= now().strftime('%H:%M') < '22:00')
-             and ((state_attr('sensor.hba_planned_strategy', 'summary') or {}).get('car') or {}).get('normal', 0) | float(0) > 0.1 }}
+             and (trigger.id == 'plugged' or not asked)
+             and (bat_on
+                  or ((trigger.id == 'reminder' or t <= now().strftime('%H:%M') < '22:00')
+                      and car.get('normal', 0) | float(0) > 0.1)) }}
     actions:
       - variables:
           car: "{{ (state_attr('sensor.hba_planned_strategy', 'summary') or {}).get('car') or {} }}"
-          field: "{{ states('input_select.hba_strategy_planned_car_normal_tonight') }}"
+          field: "{{ states('input_select.hba_strategy_planned_car_normal_skip') }}"
+          dep: "{{ states('input_select.hba_strategy_planned_car_next_departure') }}"
           day: "{{ car.get('home_day', '') }}"
           sun: "{{ car.get('home_sun', -1) | float(-1) }}"
           want: "{{ (car.get('normal', 0) | float(0) + car.get('sun', 0) | float(0)) | round(1) }}"
+          # The levels the plan works towards, in brackets on a line of its own above the message.
+          # No max price here: it rarely changes (user 2026-11-14; the EV project reminds of it
+          # once a month). The short texts of 48a0ff3 were less clear, so the full sentences are
+          # back (user: try these first).
+          levels: >-
+            [ Car: {{ states('sensor.ev_car_info') | float(0) | round(0) | int }}% -
+            Min: {{ states('input_number.hba_strategy_planned_car_minimum') | float(0) | int }}% -
+            Normal: {{ states('input_number.hba_strategy_planned_car_normal') | float(0) | int }}% ]
       - choose:
-          - conditions: "{{ field == 'Auto' }}"
+          # Charge the car from the batteries and no Normal hours in the plan (Normal is in, grid
+          # charging for it is off, nothing to buy, or no hour below the max price -- the first line
+          # says which): only the departure is asked (the batteries may fill the car up to Leftover
+          # until it, or past it on a home day)
+          - conditions: "{{ field == 'Auto' and dep == 'Auto' and car.get('normal', 0) | float(0) <= 0.1 }}"
             sequence:
               - action: script.hba_notify_dispatch
                 data:
-                  title: "Skip Normal tonight?"
+                  title: >-
+                    Car: {{ car.get('dl', 0) | int(0) | timestamp_custom('%A') }} {{ 'counts as a home day'
+                    if car.get('home') == true else 'is a departure' }}
                   message: >-
-                    Normal plans {{ car.normal }} kWh tonight for € {{ car.normal_eur }}, from {{ car.normal_from }}.
+                    [ Car: {{ states('sensor.ev_car_info') | float(0) | round(0) | int }}% -
+                    Normal: {{ states('input_number.hba_strategy_planned_car_normal') | float(0) | int }}% -
+                    Leftover: {{ (car.get('bat') or {}).get('top', 100) }}% ]
+
+                    {% set c_soc = states('sensor.ev_car_info') | float(0) -%}
+                    {%- if c_soc >= states('input_number.hba_strategy_planned_car_normal') | float(0) -%}
+                    Normal is in.
+                    {%- elif is_state('input_boolean.hba_strategy_planned_car_grid', 'off') -%}
+                    Grid charging for Normal is off, so no grid hours are planned for it.
+                    {%- elif car.get('need', 0) | float(0) <= 0.1 -%}
+                    Normal needs no grid hours: the Minimum hours or the expected solar cover it.
+                    {%- else -%}
+                    Normal has no hours in the plan: every hour is above the max price, or there is no
+                    time left.
+                    {%- endif %}
+                    The batteries may fill the car up to Leftover when that is worth
+                    more than selling or keeping the energy,
+                    {{ 'with no deadline at the departure' if car.get('home') == true
+                    else 'until ' ~ ((car.get('dl', 0) | int(0)
+                    - (states('input_number.hba_strategy_planned_car_battery_end') | float(1) * 3600) | int)
+                    | timestamp_custom('%a %H:%M')) }}.
+                    Not leaving: no deadline. Leaving: until the departure.
+                    Without an answer it stays like this.
+                  tag: hba_car_normal
+                  color: blue
+                  priority: normal
+                  actions:
+                    - { action: HBA_CAR_NOT_LEAVING, title: "Not leaving" }
+                    - { action: HBA_CAR_LEAVING, title: "Leaving" }
+          # The next departure is on a home day (the list): the plan assumes the car stays, for
+          # Normal only. Asked because the list is a guess.
+          - conditions: "{{ field == 'Auto' and dep == 'Auto' and car.get('home') == true }}"
+            sequence:
+              - action: script.hba_notify_dispatch
+                data:
+                  title: "Car: {{ car.get('dl', 0) | int(0) | timestamp_custom('%A') }} counts as a home day"
+                  message: >-
+                    {{ levels }}
+
+                    Normal ({{ car.normal }} kWh, € {{ '%.2f'
+                    | format(car.normal_eur | float(0)) }}) is planned from {{ car.normal_from }}:
+                    the cheapest known hours, the departure is no deadline for it. Minimum is in by {{ car.get('dl', 0)
+                    | int(0) | timestamp_custom('%a %H:%M') }}.
+                    Not leaving: Minimum may wait too. Leaving: Normal before the departure.
+                    Without an answer it stays like this.
+                  tag: hba_car_normal
+                  color: orange
+                  priority: high
+                  actions:
+                    - { action: HBA_CAR_NOT_LEAVING, title: "Not leaving" }
+                    - { action: HBA_CAR_LEAVING, title: "Leaving" }
+                    - { action: HBA_CAR_MIN_ONLY, title: "Minimum only" }
+          - conditions: "{{ field == 'Auto' and dep == 'Auto' }}"
+            sequence:
+              - action: script.hba_notify_dispatch
+                data:
+                  title: "Car: Normal is planned"
+                  message: >-
+                    {{ levels }}
+
+                    Normal plans {{ car.normal }} kWh for € {{ '%.2f'
+                    | format(car.normal_eur | float(0)) }}, from {{ car.normal_from }}.
                     {% if day == '' -%}
                       No home day coming up.
                     {%- elif sun < 0 -%}
                       No solar forecast for {{ day }} yet.
                     {%- elif sun >= want -%}
-                      {{ day }}: about {{ sun | round(1) }} kWh spare solar, enough for this, so skipping looks good.
+                      {{ day }}: about {{ sun | round(1) }} kWh spare solar, enough for this, so Min. until home day looks good.
                     {%- else -%}
-                      {{ day }}: about {{ sun | round(1) }} kWh spare solar of the {{ want }} kWh, so charging tonight looks better.
+                      {{ day }}: about {{ sun | round(1) }} kWh spare solar of the {{ want }} kWh, so charging looks better.
                     {%- endif %}
+                    Not leaving: no deadline at the next departure, the cheapest known hours.
                     Without an answer it charges.
                   tag: hba_car_normal
                   color: orange
                   priority: high
                   actions:
-                    - { action: HBA_NORMAL_SKIP_TONIGHT, title: "Skip tonight" }
-                    - { action: HBA_NORMAL_SKIP_HOME, title: "Skip until home day" }
-          - conditions: "{{ field == 'Skip until home day' and day != '' and 0 <= sun < want }}"
+                    - { action: HBA_CAR_NOT_LEAVING, title: "Not leaving" }
+                    - { action: HBA_CAR_MIN_ONLY, title: "Minimum only" }
+                    - { action: HBA_CAR_MIN_HOME, title: "Min. until home day" }
+          - conditions: "{{ field == 'Min. until home day' and day != '' and 0 <= sun < want }}"
             sequence:
               - action: script.hba_notify_dispatch
                 data:
                   title: "Solar looks low for the car"
                   message: >-
+                    {{ levels }}
+
                     {{ day }}: about {{ sun | round(1) }} kWh spare solar of the {{ want }} kWh Normal needs.
-                    Tonight would be {{ car.normal }} kWh for € {{ car.normal_eur }}, from {{ car.normal_from }}.
+                    Charging now would be {{ car.normal }} kWh for € {{ '%.2f'
+                    | format(car.normal_eur | float(0)) }}, from {{ car.normal_from }}.
                     Without an answer Normal stays skipped.
                   tag: hba_car_normal
                   color: orange
                   priority: high
                   actions:
-                    - { action: HBA_NORMAL_CHARGE, title: "Charge tonight" }
+                    - { action: HBA_NORMAL_CHARGE, title: "Charge" }
+          # Min. until home day can run for days: a short notice in the question's place, so it
+          # is not forgotten (the solar-low message above takes its place when that applies)
+          - conditions: "{{ field == 'Min. until home day' }}"
+            sequence:
+              - action: script.hba_notify_dispatch
+                data:
+                  title: "Car: Normal stays skipped"
+                  message: >-
+                    {{ levels }}
 
+                    {% set names = {'Mon': 'Monday', 'Tue': 'Tuesday', 'Wed': 'Wednesday', 'Thu': 'Thursday',
+                    'Fri': 'Friday', 'Sat': 'Saturday', 'Sun': 'Sunday'} -%}
+                    Min. until home day: no Normal from the grid until {{ names.get(day, day)
+                    if day != '' else 'the next departure' }}.
+                    Charging now would be {{ car.normal }} kWh for € {{ '%.2f'
+                    | format(car.normal_eur | float(0)) }}, from {{ car.normal_from }}.
+                  tag: hba_car_normal
+                  color: blue
+                  priority: normal
+                  actions:
+                    - { action: HBA_NORMAL_CHARGE, title: "Charge" }
+                    # No handler: a tap only closes the notification
+                    - { action: HBA_CAR_DISMISS, title: "Dismiss" }
+              # Nothing to decide, so it does not stay around: gone from the phone after an hour
+              # (this automation is single, so no other car message is sent in between)
+              - delay: "01:00:00"
+              - action: script.hba_notify_dispatch
+                data: { clear_tag: hba_car_normal }
+
+  # The answer: trigger id = which setting | which option
   - id: hba_notify_planned_car_normal_answer
     alias: "HBA: Planned car Normal answered"
     mode: queued
     triggers:
       - trigger: event
         event_type: mobile_app_notification_action
-        event_data: { action: HBA_NORMAL_SKIP_TONIGHT }
-        id: "Skip tonight"
+        event_data: { action: HBA_CAR_NOT_LEAVING }
+        id: "next_departure|Not leaving"
       - trigger: event
         event_type: mobile_app_notification_action
-        event_data: { action: HBA_NORMAL_SKIP_HOME }
-        id: "Skip until home day"
+        event_data: { action: HBA_CAR_LEAVING }
+        id: "next_departure|Leaving"
+      - trigger: event
+        event_type: mobile_app_notification_action
+        event_data: { action: HBA_CAR_MIN_ONLY }
+        id: "normal_skip|Minimum only"
+      - trigger: event
+        event_type: mobile_app_notification_action
+        event_data: { action: HBA_CAR_MIN_HOME }
+        id: "normal_skip|Min. until home day"
       - trigger: event
         event_type: mobile_app_notification_action
         event_data: { action: HBA_NORMAL_CHARGE }
-        id: "Auto"
+        id: "normal_skip|Auto"
     actions:
       - action: input_select.select_option
-        target: { entity_id: input_select.hba_strategy_planned_car_normal_tonight }
-        data: { option: "{{ trigger.id }}" }
+        target: { entity_id: "input_select.hba_strategy_planned_car_{{ trigger.id.split('|')[0] }}" }
+        data: { option: "{{ trigger.id.split('|')[1] }}" }
 
 script:
   # ── Notification dispatch ─────────────────────────────────────────────────────
@@ -1225,6 +1642,11 @@ script:
   # handle the bell, which used to put the same alert in the bell twice.
   hba_notify_dispatch:
     alias: "HBA: Notify dispatch"
+    # queued: two alerts at the same moment both go out, one after the other. With the
+    # default (single) the second call was dropped while the first waited for the phone
+    # push: no push, no bell entry, and a dropped "resolved" left its bell entry behind.
+    mode: queued
+    max: 20
     fields:
       title:
         description: "Notification title"
@@ -1246,6 +1668,8 @@ script:
         description: "Dismiss the persistent notification with this ID (optional)"
       actions:
         description: "Notification buttons, as the companion app wants them (optional)"
+      clear_tag:
+        description: "Only remove the phone notification with this tag (mobile app); nothing is sent"
     sequence:
       - variables:
           _pid: "{{ persistent_id | default('') | trim }}"
@@ -1257,6 +1681,20 @@ script:
             {%- set t = states('input_text.hba_notify_entity_id') | trim -%}
             {{ t if t not in ['', 'unknown', 'unavailable']
                     and not is_state('binary_sensor.hba_notify_target_invalid', 'on') else '' }}
+      # clear_tag: the companion app removes the notification with that tag on this message.
+      # Only for a mobile app action; anything else would show the text as a notification.
+      - if:
+          - "{{ clear_tag | default('') | trim != '' }}"
+        then:
+          - if:
+              - "{{ _target.startswith('notify.mobile_app_') }}"
+            then:
+              - action: "{{ _target }}"
+                data:
+                  message: clear_notification
+                  data:
+                    tag: "{{ clear_tag }}"
+          - stop: "Cleared"
       - if:
           - "{{ _pid != '' }}"
         then:

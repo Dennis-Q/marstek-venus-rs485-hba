@@ -36,6 +36,10 @@
 #   mark_now             — the current slot's mark ('Cheap'/'Expensive'/'Regular')
 #   prices               — flat list of ct/kWh values, chronological (today + tomorrow)
 #   marks                — list of {start, end, price, mark, is_now} objects
+#   stale / stale_since  — the source gives no prices; the known slots are used (since 2026-11-20)
+#
+# binary_sensor.hba_prices_stale — on while the source gives no prices (banner + notification
+# after an hour + resolved, hba_notifications.yaml)
 #
 # Jinja2 notes:
 #   - entry['from'] NOT entry.from — 'from' is a Jinja2 keyword inside {% %} blocks
@@ -66,15 +70,46 @@ template:
         value_template: >
           {% set s = states('input_text.hba_strategy_dynamic_frank_sensor_entity_id') | trim %}
           {{ state_attr(s, 'prices') | last | default('') if s | has_value else '' }}
+    # The price source gives no prices (prod 2026-11-20: Frank Energie unavailable from 00:45 for
+    # hours; this sensor then had 0 prices from 01:00, Planned no plan, and the car's 01:00 hour
+    # was lost; the EV project kept its slots). Then the slots this sensor already knew are used
+    # (kept, from its own marks: today and tomorrow), so Planned and Dynamic run on with the known
+    # hours; stale / stale_since say so (alert: binary_sensor.hba_prices_stale). Same idea as the
+    # EV project's sensor.ev_energy_prices_data (2026-10-14). User 2026-11-20.
+    actions:
+      - variables:
+          # Entries the source gives now; -1 = no source set (no price entity: never stale)
+          src_n: >-
+            {%- set frank_id = states('input_text.hba_strategy_dynamic_frank_sensor_entity_id') | trim -%}
+            {%- set src = state_attr(frank_id, 'prices') if frank_id | has_value else none -%}
+            {{ -1 if frank_id in ['', 'unknown', 'unavailable']
+               else (src | length if src is sequence and src is not string else 0) }}
+          kept: >-
+            {%- set mk = state_attr('sensor.hba_energy_prices_data', 'marks') or [] -%}
+            {%- set mk = (mk | from_json) if mk is string and (mk | trim)[:1] == '[' else mk -%}
+            {%- set ns_k = namespace(r=[]) -%}
+            {%- for m in mk if mk is sequence and m is mapping and m.start is defined and m.price is defined -%}
+              {%- set ns_k.r = ns_k.r + [{'from': m.start, 'price': (m.price | float(0) / 100) | round(6)}] -%}
+            {%- endfor -%}
+            {{ ns_k.r | tojson }}
     sensor:
       - name: "HBA Energy Prices Data"
         unique_id: hba_energy_prices_data
         icon: mdi:cash-clock
         state: "{{ now().strftime('Updated %H:%M') }}"
         attributes:
+          # The source gives no prices: the known slots are used (see the variables above)
+          stale: "{{ src_n | int(-1) == 0 }}"
+          # Since when; kept while it stays stale, none once prices are back
+          stale_since: >-
+            {{ (state_attr('sensor.hba_energy_prices_data', 'stale_since') or now().isoformat())
+               if src_n | int(-1) == 0 else none }}
           datapoints_per_hour: >-
             {%- set frank_id = states('input_text.hba_strategy_dynamic_frank_sensor_entity_id') | trim -%}
             {%- set raw = state_attr(frank_id, 'prices') if frank_id | has_value else [] -%}
+            {#- No prices from the source: the slots kept (variable kept, above) -#}
+            {%- set raw = raw if raw is sequence and raw is not string and raw | length > 0
+                else ((kept | from_json) if kept is string else kept) -%}
             {#- De-duplicate by slot timestamp, keeping the first occurrence.
                 The Frank Energie integration appends a second copy of today's prices
                 when its tomorrow-fetch fails (observed daily at 11:00 UTC, 2026-07),
@@ -88,7 +123,8 @@ template:
                 {%- set slot_ts = as_timestamp(entry['from'], 0) | int -%}
                 {%- if slot_ts > 0 and slot_ts not in ns_u.seen -%}
                   {%- set ns_u.seen = ns_u.seen + [slot_ts] -%}
-                  {%- set ns_u.slots = ns_u.slots + [{'ts': slot_ts, 'pc': (entry.price | float(0) * 100) | round(4)}] -%}
+                  {%- set ns_u.slots = ns_u.slots
+                      + [{'ts': slot_ts, 'pc': (entry.price | float(0) * 100) | round(4)}] -%}
                 {%- endif -%}
               {%- endif -%}
             {%- endfor -%}
@@ -100,6 +136,9 @@ template:
           mark_now: >-
             {%- set frank_id = states('input_text.hba_strategy_dynamic_frank_sensor_entity_id') | trim -%}
             {%- set raw = state_attr(frank_id, 'prices') if frank_id | has_value else [] -%}
+            {#- No prices from the source: the slots kept (variable kept, above) -#}
+            {%- set raw = raw if raw is sequence and raw is not string and raw | length > 0
+                else ((kept | from_json) if kept is string else kept) -%}
             {#- De-duplicate by slot timestamp, keeping the first occurrence.
                 The Frank Energie integration appends a second copy of today's prices
                 when its tomorrow-fetch fails (observed daily at 11:00 UTC, 2026-07),
@@ -113,7 +152,8 @@ template:
                 {%- set slot_ts = as_timestamp(entry['from'], 0) | int -%}
                 {%- if slot_ts > 0 and slot_ts not in ns_u.seen -%}
                   {%- set ns_u.seen = ns_u.seen + [slot_ts] -%}
-                  {%- set ns_u.slots = ns_u.slots + [{'ts': slot_ts, 'pc': (entry.price | float(0) * 100) | round(4)}] -%}
+                  {%- set ns_u.slots = ns_u.slots
+                      + [{'ts': slot_ts, 'pc': (entry.price | float(0) * 100) | round(4)}] -%}
                 {%- endif -%}
               {%- endif -%}
             {%- endfor -%}
@@ -154,8 +194,14 @@ template:
                     {%- set mark_exp = ns_tp_today.hi < max_exp -%}
                     {%- if not mark_cheap and not mark_exp -%}{%- set ns_tp_today.done = true -%}
                     {%- else -%}
-                      {%- if mark_cheap -%}{%- set ns_marks.cheap = ns_marks.cheap + [lo_s.ts] -%}{%- set ns_tp_today.lo = ns_tp_today.lo + 1 -%}{%- endif -%}
-                      {%- if mark_exp -%}{%- set ns_marks.exp = ns_marks.exp + [hi_s.ts] -%}{%- set ns_tp_today.hi = ns_tp_today.hi + 1 -%}{%- endif -%}
+                      {%- if mark_cheap -%}
+                        {%- set ns_marks.cheap = ns_marks.cheap + [lo_s.ts] -%}
+                        {%- set ns_tp_today.lo = ns_tp_today.lo + 1 -%}
+                      {%- endif -%}
+                      {%- if mark_exp -%}
+                        {%- set ns_marks.exp = ns_marks.exp + [hi_s.ts] -%}
+                        {%- set ns_tp_today.hi = ns_tp_today.hi + 1 -%}
+                      {%- endif -%}
                     {%- endif -%}
                   {%- else -%}{%- set ns_tp_today.done = true -%}
                   {%- endif -%}
@@ -172,8 +218,14 @@ template:
                     {%- set mark_exp = ns_tp_tom.hi < max_exp -%}
                     {%- if not mark_cheap and not mark_exp -%}{%- set ns_tp_tom.done = true -%}
                     {%- else -%}
-                      {%- if mark_cheap -%}{%- set ns_marks.cheap = ns_marks.cheap + [lo_s.ts] -%}{%- set ns_tp_tom.lo = ns_tp_tom.lo + 1 -%}{%- endif -%}
-                      {%- if mark_exp -%}{%- set ns_marks.exp = ns_marks.exp + [hi_s.ts] -%}{%- set ns_tp_tom.hi = ns_tp_tom.hi + 1 -%}{%- endif -%}
+                      {%- if mark_cheap -%}
+                        {%- set ns_marks.cheap = ns_marks.cheap + [lo_s.ts] -%}
+                        {%- set ns_tp_tom.lo = ns_tp_tom.lo + 1 -%}
+                      {%- endif -%}
+                      {%- if mark_exp -%}
+                        {%- set ns_marks.exp = ns_marks.exp + [hi_s.ts] -%}
+                        {%- set ns_tp_tom.hi = ns_tp_tom.hi + 1 -%}
+                      {%- endif -%}
                     {%- endif -%}
                   {%- else -%}{%- set ns_tp_tom.done = true -%}
                   {%- endif -%}
@@ -187,6 +239,9 @@ template:
           prices: >-
             {%- set frank_id = states('input_text.hba_strategy_dynamic_frank_sensor_entity_id') | trim -%}
             {%- set raw = state_attr(frank_id, 'prices') if frank_id | has_value else [] -%}
+            {#- No prices from the source: the slots kept (variable kept, above) -#}
+            {%- set raw = raw if raw is sequence and raw is not string and raw | length > 0
+                else ((kept | from_json) if kept is string else kept) -%}
             {#- De-duplicate by slot timestamp, keeping the first occurrence.
                 The Frank Energie integration appends a second copy of today's prices
                 when its tomorrow-fetch fails (observed daily at 11:00 UTC, 2026-07),
@@ -200,7 +255,8 @@ template:
                 {%- set slot_ts = as_timestamp(entry['from'], 0) | int -%}
                 {%- if slot_ts > 0 and slot_ts not in ns_u.seen -%}
                   {%- set ns_u.seen = ns_u.seen + [slot_ts] -%}
-                  {%- set ns_u.slots = ns_u.slots + [{'ts': slot_ts, 'pc': (entry.price | float(0) * 100) | round(4)}] -%}
+                  {%- set ns_u.slots = ns_u.slots
+                      + [{'ts': slot_ts, 'pc': (entry.price | float(0) * 100) | round(4)}] -%}
                 {%- endif -%}
               {%- endif -%}
             {%- endfor -%}
@@ -216,6 +272,9 @@ template:
           marks: >-
             {%- set frank_id = states('input_text.hba_strategy_dynamic_frank_sensor_entity_id') | trim -%}
             {%- set raw = state_attr(frank_id, 'prices') if frank_id | has_value else [] -%}
+            {#- No prices from the source: the slots kept (variable kept, above) -#}
+            {%- set raw = raw if raw is sequence and raw is not string and raw | length > 0
+                else ((kept | from_json) if kept is string else kept) -%}
             {#- De-duplicate by slot timestamp, keeping the first occurrence.
                 The Frank Energie integration appends a second copy of today's prices
                 when its tomorrow-fetch fails (observed daily at 11:00 UTC, 2026-07),
@@ -229,7 +288,8 @@ template:
                 {%- set slot_ts = as_timestamp(entry['from'], 0) | int -%}
                 {%- if slot_ts > 0 and slot_ts not in ns_u.seen -%}
                   {%- set ns_u.seen = ns_u.seen + [slot_ts] -%}
-                  {%- set ns_u.slots = ns_u.slots + [{'ts': slot_ts, 'pc': (entry.price | float(0) * 100) | round(4)}] -%}
+                  {%- set ns_u.slots = ns_u.slots
+                      + [{'ts': slot_ts, 'pc': (entry.price | float(0) * 100) | round(4)}] -%}
                 {%- endif -%}
               {%- endif -%}
             {%- endfor -%}
@@ -270,8 +330,14 @@ template:
                     {%- set mark_exp = ns_tp_today.hi < max_exp -%}
                     {%- if not mark_cheap and not mark_exp -%}{%- set ns_tp_today.done = true -%}
                     {%- else -%}
-                      {%- if mark_cheap -%}{%- set ns_marks.cheap = ns_marks.cheap + [lo_s.ts] -%}{%- set ns_tp_today.lo = ns_tp_today.lo + 1 -%}{%- endif -%}
-                      {%- if mark_exp -%}{%- set ns_marks.exp = ns_marks.exp + [hi_s.ts] -%}{%- set ns_tp_today.hi = ns_tp_today.hi + 1 -%}{%- endif -%}
+                      {%- if mark_cheap -%}
+                        {%- set ns_marks.cheap = ns_marks.cheap + [lo_s.ts] -%}
+                        {%- set ns_tp_today.lo = ns_tp_today.lo + 1 -%}
+                      {%- endif -%}
+                      {%- if mark_exp -%}
+                        {%- set ns_marks.exp = ns_marks.exp + [hi_s.ts] -%}
+                        {%- set ns_tp_today.hi = ns_tp_today.hi + 1 -%}
+                      {%- endif -%}
                     {%- endif -%}
                   {%- else -%}{%- set ns_tp_today.done = true -%}
                   {%- endif -%}
@@ -288,8 +354,14 @@ template:
                     {%- set mark_exp = ns_tp_tom.hi < max_exp -%}
                     {%- if not mark_cheap and not mark_exp -%}{%- set ns_tp_tom.done = true -%}
                     {%- else -%}
-                      {%- if mark_cheap -%}{%- set ns_marks.cheap = ns_marks.cheap + [lo_s.ts] -%}{%- set ns_tp_tom.lo = ns_tp_tom.lo + 1 -%}{%- endif -%}
-                      {%- if mark_exp -%}{%- set ns_marks.exp = ns_marks.exp + [hi_s.ts] -%}{%- set ns_tp_tom.hi = ns_tp_tom.hi + 1 -%}{%- endif -%}
+                      {%- if mark_cheap -%}
+                        {%- set ns_marks.cheap = ns_marks.cheap + [lo_s.ts] -%}
+                        {%- set ns_tp_tom.lo = ns_tp_tom.lo + 1 -%}
+                      {%- endif -%}
+                      {%- if mark_exp -%}
+                        {%- set ns_marks.exp = ns_marks.exp + [hi_s.ts] -%}
+                        {%- set ns_tp_tom.hi = ns_tp_tom.hi + 1 -%}
+                      {%- endif -%}
                     {%- endif -%}
                   {%- else -%}{%- set ns_tp_tom.done = true -%}
                   {%- endif -%}
@@ -300,10 +372,31 @@ template:
                 {%- set mark = 'low' if slot.ts in ns_marks.cheap else ('high' if slot.ts in ns_marks.exp else none) -%}
                 {%- set start_str = slot.ts | timestamp_custom('%Y-%m-%dT%H:%M:%SZ', false) -%}
                 {%- set end_str = (slot.ts + step_sec) | timestamp_custom('%Y-%m-%dT%H:%M:%SZ', false) -%}
-                {%- set ns_out.out = ns_out.out + [{'start': start_str, 'end': end_str, 'price': slot.pc, 'mark': mark, 'is_now': slot.ts == now_slot_ts}] -%}
+                {%- set ns_out.out = ns_out.out
+                    + [{'start': start_str, 'end': end_str, 'price': slot.pc, 'mark': mark,
+                      'is_now': slot.ts == now_slot_ts}] -%}
               {%- endfor -%}
               {{ ns_out.out | tojson }}
             {%- endif -%}
+
+  # ── Prices missing ────────────────────────────────────────────────────────────
+  # On while the price source gives no prices (sensor.hba_energy_prices_data attribute stale):
+  # Planned and Dynamic run on the slots already known until those end. The notification waits
+  # an hour, like the EV project's (a short gap in the source is no news).
+  - binary_sensor:
+      - name: "HBA Prices Stale"
+        unique_id: hba_prices_stale
+        device_class: problem
+        icon: mdi:cash-remove
+        state: "{{ state_attr('sensor.hba_energy_prices_data', 'stale') == true }}"
+        attributes:
+          since: "{{ state_attr('sensor.hba_energy_prices_data', 'stale_since') }}"
+          # End of the last known slot (none = no slot left)
+          known_until: >-
+            {%- set raw = state_attr('sensor.hba_energy_prices_data', 'marks') -%}
+            {%- set mk = (raw | from_json) if raw is string and (raw | trim)[:1] == '['
+                else (raw if raw is sequence else []) -%}
+            {{ (mk | last).end if mk | length > 0 else none }}
 
   # ── Grid cycle spread (HBC v4.11.0 gross_spread) ──────────────────────────────
   # What one charge/discharge cycle across the marked slots is worth. Same maths as
@@ -326,7 +419,8 @@ template:
         # `this.state` would lag one update).
         state: >-
           {%- set raw = state_attr('sensor.hba_energy_prices_data', 'marks') -%}
-          {%- set marks = (raw | from_json) if raw is string and (raw | trim)[:1] == '[' else (raw if raw is sequence else []) -%}
+          {%- set marks = (raw | from_json) if raw is string and (raw | trim)[:1] == '['
+              else (raw if raw is sequence else []) -%}
           {%- set ns = namespace(low=[], high=[], ldays=[], hdays=[], pairs=0, gross=0) -%}
           {%- for m in marks if m is mapping and m.mark in ['low', 'high'] -%}
             {%- set day = as_timestamp(m.start, 0) | timestamp_custom('%Y-%m-%d') -%}
@@ -337,11 +431,14 @@ template:
             {%- endif -%}
           {%- endfor -%}
           {%- for d in (ns.ldays + ns.hdays) | unique -%}
-            {%- set ns.pairs = ns.pairs + ([ns.ldays | select('eq', d) | list | length, ns.hdays | select('eq', d) | list | length] | min) -%}
+            {%- set ns.pairs = ns.pairs
+                + ([ns.ldays | select('eq', d) | list | length, ns.hdays | select('eq', d) | list | length] | min) -%}
           {%- endfor -%}
           {%- set lows = ns.low | sort -%}
           {%- set highs = ns.high | sort(reverse=true) -%}
-          {%- for i in range(ns.pairs) -%}{%- set ns.gross = ns.gross + highs[i] - lows[i] -%}{%- endfor -%}
+          {%- for i in range(ns.pairs) -%}
+            {%- set ns.gross = ns.gross + highs[i] - lows[i] -%}
+          {%- endfor -%}
           {{ (ns.gross / ns.pairs) | round(0) | int if ns.pairs > 0 else 0 }}
 
 script:

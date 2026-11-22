@@ -18,14 +18,20 @@ modbus:
     port: 502
     delay: 1
     message_wait_milliseconds: 35
-    timeout: 20
+    # HBA (2026-11-11): 5 s instead of 20 s. While a battery's link hangs, every request waits
+    # for the timeout until pymodbus closes the connection (8th failure), and the control loop
+    # waits with it: measured on prod 2026-11-11 (port switched off) 149 s at 5 s against 641 s
+    # at 20 s. Registers that change slowly (Wi-Fi / BT state,
+    # versions, capacity, ...) are polled every 300 s instead of 30 s: fewer requests queued
+    # in front of the control loop's writes.
+    timeout: 5
 
     sensors:
       - name: "Marstek m2 Wifi state number"
         unique_id: marstek_m2_wifi_state_number
         address: 30300
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint16
         state_class: measurement
@@ -36,7 +42,7 @@ modbus:
         unique_id: marstek_m2_bt_state_number
         address: 30301
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint16
         state_class: measurement
@@ -49,7 +55,7 @@ modbus:
         unique_id: marstek_m2_cloud_state_number
         address: 30302
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint16
         state_class: measurement
@@ -60,7 +66,7 @@ modbus:
         unique_id: marstek_m2_battery_wifi_signal_strength
         address: 30303
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: int16
         unit_of_measurement: dBm
@@ -207,7 +213,7 @@ modbus:
         unique_id: marstek_m2_battery_total_energy
         address: 32105
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint16
         unit_of_measurement: kWh
@@ -249,7 +255,7 @@ modbus:
         unique_id: marstek_m2_ac_frequency
         address: 32204
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint16
         unit_of_measurement: Hz
@@ -361,7 +367,7 @@ modbus:
         unique_id: marstek_m2_monthly_charging_energy
         address: 33008
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint32
         unit_of_measurement: kWh
@@ -375,7 +381,7 @@ modbus:
         unique_id: marstek_m2_monthly_discharging_energy
         address: 33010
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint32
         unit_of_measurement: kWh
@@ -389,7 +395,7 @@ modbus:
         unique_id: marstek_m2_battery_cell_1_voltage
         address: 34018
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint16
         unit_of_measurement: "V"
@@ -402,7 +408,7 @@ modbus:
         unique_id: marstek_m2_battery_cell_2_voltage
         address: 34019
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint16
         unit_of_measurement: "V"
@@ -415,7 +421,7 @@ modbus:
         unique_id: marstek_m2_battery_cell_3_voltage
         address: 34020
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint16
         unit_of_measurement: "V"
@@ -428,7 +434,7 @@ modbus:
         unique_id: marstek_m2_battery_cell_4_voltage
         address: 34021
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint16
         unit_of_measurement: "V"
@@ -441,7 +447,7 @@ modbus:
         unique_id: marstek_m2_battery_cell_5_voltage
         address: 34022
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint16
         unit_of_measurement: "V"
@@ -454,7 +460,7 @@ modbus:
         unique_id: marstek_m2_battery_cell_6_voltage
         address: 34023
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint16
         unit_of_measurement: "V"
@@ -467,7 +473,7 @@ modbus:
         unique_id: marstek_m2_battery_cell_7_voltage
         address: 34024
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint16
         unit_of_measurement: "V"
@@ -480,7 +486,7 @@ modbus:
         unique_id: marstek_m2_battery_cell_8_voltage
         address: 34025
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint16
         unit_of_measurement: "V"
@@ -493,7 +499,7 @@ modbus:
         unique_id: marstek_m2_battery_cell_9_voltage
         address: 34026
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint16
         unit_of_measurement: "V"
@@ -506,7 +512,7 @@ modbus:
         unique_id: marstek_m2_battery_cell_10_voltage
         address: 34027
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint16
         unit_of_measurement: "V"
@@ -519,7 +525,7 @@ modbus:
         unique_id: marstek_m2_battery_cell_11_voltage
         address: 34028
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint16
         unit_of_measurement: "V"
@@ -532,7 +538,7 @@ modbus:
         unique_id: marstek_m2_battery_cell_12_voltage
         address: 34029
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint16
         unit_of_measurement: "V"
@@ -546,7 +552,7 @@ modbus:
         unique_id: marstek_m2_battery_cell_13_voltage
         address: 34030
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint16
         unit_of_measurement: "V"
@@ -559,7 +565,7 @@ modbus:
         unique_id: marstek_m2_battery_cell_14_voltage
         address: 34031
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint16
         unit_of_measurement: "V"
@@ -572,7 +578,7 @@ modbus:
         unique_id: marstek_m2_battery_cell_15_voltage
         address: 34032
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint16
         unit_of_measurement: "V"
@@ -585,7 +591,7 @@ modbus:
         unique_id: marstek_m2_battery_cell_16_voltage
         address: 34033
         slave: 1
-        scan_interval: 30
+        scan_interval: 300
         input_type: holding
         data_type: uint16
         unit_of_measurement: "V"
@@ -680,11 +686,13 @@ modbus:
         # 5 OTA Upgrade
         # 6 Bypass
 
+      # The BMS limits: every 60 s (was 90). HBA lowers its command when the BMS cuts
+      # the charge near full; the not-responding alert (90 s) waits for this read.
       - name: "Marstek m2 Battery Charge Voltage Limit"
         unique_id: marstek_m2_battery_charge_voltage_limit
         address: 35110
         slave: 1
-        scan_interval: 90
+        scan_interval: 60
         input_type: holding
         data_type: uint16
         unit_of_measurement: "V"
@@ -697,7 +705,7 @@ modbus:
         unique_id: marstek_m2_battery_charge_current_limit
         address: 35111
         slave: 1
-        scan_interval: 90
+        scan_interval: 60
         input_type: holding
         data_type: uint16
         unit_of_measurement: "A"
@@ -706,16 +714,18 @@ modbus:
         offset: 0
         precision: 1
 
+      # Scale 0.1 like 35111 (was 0.01 from the original file: read 10 A while the battery
+      # discharged 2.7 kW at ~52 V; prod 2026-11-17). Steps 100/80/50/40/20/0 A.
       - name: "Marstek m2 Battery Discharge Current Limit"
         unique_id: marstek_m2_battery_discharge_current_limit
         address: 35112
         slave: 1
-        scan_interval: 90
+        scan_interval: 60
         input_type: holding
         data_type: uint16
         unit_of_measurement: "A"
         state_class: measurement
-        scale: 0.01
+        scale: 0.1
         offset: 0
         precision: 1
 
@@ -946,7 +956,7 @@ template:
           {% set max_v = states('sensor.marstek_m2_battery_maximum_cell_voltage') %}
           {% set min_v = states('sensor.marstek_m2_battery_minimum_cell_voltage') %}
           {% if max_v not in ['unknown', 'unavailable', ''] and min_v not in ['unknown', 'unavailable', ''] %}
-            {{ ((max_v | float) - (min_v | float)) * 1000 | round(0) | int }}
+            {{ (((max_v | float) - (min_v | float)) * 1000) | round(0) | int }}
           {% else %}
             unknown
           {% endif %}
@@ -1035,7 +1045,11 @@ template:
                 {% if option == 'disable' %}21947
                 {% elif option == 'enable' %}21930
                 {% endif %}
-        availability: "{{ states('input_number.hba_battery_count') | int(1) >= 2 }}"
+        # Hidden beyond the battery count; unavailable while the register cannot be read (as M1),
+        # so an offline battery does not show the last value HA sent (optimistic select)
+        availability: >
+          {{ states('input_number.hba_battery_count') | int(1) >= 2
+             and states('sensor.marstek_m2_rs485_control_mode_number') | is_number }}
         optimistic: true
 
       - name: Marstek m2 User Work Mode

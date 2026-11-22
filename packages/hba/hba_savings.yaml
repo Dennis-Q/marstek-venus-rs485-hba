@@ -24,8 +24,9 @@
 # valued at Planned's ledger cost per kWh when there is one, else at the buy price
 # of that moment, and raw starts at minus that, so all sensors start at 0 (before
 # r25 they started at the basis, ~EUR 10 on prod). Efficiency per direction = the
-# square root of sensor.hba_round_trip_efficiency (measured, else 83 %; was a fixed
-# 0.94, measured round trip on prod ~83 %). Wear is not subtracted.
+# square root of Planned's efficiency setting, or when that is 0 of
+# sensor.hba_round_trip_efficiency (measured, else 83 %; was a fixed 0.94, measured
+# round trip on prod ~83 %), the same value Planned uses. Wear is not subtracted.
 # Works with every strategy: it only reads the meter, the batteries and the prices.
 #
 # sensor.hba_savings_vs_self_consumption: the same sum for a simulated
@@ -98,24 +99,35 @@ template:
           {%- set count = states('input_number.hba_battery_count') | int(1) -%}
           {%- for i in range(1, count + 1) -%}
             {%- set c = states('sensor.marstek_m' ~ i ~ '_battery_remaining_capacity') -%}
-            {%- set floor = states('sensor.marstek_m' ~ i ~ '_battery_total_energy') | float(0)
+            {%- set cap = states('sensor.marstek_m' ~ i ~ '_battery_total_energy') | float(0) -%}
+            {%- if cap <= 0 -%}
+              {%- set cap = (state_attr('sensor.hba_battery_capacity', 'last_known') or {}).get(i | string,
+                  0) | float(0) -%}
+            {%- endif -%}
+            {%- set floor = cap
                   * states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) / 100 -%}
             {%- if c | is_number -%}
               {%- set ns.stored = ns.stored + c | float -%}
               {%- set ns.above = ns.above + [c | float - floor, 0] | max -%}
-            {%- else -%}{%- set ns.ok = false -%}{%- endif -%}
+            {%- else -%}
+              {%- set ns.ok = false -%}
+            {%- endif -%}
           {%- endfor -%}
-          {#- One-way efficiency: square root of the measured round trip (83 % -> ~0.91) -#}
-          {%- set e1 = (states('sensor.hba_round_trip_efficiency') | float(83) / 100) ** 0.5 -%}
+          {#- One-way efficiency: square root of the round trip Planned uses (83 % -> ~0.91) -#}
+          {%- set eff_set = states('input_number.hba_strategy_planned_efficiency') | float(0) -%}
+          {%- set e1 = ((eff_set if eff_set > 0
+              else states('sensor.hba_round_trip_efficiency') | float(83)) / 100) ** 0.5 -%}
           {%- set pe = states('input_text.hba_strategy_dynamic_frank_sensor_entity_id') | trim -%}
           {%- for e in (state_attr(pe, 'prices') or []) if e is mapping and 'from' in e and 'price' in e
-                and as_timestamp(e['from'], 0) <= now_ts and now_ts < as_timestamp(e.get('till', e['from']), 0) + (0 if 'till' in e else 3600) -%}
+                and as_timestamp(e['from'], 0) <= now_ts and now_ts < as_timestamp(e.get('till', e['from']), 0)
+                    + (0 if 'till' in e else 3600) -%}
             {%- set ns.buy = e['price'] | float(0) -%}
           {%- endfor -%}
           {%- set se = states('input_text.hba_strategy_planned_sell_price_entity_id') | trim -%}
           {%- if se not in ['', 'unknown', 'unavailable'] -%}
             {%- for e in (state_attr(se, 'prices') or []) if e is mapping and 'from' in e and 'price' in e
-                  and as_timestamp(e['from'], 0) <= now_ts and now_ts < as_timestamp(e.get('till', e['from']), 0) + (0 if 'till' in e else 3600) -%}
+                  and as_timestamp(e['from'], 0) <= now_ts and now_ts < as_timestamp(e.get('till', e['from']), 0)
+                      + (0 if 'till' in e else 3600) -%}
               {%- set ns.sell = e['price'] | float(0) -%}
             {%- endfor -%}
           {%- else -%}
@@ -128,7 +140,6 @@ template:
             {%- set c_g = g * (ns.buy if g > 0 else sell) -%}
             {%- set c_g0 = g0 * (ns.buy if g0 > 0 else sell) -%}
             {%- set inc = (c_g0 - c_g) * dt / 3600 -%}
-            {%- set old = a.get('v') is none -%}
             {%- if basis is none -%}
               {#- First run: the usable stored energy at what Planned's ledger says it cost, else the buy
                   price now. raw starts at minus that, so all three sensors start at 0. -#}
@@ -137,13 +148,6 @@ template:
               {%- set raw = -basis -%}
             {%- else -%}
               {%- set basis = basis | float(0) -%}
-              {%- if old -%}
-                {#- Accumulator from before r25 (basis over all stored energy): move the share of the
-                    energy below the cutoffs into raw, so the sensor value does not jump -#}
-                {%- set keep = basis * ([ns.above / ns.stored, 1] | min if ns.stored > 0 else 0) -%}
-                {%- set raw = raw + basis - keep -%}
-                {%- set basis = keep -%}
-              {%- endif -%}
             {%- endif -%}
             {%- if bt | float < 0 -%}
               {%- set basis = basis - inc -%}
@@ -163,11 +167,6 @@ template:
             {%- set vb = a.get('vb', basis) | float(0) -%}
             {%- set vs = a.get('vs', ns.stored) | float(0) -%}
             {%- set fl = a.get('fl', ns.stored - states('sensor.hba_charge_available_energy') | float(0)) | float(0) -%}
-            {%- if old and a.get('vb') is not none -%}
-              {%- set keep = vb * ([(vs - fl) / vs, 1] | min if vs > fl else 0) -%}
-              {%- set vr = vr + vb - keep -%}
-              {%- set vb = keep -%}
-            {%- endif -%}
             {%- set top = fl + states('sensor.hba_usable_battery_energy') | float(0) -%}
             {%- set pc = states('sensor.hba_total_max_charge_power') | float(0) / 1000 -%}
             {%- set pd = states('sensor.hba_total_max_discharge_power') | float(0) / 1000 -%}
@@ -184,7 +183,8 @@ template:
               {%- set vs = vs - out_v -%}
               {%- set vb = vb - vb * ([out_v / (vs - fl + out_v), 1] | min if vs - fl + out_v > 0 else 1) -%}
             {%- endif -%}
-            {{ {'v': 2, 'raw': (raw + inc) | round(6), 'basis': basis | round(6), 'buy': ns.buy | round(5), 'sell': sell | round(5),
+            {{ {'v': 2, 'raw': (raw + inc) | round(6), 'basis': basis | round(6), 'buy': ns.buy | round(5),
+                'sell': sell | round(5),
                 'ts': now_ts | int, 'stored': ns.stored | round(2), 'vr': (vr + inc_v) | round(6), 'vb': vb | round(6),
                 'vs': vs | round(5), 'fl': fl | round(2)} | tojson }}
           {%- else -%}

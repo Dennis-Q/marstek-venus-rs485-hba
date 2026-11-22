@@ -1,4 +1,4 @@
-# Home Battery Assistant (HBA) — v4.10.1-r25
+# Home Battery Assistant (HBA) — v4.10.1-r26
 
 A native Home Assistant replacement for the Node-RED battery control flows in
 [gitcodebob/marstek-venus-rs485-node-red](https://github.com/gitcodebob/marstek-venus-rs485-node-red).
@@ -109,7 +109,8 @@ behave more similarly.
 The everyday presets are **Very safe / Safe / Regular / Responsive**. They share Kp 0.35,
 Kd 0.1 and the damping settings, and differ **only in Ki**, because Kp 0.35 is a *measured*
 optimum — swept on production and bracketed on both sides, it is the cheapest per disturbance,
-so there is nothing to gain by varying it. **Regular** (Ki 0.30) is the validated default
+so there is nothing to gain by varying it. A fresh install starts on **Very safe**; **Regular**
+(Ki 0.30) is the validated preset to switch to once the batteries respond
 (measured on production: 137 W residual 8 s after a 2.25 kW step, against 410 W at Ki 0.22).
 **Responsive** (Ki 0.40) is faster and a little cheaper per load step, but overshoots on large
 steps and jitters around solar balance — see the trade-off in DEFAULTS.md.
@@ -185,7 +186,7 @@ The script downloads all HBA files, skips files you have already configured (P1 
 
 > **Tip:** The [SSH & Web Terminal add-on](https://github.com/hassio-addons/addon-ssh) gives you a terminal on your HA instance. Run the command above from `/config`.
 
-To install a specific version: `HBA_VERSION=v4.10.1-r25 bash <(curl -fsSL ...)`
+To install a specific version: `HBA_VERSION=v4.10.1-r26 bash <(curl -fsSL ...)`
 
 **Option B — Manual**
 
@@ -210,7 +211,10 @@ Edit `packages/hba/hba_config.yaml` to define `sensor.p1_meter_power` for your s
 Your copy is never overwritten on updates; the installer keeps the latest examples next to it
 in `hba_config.yaml.example` to copy from.
 The file ships with commented examples. The sensor must be **positive when importing**
-from the grid and negative when exporting. Entity names depend on your DSMR reader —
+from the grid and negative when exporting. Keep the `availability:` line of the example: it makes
+the sensor unavailable when the meter is, where it would otherwise read 0 W. When the meter gives
+no reading for a minute HBA stops the batteries and notifies (*P1 meter lost*), and continues by
+itself at the first reading. Entity names depend on your DSMR reader —
 check **Developer Tools → States** to find the correct ones.
 
 Optional: for **Charge alongside EV** with the car first, also define the per-phase grid power
@@ -290,12 +294,26 @@ The `marstek_m*.yaml` files are built from
 originals. All entity IDs are unchanged and the files are compatible with HBC.
 **You can use fonske's files directly** if you prefer — HBA works fine with them.
 
-The files differ from fonske's in three minimal ways:
+The files differ from fonske's in a few small ways:
 - `service:` → `action:` throughout (required for HA 2026.x)
 - Bug fix: corrected a missing entity prefix in the `charge_to_soc` state template
-- **m2–m6 only:** an `availability:` condition on each template `select` entity
+- An `availability:` condition on the template `select` entities: m2–m6 on all of them
+  (battery count), m1 only on RS485 control mode (register readable)
+- Hub `timeout: 5` (was 20): a battery that stops answering holds up the others four times shorter
+- 24 slow registers (cell voltages, Wi-Fi / cloud state, monthly counters, total energy) are read
+  every 5 minutes instead of every 30 seconds, so commands wait less behind the reads
+- The three BMS limit registers (charge voltage, charge and discharge current) are read every
+  60 seconds instead of 90, so HBA follows the BMS sooner when it cuts the charge near full
+- The BMS discharge current limit (35112) reads with scale 0.1 like the charge current limit (it
+  showed a tenth of the real value)
 
-The availability condition prevents HA from polling batteries that are not configured.
+The installer never overwrites a battery file (it holds your battery's IP address), so it checks
+them at every install and warns: HBA's own files are compared with the release (a differing one
+gets the new version next to it as `…yaml.new`, to copy the IP address into), other Marstek Modbus
+files anywhere under `packages/` are checked for the last two points, and two files with the same
+name under `packages/` are reported (Home Assistant loads only one of them).
+
+The battery-count condition prevents HA from polling batteries that are not configured.
 Without it, setting `hba_battery_count` to 1 still causes the Modbus hub to poll
 batteries 2–6 on every scan interval, fail, and fill your logs with connection errors.
 
@@ -381,8 +399,19 @@ over once another is 5 % further along), *Equal* or
 *One at a time*; a full battery hands its charge share to the others, an empty one its
 discharge share. A **main fuse limit per phase** (same section) keeps each phase below a
 current in every strategy, for charging and discharging (needs the per-phase P1 sensors).
+**Share BMS shortfall** (experimental, default off): when a battery's BMS allows less than its own
+limit — cold cells (30 A, about 1.6 kW below ~6 °C until they warm to ~10 °C) or nearly full / empty — it
+counts at what the BMS allows, so the rest of the group's power goes to the other batteries.
 **Use at your own risk:** it is a software limit, not electrical protection —
 always have an electrician check your installation.
+
+### Battery maintenance
+
+**Maintenance mode** (Advanced settings, *Battery maintenance*, default off): for a battery that support
+is looking into. Switch RS485 off on that battery in the Marstek app; HBA then leaves it alone — it does
+not switch RS485 back on, sends it no commands and no limit writes, and in a power group keeps its own
+limits reserved for it. A banner shows while the mode is on. Switch it off when the maintenance is done:
+HBA switches RS485 back on at once.
 
 ### Preview dashboard
 
@@ -428,6 +457,10 @@ update the entity ID there — for example:
 - `sensor.frank_energie_prices_average_electricity_price_all_hours_all_in` (English, all-in)
 - `sensor.frank_energie_prices_current_electricity_market_price` (English, market price ex taxes)
 
+**When the price source drops out** (Frank Energie unavailable, no prices), HBA keeps the prices it
+already knew for today and tomorrow, so Dynamic and Planned run on until those hours end. A banner
+shows while prices are missing, and after an hour a notification (resolved when they are back).
+
 ### Planned strategy
 
 **HBA-only, preview.** *Planned* plans per price slot over all known prices (today, and
@@ -444,6 +477,24 @@ charge at night → sell tomorrow morning".
   doubles the calculation time to about 1 s).
 - With the EV project connected (*Car plan input*), the plan picks the car's cheapest hours before departure
   below its max price, and leaves room for tomorrow's sun on days the car is home.
+- **Car hours next to charging batteries** (*Car hours with charging batteries*, EV Charge view): **Car first**
+  = the car at full power, the batteries take the phase room it leaves; **Balance** = the batteries leave
+  the car its 6 A minimum (a 1-phase car: 1.4 kW, from the EV project's car info), so the charger slows the
+  car instead of pausing it; **Auto** (default) works both out and keeps the cheaper one. A large house load
+  on a battery phase can still pause the car for a moment with Balance. With a fixed choice the other one,
+  and the *No car* comparison, are only worked out while Insights mode is on (each is one more full
+  calculation).
+- **Charge the car from the batteries** (switch, default off, preview): a plan action *Car* (🔋→🚗) gives
+  the car battery energy when a kWh is worth more there than sold, used in the house or kept — worth the
+  price of the grid car hour it replaces, or, above those hours up to *Leftover*, the max price for a car
+  whose charging is compensated (EV project, per car) and else the cheapest known price. It runs through
+  the Timed EV charge push at the house's expected use + the car's charge power and stops when the
+  charger's energy meter says the car has that hour's kWh. Settings: *ends before departure* (hours) and
+  *latest plug-in time* (an expected car).
+- **Ask before Normal** (switch, default off): a phone question with buttons (charge Normal tonight or not,
+  is the car leaving) right after the car is plugged in — as soon as the plan has the car, a second or two —
+  and at the EV project's reminder time (default 20:00) when it did not ask yet that day. No answer = it
+  charges.
 - Charge and Sell run to the energy the plan expects at the end of the hour. Charge uses the power the
   hour needs, rounded up to whole batteries, so a small target runs on one battery. Sell is spread over the
   hour when full power is not needed, never below the minimum start power (200 W), and always covers the
@@ -452,8 +503,22 @@ charge at night → sell tomorrow morning".
   where the plan uses it next.
 - What the stored energy cost is tracked in a ledger from what actually went in (grid charging at the buy
   price, sun at the sell price), so the profit per kWh reflects what you really paid.
-- Re-plans every hour, on new prices or a new forecast, on a setting change, and when the stored
-  energy drifts from the plan.
+- Re-plans every hour, on new prices or a new forecast, on a setting change, when the stored
+  energy drifts from the plan, when the car is plugged in or out (at once), and when the car reaches its
+  Minimum, Normal or Leftover (within 5 minutes; the batteries then get the car's room).
+- **Decision log:** every decision of Planned is one line in HA's Logbook (*HBA Planned*, on the entity
+  `sensor.hba_decision_log`; also the **Decisions** card at the top of Insights in the preview dashboard): why it re-planned and what changed (new solar forecast with the
+  old and new kWh, new prices, the car, the stored energy off the plan, Charge / Sell done), the running
+  and the next hour as now planned with what they were before, and each change of what runs ("Runs
+  Planned → Charge done → Full stop"). Only while Planned is the strategy; kept as long as the recorder
+  keeps its history.
+- **BMS limit log** (any strategy): a Logbook line *HBA BMS* (on `sensor.hba_decision_log`) when a
+  battery's BMS starts or stops limiting its charge or discharge power, after the level has held 2 minutes,
+  e.g. "M3 discharge limited by the BMS: 40 A, about 2.1 kW (own limit 2.5 kW) (was 100 A). Coldest cell
+  5.2 °C, SoC 25 %." Levels above the battery's own limit write nothing.
+- **Power limit log** (any strategy): a line *HBA Limits* when the batteries start or stop running at the
+  main fuse, car first, Balance or BMS limit (the Overview's "limited" line), with what they can do and,
+  with Planned in a Charge / Sell / Car hour, the power the plan counted on.
 - Settings: wear cost per kWh (default 0), a reserve for unexpected loads, a separate sell-price
   sensor + deduction, a minimum advantage of selling (only sell from the battery when it beats keeping
   the energy by at least this much per kWh), and switches to leave out grid charging, Sell or Zero import.
@@ -479,8 +544,9 @@ batteries: every 15 s the grid cost without the batteries (P1 + battery power) m
 cost, at the price of the moment (the buy price sensor of Dynamic / Planned; the sell price sensor and
 deduction of Planned). Energy still in the batteries counts at what it cost, so a charging day is not
 a loss and the round-trip loss ends up in the result; the energy below the discharge cutoffs is never
-used and carries no cost. Efficiency = `sensor.hba_round_trip_efficiency` (the batteries' measured
-round trip, 83 % until measured); wear is not subtracted.
+used and carries no cost. Efficiency = the same as Planned: its efficiency setting, or at 0
+`sensor.hba_round_trip_efficiency` (the batteries' measured round trip, 83 % until measured); wear is
+not subtracted.
 `sensor.hba_savings_vs_self_consumption` compares with a simulated Self-consumption battery of the
 same size: what your strategy added on top (buying cheap, selling at the peaks, keeping sun for later).
 `sensor.hba_savings_self_consumption` is that simulated battery's own result, so Saved = Self-consumption

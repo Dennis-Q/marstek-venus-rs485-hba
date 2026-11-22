@@ -12,7 +12,7 @@ views:
     header:
       card:
         type: markdown
-        content: '### Home Battery Assistant *(HBA v4.10.1-r25)*'
+        content: '### Home Battery Assistant *(HBA v4.10.1-r26)*'
         text_only: true
     cards: []
     sections:
@@ -40,50 +40,6 @@ views:
               **How to fix:** go to **Settings → Entities**, search for the entity
               by friendly name, click it, and rename the entity ID to match the
               expected value shown above.
-              </ha-alert>
-
-      # Dynamic migration alert (r22: Dynamic v1 removed, v2 entities renamed) —
-      # only shown while binary_sensor.hba_dynamic_migration_needed is on.
-      - type: grid
-        visibility:
-          - condition: state
-            entity: binary_sensor.hba_dynamic_migration_needed
-            state: 'on'
-        cards:
-          - type: markdown
-            grid_options:
-              columns: full
-            content: |-
-              {%- set s = 'binary_sensor.hba_dynamic_migration_needed' -%}
-              {%- set leftovers = state_attr(s, 'leftover_entity_ids') | default('', true) | trim -%}
-              {%- set missing = state_attr(s, 'missing_entity_ids') | default('', true) | trim -%}
-              {%- set old_file = state_attr(s, 'old_file_still_loaded') | default(false) -%}
-              <ha-alert alert-type="warning" title="Dynamic strategy changed — action needed">
-
-              HBA r22 removed the old Dynamic (v1) strategy and renamed **Dynamic v2** to **Dynamic**, as HBC v4.11.0 did. To finish the update:
-
-              {% if old_file -%}
-              - **Delete `hba_strategy_dynamic_v2.yaml`** from `packages/hba/` — it still loads next to the new file (re-running `install.sh` does this), then restart Home Assistant.
-              {% endif -%}
-              {% if missing -%}
-              - **Missing:** {{ missing }} — install the r22 package files (re-run `install.sh`) and restart.
-              {% endif -%}
-              - **Strategy:** if *Choose strategy* shows **Full stop**, select **Dynamic** again.
-              - **Re-enter** *Max # cheap hrs* and *Max # expensive hrs* in [Dynamic](/home-battery-assistant/dynamic) — they start at 0 (no cap).
-              {% if leftovers -%}
-              - **Delete the leftover entities** — in **Developer Tools → States**, filter entities on `hba` and state on `unavailable`; for each one click the ⓘ icon, then the cog → **Delete**. (To delete several at once: **Settings → Entities**, search `hba`, select them, delete.)
-              {% endif %}
-              {%- if leftovers %}
-              <details><summary>Show {{ leftovers.split(', ') | count }} leftover entities</summary>
-
-              {% for e in leftovers.split(', ') -%}
-              - `{{ e }}`
-              {% endfor %}
-              </details>
-              {%- endif %}
-
-              This banner disappears once nothing is left to clean up.
-
               </ha-alert>
 
       # Timed EV charge waiting alert (only shown while assist is suspended
@@ -212,6 +168,32 @@ views:
 
               </ha-alert>
 
+      # Maintenance banner — input_boolean.hba_maintenance_mode on: HBA leaves a battery with
+      # RS485 off alone (replaces the mismatch banner below while on).
+      - type: grid
+        visibility:
+          - condition: state
+            entity: input_boolean.hba_maintenance_mode
+            state: 'on'
+        cards:
+          - type: markdown
+            grid_options:
+              columns: full
+            content: |-
+              <ha-alert alert-type="warning" title="Maintenance mode: HBA leaves batteries with RS485 off alone">
+
+              {%- set m = state_attr('binary_sensor.hba_rs485_mode_mismatch', 'mismatched_batteries') %}
+              {% if m and m != 'none' -%}
+              **{{ m }}** has RS485 switched off. HBA leaves it alone: no commands, no limit writes, its share goes to the other batteries.
+              {%- else -%}
+              No battery has RS485 switched off right now.
+              {%- endif %}
+              While this is on, HBA does not switch RS485 back on, also not after a battery restart.
+
+              Switch **Maintenance mode** off when the maintenance is done (Advanced settings, Battery maintenance); HBA then switches RS485 back on at once.
+
+              </ha-alert>
+
       # RS485 mode mismatch alert — mirrors hba_notify_rs485_mode_mismatch (master mode
       # Full control but a battery has RS485 control disabled, so it ignores HBA).
       - type: grid
@@ -219,6 +201,9 @@ views:
           - condition: state
             entity: binary_sensor.hba_rs485_mode_mismatch
             state: 'on'
+          - condition: state
+            entity: input_boolean.hba_maintenance_mode
+            state: 'off'
         cards:
           - type: markdown
             grid_options:
@@ -488,10 +473,10 @@ views:
                 conditions:
                   - condition: state
                     entity: sensor.hba_version
-                    state: "v4.10.1-r25"
+                    state: "v4.10.1-r26"
             content: >
               <ha-alert alert-type="error">**HBA version mismatch** — Dashboard is
-              v4.10.1-r25 but loaded packages report
+              v4.10.1-r26 but loaded packages report
               {{ states('sensor.hba_version') }}. Reload YAML to apply the update:
               Developer Tools → YAML → Reload All YAML.</ha-alert>
           - type: markdown
@@ -512,8 +497,36 @@ views:
                 state: "on"
             content: >
               {%- set B = 'binary_sensor.hba_control_loop_stalled' -%}
-              <ha-alert alert-type="error">Control stalled — no control cycle for {{ state_attr(B, 'seconds_since_cycle') }} s; the batteries keep their last command.
-              {%- if state_attr(B, 'p1_updating') %} Usually a battery whose network link dropped while HBA wrote to it; HBA continues once it is reachable again (up to ~10 min).{% else %} The P1 meter has stopped updating.{% endif %}</ha-alert>
+              <ha-alert alert-type="error">Control stalled — no control cycle for {{ state_attr(B, 'seconds_since_cycle') }} s; the batteries keep their last command. Usually a battery whose network link dropped while HBA wrote to it; HBA continues once it is reachable again (up to ~10 min).</ha-alert>
+          - type: markdown
+            grid_options:
+              columns: full
+            visibility:
+              - condition: state
+                entity: binary_sensor.hba_prices_stale
+                state: "on"
+            content: >
+              {%- set B = 'binary_sensor.hba_prices_stale' -%}
+              {%- set u = state_attr(B, 'known_until') -%}
+              <ha-alert alert-type="warning">Prices missing — the price source has given no prices since {{ as_timestamp(state_attr(B, 'since'), 0) | timestamp_custom('%a %H:%M') }}. HBA plans with the prices it already knew{{ ', until ' ~ (as_timestamp(u, 0) | timestamp_custom('%a %H:%M')) if u else ', but none are left' }}. Check the price integration.</ha-alert>
+          - type: markdown
+            grid_options:
+              columns: full
+            visibility:
+              - condition: state
+                entity: binary_sensor.hba_p1_meter_lost
+                state: "on"
+            content: >
+              <ha-alert alert-type="error">P1 meter lost — no reading from sensor.p1_meter_power for over a minute. In Full control HBA has stopped the batteries and continues by itself at the first reading. Check the meter and its connection.</ha-alert>
+          - type: markdown
+            grid_options:
+              columns: full
+            visibility:
+              - condition: state
+                entity: binary_sensor.hba_plan_out_of_date
+                state: "on"
+            content: >
+              <ha-alert alert-type="error">Plan out of date — no new plan since {{ as_timestamp(state_attr('sensor.hba_planned_strategy', 'plan_made'), 0) | timestamp_custom('%a %H:%M') }}. HBA runs Self-consumption until a plan is made again. Usually an error in the plan calculation: check the Home Assistant log, or press refresh in the Planned view.</ha-alert>
           - type: markdown
             grid_options:
               columns: full
@@ -637,15 +650,25 @@ views:
               {%- set along = is_state('binary_sensor.hba_ev_charge_alongside', 'on') -%}
               {%- if pol == 'Charge alongside EV' and along -%}
               {%- if is_state_attr('binary_sensor.hba_ev_charge_alongside', 'mode', 'Batteries first') -%}
+              {%- set act = states('sensor.hba_active_strategy') -%}
               <ha-alert alert-type="warning">EV is charging — batteries never discharge into
-              the car. They charge only when {{ states('sensor.hba_active_strategy') }} wants to, and then
+              the car. {{ 'Now they are idle (' ~ act ~ '). When a strategy charges them, they go'
+              if act.startswith('Full stop') else 'When ' ~ act ~ ' charges them, they go' }}
               first: until {{ states('input_number.hba_ev_battery_priority_energy') | float(0) | round(1) }} kWh
               usable (now {{ states('sensor.hba_charge_available_energy') | float(0) | round(1) }} kWh) the
               charger slows the car.</ha-alert>
+              {%- elif is_state_attr('binary_sensor.hba_ev_charge_alongside', 'mode', 'Balance') -%}
+              <ha-alert alert-type="warning">EV is charging, balanced with the batteries — they never
+              discharge into the car and leave it its minimum (6 A + 1 A margin per phase) under
+              {{ states('input_number.hba_ev_phase_current_limit') | float(22) | round(1) }} A, so the
+              charger slows the car instead of pausing it (a large house load on a battery phase can
+              still pause it for a moment).</ha-alert>
               {%- else -%}
+              {%- set act = states('sensor.hba_active_strategy') -%}
               <ha-alert alert-type="warning">EV is charging and gets priority — batteries never
-              discharge into the car. They charge only when {{ states('sensor.hba_active_strategy') }} wants
-              to, and then only in the room left under
+              discharge into the car. {{ 'Now they are idle (' ~ act ~ '); a strategy that charges them may only use'
+              if act.startswith('Full stop') else 'They charge only as far as ' ~ act
+              ~ ' charges them, and then only in' }} the room left under
               {{ states('input_number.hba_ev_phase_current_limit') | float(22) | round(1) }} A per
               phase.</ha-alert>
               {%- endif -%}
@@ -1382,7 +1405,7 @@ views:
       card:
         type: markdown
         content: >-
-          ### Self-consumption strategy *(HBA v4.10.1-r25)*
+          ### Self-consumption strategy *(HBA v4.10.1-r26)*
 
           The **PID controller** steers your batteries to keep grid usage near
           target, _e.g. 0 Watt_, and is used by:
@@ -1527,7 +1550,7 @@ views:
       card:
         type: markdown
         text_only: true
-        content: '### Charge / Sell *(HBA v4.10.1-r25)*'
+        content: '### Charge / Sell *(HBA v4.10.1-r26)*'
     cards: []
     badges:
       - type: entity
@@ -1919,7 +1942,7 @@ views:
       card:
         type: markdown
         text_only: true
-        content: '### Timed *(HBA v4.10.1-r25)*'
+        content: '### Timed *(HBA v4.10.1-r26)*'
     sections:
       - type: grid
         cards:
@@ -2207,7 +2230,7 @@ views:
       card:
         type: markdown
         text_only: true
-        content: '### Dynamic *(HBA v4.10.1-r25)*'
+        content: '### Dynamic *(HBA v4.10.1-r26)*'
     sections:
       # ── Dynamic: config column ────────────────────────────────────────────────────────
       - type: grid
@@ -2361,11 +2384,19 @@ views:
                 {%- set ts = as_timestamp(e.start, 0) | int -%}
                 {%- set key = ts | timestamp_custom('%H:%M') -%}
                 {%- if ts >= day0 and ts < day1 -%}
-                  {%- if key in ns.t -%}{%- set key = key ~ '²' -%}{%- set ns.extra = ns.extra + [key] -%}{%- endif -%}
+                  {%- if key in ns.t -%}
+                    {%- set key = key ~ '²' -%}
+                    {%- set ns.extra = ns.extra + [key] -%}
+                  {%- endif -%}
                   {%- set ns.t = ns.t | combine({ key: e }) -%}
-                  {%- if e.is_now -%}{%- set ns.nowkey = key -%}{%- endif -%}
+                  {%- if e.is_now -%}
+                    {%- set ns.nowkey = key -%}
+                  {%- endif -%}
                 {%- elif ts >= day1 and ts < day2 -%}
-                  {%- if key in ns.m -%}{%- set key = key ~ '²' -%}{%- set ns.extra = ns.extra + [key] -%}{%- endif -%}
+                  {%- if key in ns.m -%}
+                    {%- set key = key ~ '²' -%}
+                    {%- set ns.extra = ns.extra + [key] -%}
+                  {%- endif -%}
                   {%- set ns.m = ns.m | combine({ key: e }) -%}
                 {%- endif -%}
               {%- endfor -%}
@@ -2373,7 +2404,9 @@ views:
               {%- for r in range(ppd) -%}
                 {%- set base = "%02d"|format((r // pph) | int) ~ ':' ~ "%02d"|format(((r % pph) * step) | int) -%}
                 {%- set rows.l = rows.l + [base] -%}
-                {%- if (base ~ '²') in ns.extra -%}{%- set rows.l = rows.l + [base ~ '²'] -%}{%- endif -%}
+                {%- if (base ~ '²') in ns.extra -%}
+                  {%- set rows.l = rows.l + [base ~ '²'] -%}
+                {%- endif -%}
               {%- endfor -%}
               {%- set t_vals = ns.t.values() | map(attribute='price') | list -%}
               {%- set m_vals = ns.m.values() | map(attribute='price') | list -%}
@@ -2494,7 +2527,7 @@ views:
       card:
         type: markdown
         text_only: true
-        content: '### Planned *(HBA v4.10.1-r25)*'
+        content: '### Planned *(HBA v4.10.1-r26)*'
     sections:
       - type: grid
         cards:
@@ -2502,6 +2535,16 @@ views:
             heading: Plan
             heading_style: title
             icon: mdi:table-clock
+            # Refresh: a new plan now (script.hba_planned_refresh)
+            badges:
+              - type: entity
+                entity: sensor.hba_planned_strategy
+                show_state: false
+                show_icon: true
+                icon: mdi:refresh
+                tap_action:
+                  action: perform-action
+                  perform_action: script.hba_planned_refresh
           - type: markdown
             content: |-
               {%- set E = 'sensor.hba_planned_strategy' -%}
@@ -2512,9 +2555,11 @@ views:
               {%- set rsv = sm.get('reserve', 0) | float(0) -%}
               {%- set full = sm.get('usable', 0) | float(0) -%}
               {%- set ns_s = namespace(show=false) -%}
-              {%- for r in plan + hist if r.s is defined and r.s is not none and (r.s - r.b) | abs > 0.0005 -%}{%- set ns_s.show = true -%}{%- endfor -%}
+              {%- for r in plan + hist if r.s is defined and r.s is not none and (r.s - r.b) | abs > 0.0005 -%}
+                {%- set ns_s.show = true -%}
+              {%- endfor -%}
               {%- set showsell = ns_s.show -%}
-              {%- set icon = {'Charge': '🔌', 'Sell': '💶', 'Charge PV': '☀️', 'Self-consumption': '🏠', 'Zero import': '🚫', 'Full stop': '⏸️'} -%}
+              {%- set icon = {'Charge': '🔌', 'Sell': '💶', 'Charge PV': '☀️', 'Self-consumption': '🏠', 'Zero import': '🚫', 'Full stop': '⏸️', 'Car': '🔋→🚗'} -%}
               {#- For "Charge / Sell done early": one-way efficiency, slot length, minimum start power -#}
               {%- set eh = ((state_attr(E, 'efficiency') | float(83)) / 100) ** 0.5 -%}
               {%- set slot_s = 3600 // ([state_attr('sensor.hba_energy_prices_data', 'datapoints_per_hour') | int(1), 1] | max) -%}
@@ -2535,7 +2580,7 @@ views:
                   energy left the battery (the measured Stored went down) -#}
               {%- set acts = r.acts if r.get('acts') is sequence and r.acts | length > 0 else [r.a] %}
               {%- set out = ns.e is number and r.e1 is number and r.e1 < ns.e - 0.05 %}
-              | <font color=grey>{{ (d ~ ' ') if d != ns.day else '' }}{{ r.ts | timestamp_custom('%H:%M') }}</font> | <font color=grey>{{ '%.3f' | format(r.b) }}</font> | {% if showsell %}<font color=grey>{{ '%.3f' | format(r.s) }}</font> | {% endif %}<font color=grey>{{ '%.3f' | format(r.c) if out and r.c is number else '' }}</font> | <font color=grey>{% for a in acts %}{{ ' → ' if not loop.first }}{{ icon.get(a, '') }} {{ a }}{% endfor %}</font> | <font color=grey>{{ ('%.3f' | format(r.s - r.c)) if r.a == 'Sell' and r.c is number else '' }}</font> | <font color=grey>{{ '%.1f' | format(r.e1) }}</font> | | <font color=grey>{{ '%.1f' | format(r.load) if r.get('load') is not none else '' }}</font> |
+              | <font color=grey>{{ (d ~ ' ') if d != ns.day else '' }}{{ r.ts | timestamp_custom('%H:%M') }}</font> | <font color=grey>{{ '%.3f' | format(r.b) }}</font> | {% if showsell %}<font color=grey>{{ '%.3f' | format(r.s) }}</font> | {% endif %}<font color=grey>{{ '%.3f' | format(r.c) if out and r.c is number else '' }}</font> | <font color=grey>{% for a in acts %}{{ ' → ' if not loop.first }}{{ icon.get(a, '') }} {{ a }}{% endfor %}{% if r.get('ev') is number and r.ev >= 0.1 %}<br>🚗 Car {{ '%.1f' | format(r.ev) }} kWh{% endif %}</font> | <font color=grey>{{ ('%.3f' | format(r.s - r.c)) if r.a == 'Sell' and r.c is number else '' }}</font> | <font color=grey>{{ '%.1f' | format(r.e1) }}</font> | | <font color=grey>{{ '%.1f' | format(r.load) if r.get('load') is not none else '' }}</font> |
               {%- set ns.day = d %}
               {%- set ns.e = r.e1 %}
               {%- endfor %}
@@ -2558,9 +2603,13 @@ views:
               {%- set lvl = r.e0 if r.a == 'Charge' else r.e1 %}
               {%- set ns_n = namespace(t=none) %}
               {%- if lvl > rsv + 0.05 %}
-                {%- for q in plan[i + 1:] if ns_n.t is none and q.e1 < lvl - 0.05 %}{%- set ns_n.t = q %}{%- endfor %}
+                {%- for q in plan[i + 1:] if ns_n.t is none and q.e1 < lvl - 0.05 %}
+                  {%- set ns_n.t = q %}
+                {%- endfor %}
               {%- else %}
-                {%- for q in plan[i + 1:] if ns_n.t is none and q.e1 < q.e0 - 0.05 %}{%- set ns_n.t = q %}{%- endfor %}
+                {%- for q in plan[i + 1:] if ns_n.t is none and q.e1 < q.e0 - 0.05 %}
+                  {%- set ns_n.t = q %}
+                {%- endfor %}
               {%- endif %}
               {%- set nxt = ns_n.t %}
               {#- Partial Charge / Sell (not at max power): the target, so it is clear the plan stops there -#}
@@ -2576,11 +2625,21 @@ views:
               {#- Car hour: its own line, with the car's limit for that hour -#}
               {%- set car_line = '' %}
               {%- if r.get('ev') %}
-                {%- if ns_ev.soc >= 0 and car_kp > 0 %}{%- set ns_ev.soc = [ns_ev.soc + r.ev / car_kp, r.get('ev_lim') or 100, 100] | min %}{%- endif %}
+                {%- if ns_ev.soc >= 0 and car_kp > 0 %}
+                  {%- set ns_ev.soc = [ns_ev.soc + r.ev / car_kp, r.get('ev_lim') or 100, 100] | min %}
+                {%- endif %}
                 {%- set car_line = '<br>' ~ ('+ ' if r.a == 'Charge' else '') ~ '🚗 Car ' ~ '%.1f' | format(r.ev) ~ ' kWh' ~ ((' → ~' ~ (ns_ev.soc | round(0) | int) ~ ' %') if ns_ev.soc >= 0 and car_kp > 0 else ((' → ' ~ r.ev_lim ~ ' %') if r.get('ev_lim') else '')) %}
+              {%- elif r.a == 'Car' and r.get('bev') %}
+                {#- Battery to car: kWh from the batteries into the car, and its level after it -#}
+                {%- if ns_ev.soc >= 0 and car_kp > 0 %}
+                  {%- set ns_ev.soc = [ns_ev.soc + r.bev / car_kp, r.get('ev_lim') or 100, 100] | min %}
+                {%- endif %}
+                {%- set car_line = ' ' ~ '%.1f' | format(r.bev) ~ ' kWh' ~ ((' → ~' ~ (ns_ev.soc | round(0) | int) ~ ' %') if ns_ev.soc >= 0 and car_kp > 0 else '') %}
               {%- elif r.get('ev_sun') %}
                 {#- Sun the plan sends to the car instead of exporting it -#}
-                {%- if ns_ev.soc >= 0 and car_kp > 0 %}{%- set ns_ev.soc = [ns_ev.soc + r.ev_sun / car_kp, 100] | min %}{%- endif %}
+                {%- if ns_ev.soc >= 0 and car_kp > 0 %}
+                  {%- set ns_ev.soc = [ns_ev.soc + r.ev_sun / car_kp, 100] | min %}
+                {%- endif %}
                 {%- set car_line = '<br>☀️ 🚗 Car ' ~ '%.1f' | format(r.ev_sun) ~ ' kWh sun' ~ ((' → ~' ~ (ns_ev.soc | round(0) | int) ~ ' %') if ns_ev.soc >= 0 and car_kp > 0 else '') %}
               {%- endif %}
               {#- Charge / Sell done at least 10 min before the end of the slot: what runs after it -- the
@@ -2643,7 +2702,7 @@ views:
               instead of going all the way (Sell spreads it over the hour) — the rest is worth more later.
               **↳ second line, from ~HH:MM:** the Charge or Sell is expected to be done at least 10 minutes
               before the end of the slot; then HBA plans the rest of the slot again and runs the best
-              strategy for it — this line is what the plan expects that to be. **🚗 Car X kWh → ~Y %:** the plan charges the car in that slot; ~Y = the car's expected charge level at the end of it (from its SoC now, never above the limit). **+ 🚗:** the batteries charge alongside the car in that slot. **☀️ 🚗 Car X kWh sun:** sun the plan gives the car instead of exporting it, because the sell price is below what a kWh in the car is worth (the grid hour it saves, else the max price); the batteries get the sun first where storing pays more. **↳ ☀️ late sun:** the
+              strategy for it — this line is what the plan expects that to be. **🚗 Car X kWh** in a past hour (grey): what the charger's meter counted. **🚗 Car X kWh → ~Y %:** the plan charges the car in that slot; ~Y = the car's expected charge level at the end of it (from its SoC now, never above the limit). **+ 🚗:** the batteries charge alongside the car in that slot. **🔋→🚗 Car X kWh → ~Y %:** the batteries charge the car (*Charge the car from the batteries*): the house first, the rest into the car, because a kWh is worth more there than sold, used in the house later or kept — see the Car section. **☀️ 🚗 Car X kWh sun:** sun the plan gives the car instead of exporting it, because the sell price is below what a kWh in the car is worth (the grid hour it saves, else the max price); the batteries get the sun first where storing pays more. **↳ ☀️ late sun:** the
               sun covers the house only for part of the slot (per half hour of the forecast): kWh the house
               needs before that (from the battery or the grid) and kWh sun left over after. **empty / until
               empty:** the battery starts the slot empty / runs empty in it (Zero import and
@@ -2711,6 +2770,25 @@ views:
             heading: Battery and house
             heading_style: subtitle
             icon: mdi:home-battery
+          # Measured efficiency looks off (a new battery's lifetime value can start far too high:
+          # 110 %, then ~100 % for weeks). HBA already skips values outside 60-90 %; this only says
+          # so and suggests the value in use for a fixed setting. Empty = no card.
+          - type: markdown
+            text_only: true
+            grid_options:
+              columns: full
+            content: >-
+              {%- set ns = namespace(v=[]) -%}
+              {%- for i in range(1, states('input_number.hba_battery_count') | int(1) + 1) -%}
+                {%- set r = states('sensor.marstek_m' ~ i ~ '_lifetime_round_trip_efficiency') -%}
+                {%- if r | is_number and r | float > 0 and not 60 <= r | float <= 90 -%}
+                  {%- set ns.v = ns.v + ['M' ~ i ~ ' ' ~ (r | float | round(1)) ~ ' %'] -%}
+                {%- endif -%}
+              {%- endfor -%}
+              {%- if ns.v and states('input_number.hba_strategy_planned_efficiency') | float(0) == 0 -%}
+              {%- set s = states('sensor.hba_round_trip_efficiency') | float(83) | round(0) | int -%}
+              <ha-alert alert-type="warning">Measured efficiency looks off: {{ ns.v | join(', ') }} (Venus E measure about 80–85 %). HBA leaves it out and uses {{ s }} %. For a fixed value, set <i>Round-trip efficiency</i> below to {{ s }} %.</ha-alert>
+              {%- endif -%}
           - type: entities
             entities:
               - entity: input_number.hba_strategy_planned_efficiency
@@ -2855,7 +2933,7 @@ views:
         type: markdown
         text_only: true
         content: >-
-          ### EV Charge *(HBA v4.10.1-r25)*
+          ### EV Charge *(HBA v4.10.1-r26)*
 
 
           **HBA-specific feature** — not part of HBC. Configures the EV stop
@@ -2907,26 +2985,62 @@ views:
               {%- set day_words = ['mon','tue','wed','thu','fri','sat','sun','monday','tuesday','wednesday','thursday','friday','saturday','sunday','none'] -%}
               {%- set bad = states('input_text.hba_strategy_planned_car_home_days') | lower | regex_findall('[^,; ]+') | reject('in', ['unknown', 'unavailable'] + day_words) | list -%}
               {%- set p = namespace(l=[]) -%}
-              {%- if following is none -%}{%- set p.l = p.l + ['The EV project is missing or too old (no sensor.ev_car_info). The car is left out of the plan.'] -%}{%- endif -%}
-              {%- if following == false and not preview -%}{%- set p.l = p.l + ['Turn on <b>Follow assisted</b> in the EV project. Until then the car is left out of the plan.'] -%}{%- endif -%}
-              {%- if following == true and listens_to != 'binary_sensor.hba_ev_assist' and not preview -%}{%- set p.l = p.l + ['The EV project listens to <b>' ~ listens_to ~ '</b> instead of binary_sensor.hba_ev_assist.'] -%}{%- endif -%}
-              {%- if not is_state('input_select.hba_strategy', 'Planned') and not preview -%}{%- set p.l = p.l + ['<b>Choose strategy</b> is not Planned: the car follows no plan.'] -%}{%- endif -%}
-              {%- if not is_state('input_select.hba_marstek_master_battery_mode', 'Full control') and not preview -%}{%- set p.l = p.l + ['HBA is not in <b>Full control</b>: the car follows no plan.'] -%}{%- endif -%}
-              {%- if status is not none and status != 'OK' -%}{%- set p.l = p.l + ['The plan has a problem: ' ~ status ~ '.'] -%}{%- endif -%}
-              {%- if following is not none and state_attr(I, 'known') != true -%}{%- set p.l = p.l + ['The active car has no SoC, or is a guest: no plan for this car, the EV project uses its own rules.'] -%}{%- endif -%}
-              {%- if following is not none and state_attr(I, 'capacity_kwh') | float(0) <= 0 -%}{%- set p.l = p.l + ['The active car has no battery capacity set in the EV project.'] -%}{%- endif -%}
-              {%- if following is not none and state_attr(I, 'max_price_on') != false and state_attr(I, 'max_price') | float(0) <= 0 -%}{%- set p.l = p.l + ['The max price in the EV project is 0: every hour counts as above it.'] -%}{%- endif -%}
-              {%- if bad -%}{%- set p.l = p.l + ['Car home in daytime: <b>' ~ bad | join(', ') ~ '</b> is not a day and is ignored.'] -%}{%- endif -%}
-              {%- if lnorm > 0 and lnorm < lmin -%}{%- set p.l = p.l + ['Normal is below Minimum: Minimum counts.'] -%}{%- endif -%}
-              {%- if lnorm <= 0 and grid -%}{%- set p.l = p.l + ['Normal is 0: only Minimum comes from the grid.'] -%}{%- endif -%}
-              {%- if lleft > 0 and lleft < [lmin, lnorm] | max -%}{%- set p.l = p.l + ['Leftover is below Minimum or Normal: solar stops at Leftover.'] -%}{%- endif -%}
-              {%- if lleft <= 0 -%}{%- set p.l = p.l + ['Leftover is 0, which counts as 100 %.'] -%}{%- endif -%}
-              {%- if following is not none and not is_state('binary_sensor.hba_ev_alongside_ready', 'on') -%}{%- set p.l = p.l + ['The batteries do not charge alongside the car (only the sun it leaves): HBA needs ' ~ (state_attr('binary_sensor.hba_ev_alongside_ready', 'missing') or 'its per-phase sensors') ~ ' to keep the phases within the limits (EV Charge → limits, hba_config.yaml).'] -%}{%- endif -%}
+              {%- if following is none -%}
+                {%- set p.l = p.l + ['The EV project is missing or too old (no sensor.ev_car_info). The car is left out of the plan.'] -%}
+              {%- endif -%}
+              {%- if following == false and not preview -%}
+                {%- set p.l = p.l + ['Turn on <b>Follow assisted</b> in the EV project. Until then the car is left out of the plan.'] -%}
+              {%- endif -%}
+              {%- if following == true and listens_to != 'binary_sensor.hba_ev_assist' and not preview -%}
+                {%- set p.l = p.l + ['The EV project listens to <b>' ~ listens_to ~ '</b> instead of binary_sensor.hba_ev_assist.'] -%}
+              {%- endif -%}
+              {%- if not is_state('input_select.hba_strategy', 'Planned') and not preview -%}
+                {%- set p.l = p.l + ['<b>Choose strategy</b> is not Planned: the car follows no plan.'] -%}
+              {%- endif -%}
+              {%- if not is_state('input_select.hba_marstek_master_battery_mode', 'Full control') and not preview -%}
+                {%- set p.l = p.l + ['HBA is not in <b>Full control</b>: the car follows no plan.'] -%}
+              {%- endif -%}
+              {%- if status is not none and status != 'OK' -%}
+                {%- set p.l = p.l + ['The plan has a problem: ' ~ status ~ '.'] -%}
+              {%- endif -%}
+              {%- if following is not none and state_attr(I, 'known') != true -%}
+                {%- set p.l = p.l + ['The active car has no SoC, or is a guest: no plan for this car, the EV project uses its own rules.'] -%}
+              {%- endif -%}
+              {%- if following is not none and state_attr(I, 'capacity_kwh') | float(0) <= 0 -%}
+                {%- set p.l = p.l + ['The active car has no battery capacity set in the EV project.'] -%}
+              {%- endif -%}
+              {%- if following is not none and state_attr(I, 'max_price_on') != false and state_attr(I, 'max_price') | float(0) <= 0 -%}
+                {%- set p.l = p.l + ['The max price in the EV project is 0: every hour counts as above it.'] -%}
+              {%- endif -%}
+              {%- if bad -%}
+                {%- set p.l = p.l + ['Car home in daytime: <b>' ~ bad | join(', ') ~ '</b> is not a day and is ignored.'] -%}
+              {%- endif -%}
+              {%- if lnorm > 0 and lnorm < lmin -%}
+                {%- set p.l = p.l + ['Normal is below Minimum: Minimum counts.'] -%}
+              {%- endif -%}
+              {%- if lnorm <= 0 and grid -%}
+                {%- set p.l = p.l + ['Normal is 0: only Minimum comes from the grid.'] -%}
+              {%- endif -%}
+              {%- if lleft > 0 and lleft < [lmin, lnorm] | max -%}
+                {%- set p.l = p.l + ['Leftover is below Minimum or Normal: solar stops at Leftover.'] -%}
+              {%- endif -%}
+              {%- if lleft <= 0 -%}
+                {%- set p.l = p.l + ['Leftover is 0, which counts as 100 %.'] -%}
+              {%- endif -%}
+              {%- if following is not none and not is_state('binary_sensor.hba_ev_alongside_ready', 'on') -%}
+                {%- set p.l = p.l + ['The batteries do not charge alongside the car (only the sun it leaves): HBA needs ' ~ (state_attr('binary_sensor.hba_ev_alongside_ready', 'missing') or 'its per-phase sensors') ~ ' to keep the phases within the limits (EV Charge → limits, hba_config.yaml).'] -%}
+              {%- endif -%}
               {%- set fc_t = states('input_text.hba_strategy_solar_forecast_tomorrow_entity_id') | trim -%}
               {%- if 'forecast_tomorrow' in fc_t and is_state('input_boolean.hba_strategy_planned_car_ask_normal', 'on') -%}
               {%- set off = namespace(l=[]) -%}
-              {%- for n in range(3, 8) -%}{%- if not has_value(fc_t | replace('forecast_tomorrow', 'forecast_day_' ~ n)) -%}{%- set off.l = off.l + [n] -%}{%- endif -%}{%- endfor -%}
-              {%- if off.l -%}{%- set p.l = p.l + ['Solcast forecast day ' ~ off.l | join(', ') ~ ': not available. Enable these sensors in Solcast, or a later home day shows no forecast.'] -%}{%- endif -%}
+              {%- for n in range(3, 8) -%}
+                {%- if not has_value(fc_t | replace('forecast_tomorrow', 'forecast_day_' ~ n)) -%}
+                  {%- set off.l = off.l + [n] -%}
+                {%- endif -%}
+              {%- endfor -%}
+              {%- if off.l -%}
+                {%- set p.l = p.l + ['Solcast forecast day ' ~ off.l | join(', ') ~ ': not available. Enable these sensors in Solcast, or a later home day shows no forecast.'] -%}
+              {%- endif -%}
               {%- endif -%}
               {%- if preview -%}
               <ha-alert alert-type="info">Preview only: nothing below is applied.</ha-alert>
@@ -2935,6 +3049,10 @@ views:
               <ha-alert alert-type="warning">{{ p.l | join('<br>') }}</ha-alert>
               {%- else -%}
               <ha-alert alert-type="success">Car settings OK.{{ ' The car is not connected.' if state_attr(I, 'connected') == false }}</ha-alert>
+              {%- endif %}
+              {%- if is_state('input_boolean.hba_strategy_planned_car_battery', 'on')
+                     and not (is_state('input_boolean.ev_car1_compensated', 'on') or is_state('input_boolean.ev_car2_compensated', 'on') or is_state('input_boolean.ev_car3_compensated', 'on')) %}
+              <ha-alert alert-type="info">No car has compensated charging (EV project → Cars → <i>Charging is compensated</i>). Battery energy the car gets beyond its grid hours then counts at the cheapest known price, not the max price.</ha-alert>
               {%- endif %}
               {%- set S = 'binary_sensor.hba_ev_solar_allowed' -%}
               {%- set why = state_attr(S, 'reason') -%}
@@ -2966,9 +3084,9 @@ views:
               - entity: input_number.hba_strategy_planned_car_normal
                 name: Normal (cheap hours)
               - entity: input_number.hba_strategy_planned_car_leftover
-                name: Leftover (as far as solar fills it)
+                name: Leftover (solar, or the batteries)
               - entity: input_boolean.hba_strategy_planned_car_grid
-                name: Allow grid charging
+                name: Allow grid charging for Normal
               - entity: input_boolean.hba_strategy_planned_car_solar_export
                 name: Solar the plan would export
               - entity: input_boolean.ev_window_max_price_enabled
@@ -2979,12 +3097,22 @@ views:
                 name: Minimum above the max price
               - entity: input_text.hba_strategy_planned_car_home_days
                 name: Car home in daytime on
-              - entity: input_select.hba_strategy_planned_car_tomorrow
-                name: Car tomorrow
+              - entity: input_select.hba_strategy_planned_car_next_departure
+                name: Next departure
               - entity: input_boolean.hba_strategy_planned_car_ask_normal
                 name: Ask before Normal
-              - entity: input_select.hba_strategy_planned_car_normal_tonight
-                name: Normal coming night
+              - entity: input_select.hba_strategy_planned_car_normal_skip
+                name: Normal from the grid
+              - entity: input_select.hba_strategy_planned_car_priority
+                name: Car hours with charging batteries
+              - type: section
+                label: From the batteries
+              - entity: input_boolean.hba_strategy_planned_car_battery
+                name: Charge the car from the batteries
+              - entity: input_number.hba_strategy_planned_car_battery_end
+                name: Ends before departure
+              - entity: input_datetime.hba_strategy_planned_car_latest_plugin
+                name: Latest plug-in time
               - entity: input_text.hba_ev_charger_energy_entity_id
                 name: EV charger energy meter (kWh counter)
           - type: markdown
@@ -3004,9 +3132,25 @@ views:
               **Minimum:** must be there by departure, at any price, also with grid charging off. **Minimum above
               the max price:** Charge, Skip those hours, or Ask (a notification with both buttons; no answer
               means it charges). **Normal:** only with
-              **Allow grid charging**, in the cheapest hours below the max price. Solar expected on a day the
+              **Allow grid charging for Normal**, in the cheapest hours below the max price. Solar expected on a day the
               car is home is taken off this amount. **Leftover:** never from the grid. Solar fills the car up
-              to here. So Minimum ≤ Normal ≤ Leftover, e.g. 40 / 80 / 100.</font>
+              to here, and the batteries with *Charge the car from the batteries*. So Minimum ≤ Normal ≤ Leftover, e.g. 40 / 80 / 100.</font>
+
+
+              <font color=grey>**Charge the car from the batteries:** the plan may give the car battery energy
+              (🔋→🚗 in the plan) when a kWh is worth more in the car than sold, used in the house or kept for
+              later — so not when an expensive morning or a better sale needs it, and more easily when tomorrow's
+              sun refills the batteries. What a kWh in the car is worth: the price of a grid hour it saves (that
+              hour then charges less); above those hours, up to Leftover, the max price when the car's charging
+              is **compensated** (EV project → Cars, per car), else the cheapest known price. The house comes first, the
+              rest goes to the car; HBA discharges at the planned power and the EV project lets the car take
+              what would be exported. With **Allow grid charging for Normal** off, energy bought from the grid
+              after plug-in never goes to the car. **Ends before departure:** battery to car stops this many
+              hours before it (grid hours run up to the departure); on a home day it has no deadline, Minimum
+              still does. **Latest plug-in time:** until then the plan may keep battery energy for a car that is
+              not plugged in yet (it counts as plugged in from that time); at that time without the car the
+              energy is free again. With this on, the question at plug-in also comes when Normal is already in,
+              as long as the car is below Leftover.</font>
 
 
               <font color=grey>**Solar for the car:** the batteries get the sun first, until they have what the
@@ -3022,13 +3166,20 @@ views:
 
               <font color=grey>**Car home in daytime on:** the days the car can catch solar, separated by commas,
               in English: Mon, Tue, Wed, Thu, Fri, Sat, Sun, or full names. Empty = Sat,Sun; `none` = never.
-              **Car tomorrow:** overrides this once (Home or Away); back to Auto at 08:00.</font>
+              On such a day the departure is no deadline for Normal: it takes the cheapest known hours
+              until the first departure on a day the car is not home. Minimum is still in by the departure.
+              **Next departure:** your own answer for that one departure. *Not leaving* = the car stays,
+              Minimum may wait too. *Leaving* = it goes although the day is in the list. Back to Auto
+              once that departure has passed.</font>
 
 
-              <font color=grey>**Ask before Normal:** a question in the evening when Normal has hours tonight:
-              skip tonight, or skip until the next day the car is home. It shows that day's expected spare
-              solar. No answer means it charges, and Minimum always stays. With Skip until home day it only
-              speaks up when solar looks too low. **Normal coming night** shows the answer, and you can set it
+              <font color=grey>**Ask before Normal:** a question in the evening when Normal has hours planned:
+              *Not leaving*, *Minimum only* (you leave, Minimum is enough this time) or *Min. until home day*
+              (until the next day the car is home; it shows that day's expected spare solar). On a home
+              day from the list it asks whether the car really stays. No answer means it charges as
+              planned. While Min. until home day runs you get a short notice that Normal stays skipped, or a
+              warning when that day's solar looks too low.
+              **Next departure** and **Normal from the grid** show the answer, and you can set them
               here too. Solcast gives this for up to 7 days once its day 4 to 7 sensors are enabled.</font>
 
 
@@ -3069,19 +3220,92 @@ views:
               {%- set I = 'sensor.ev_car_info' -%}
               {%- set plan = state_attr(E, 'plan') or [] -%}
               {%- set sm = state_attr(E, 'summary') if state_attr(E, 'summary') is mapping else {} -%}
-              {%- set run = state_attr(R, 'summary') if state_attr(R, 'summary') is mapping else {} -%}
+              {%- set run_sm = state_attr(R, 'summary') if state_attr(R, 'summary') is mapping else {} -%}
               {%- set now_plan = state_attr(R, 'plan') or [] -%}
               {%- set car = sm.get('car') or {} -%}
               {%- set full = sm.get('usable', 0) | float(0) -%}
               {%- set dl = state_attr(I, 'deadline') | int(0) -%}
-              {%- set cheap = (plan | selectattr('ts', 'lt', dl) | sort(attribute='b') | map(attribute='ts') | list)[:3] -%}
+              {%- set dl_n = car.get('dl_norm', 0) | int(0) -%}
+              {%- set dl_n = dl_n if dl_n > dl else dl -%}
+              {%- set cheap = (plan | selectattr('ts', 'lt', dl_n) | sort(attribute='b') | map(attribute='ts') | list)[:3] -%}
               ### Car hours
               {{ state_attr(I, 'car_name') or 'Active car' }} · departure {{ dl | timestamp_custom('%a %H:%M') }}{{ ' · not connected' if state_attr(I, 'connected') != true }}
+              {%- if dl_n > dl %}
+
+
+              Car home {{ dl | timestamp_custom('%A') }} ({{ 'Not leaving' if car.get('dep') == 'Not leaving' else 'home-day list' }}): Normal may use the cheapest hours until {{ dl_n | timestamp_custom('%a %H:%M') }}; Minimum {{ 'waits too' if car.get('dl_min', 0) | int(0) > dl else 'is in by the departure' }}.
+              {%- endif %}
+              {%- set bat = car.get('bat') or {} %}
+              {%- if bat.get('on') %}
+
+
+              **🔋→🚗 From the batteries:** {% if bat.get('expected') %}car expected, counts as plugged in from {{ bat.plug }}; {% endif %}{{ bat.kwh }} kWh planned{% if bat.kwh | float(0) > 0.05 %} — worth € {{ '%.2f' | format(bat.value | float(0)) }} in the car, € {{ '%.2f' | format(bat.cost | float(0)) }} out of the batteries{% if bat.get('grid_cut', 0) | float(0) > 0.05 %}, {{ bat.grid_cut }} kWh less from the grid{% endif %}{% endif %}.
+              Above the grid hours, up to Leftover ({{ bat.top }} %): {{ bat.extra }} kWh at € {{ '%.3f' | format(bat.extra_value | float(0)) }} per kWh ({{ 'compensated: the max price' if state_attr(I, 'compensated') == true else 'not compensated: the cheapest known price' }}){{ '; grid energy bought after plug-in stays out of the car' if bat.get('grid_off') }}.
+              {%- endif %}
 
 
               {% if preview or state_attr(I, 'connected') == true -%}
+              {%- set cmp = car.get('cmp') or {} -%}
+              {%- set setp = states('input_select.hba_strategy_planned_car_priority') -%}
+              {%- set run = car.get('prio', 'Car first') -%}
+              {%- if car.get('kwh', 0) | float(0) > 0.05 and car.get('along') %}
+              **Car hours next to the batteries: {{ run }}**
+              {%- if 'Car first' in cmp and 'Balance' in cmp -%}
+              {%- set d = (cmp['Balance'].total - cmp['Car first'].total) | round(2) %}
+              {{ ' · Auto: ' if setp == 'Auto' else ' · set by hand; ' }}{{ 'Balance' if d > 0 else 'Car first' }} € {{ '%.2f' | format(d | abs) }} more{{ (' (Balance only below Car first − €0.02)' if setp == 'Auto' and run == 'Car first' and d <= 0 else '') }}
+
+
+              <small>
+
+              | | Car first | Balance | No car | Difference |
+              |:--|:--|:--|:--|--:|
+              {%- set ch = namespace(c='', b='') -%}
+              {%- for k in ['Car first', 'Balance'] -%}
+              {%- set t = namespace(l=[]) -%}
+              {%- for h in cmp[k].hours -%}
+                {%- set t.l = t.l + [(h[0] | timestamp_custom('%H:%M')) ~ ' ' ~ '%.1f' | format(h[1])] -%}
+              {%- endfor -%}
+              {%- if k == 'Car first' -%}
+                {%- set ch.c = t.l | join(' · ') -%}
+              {%- else -%}
+                {%- set ch.b = t.l | join(' · ') -%}
+              {%- endif -%}
+              {%- endfor -%}
+              {%- set A = cmp['Car first'] -%}
+              {%- set B = cmp['Balance'] -%}
+              {%- set N = cmp.get('No car') or {} -%}
+              {%- macro df(x, f='%+.2f') -%}{{ f | format(x) if x is number else '—' }}{%- endmacro -%}
+              {%- set pa = A.eur / A.kwh if A.kwh > 0 else none -%}{%- set pb = B.eur / B.kwh if B.kwh > 0 else none %}
+              | Car hours (kWh) | {{ ch.c }} | {{ ch.b }} | — | |
+              | Car kWh · cost | {{ A.kwh }} · € {{ '%.2f' | format(A.eur) }} | {{ B.kwh }} · € {{ '%.2f' | format(B.eur) }} | — | {{ df(B.eur - A.eur) }} |
+              | Car price per kWh | {{ ('€ ' ~ df(pa, '%.3f')) if pa is number else '—' }} | {{ ('€ ' ~ df(pb, '%.3f')) if pb is number else '—' }} | — | {{ df(pb - pa, '%+.3f') if pa is number and pb is number else '—' }} |
+              | Batteries store in car hours | {{ A.bat }} kWh | {{ B.bat }} kWh | {{ (N.bat ~ ' kWh') if N.get('bat') is not none else '—' }} | {{ df(B.bat - A.bat, '%+.1f') }} |
+              | Battery kWh cost out after the car hours | {{ ('€ ' ~ df(A.cout, '%.3f')) if A.get('cout') is number else '—' }} | {{ ('€ ' ~ df(B.cout, '%.3f')) if B.get('cout') is number else '—' }} | {{ ('€ ' ~ df(N.cout, '%.3f')) if N.get('cout') is number else '—' }} | {{ df(B.cout - A.cout, '%+.3f') if A.get('cout') is number and B.get('cout') is number else '—' }} |
+              | Batteries + house | € {{ '%.2f' | format(A.plan) }} | € {{ '%.2f' | format(B.plan) }} | {{ ('€ %.2f' | format(N.plan)) if N.get('plan') is number else '—' }} | {{ df(B.plan - A.plan) }} |
+              {%- if A.unmet > 0 or B.unmet > 0 %}
+              | Car kWh that do not fit | {{ A.unmet }} | {{ B.unmet }} | — | {{ df(B.unmet - A.unmet, '%+.1f') }} |
+              {%- endif %}
+              | **Total** | **€ {{ '%.2f' | format(A.total) }}** | **€ {{ '%.2f' | format(B.total) }}** | — | **{{ df(B.total - A.total) }}** |
+
+              {%- set P = cmp[run] if run in cmp else A %}
+              {%- set given = bat.get('value', 0) | float(0) if bat.get('kwh', 0) | float(0) > 0.05 else 0 -%}
+              {%- if N.get('plan') is number %}
+
+              **The car costs the batteries € {{ '%.2f' | format(P.plan + given - N.plan) }}** ({{ run }}: batteries + house € {{ '%.2f' | format(P.plan + given) }} instead of € {{ '%.2f' | format(N.plan) }}{% if given > 0 %}, including the {{ bat.kwh }} kWh they give the car; that energy is worth € {{ '%.2f' | format(given) }} in the car{% endif %}){% if P.get('cout') is number and N.get('cout') is number %}; cost out after the car hours € {{ '%.3f' | format(P.cout) }} instead of € {{ '%.3f' | format(N.cout) }}{% endif %}.
+              {%- elif car.get('cmp_nocar', true) == false %}
+
+              No car: switch on **Insights mode** (Insights view) to have the plan worked out without the car too.
+              {%- endif %}
+
+              <font color=grey>Difference = Balance − Car first (+ = Balance costs more). No car: the same plan without the car, in the hours {{ run }} gives the car. Cost out: what a kWh from the batteries has cost (bought ÷ efficiency, sun at the sell price, + wear). Balance keeps the car charging at a low rate next to the batteries; a large house load (about 2 kW) on a battery phase can still pause the car for about 15 seconds. With Car first that happens less often: the car charges at full power, so the charger can slow it further before it has to pause.</font>
+
+              </small>
+              {%- elif car.get('cmp_other', true) == false %} · set by hand. Switch on **Insights mode** (Insights view) for the comparison with {{ 'Car first' if run == 'Balance' else 'Balance' }} and with no car.
+              {%- elif setp != 'Car first' %} · Balance not possible (needs the batteries' phases and the phase limit for EV charging)
+              {%- endif %}
+              {% endif -%}
               {%- if car.get('normal_skip') %}
-              Normal skipped: {{ car.get('normal', 0) }} kWh, € {{ '%.2f' | format(car.get('normal_eur', 0)) }} ({{ states('input_select.hba_strategy_planned_car_normal_tonight') | lower }}).
+              Normal skipped: {{ car.get('normal', 0) }} kWh, € {{ '%.2f' | format(car.get('normal_eur', 0)) }} ({{ states('input_select.hba_strategy_planned_car_normal_skip') | lower }}{{ ', until ' ~ car.home_day if is_state('input_select.hba_strategy_planned_car_normal_skip', 'Min. until home day') and car.get('home_day') }}).
               {% endif -%}
               {%- if car.get('home_day') %}
               Next home day {{ car.home_day }}: {{ ('about ' ~ car.home_sun ~ ' kWh spare solar') if car.get('home_sun', -1) >= 0 else 'no forecast yet' }}.
@@ -3099,11 +3323,16 @@ views:
 
               {% endif -%}
               Car: {{ car.get('kwh', 0) }} kWh, € {{ '%.2f' | format(car.get('eur', 0)) }} · {{ 'without' if state_attr(I, 'max_price_on') != false else 'with' }} the max price: {{ car.get('alt_kwh', 0) }} kWh, € {{ '%.2f' | format(car.get('alt_eur', 0)) }}
-              {%- if preview and sm.get('plan_cost') is not none and run.get('plan_cost') is not none %}
+              {%- if preview and sm.get('plan_cost') is not none and run_sm.get('plan_cost') is not none %}
 
-              Effect on the batteries and the house: € {{ '%+.2f' | format(sm.plan_cost - run.plan_cost) }} compared with the plan that runs now.
+              Effect on the batteries and the house: € {{ '%+.2f' | format(sm.plan_cost - run_sm.plan_cost) }} compared with the plan that runs now.
               {%- set moved = namespace(n=0) %}
-              {%- for r in plan %}{%- set was = now_plan | selectattr('ts', 'eq', r.ts) | first | default(none) %}{%- if was is not none and (was.a != r.a or (was.e1 - r.e1) | abs > 0.1) %}{%- set moved.n = moved.n + 1 %}{%- endif %}{%- endfor %}
+              {%- for r in plan %}
+                {%- set was = now_plan | selectattr('ts', 'eq', r.ts) | first | default(none) %}
+                {%- if was is not none and (was.a != r.a or (was.e1 - r.e1) | abs > 0.1) %}
+                  {%- set moved.n = moved.n + 1 %}
+                {%- endif %}
+              {%- endfor %}
               {{ ' The car changes ' ~ moved.n ~ ' battery hour(s), marked (now ...) below.' if moved.n else ' The car does not change the battery hours.' }}
               {%- elif not preview %}
 
@@ -3122,8 +3351,12 @@ views:
               {%- set ns_ev = namespace(soc=states(I) | float(-1)) %}
               {%- for r in plan %}
               {%- set spare = [r.get('sun', 0) - r.get('load', 0), 0] | max %}
-              {%- if r.get('ev') and ns_ev.soc >= 0 and car_kp > 0 %}{%- set ns_ev.soc = [ns_ev.soc + r.ev / car_kp, r.get('ev_lim') or 100, 100] | min %}{%- endif %}
-              {%- if r.get('ev_sun') and ns_ev.soc >= 0 and car_kp > 0 %}{%- set ns_ev.soc = [ns_ev.soc + r.ev_sun / car_kp, 100] | min %}{%- endif %}
+              {%- if r.get('ev') and ns_ev.soc >= 0 and car_kp > 0 %}
+                {%- set ns_ev.soc = [ns_ev.soc + r.ev / car_kp, r.get('ev_lim') or 100, 100] | min %}
+              {%- endif %}
+              {%- if r.get('ev_sun') and ns_ev.soc >= 0 and car_kp > 0 %}
+                {%- set ns_ev.soc = [ns_ev.soc + r.ev_sun / car_kp, 100] | min %}
+              {%- endif %}
               {%- set sv = car.get('sun_value', 0) | float(0) %}
               {%- set best = ('Sun: sell ' ~ '%.3f' | format(r.s) ~ (' < ' if r.s < sv else ' ≥ ') ~ '%.3f' | format(sv) ~ (' → car' if r.s < sv else ' → export')) if spare > 0.5 and r.e1 >= full - 0.2 and sv > 0 and not r.get('ev') else ('Cheapest' if r.ts in cheap else '') %}
               {%- set was = now_plan | selectattr('ts', 'eq', r.ts) | first | default(none) %}
@@ -3375,7 +3608,7 @@ views:
         type: markdown
         text_only: true
         content: >-
-          ### Notifications *(HBA v4.10.1-r25)*
+          ### Notifications *(HBA v4.10.1-r26)*
 
 
           **HBA-specific feature** — not part of HBC. Configure where HBA
@@ -3506,7 +3739,7 @@ views:
         type: markdown
         text_only: true
         content: >-
-          ### Insights *(HBA v4.10.1-r25)*
+          ### Insights *(HBA v4.10.1-r26)*
 
           Need help figuring out what is going on?
 
@@ -3514,6 +3747,22 @@ views:
           📘 [Troubleshooting documentation
           (HBC)](https://docs.homebatterycontrol.com/07-troubleshooting.html)
     sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Decisions
+            heading_style: title
+            icon: mdi:notebook-outline
+          - type: markdown
+            content: >-
+              Why HBA did what it did: every Planned re-plan with what changed, each change of what runs,
+              BMS limits and other limits that cut the battery power. Kept as long as the recorder keeps its history.
+          - type: logbook
+            target:
+              entity_id: sensor.hba_decision_log
+            hours_to_show: 24
+            grid_options:
+              columns: full
       - type: grid
         cards:
           - type: heading
@@ -3564,7 +3813,8 @@ views:
               {% set target = states('input_number.hba_target_grid_consumption') | float(0) -%}
               {% set err = grid - target -%}
               {% set ev_e = states('input_text.hba_strategy_ev_sensor_entity_id') | trim -%}
-              {% set p1_age = (as_timestamp(now()) - as_timestamp(states['sensor.p1_meter_power'].last_changed)) | int -%}
+              {% set p1_st = states['sensor.p1_meter_power'] -%}
+              {% set p1_age = (as_timestamp(now()) - as_timestamp(p1_st.last_changed if p1_st is not none else now())) | int -%}
               {% set has_imp = is_state('input_boolean.hba_control_has_power_limit_import', 'on') -%}
               {% set has_exp = is_state('input_boolean.hba_control_has_power_limit_export', 'on') -%}
               {% set imp_lim = states('input_number.hba_control_power_limit_import') | float(0) | int -%}
@@ -3710,13 +3960,13 @@ views:
               {%- set pr = state_attr(S, 'problems') or [] -%}
               **{{ states(S) }}**{{ ' — ' ~ (pr | join('; ')) if pr else '' }}
               {% for G, x in g.items() %}
-              **Group {{ G }}** — {{ x.policy }}, max {{ x.max_power }} W{{ ' · leader charge M' ~ lead[G ~ '_charge'] if (G ~ '_charge') in lead else '' }}{{ ' · leader discharge M' ~ lead[G ~ '_discharge'] if (G ~ '_discharge') in lead else '' }}
+              **Group {{ G }}** — {{ x.policy }}, max {{ x.max_power }} W{{ ' · leader charge M' ~ lead[G ~ '_charge'] if (G ~ '_charge') in lead else '' }}{{ ' · leader discharge M' ~ lead[G ~ '_discharge'] if (G ~ '_discharge') in lead else '' }}{% set st = x.members | select('in', full + empty + latched) | list %}
 
-              | | Charge set / read | Discharge set / read | |
-              |---|---|---|---|
+              | | Charge set / read | Discharge set / read |{{ ' State |' if st }}
+              |---|---|---|{{ '---|' if st }}
               {% for b in x.members -%}
               {%- set k = b | string -%}
-              | M{{ b }} | {{ c[k] if k in c else '–' }} / {{ states('sensor.marstek_m' ~ b ~ '_max_charge_power_number') }} | {{ d[k] if k in d else '–' }} / {{ states('sensor.marstek_m' ~ b ~ '_max_discharge_power_number') }} | {{ 'full ' if b in full else '' }}{{ 'latched until 18 %' if b in latched else ('empty' if b in empty else '') }} |
+              | M{{ b }} | {{ c[k] if k in c else '–' }} / {{ states('sensor.marstek_m' ~ b ~ '_max_charge_power_number') }} | {{ d[k] if k in d else '–' }} / {{ states('sensor.marstek_m' ~ b ~ '_max_discharge_power_number') }} |{% if st %} {{ 'full ' if b in full else '' }}{{ 'latched until 18 %' if b in latched else ('empty' if b in empty else '') }} |{% endif %}
               {% endfor %}
               {% endfor -%}
             visibility:
@@ -3781,8 +4031,8 @@ views:
               {%- set car = is_state('input_select.hba_control_strategy_during_ev_charge', 'Charge alongside EV') -%}
               {%- set fz = fuse > 0 %}
 
-              | Phase | Grid A | Batteries |{{ ' Car room W | Held for car W |' if car }}{{ ' Fuse room ↑ W | Fuse room ↓ W |' if fz }}
-              |---|---|---|{{ '---|---|' if car }}{{ '---|---|' if fz }}
+              | Phase | Batteries | Grid A |{{ ' Car room W | Held for car W |' if car }}
+              |---|---|---|{{ '---|---|' if car }}
               {% for n in ['L1', 'L2', 'L3'] -%}
               {%- set l = n | lower -%}
               {%- set v = states('sensor.p1_meter_voltage_' ~ l) | float(0) -%}
@@ -3791,8 +4041,16 @@ views:
               {%- for i in range(1, states('input_number.hba_battery_count') | int(1) + 1) if states('input_select.hba_marstek_m' ~ i ~ '_phase') == n -%}
                 {%- set ns.b = ns.b + ['M' ~ i] -%}
               {%- endfor -%}
-              | {{ n }} | {{ ((states('sensor.p1_meter_power_' ~ l) | float(0)) / v) | round(1) if has_value('sensor.p1_meter_power_' ~ l) else 'no sensor' }} | {{ ns.b | join(', ') or '–' }} |{% if car %} {{ room[n] if n in room else '–' }} | {{ hold[n] if n in hold else '–' }} |{% endif %}{% if fz %} {{ fc[n] if n in fc else '–' }} | {{ fd[n] if n in fd else '–' }} |{% endif %}
+              | {{ n }} | {{ ns.b | join(', ') or '–' }} | {{ ((states('sensor.p1_meter_power_' ~ l) | float(0)) / v) | round(1) if has_value('sensor.p1_meter_power_' ~ l) else 'no sensor' }} |{% if car %} {{ room[n] if n in room else '–' }} | {{ hold[n] if n in hold else '–' }} |{% endif %}
               {% endfor %}
+              {%- if fz %}
+
+              | Phase | Fuse room charge W | Fuse room discharge W |
+              |---|---|---|
+              {% for n in ['L1', 'L2', 'L3'] -%}
+              | {{ n }} | {{ fc[n] if n in fc else '–' }} | {{ fd[n] if n in fd else '–' }} |
+              {% endfor %}
+              {%- endif %}
               {%- if miss %}⚠ Missing: {{ miss }}{% endif %}
             visibility:
               - condition: or
@@ -4068,13 +4326,17 @@ views:
                       {%- if s == ns.ce -%}
                         {%- set ns.ce = e -%}
                       {%- else -%}
-                        {%- if ns.cs >= 0 -%}{%- set ns.out = ns.out + [(ns.cs, ns.ce)] -%}{%- endif -%}
+                        {%- if ns.cs >= 0 -%}
+                          {%- set ns.out = ns.out + [(ns.cs, ns.ce)] -%}
+                        {%- endif -%}
                         {%- set ns.cs = s -%}{%- set ns.ce = e -%}
                       {%- endif -%}
                     {%- endif -%}
                   {%- endif -%}
                 {%- endfor -%}
-                {%- if ns.cs >= 0 -%}{%- set ns.out = ns.out + [(ns.cs, ns.ce)] -%}{%- endif -%}
+                {%- if ns.cs >= 0 -%}
+                  {%- set ns.out = ns.out + [(ns.cs, ns.ce)] -%}
+                {%- endif -%}
                 {%- if ns.out | length == 0 -%}none today
                 {%- else -%}
                   {%- for r in ns.out -%}{{ r[0] | timestamp_custom('%H:%M') }}–{{ r[1] | timestamp_custom('%H:%M') }}{{ ', ' if not loop.last }}{%- endfor -%}
@@ -4113,7 +4375,7 @@ views:
               {%- elif outlook == 'No solar entity' %}decision: **Zero import** (fallback — solar forecast entity not set or unavailable)
               {%- elif outlook == 'No solar detail' %}decision: **Zero import** (fallback — entity has no detailedForecast attribute)
               {%- elif outlook == 'No price data' %}decision: **Zero import** (fallback — no energy price marks)
-              {%- elif outlook in ['No data', 'unavailable', 'unknown'] %}decision: **Zero import** (fallback — outlook sensor {{ outlook }})
+              {%- elif outlook in ['unavailable', 'unknown'] %}decision: **Zero import** (fallback — outlook sensor {{ outlook }})
               {%- elif threshold > 0 and solar_today > 0 and solar_today < threshold %}decision: **Self-consumption** (solar {{ solar_today | round(1) }} kWh below threshold {{ threshold }} kWh)
               {%- elif covers %}decision: **Zero import** (solar covers charge)
               {%- elif deadline != 'none' and as_timestamp(now()) < deadline | as_timestamp(0) %}decision: **Zero import** until {{ deadline | as_timestamp(0) | timestamp_custom('%H:%M') }}, then Self-consumption
@@ -4171,6 +4433,21 @@ views:
               **Expected until {{ sm.until | timestamp_custom('%a %H:%M') }}** <font color=grey>(all electricity: house, batteries, sun, and what is left in the batteries at the end)</font>: with the plan {{ res(sm.plan_cost) }} · with Self-consumption only {{ res(sm.sc_cost) }} → the plan is **€{{ '%.2f' | format(sm.gain | abs) }} {{ 'better' if sm.gain >= 0 else 'worse' }}**</small>
               {%- else %}
               <small>No plan yet ({{ states(E) }}).</small>
+              {%- endif %}
+
+              {%- if state_attr('sensor.ev_car_soc', 'held') == true %}
+
+              <small>⚠️ **Car SoC {{ states('sensor.ev_car_soc') }} % is kept** since {{ state_attr('sensor.ev_car_soc', 'lost') | int(0) | timestamp_custom('%H:%M') }}: the car integration ({{ state_attr('sensor.ev_car_soc', 'entity') }}) has no value now. Kept up to 15 minutes.</small>
+              {%- endif %}
+              {%- set rp = state_attr(E, 'replans') or [] %}
+              {%- if rp | length > 0 %}
+              {%- set rn = namespace(c={}) -%}
+              {%- for x in rp -%}
+                {%- set k = x.r if not x.r.startswith('off by') else 'off the plan (drift)' -%}
+                {%- set rn.c = rn.c | combine({k: rn.c.get(k, 0) + 1}) -%}
+              {%- endfor %}
+
+              <small>**Re-plans last 24 h: {{ rp | length }}** — {% for k, v in rn.c.items() | sort(attribute='1', reverse=true) %}{{ k }} {{ v }}{{ ' · ' if not loop.last }}{% endfor %}</small>
               {%- endif %}
 
               <small><small>
@@ -4243,7 +4520,7 @@ views:
     header:
       card:
         type: markdown
-        content: '### Savings *(HBA v4.10.1-r25)*'
+        content: '### Savings *(HBA v4.10.1-r26)*'
         text_only: true
     cards: []
     sections:
@@ -4510,7 +4787,7 @@ views:
       card:
         type: markdown
         text_only: true
-        content: '### Advanced settings *(HBA v4.10.1-r25)*'
+        content: '### Advanced settings *(HBA v4.10.1-r26)*'
     sections:
       # Battery offline warning — full width, hidden when all batteries are online
       - type: grid
@@ -4670,6 +4947,28 @@ views:
               mode.</i></font>
 
               </details>
+            text_only: true
+          - type: heading
+            icon: mdi:wrench-clock
+            heading: Battery maintenance
+            heading_style: subtitle
+          - type: entities
+            entities:
+              - entity: input_boolean.hba_maintenance_mode
+                name: Maintenance mode
+                secondary_info: none
+          - type: markdown
+            content: >-
+              <font color="grey"><i>For when a battery needs to be left
+              alone, e.g. while Marstek support investigates it. How to use: switch
+              this on, then switch RS485 off on that battery (Marstek app or its
+              RS485 control mode); afterwards switch this off. While it is on, for
+              every battery with RS485 off HBA: does not switch RS485 back on (also
+              not after a restart), sends it no commands and no limit or work-mode
+              writes, and gives its share to the other batteries. In a power group
+              its own max charge / discharge power (or its register, when higher)
+              stays reserved, because HBA does not know what it will do. Switching
+              this off switches RS485 back on at once.</i></font>
             text_only: true
 
       - type: grid
@@ -5956,6 +6255,8 @@ views:
 
               **Spread:** *Follow battery order* (default) gives the battery HBA uses first as much as it can, so fewer batteries run (each running battery costs ~20–25 W); *Equal* gives each the same share; *One at a time* keeps one battery until it is full or empty. A full battery hands its charge share to the others, an empty one its discharge share.
 
+              **Share BMS shortfall (experimental):** when a battery's BMS allows less than its own max power — cold cells (below ~5 °C: about 1.6 kW), or nearly full / empty — HBA counts it at what the BMS allows and gives the rest of the group's power to the other batteries. Only from 200 W less and after the BMS level held 2 minutes, so the registers are not rewritten for every small change. The planner keeps planning with the full limits.
+
               </details>
 
               <ha-alert alert-type="warning" title="Use at your own risk">
@@ -6115,6 +6416,8 @@ views:
                 row:
                   entity: input_select.hba_power_group_c_policy
                   name: Group C spread
+              - entity: input_boolean.hba_power_group_bms_share
+                name: Share BMS shortfall (experimental)
             visibility:
               - condition: state
                 entity: sensor.hba_power_limits
@@ -6299,7 +6602,7 @@ views:
         type: markdown
         text_only: true
         content: >-
-          ### Labs *(HBA v4.10.1-r25)*
+          ### Labs *(HBA v4.10.1-r26)*
 
 
           Experimental features, off by default. They only collect data or show
@@ -6338,7 +6641,9 @@ views:
               {%- set src = states('input_text.hba_labs_presence_sources') -%}
               {%- set ns = namespace(bad=[]) -%}
               {%- for e in (src if src not in ['unknown', 'unavailable'] else '').split(',') | map('trim') | reject('eq', '') -%}
-                {%- if states(e) == 'unknown' and states[e] is none -%}{%- set ns.bad = ns.bad + [e] -%}{%- endif -%}
+                {%- if states(e) == 'unknown' and states[e] is none -%}
+                  {%- set ns.bad = ns.bad + [e] -%}
+                {%- endif -%}
               {%- endfor -%}
               {%- if is_state('input_boolean.hba_labs_presence', 'on') and (nf or floors() | length == 0) -%}
               <ha-alert alert-type="warning"><strong>{{ 'Floor not found' if nf else 'No floors' }}</strong><br>
@@ -6388,7 +6693,9 @@ views:
               {%- set b = 'binary_sensor.hba_labs_floor_' ~ n ~ '_occupied' -%}
               {%- if states(b) not in ['unavailable'] -%}
               {%- set ns = namespace(by=[]) -%}
-              {%- for e in state_attr(b, 'by') or [] -%}{%- set ns.by = ns.by + [state_attr(e, 'friendly_name') or e] -%}{%- endfor -%}
+              {%- for e in state_attr(b, 'by') or [] -%}
+                {%- set ns.by = ns.by + [state_attr(e, 'friendly_name') or e] -%}
+              {%- endfor -%}
               {%- set seen = state_attr(b, 'empty_since') -%}
               | {{ state_attr(b, 'floor') }} | {{ {'on': 'occupied', 'off': 'empty'}.get(states(b), 'starting') }} | {{ ns.by | join(', ') if ns.by else ('last ' ~ as_timestamp(seen) | timestamp_custom('%H:%M') if as_timestamp(seen, none) else '—') }} |
 

@@ -8,7 +8,7 @@ views:
     header:
       card:
         type: markdown
-        content: '### Home Battery Assistant *(HBA v4.10.1-r25)*'
+        content: '### Home Battery Assistant *(HBA v4.10.1-r26)*'
         text_only: true
     cards: []
     sections:
@@ -36,50 +36,6 @@ views:
               **How to fix:** go to **Settings → Entities**, search for the entity
               by friendly name, click it, and rename the entity ID to match the
               expected value shown above.
-              </ha-alert>
-
-      # Dynamic migration alert (r22: Dynamic v1 removed, v2 entities renamed) —
-      # only shown while binary_sensor.hba_dynamic_migration_needed is on.
-      - type: grid
-        visibility:
-          - condition: state
-            entity: binary_sensor.hba_dynamic_migration_needed
-            state: 'on'
-        cards:
-          - type: markdown
-            grid_options:
-              columns: full
-            content: |-
-              {%- set s = 'binary_sensor.hba_dynamic_migration_needed' -%}
-              {%- set leftovers = state_attr(s, 'leftover_entity_ids') | default('', true) | trim -%}
-              {%- set missing = state_attr(s, 'missing_entity_ids') | default('', true) | trim -%}
-              {%- set old_file = state_attr(s, 'old_file_still_loaded') | default(false) -%}
-              <ha-alert alert-type="warning" title="Dynamic strategy changed — action needed">
-
-              HBA r22 removed the old Dynamic (v1) strategy and renamed **Dynamic v2** to **Dynamic**, as HBC v4.11.0 did. To finish the update:
-
-              {% if old_file -%}
-              - **Delete `hba_strategy_dynamic_v2.yaml`** from `packages/hba/` — it still loads next to the new file (re-running `install.sh` does this), then restart Home Assistant.
-              {% endif -%}
-              {% if missing -%}
-              - **Missing:** {{ missing }} — install the r22 package files (re-run `install.sh`) and restart.
-              {% endif -%}
-              - **Strategy:** if *Choose strategy* shows **Full stop**, select **Dynamic** again.
-              - **Re-enter** *Max # cheap hrs* and *Max # expensive hrs* in [Dynamic](/home-battery-assistant/dynamic) — they start at 0 (no cap).
-              {% if leftovers -%}
-              - **Delete the leftover entities** — in **Developer Tools → States**, filter entities on `hba` and state on `unavailable`; for each one click the ⓘ icon, then the cog → **Delete**. (To delete several at once: **Settings → Entities**, search `hba`, select them, delete.)
-              {% endif %}
-              {%- if leftovers %}
-              <details><summary>Show {{ leftovers.split(', ') | count }} leftover entities</summary>
-
-              {% for e in leftovers.split(', ') -%}
-              - `{{ e }}`
-              {% endfor %}
-              </details>
-              {%- endif %}
-
-              This banner disappears once nothing is left to clean up.
-
               </ha-alert>
 
       # Timed EV charge waiting alert (only shown while assist is suspended
@@ -208,6 +164,32 @@ views:
 
               </ha-alert>
 
+      # Maintenance banner — input_boolean.hba_maintenance_mode on: HBA leaves a battery with
+      # RS485 off alone (replaces the mismatch banner below while on).
+      - type: grid
+        visibility:
+          - condition: state
+            entity: input_boolean.hba_maintenance_mode
+            state: 'on'
+        cards:
+          - type: markdown
+            grid_options:
+              columns: full
+            content: |-
+              <ha-alert alert-type="warning" title="Maintenance mode: HBA leaves batteries with RS485 off alone">
+
+              {%- set m = state_attr('binary_sensor.hba_rs485_mode_mismatch', 'mismatched_batteries') %}
+              {% if m and m != 'none' -%}
+              **{{ m }}** has RS485 switched off. HBA leaves it alone: no commands, no limit writes, its share goes to the other batteries.
+              {%- else -%}
+              No battery has RS485 switched off right now.
+              {%- endif %}
+              While this is on, HBA does not switch RS485 back on, also not after a battery restart.
+
+              Switch **Maintenance mode** off when the maintenance is done (Advanced settings, Battery maintenance); HBA then switches RS485 back on at once.
+
+              </ha-alert>
+
       # RS485 mode mismatch alert — mirrors hba_notify_rs485_mode_mismatch (master mode
       # Full control but a battery has RS485 control disabled, so it ignores HBA).
       - type: grid
@@ -215,6 +197,9 @@ views:
           - condition: state
             entity: binary_sensor.hba_rs485_mode_mismatch
             state: 'on'
+          - condition: state
+            entity: input_boolean.hba_maintenance_mode
+            state: 'off'
         cards:
           - type: markdown
             grid_options:
@@ -484,10 +469,10 @@ views:
                 conditions:
                   - condition: state
                     entity: sensor.hba_version
-                    state: "v4.10.1-r25"
+                    state: "v4.10.1-r26"
             content: >
               <ha-alert alert-type="error">**HBA version mismatch** — Dashboard is
-              v4.10.1-r25 but loaded packages report
+              v4.10.1-r26 but loaded packages report
               {{ states('sensor.hba_version') }}. Reload YAML to apply the update:
               Developer Tools → YAML → Reload All YAML.</ha-alert>
           - type: markdown
@@ -508,8 +493,27 @@ views:
                 state: "on"
             content: >
               {%- set B = 'binary_sensor.hba_control_loop_stalled' -%}
-              <ha-alert alert-type="error">Control stalled — no control cycle for {{ state_attr(B, 'seconds_since_cycle') }} s; the batteries keep their last command.
-              {%- if state_attr(B, 'p1_updating') %} Usually a battery whose network link dropped while HBA wrote to it; HBA continues once it is reachable again (up to ~10 min).{% else %} The P1 meter has stopped updating.{% endif %}</ha-alert>
+              <ha-alert alert-type="error">Control stalled — no control cycle for {{ state_attr(B, 'seconds_since_cycle') }} s; the batteries keep their last command. Usually a battery whose network link dropped while HBA wrote to it; HBA continues once it is reachable again (up to ~10 min).</ha-alert>
+          - type: markdown
+            grid_options:
+              columns: full
+            visibility:
+              - condition: state
+                entity: binary_sensor.hba_prices_stale
+                state: "on"
+            content: >
+              {%- set B = 'binary_sensor.hba_prices_stale' -%}
+              {%- set u = state_attr(B, 'known_until') -%}
+              <ha-alert alert-type="warning">Prices missing — the price source has given no prices since {{ as_timestamp(state_attr(B, 'since'), 0) | timestamp_custom('%a %H:%M') }}. HBA plans with the prices it already knew{{ ', until ' ~ (as_timestamp(u, 0) | timestamp_custom('%a %H:%M')) if u else ', but none are left' }}. Check the price integration.</ha-alert>
+          - type: markdown
+            grid_options:
+              columns: full
+            visibility:
+              - condition: state
+                entity: binary_sensor.hba_p1_meter_lost
+                state: "on"
+            content: >
+              <ha-alert alert-type="error">P1 meter lost — no reading from sensor.p1_meter_power for over a minute. In Full control HBA has stopped the batteries and continues by itself at the first reading. Check the meter and its connection.</ha-alert>
           - type: markdown
             grid_options:
               columns: full
@@ -618,15 +622,19 @@ views:
               {%- set along = is_state('binary_sensor.hba_ev_charge_alongside', 'on') -%}
               {%- if pol == 'Charge alongside EV' and along -%}
               {%- if is_state_attr('binary_sensor.hba_ev_charge_alongside', 'mode', 'Batteries first') -%}
+              {%- set act = states('sensor.hba_active_strategy') -%}
               <ha-alert alert-type="warning">EV is charging — batteries never discharge into
-              the car. They charge only when {{ states('sensor.hba_active_strategy') }} wants to, and then
+              the car. {{ 'Now they are idle (' ~ act ~ '). When a strategy charges them, they go'
+              if act.startswith('Full stop') else 'When ' ~ act ~ ' charges them, they go' }}
               first: until {{ states('input_number.hba_ev_battery_priority_energy') | float(0) | round(1) }} kWh
               usable (now {{ states('sensor.hba_charge_available_energy') | float(0) | round(1) }} kWh) the
               charger slows the car.</ha-alert>
               {%- else -%}
+              {%- set act = states('sensor.hba_active_strategy') -%}
               <ha-alert alert-type="warning">EV is charging and gets priority — batteries never
-              discharge into the car. They charge only when {{ states('sensor.hba_active_strategy') }} wants
-              to, and then only in the room left under
+              discharge into the car. {{ 'Now they are idle (' ~ act ~ '); a strategy that charges them may only use'
+              if act.startswith('Full stop') else 'They charge only as far as ' ~ act
+              ~ ' charges them, and then only in' }} the room left under
               {{ states('input_number.hba_ev_phase_current_limit') | float(22) | round(1) }} A per
               phase.</ha-alert>
               {%- endif -%}
@@ -1323,7 +1331,7 @@ views:
       card:
         type: markdown
         content: >-
-          ### Self-consumption strategy *(HBA v4.10.1-r25)*
+          ### Self-consumption strategy *(HBA v4.10.1-r26)*
 
           The **PID controller** steers your batteries to keep grid usage near
           target, _e.g. 0 Watt_, and is used by:
@@ -1466,7 +1474,7 @@ views:
       card:
         type: markdown
         text_only: true
-        content: '### Charge / Sell *(HBA v4.10.1-r25)*'
+        content: '### Charge / Sell *(HBA v4.10.1-r26)*'
     cards: []
     badges:
       - type: entity
@@ -1858,7 +1866,7 @@ views:
       card:
         type: markdown
         text_only: true
-        content: '### Timed *(HBA v4.10.1-r25)*'
+        content: '### Timed *(HBA v4.10.1-r26)*'
     sections:
       - type: grid
         cards:
@@ -2146,7 +2154,7 @@ views:
       card:
         type: markdown
         text_only: true
-        content: '### Dynamic *(HBA v4.10.1-r25)*'
+        content: '### Dynamic *(HBA v4.10.1-r26)*'
     sections:
       # ── Dynamic: config column ────────────────────────────────────────────────────────
       - type: grid
@@ -2300,11 +2308,19 @@ views:
                 {%- set ts = as_timestamp(e.start, 0) | int -%}
                 {%- set key = ts | timestamp_custom('%H:%M') -%}
                 {%- if ts >= day0 and ts < day1 -%}
-                  {%- if key in ns.t -%}{%- set key = key ~ '²' -%}{%- set ns.extra = ns.extra + [key] -%}{%- endif -%}
+                  {%- if key in ns.t -%}
+                    {%- set key = key ~ '²' -%}
+                    {%- set ns.extra = ns.extra + [key] -%}
+                  {%- endif -%}
                   {%- set ns.t = ns.t | combine({ key: e }) -%}
-                  {%- if e.is_now -%}{%- set ns.nowkey = key -%}{%- endif -%}
+                  {%- if e.is_now -%}
+                    {%- set ns.nowkey = key -%}
+                  {%- endif -%}
                 {%- elif ts >= day1 and ts < day2 -%}
-                  {%- if key in ns.m -%}{%- set key = key ~ '²' -%}{%- set ns.extra = ns.extra + [key] -%}{%- endif -%}
+                  {%- if key in ns.m -%}
+                    {%- set key = key ~ '²' -%}
+                    {%- set ns.extra = ns.extra + [key] -%}
+                  {%- endif -%}
                   {%- set ns.m = ns.m | combine({ key: e }) -%}
                 {%- endif -%}
               {%- endfor -%}
@@ -2312,7 +2328,9 @@ views:
               {%- for r in range(ppd) -%}
                 {%- set base = "%02d"|format((r // pph) | int) ~ ':' ~ "%02d"|format(((r % pph) * step) | int) -%}
                 {%- set rows.l = rows.l + [base] -%}
-                {%- if (base ~ '²') in ns.extra -%}{%- set rows.l = rows.l + [base ~ '²'] -%}{%- endif -%}
+                {%- if (base ~ '²') in ns.extra -%}
+                  {%- set rows.l = rows.l + [base ~ '²'] -%}
+                {%- endif -%}
               {%- endfor -%}
               {%- set t_vals = ns.t.values() | map(attribute='price') | list -%}
               {%- set m_vals = ns.m.values() | map(attribute='price') | list -%}
@@ -2442,7 +2460,7 @@ views:
         type: markdown
         text_only: true
         content: >-
-          ### Insights *(HBA v4.10.1-r25)*
+          ### Insights *(HBA v4.10.1-r26)*
 
           Need help figuring out what is going on?
 
@@ -2500,7 +2518,8 @@ views:
               {% set target = states('input_number.hba_target_grid_consumption') | float(0) -%}
               {% set err = grid - target -%}
               {% set ev_e = states('input_text.hba_strategy_ev_sensor_entity_id') | trim -%}
-              {% set p1_age = (as_timestamp(now()) - as_timestamp(states['sensor.p1_meter_power'].last_changed)) | int -%}
+              {% set p1_st = states['sensor.p1_meter_power'] -%}
+              {% set p1_age = (as_timestamp(now()) - as_timestamp(p1_st.last_changed if p1_st is not none else now())) | int -%}
               {% set has_imp = is_state('input_boolean.hba_control_has_power_limit_import', 'on') -%}
               {% set has_exp = is_state('input_boolean.hba_control_has_power_limit_export', 'on') -%}
               {% set imp_lim = states('input_number.hba_control_power_limit_import') | float(0) | int -%}
@@ -2643,13 +2662,13 @@ views:
               {%- set pr = state_attr(S, 'problems') or [] -%}
               **{{ states(S) }}**{{ ' — ' ~ (pr | join('; ')) if pr else '' }}
               {% for G, x in g.items() %}
-              **Group {{ G }}** — {{ x.policy }}, max {{ x.max_power }} W{{ ' · leader charge M' ~ lead[G ~ '_charge'] if (G ~ '_charge') in lead else '' }}{{ ' · leader discharge M' ~ lead[G ~ '_discharge'] if (G ~ '_discharge') in lead else '' }}
+              **Group {{ G }}** — {{ x.policy }}, max {{ x.max_power }} W{{ ' · leader charge M' ~ lead[G ~ '_charge'] if (G ~ '_charge') in lead else '' }}{{ ' · leader discharge M' ~ lead[G ~ '_discharge'] if (G ~ '_discharge') in lead else '' }}{% set st = x.members | select('in', full + empty) | list %}
 
-              | | Charge set / read | Discharge set / read | |
-              |---|---|---|---|
+              | | Charge set / read | Discharge set / read |{{ ' State |' if st }}
+              |---|---|---|{{ '---|' if st }}
               {% for b in x.members -%}
               {%- set k = b | string -%}
-              | M{{ b }} | {{ c[k] if k in c else '–' }} / {{ states('sensor.marstek_m' ~ b ~ '_max_charge_power_number') }} | {{ d[k] if k in d else '–' }} / {{ states('sensor.marstek_m' ~ b ~ '_max_discharge_power_number') }} | {{ 'full ' if b in full else '' }}{{ 'empty' if b in empty else '' }} |
+              | M{{ b }} | {{ c[k] if k in c else '–' }} / {{ states('sensor.marstek_m' ~ b ~ '_max_charge_power_number') }} | {{ d[k] if k in d else '–' }} / {{ states('sensor.marstek_m' ~ b ~ '_max_discharge_power_number') }} |{% if st %} {{ 'full ' if b in full else '' }}{{ 'empty' if b in empty else '' }} |{% endif %}
               {% endfor %}
               {% endfor -%}
             visibility:
@@ -2998,13 +3017,17 @@ views:
                       {%- if s == ns.ce -%}
                         {%- set ns.ce = e -%}
                       {%- else -%}
-                        {%- if ns.cs >= 0 -%}{%- set ns.out = ns.out + [(ns.cs, ns.ce)] -%}{%- endif -%}
+                        {%- if ns.cs >= 0 -%}
+                          {%- set ns.out = ns.out + [(ns.cs, ns.ce)] -%}
+                        {%- endif -%}
                         {%- set ns.cs = s -%}{%- set ns.ce = e -%}
                       {%- endif -%}
                     {%- endif -%}
                   {%- endif -%}
                 {%- endfor -%}
-                {%- if ns.cs >= 0 -%}{%- set ns.out = ns.out + [(ns.cs, ns.ce)] -%}{%- endif -%}
+                {%- if ns.cs >= 0 -%}
+                  {%- set ns.out = ns.out + [(ns.cs, ns.ce)] -%}
+                {%- endif -%}
                 {%- if ns.out | length == 0 -%}none today
                 {%- else -%}
                   {%- for r in ns.out -%}{{ r[0] | timestamp_custom('%H:%M') }}–{{ r[1] | timestamp_custom('%H:%M') }}{{ ', ' if not loop.last }}{%- endfor -%}
@@ -3043,7 +3066,7 @@ views:
               {%- elif outlook == 'No solar entity' %}decision: **Zero import** (fallback — solar forecast entity not set or unavailable)
               {%- elif outlook == 'No solar detail' %}decision: **Zero import** (fallback — entity has no detailedForecast attribute)
               {%- elif outlook == 'No price data' %}decision: **Zero import** (fallback — no energy price marks)
-              {%- elif outlook in ['No data', 'unavailable', 'unknown'] %}decision: **Zero import** (fallback — outlook sensor {{ outlook }})
+              {%- elif outlook in ['unavailable', 'unknown'] %}decision: **Zero import** (fallback — outlook sensor {{ outlook }})
               {%- elif threshold > 0 and solar_today > 0 and solar_today < threshold %}decision: **Self-consumption** (solar {{ solar_today | round(1) }} kWh below threshold {{ threshold }} kWh)
               {%- elif covers %}decision: **Zero import** (solar covers charge)
               {%- elif deadline != 'none' and as_timestamp(now()) < deadline | as_timestamp(0) %}decision: **Zero import** until {{ deadline | as_timestamp(0) | timestamp_custom('%H:%M') }}, then Self-consumption
@@ -3111,7 +3134,7 @@ views:
       card:
         type: markdown
         text_only: true
-        content: '### Advanced settings *(HBA v4.10.1-r25)*'
+        content: '### Advanced settings *(HBA v4.10.1-r26)*'
     sections:
       # Battery offline warning — full width, hidden when all batteries are online
       - type: grid
@@ -3240,6 +3263,28 @@ views:
               **0 = send every cycle** (old behaviour); lower it to 5–10 s first
               if a battery ever drifts out of its commanded
               mode.</i></font>
+            text_only: true
+          - type: heading
+            icon: mdi:wrench-clock
+            heading: Battery maintenance
+            heading_style: subtitle
+          - type: entities
+            entities:
+              - entity: input_boolean.hba_maintenance_mode
+                name: Maintenance mode
+                secondary_info: none
+          - type: markdown
+            content: >-
+              <font color="grey"><i>For when a battery needs to be left
+              alone, e.g. while Marstek support investigates it. How to use: switch
+              this on, then switch RS485 off on that battery (Marstek app or its
+              RS485 control mode); afterwards switch this off. While it is on, for
+              every battery with RS485 off HBA: does not switch RS485 back on (also
+              not after a restart), sends it no commands and no limit or work-mode
+              writes, and gives its share to the other batteries. In a power group
+              its own max charge / discharge power (or its register, when higher)
+              stays reserved, because HBA does not know what it will do. Switching
+              this off switches RS485 back on at once.</i></font>
             text_only: true
 
       # Links to settings that live in other views — one section instead of three
@@ -4562,6 +4607,12 @@ views:
               share to the others, an empty one its *discharge* share. HBA lowers a battery
               first and raises the other only once the battery reports the lower value.
 
+              **Share BMS shortfall (experimental):** when a battery's BMS allows less than its
+              own max power (cold cells below ~5 °C: about 1.6 kW, or nearly full / empty), HBA
+              counts it at what the BMS allows and gives the rest of the group's power to the
+              other batteries. Only from 200 W less and after the BMS level held 2 minutes, so
+              the registers are not rewritten for every small change.
+
               <ha-alert alert-type="warning" title="Use at your own risk">
 
               This is a software limit, not electrical protection. A firmware bug, a battery
@@ -4735,6 +4786,8 @@ views:
                 row:
                   entity: input_select.hba_power_group_c_policy
                   name: Group C spread
+              - entity: input_boolean.hba_power_group_bms_share
+                name: Share BMS shortfall (experimental)
             visibility:
               - condition: state
                 entity: sensor.hba_power_limits
@@ -4903,7 +4956,7 @@ views:
         type: markdown
         text_only: true
         content: >-
-          ### EV Charge *(HBA v4.10.1-r25)*
+          ### EV Charge *(HBA v4.10.1-r26)*
 
 
           **HBA-specific feature** — not part of HBC. Configures the EV stop
@@ -5153,7 +5206,7 @@ views:
         type: markdown
         text_only: true
         content: >-
-          ### Notifications *(HBA v4.10.1-r25)*
+          ### Notifications *(HBA v4.10.1-r26)*
 
 
           **HBA-specific feature** — not part of HBC. Configure where HBA

@@ -11,6 +11,282 @@ This document covers HBA-specific changes only.
 
 ---
 
+## v4.10.1-r26 — November 2026
+
+### Upgrading — read this first
+
+- **Replace your battery files** (`marstek_m*_modbus_tcp.yaml`). The installer never overwrites them; it
+  puts the new ones next to them as `.new` and warns. Copy each `.new` over your file (keep your own IP
+  address and slave id). They read the BMS discharge limit at the right scale (it read ten times too low),
+  read the BMS limits every 60 s, use `timeout: 5` and poll slow values less often. See *Fixed* below.
+- **From r23:** install r25 first if you can: r26 no longer converts the savings running total of r23. Without that
+  step it still works, but *Saved* dips once by the value of the energy below the cutoffs (~€0.35 per
+  battery) the first time the batteries run empty, and the sensor's own value keeps its start offset.
+
+### Added
+
+- **Planned decision log.** Each decision of Planned writes one line to the HA Logbook (name *HBA
+  Planned*; filter on `sensor.hba_decision_log`, or see the **Decisions** card at the top of Insights in
+  the preview dashboard), so a stop or a start can be explained
+  later: the re-plan reason with what changed (e.g. *new prices or forecast (solar today 3.1 → 4.2 kWh):
+  13:00 Charge to 4.95 kWh at €0.21 (for a dearer slot later) (was Charge to 3.52 kWh)*), Charge / Sell /
+  Car done with the stored energy, and every change of what runs (*Runs Planned → Charge done → Full
+  stop*). A re-plan that changes neither the running nor the next hour writes nothing, unless a setting,
+  the refresh icon or an HA start caused it. Only while Planned is the strategy.
+- **BMS limit log.** A Logbook line (name *HBA BMS*, on `sensor.hba_decision_log`) when a
+  battery's BMS starts or stops limiting its charge or discharge power (cold cells, near full or empty),
+  with the current, the power it allows, the battery's own limit, the coldest cell and the SoC. A level
+  must hold 2 minutes, as for the BMS share; levels that still allow the battery's own limit write
+  nothing. Works with every strategy.
+- **Power limit log.** A Logbook line (name *HBA Limits*, on `sensor.hba_decision_log`) when the batteries
+  start or stop running at the main fuse, car first, Balance or BMS limit — the same moments as the
+  Overview's "limited" line — with the power they can do and, with Planned in a Charge / Sell / Car hour,
+  the power the plan counted on. Works with every strategy.
+
+- **Maintenance mode** (`input_boolean.hba_maintenance_mode`, default off; Advanced
+  settings → Battery maintenance). For a battery that support works on: switch it on, then switch RS485
+  off on that battery. HBA no longer switches RS485 back on and leaves that battery alone: no commands,
+  no limit-register writes, no work-mode change, and its share goes to the other batteries. In a power
+  group its own max charge / discharge power stays reserved (or its register, when higher), because HBA
+  does not know what it will do. A warning banner shows while the option is on; the RS485 alert comes
+  once with the maintenance text. A battery that restarts meanwhile also stays at RS485 off. Switching
+  the option off switches RS485 back on at once.
+- **Power groups: share BMS shortfall** (`input_boolean.hba_power_group_bms_share`, experimental, default
+  off; Power groups settings). When a battery's BMS allows less than its own max power — cold cells (below
+  ~5 °C a Venus E 3.0 allows 30 A, about 1.6 kW), or nearly full / empty — HBA counts it at what the BMS
+  allows (current limit × battery voltage + 100 W) and gives the rest of the group's power to the other
+  batteries. Example: group 3600 W, cold leader at 1.6 kW: the other battery gets 1900 W instead of 1100 W.
+  Only from 200 W below the own limit and once the BMS level has held 2 minutes, so the registers are not
+  rewritten at every small change; lowering first, as always. Charge and discharge. The planner keeps
+  planning later hours with the full limits (`charge_nominal` / `discharge_nominal`). Needs the battery
+  files with the discharge-limit fix below.
+- **A battery with RS485 off gets no share** (Full control, also without the option): it ignores every
+  command, so its share goes to the other batteries, also in the seconds after a restart until RS485 is
+  back on. The limit source shows *RS485 off* for it.
+
+- **Planned: charge the car from the batteries** (`input_boolean.hba_strategy_planned_car_battery`, default
+  off; needs the EV project with *Follow assisted*). A new plan action **Car** (🔋→🚗 in the plan table):
+  the batteries cover the house and the rest goes into the car, when a battery kWh is worth more there
+  than sold, used in the house or kept. A kWh in the car is worth the all-in price of a grid car hour it
+  replaces (that hour then charges less); above those hours, up to Leftover, the max price
+  for a car whose charging is compensated (new per-car switch in the EV project) or else the cheapest known
+  price — never more than refilling the batteries from the grid would cost, so the plan never buys for
+  the car through the batteries. With *Allow grid charging for Normal* off, grid energy bought after
+  plug-in never goes to the car. It runs through the Timed EV charge push (same guards, the EV project's
+  `assisted_battery` mode) at the house's expected use plus the car's charge power; with an energy meter
+  on the charger the push stops when the car has that hour's kWh, and the batteries cover the house for
+  the rest. It pauses while the plan is out of date or the P1 meter is lost. New settings: *ends before departure* (hours, default 1;
+  grid car hours run up to the departure) and *latest plug-in time* (default 18:00: until then the plan
+  may keep battery energy for a car that is not plugged in yet; at that time without the car it is free
+  again). With the switch on, the car question also comes at plug-in when Normal is already in, as long
+  as the car is below Leftover, and at the reminder time only when it did not ask yet that day.
+  The Car section shows what the batteries give, its value and cost.
+
+### Changed
+
+- **Planned: "Allow grid charging for the car" is now "Allow grid charging for Normal"** — the same
+  switch and entity; it always meant the grid above Minimum.
+- **Planned: plan out of date is no longer silent.** When no new plan could be made for the running
+  slot (usually an error in the plan calculation), Planned already ran Self-consumption; now
+  `binary_sensor.hba_plan_out_of_date` turns on, with a banner in the Overview, a notification
+  *Planned has no current plan* and a resolved message when a plan is made again (also checked after
+  an HA start or automation reload).
+- **Planned: Car first vs Balance side by side** (with a Difference column, the car's price per kWh and the batteries' cost out after the car hours, and a *No car* column: the same plan without the car, with a line saying what the car costs the batteries — a third calculation, ~0.2 s, only in plans with car hours next to charging batteries). With car hours next to charging batteries the plan
+  now always works out both choices (also when one is set by hand) and the Car section shows them in a
+  table: car hours and kWh, car cost, what the batteries store in those hours, batteries + house, kWh
+  that do not fit, total — plus which one runs and by how much. Insights (Planned — decisions) gets two
+  lines: the car SoC that is being kept while the car integration has none (EV project), and the
+  re-plans of the last 24 h counted by reason (new reason *car changed*, split off from *new prices or
+  forecast*).
+- **Planned with the car: car hours priority** (*Car hours with charging batteries*, Car section,
+  `input_select.hba_strategy_planned_car_priority`). In an hour where both the car and the batteries
+  charge from the grid (Charge alongside EV): **Car first** = the car at full power, the batteries the
+  room it leaves (as before); **Balance** = the batteries leave the car its 6 A minimum + 1 A per phase,
+  so the charger slows the car instead of pausing it; the car counts at its minimum (4.1 kW; a 1-phase car 1.4 kW, from the EV project's car info) and gets
+  more hours. **Auto** (default) works out both and keeps the cheaper one (batteries + car, car kWh that
+  no longer fit at the max price; Balance only when it saves more than 2 cents). The Car section shows
+  which one runs and both totals. With a fixed choice the other one is only worked out while Insights mode
+  is on, and so is the *No car* column (each is one more plan calculation, during which HA waits); the
+  Car section says so. At runtime Balance is a mode of Charge alongside EV
+  (`binary_sensor.hba_ev_charge_alongside` mode *Balance*, room in `sensor.hba_phase_room` `ev_bal_w`,
+  limit source *Balance Lx*). Nothing changes in the EV project: the charger's own limit throttles the car.
+- **Planned with the car: the car limits the batteries only while it charges.** In a car hour the
+  batteries got only the phase room the car leaves (or nothing) for the whole hour, even when the car
+  needed just a few minutes of it (0.8 kWh at 10.5 kW ≈ 5 min). Now that limit counts for the car's
+  share of the hour; the rest has the batteries' normal charge power. Example: 3.6 kWh more stored at
+  0.242 instead of buying earlier at 0.251, and the afternoon Sell it pays for stays in the plan.
+- **P1 meter lost: the batteries stop.** No reading from `sensor.p1_meter_power` for a minute (meter
+  or its connection gone) → every battery is stopped, whatever the strategy, with a banner and a
+  notification *P1 meter lost, batteries stopped*; control continues by itself at the first reading.
+  Before, the batteries kept their last command until the meter was back. The *control stalled* alert
+  is now only about a hanging cycle. **Add an `availability:` line to your own P1 Meter Power sensor**
+  (see `hba_config.yaml.example`): without it a lost meter reads as 0 W.
+
+- **A quick second master-mode change is no longer dropped.** Choosing another mode while the previous
+  one was still being applied (a few seconds) was ignored; Disabled and then Full control right after
+  left the control loop off. The changes now run one after the other.
+
+- **Problems that are already there at a start or reload are reported.** Battery offline, control
+  stalled, P1 meter lost, RS485 mismatch, limits not restored, charge goal conflict and the EV link are
+  checked again 5 minutes after an HA start or an automation reload. Before, a problem that began just
+  before it (or was there all along) gave no notification, and a restart removed its bell entry.
+
+- **Planned: the car is back in the plan right after a restart.** The plan made at an HA start had no
+  car (its integration was not up yet) until the next 5-minute check; the car was told to wait meanwhile.
+  It is now re-made as soon as the car is known.
+
+- **Planned: a plan that is out of date no longer runs on.** When no new plan can be made, Planned
+  runs Self-consumption (*Planned (plan out of date)*) from 5 minutes after the last planned slot.
+
+- **Installer checks the battery files.** It never overwrites them, so fixes to them did not reach
+  existing installs. It now warns when a battery file is not the current version (and puts the new
+  one next to it as `.new`), when another Marstek Modbus file under `packages/` still has the long
+  timeout or the fast polling, and when two files under `packages/` have the same name.
+
+- **Installer: all files or none.** Every file is downloaded and checked first and only then put in
+  place; a download that fails halfway leaves the installation as it was (before: some files new, the
+  rest old). Downloads are retried, and the branch is resolved to a commit once.
+
+- **A battery that drops out and comes back no longer upsets the numbers.** A battery counts while
+  its state of charge can be read; its capacity (polled every 5 minutes, the last thing to come back)
+  is remembered in `sensor.hba_battery_capacity`. Before, a battery that was back still counted as
+  0 kWh for minutes, Planned then re-planned for energy that was never gone and booked it as bought.
+  Average SoC is taken over the batteries that can be read (a missing one counted as 0 %).
+
+- **Smaller fixes:** the PID no longer counts on a battery that is offline or faulted (it reacted
+  late after a load drop with a battery away); changing the master mode skips a battery that does not
+  answer instead of waiting on it; power-group limit registers are no longer written two or three
+  times per change; a failed nightly calculation no longer wipes the house load profile.
+
+- **Two alerts at the same moment both arrive.** The second one was dropped while the first was
+  being sent to the phone.
+
+- **Plan history shows what the car got:** a past hour in the Planned table has a line *🚗 Car X kWh*
+  when the charger's energy meter counted car charging in it (needs the EV charger energy meter).
+
+- **Refresh icon in the Planned view:** next to the *Plan* heading; makes a new plan at once (the line
+  below shows "refresh asked"). Useful after plugging the car in or out, which the plan otherwise
+  only sees at its next 5-minute check.
+
+- **Planned × car: a day at home is no deadline any more.** When the car stays home on the day of the
+  next departure (a day in *Car home in daytime on*, or your own answer), Normal takes the cheapest
+  known hours until the first departure on a day it is not home — also in the daytime, already the
+  evening before. Before, "home" only lowered Normal by the expected sun and the car still charged
+  in the night before the departure time. Minimum is still in by the departure when the day only
+  comes from the list, and waits too after *Not leaving*.
+- **Two settings renamed, with new options** (the old ones start on Auto):
+  *Next departure* — Auto / Not leaving / Leaving (was *Car tomorrow*: Auto / Home / Away) and
+  *Normal from the grid* — Auto / Minimum only / Min. until home day (was *Normal coming night*:
+  Auto / Skip tonight / Skip until home day). Entities:
+  `input_select.hba_strategy_planned_car_next_departure`, `…_car_normal_skip`.
+- **The evening question** shows the car's level, Minimum and Normal on a first line, and has three
+  buttons: *Not leaving / Minimum only / Min. until home day*, or on a home day from the list
+  *Not leaving / Leaving / Minimum only*.
+  While *Min. until home day* runs, a short notice in its place says until which day Normal stays
+  skipped, with *Charge* and *Dismiss* buttons; it removes itself from the phone after an hour.
+- **The answers end by themselves once their departure has passed**, checked all the time
+  (`sensor.hba_planned_car_choice` remembers which departure). The old reset ran at one clock
+  minute and was missed after a restart or a changed departure time. Changing the departure time
+  after answering keeps the answer as long as the departure stays on the same day.
+
+- **Less recorder load:** `binary_sensor.hba_control_loop_stalled` has `seconds_since_cycle` only during a
+  stall (it changed at every control cycle: 100–800 rows an hour). Labs floor sensors list the motion
+  sensors as one entry *Motion sensors* (switching between an mmWave's moving and still target wrote
+  ~1300 rows a day).
+- **Efficiency:** Savings uses the same round-trip efficiency as Planned, so also Planned's efficiency
+  setting when it is not 0 (it always used the measured value). The measured value skips batteries that
+  report less than 60 % or more than 90 % (was 50–100 %): a new battery's lifetime value can start far
+  too high (110 %, then about 100 % for weeks), and then Planned saw cycles as nearly free. The Planned
+  view then shows a warning with those batteries and the value to set by hand.
+
+- **A battery that stops answering no longer holds up the others:** HBA wrote the batteries one after
+  the other and waited for every Modbus write, so one battery that hangs (cable pulled, battery
+  frozen) stopped the control loop for all of them — 10.5 minutes with the battery files as they
+  were. Two changes:
+  - **The batteries are written at the same time.** Each cycle starts the writes for all batteries
+    together and waits until they are done, at most 2 s. A battery that does not answer keeps its
+    own write waiting in the background and gets no new command until that write ends or the battery
+    reports again; the others carry on. Measured with fake batteries (one silent, refusing
+    connections, or answering 2 s / 6 s late): the others never missed a command. A battery that
+    answers very late is itself still hard to control.
+  - **Battery files** (`marstek_m*_modbus_tcp.yaml`): `timeout: 5` instead of 20, and 24 values that
+    change slowly are read every 5 minutes instead of every 30 s (cell voltages, Wi-Fi / Bluetooth /
+    cloud state, Wi-Fi signal, AC frequency, monthly energy, total energy), so writes wait less behind
+    reads. **The installer never overwrites your existing battery files**, so an existing install only
+    gets this when you change them by hand; the timeout is the line `timeout: 20` near the top of each
+    file. Do not keep a copy of the old file anywhere under `packages/` with the same file name: Home
+    Assistant then loads the copy instead of the new file.
+
+### Fixed
+- **EV banner wording:** "They charge only when Full stop wants to" (the running strategy's name put into the
+  sentence) now says the batteries are idle while Full stop runs, and otherwise "as far as <strategy> charges
+  them". Both dashboards.
+- **Prices missing: HBA keeps the hours it knew.** When the price source gave no prices (Frank Energie
+  unavailable for hours on 2026-11-20 from 00:45), HBA's price data went empty at the next refresh, Planned had
+  no plan and ran Self-consumption, and a planned car hour was lost. HBA now keeps the known prices of today
+  and tomorrow (`sensor.hba_energy_prices_data` attributes `stale` / `stale_since`), so Planned and Dynamic run
+  on until those hours end. New: `binary_sensor.hba_prices_stale` with a banner on both dashboards, a
+  notification after an hour and a resolved message.
+- **Planned: the batteries get the car's room back as soon as the car is full.** The plan only noticed the car's
+  SoC in 5 % steps, so a car reaching its target (98 -> 100 %) did not re-plan and the batteries kept charging at
+  the lower power next to the car for up to 40 minutes. Reaching Minimum, Normal or Leftover now re-plans at the next 5-minute check.
+- **Planned: no one-minute stop between two Charge (or Sell) hours.** When Charge reaches its target in the last
+  5 minutes and the next hour charges too at a price that is not lower, the batteries go straight on to the next
+  hour's target instead of stopping until the hour ends.
+- **No more false "battery not responding" near full:** the battery files read the BMS limits every 60 s
+  (was 90 s) and the alert waits 90 s (was 60 s). Near full the BMS cuts the charge (M2 at 92-93 %: 1630
+  to 540 W); HBA only lowers its command once it reads the new BMS limit, so the alert fired and cleared
+  seconds later. **Replace your battery files** (the installer puts the new ones next to them as `.new`):
+  with the old files (90 s) the alert can still fire now and then.
+- **BMS discharge current limit read ten times too low:** the battery files read register 35112 with
+  scale 0.01, so *Battery Discharge Current Limit* showed 10 A where the BMS allows 100 A (the battery
+  discharged 2.7 kW meanwhile). Now 0.1, like the charge current limit: 100 / 80 / 50 / 40 / 20 A. HBA did
+  not use this value yet; its long-term statistics jump by a factor of ten once. **Replace your battery
+  files** (`.new` next to them).
+- **Battery files M2–M6: RS485 control select unavailable while the battery cannot be read**, as M1's
+  already was. Before, an offline battery's select kept showing the last value HA sent. New installs only:
+  the installer never overwrites an existing battery file (copy the `availability:` of that select by hand
+  if you want it).
+- **Ask before Normal: the question comes right after plug-in instead of 6 minutes later, and only for a
+  real plug-in.** Planned makes a new plan as soon as the car is plugged in or out (before: at the next
+  5-minute check), and the question waits for that plan (a second or two). An HA restart or a template
+  reload with the car connected no longer asks again. When it only asks for the departure, the
+  first line now says why Normal has no grid hours (already in, grid charging off, covered by Minimum or
+  solar, or no hour below the max price).
+- **Timed EV charge / battery to car: waiting for the car without an EV-charging entity.** With no
+  EV-charging entity set, "the car is not drawing" now comes from the charger power sensor (below 300 W
+  for 3 minutes), so the push stops instead of exporting until the overflow guard trips.
+- **No false alerts after an automation reload:** the control-loop watchdog and the battery offline check
+  ignore delays for 2 minutes after `automation_reloaded` (a reload can freeze HA for a while; new
+  `sensor.hba_last_automation_reload`).
+- **Without an EV charging entity, the batteries stopped all the time:** with "EV charging entity_id" left
+  empty, HBA behaved as if a car was charging (label "EV stop trigger", Full stop with the default setting).
+  Installs with an EV entity filled in were not affected.
+- **Charge with an import limit charges from the grid again.** With *Import power limit* on, Charge (and
+  Planned's Charge) ran as plain Self-consumption: the meter went to 0 W and the batteries could even
+  discharge. Now the meter is kept at the import limit and the batteries take what is left of it, never
+  discharging. Under Planned the planned charge power is not applied while the limit is on.
+- **Take control from HBC now sets Node-RED to manual start** (and Yield back to auto). The command
+  that does this was sent with an empty add-on name and boot mode, failed silently, and Node-RED came
+  back after a host restart.
+- Charge → Sell keeps its flow label (it was written and overwritten with "Sell" every cycle).
+- Cell voltage difference is a whole number of mV (the rounding was applied to the wrong part).
+- The Controller state card no longer fails when `sensor.p1_meter_power` does not exist.
+- The notify action suggestions only list the mobile app's own phones (other notify entities were
+  shown as `notify.mobile_app_…` actions that do not exist).
+- Docs: a fresh install starts on *Very safe*, *Regular* is the validated preset to switch to;
+  DEFAULTS.md version; which battery files have an `availability:` on their selects.
+
+### Removed
+
+- Upgrade code for versions before r25: the savings conversion (r25), the Dynamic v1/v2 migration check,
+  notification and banner (r22), the installer's move of HBA files from the old location directly in
+  `packages/`, and the old solar outlook state *No data*. Their entities stay behind as *unavailable*
+  (`binary_sensor.hba_dynamic_migration_needed`, `automation.hba_notify_dynamic_migration`,
+  `automation.hba_dynamic_migration_resolved`): delete them in **Settings → Entities** if you like.
+
+---
+
 ## v4.10.1-r25 — November 2026
 
 Savings update on top of r23 (dev builds reported r24 and r25; r24 was never released on its own).
@@ -173,6 +449,9 @@ version prefix stays at 4.10.1 for now.
 
 ### Fixed
 
+- **Car question twice in one evening:** a question at plug-in (e.g. 19:32) was followed by the same
+  question at the reminder time (20:00) when Normal had hours in the plan. The reminder now asks only when
+  no question went out that day yet, as it already did for battery to car. A new plug-in still asks.
 - **Entity health checks the core sensors** — `binary_sensor.hba_entity_health` now also warns when
   total commanded / max charge / max discharge power, average SoC, remaining / available / usable
   energy, battery offline, RS485 mode mismatch or the control-loop watchdog is missing. Before, it

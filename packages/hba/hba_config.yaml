@@ -34,6 +34,8 @@
 #           {% set consumption = states('sensor.power_consumption') | float(0) %}
 #           {% set production  = states('sensor.power_production')  | float(0) %}
 #           {{ (consumption - production) | round(0) | int }}
+#         # Unavailable when the meter is: without this line a lost meter reads as 0 W
+#         availability: "{{ has_value('sensor.power_consumption') and has_value('sensor.power_production') }}"
 
 
 # EXAMPLE 2 — Single combined sensor
@@ -48,6 +50,8 @@
 #         device_class: "power"
 #         state_class: "measurement"
 #         state: "{{ states('sensor.YOUR_COMBINED_P1_SENSOR') | float(0) | round(0) | int }}"
+#         # Unavailable when the meter is: without this line a lost meter reads as 0 W
+#         availability: "{{ has_value('sensor.YOUR_COMBINED_P1_SENSOR') }}"
 
 
 # ═════════════════════════════════════════════════════════════════════════════

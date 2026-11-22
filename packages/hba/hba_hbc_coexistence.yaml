@@ -99,6 +99,9 @@ automation:
       - action: input_select.select_option
         target: { entity_id: input_select.hba_marstek_master_battery_mode }
         data: { option: "Manual control" }
+      # Leaving Full control is what stops the loop (its own condition). This turn_off adds
+      # nothing: the master-mode change above re-enables the automation (hba_apply_master_mode
+      # enables it for every mode except Disabled), in either order. Kept as it was.
       - action: automation.turn_off
         target: { entity_id: automation.hba_control_loop_p1_meter_triggered }
       - action: script.hba_strategy_full_stop
@@ -190,6 +193,9 @@ script:
       - action: input_select.select_option
         target: { entity_id: input_select.hba_marstek_master_battery_mode }
         data: { option: "Manual control" }
+      # Leaving Full control is what stops the loop (its own condition). This turn_off adds
+      # nothing: the master-mode change above re-enables the automation (hba_apply_master_mode
+      # enables it for every mode except Disabled), in either order. Kept as it was.
       - action: automation.turn_off
         target: { entity_id: automation.hba_control_loop_p1_meter_triggered }
       - action: script.hba_strategy_full_stop
@@ -222,13 +228,14 @@ script:
 
 # Sets Node-RED addon boot mode via the Supervisor REST API.
 # SUPERVISOR_TOKEN is inherited from HA's process environment (always set by HAOS).
-# $slug and $boot are injected as environment variables from the service call data —
-# HA scripts render templates in data fields before the call, so the slug is resolved
-# there rather than relying on template rendering inside the shell_command string.
+# boot and slug come from the service call data as templates. HA does NOT pass service data as
+# environment variables ($boot / $slug were always empty, so the call failed silently), and a
+# command with a template is run without a shell — hence /bin/sh -c, which fills in the token,
+# with the two values as its arguments $1 and $2.
 shell_command:
   hba_hbc_nodered_set_boot: >-
-    curl -sf -X POST
+    /bin/sh -c 'curl -sf -X POST
     -H "Authorization: Bearer $SUPERVISOR_TOKEN"
     -H "Content-Type: application/json"
-    -d "{\"boot\":\"$boot\"}"
-    "http://supervisor/addons/$slug/options"
+    -d "{\"boot\":\"$1\"}"
+    "http://supervisor/addons/$2/options"' _ "{{ boot }}" "{{ slug }}"
