@@ -21,6 +21,14 @@ This document covers HBA-specific changes only.
 
 ### Added
 
+- **Planned decision log.** Each decision of Planned writes one line to the HA Logbook (name *HBA
+  Planned*; filter on `automation.hba_planned_decision_log`), so a stop or a start can be explained
+  later: the re-plan reason with what changed (e.g. *new prices or forecast (solar today 3.1 → 4.2 kWh):
+  13:00 Charge to 4.95 kWh at €0.21 (for a dearer slot later) (was Charge to 3.52 kWh)*), Charge / Sell /
+  Car done with the stored energy, and every change of what runs (*Runs Planned → Charge done → Full
+  stop*). A re-plan that changes neither the running nor the next hour writes nothing, unless a setting,
+  the refresh icon or an HA start caused it. Only while Planned is the strategy.
+
 - **Maintenance mode** (`input_boolean.hba_maintenance_mode`, default off; Advanced
   settings → Battery maintenance). For a battery that support works on: switch it on, then switch RS485
   off on that battery. HBA no longer switches RS485 back on and leaves that battery alone: no commands,

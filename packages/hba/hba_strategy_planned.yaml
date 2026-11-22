@@ -76,7 +76,8 @@
 #   hba_planned_refresh                       the refresh icon
 #   hba_strategy_planned                      runs the running slot's strategy
 # automation:
-#   hba_planned_car_choice_reset, hba_planned_car_home_days_default, hba_house_load_profile_update
+#   hba_planned_car_choice_reset, hba_planned_car_home_days_default, hba_house_load_profile_update,
+#   hba_planned_decision_log                  one Logbook line per decision (why it re-planned, what runs)
 #
 # ── Short names in the calculation ──────────────────────────────────────────────
 # Energy in kWh, power in kW, prices in EUR/kWh, unless a name says otherwise (pw = W).
@@ -2514,3 +2515,137 @@ automation:
           sources: "{{ (result if result is mapping else (result | from_json)).sources }}"
           no_statistics: "{{ (result if result is mapping else (result | from_json)).no_statistics }}"
           kwh_day: "{{ (result if result is mapping else (result | from_json)).kwh_day }}"
+
+  # ── Decision log ──────────────────────────────────────────────────────────────
+  # One Logbook line per Planned decision, so why it stopped or started can be read back later (user
+  # 2026-11-22: a stop by the solar forecast is hard to explain otherwise; prod 11-21 13:28 Charge done,
+  # then a new forecast at 13:30 raised the target: only visible by comparing two plans by hand).
+  # Logbook -> this automation (automation.hba_planned_decision_log), or the HA Logbook filtered on it.
+  # The lines are logbook_entry events on this automation's entity: an entity the recorder keeps, as the
+  # plan sensor itself is recorder-excluded and events of an excluded entity are not stored. They go
+  # with the recorder's purge, like everything else (prod: 2-3 days).
+  # plan: a new plan (attribute plan_made) that changes the running or the next slot, or any plan
+  #   made by a setting, the refresh icon, a Charge / Sell / Car done, an HA start or a status change.
+  #   Line: why (the re-plan reason, plus what changed: forecast / prices / car / drift) and the
+  #   running and next slot as now planned, with what they were. Only while Planned is the strategy.
+  # flow: what runs now changes (input_text.hba_strategy_active_flow, "Planned → ..."). Compared up to
+  #   the Planned decision itself (Charge, "Charge done → Charge PV", "Car (car not charging) → ..."):
+  #   the sub-states after it, such as Charge PV switching between Full stop and Self-consumption with
+  #   the sun, would write a line every few minutes.
+  - id: hba_planned_decision_log
+    alias: "HBA: Planned decision log"
+    mode: queued
+    max: 10
+    triggers:
+      - trigger: state
+        entity_id: sensor.hba_planned_strategy
+        attribute: plan_made
+        id: plan
+      - trigger: state
+        entity_id: input_text.hba_strategy_active_flow
+        id: flow
+    conditions:
+      - condition: state
+        entity_id: input_select.hba_strategy
+        state: Planned
+    actions:
+      - variables:
+          # The part of a label up to the Planned decision (see the comment above)
+          flow_key: >-
+            {%- macro key(l) -%}
+              {%- set p = (l or '').split(' → ') -%}
+              {{ p[:3] | join(' → ') if p | length > 2 and (p[1].endswith(' done') or p[1].startswith('Car ('))
+                 else p[:2] | join(' → ') }}
+            {%- endmacro -%}
+            {{ [key(trigger.from_state.state if trigger.from_state else ''),
+                key(trigger.to_state.state if trigger.to_state else '')] | tojson }}
+          message: >-
+            {%- if trigger.id == 'flow' -%}
+              {%- set k = flow_key if flow_key is sequence and flow_key is not string else (flow_key | from_json) -%}
+              {{ ('Runs ' ~ trigger.to_state.state)
+                 if k[1].startswith('Planned') and k[0] != k[1] else '' }}
+            {%- else -%}
+              {%- set o = trigger.from_state.attributes if trigger.from_state else {} -%}
+              {%- set n = trigger.to_state.attributes -%}
+              {%- set why = n.get('plan_reason') or '' -%}
+              {%- set now_ts = as_timestamp(now()) -%}
+              {%- set new_plan = n.get('plan') or [] -%}
+              {%- set old_plan = o.get('plan') or [] -%}
+              {#- Reason codes of the plan rows (legend at the top of this file), in words -#}
+              {%- set rw = {'A': 'for a dearer slot later', 'B': 'high price', 'C': 'keep for a dearer slot',
+                            'D': 'covers the house', 'E': 'the sun charges', 'F': 'nothing to gain',
+                            'G': 'empty or full', 'H': 'into the car'} -%}
+              {%- macro row(x, long) -%}
+                {%- set t = x.a -%}
+                {%- if x.a == 'Charge' -%}
+                  {%- set t = t ~ ' to ' ~ '%.2f' | format(x.e1) ~ ' kWh' ~ (' at €' ~ x.b if long else '') -%}
+                {%- elif x.a in ['Sell', 'Car'] -%}
+                  {%- set t = t ~ ' down to ' ~ '%.2f' | format(x.e1) ~ ' kWh'
+                      ~ (' at €' ~ x.s if long and x.a == 'Sell' else '') -%}
+                {%- endif -%}
+                {{ t ~ (' (' ~ rw[x.r] ~ ')' if long and x.get('r') in rw else '') }}
+              {%- endmacro -%}
+              {%- macro same(x, y) -%}
+                {{ x is not none and y is not none and x.a == y.a
+                   and (x.a not in ['Charge', 'Sell', 'Car'] or (x.e1 - y.e1) | abs < 0.1) }}
+              {%- endmacro -%}
+              {%- set cur = new_plan | selectattr('ts', 'le', now_ts) | list | last | default(none) -%}
+              {%- set nxt = new_plan | selectattr('ts', 'gt', now_ts) | first | default(none) -%}
+              {%- set ns = namespace(parts=[], changed=false) -%}
+              {%- for x in [cur, nxt] if x is not none -%}
+                {%- set y = old_plan | selectattr('ts', 'eq', x.ts) | first | default(none) -%}
+                {%- set ok = same(x, y) == 'True' -%}
+                {%- set ns.changed = ns.changed or not ok -%}
+                {%- set ns.parts = ns.parts + [(x.ts | timestamp_custom('%H:%M')) ~ ' ' ~ row(x, true)
+                    ~ ('' if ok or y is none else ' (was ' ~ row(y, false) ~ ')')] -%}
+              {%- endfor -%}
+              {#- What changed, from the two signatures (parts: see the variable signature) -#}
+              {%- set s0 = (o.get('signature') or '').split('|') -%}
+              {%- set s1 = (n.get('signature') or '').split('|') -%}
+              {%- set ns_d = namespace(d=[]) -%}
+              {%- if s0 | length == s1 | length and s1 | length > 17 -%}
+                {%- if why == 'new prices or forecast' -%}
+                  {%- if s0[0] != s1[0] or s0[1] != s1[1] -%}
+                    {%- set ns_d.d = ns_d.d + ['prices '
+                        ~ ((s0[0] ~ ' → ' ~ s1[0] ~ ' slots, ') if s0[0] != s1[0] else '') ~ 'until '
+                        ~ (as_timestamp(s1[1], 0) | timestamp_custom('%d-%m %H:%M'))] -%}
+                  {%- endif -%}
+                  {%- if s0[2] != s1[2] -%}
+                    {%- set ns_d.d = ns_d.d + ['solar today ' ~ s0[2] ~ ' → ' ~ s1[2] ~ ' kWh'] -%}
+                  {%- endif -%}
+                  {%- if s0[3] != s1[3] -%}
+                    {%- set ns_d.d = ns_d.d + ['solar tomorrow ' ~ s0[3] ~ ' → ' ~ s1[3] ~ ' kWh'] -%}
+                  {%- endif -%}
+                {%- elif why == 'car changed' -%}
+                  {%- set names = {4: 'Follow assisted', 5: 'max price on', 6: 'car known', 7: 'plugged in',
+                                   8: 'car SoC', 9: 'max price', 10: 'charge power', 11: 'phases',
+                                   12: 'over the max price', 13: 'next departure', 14: 'Normal from the grid',
+                                   15: 'deadline', 16: 'battery to car before the latest plug-in',
+                                   17: 'car targets reached'} -%}
+                  {%- for i in range(4, 18) if s0[i] != s1[i] -%}
+                    {%- set ns_d.d = ns_d.d + [names[i] ~ ' '
+                        ~ (((s0[i] | float(0) * 5) | int ~ ' → ' ~ (s1[i] | float(0) * 5) | int ~ ' %') if i == 8
+                           else (s0[i] ~ ' → ' ~ s1[i]))] -%}
+                  {%- endfor -%}
+                {%- endif -%}
+              {%- endif -%}
+              {%- if why.startswith('off by') or why.endswith(' done') -%}
+                {%- set ns_d.d = ns_d.d + ['stored ' ~ n.get('ledger_energy') ~ ' kWh'] -%}
+              {%- endif -%}
+              {%- set always = why.endswith(' done')
+                  or why in ['settings changed', 'refresh asked', 'HA start / reload', 'no plan yet'] -%}
+              {%- if n.get('status') != 'OK' -%}
+                {{ 'No plan: ' ~ n.get('status') ~ ' (' ~ why ~ ')' if n.get('status') != o.get('status') else '' }}
+              {%- elif ns.changed or always or o.get('status') != 'OK' -%}
+                {{ 'Re-plan, ' ~ why ~ (' (' ~ ns_d.d | join(', ') ~ ')' if ns_d.d | length > 0 else '') ~ ': '
+                   ~ (ns.parts | join('; ') if ns.parts | length > 0 else 'no slot planned')
+                   ~ ('' if ns.changed else ' (no change)') }}
+              {%- endif -%}
+            {%- endif -%}
+      - condition: template
+        value_template: "{{ message | trim != '' }}"
+      - action: logbook.log
+        data:
+          name: "HBA Planned"
+          message: "{{ message | trim }}"
+          entity_id: automation.hba_planned_decision_log

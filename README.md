@@ -506,6 +506,12 @@ charge at night → sell tomorrow morning".
 - Re-plans every hour, on new prices or a new forecast, on a setting change, when the stored
   energy drifts from the plan, when the car is plugged in or out (at once), and when the car reaches its
   Minimum, Normal or Leftover (within 5 minutes; the batteries then get the car's room).
+- **Decision log:** every decision of Planned is one line in HA's Logbook (*HBA Planned*, on the entity
+  `automation.hba_planned_decision_log`): why it re-planned and what changed (new solar forecast with the
+  old and new kWh, new prices, the car, the stored energy off the plan, Charge / Sell done), the running
+  and the next hour as now planned with what they were before, and each change of what runs ("Runs
+  Planned → Charge done → Full stop"). Only while Planned is the strategy; kept as long as the recorder
+  keeps its history.
 - Settings: wear cost per kWh (default 0), a reserve for unexpected loads, a separate sell-price
   sensor + deduction, a minimum advantage of selling (only sell from the battery when it beats keeping
   the energy by at least this much per kWh), and switches to leave out grid charging, Sell or Zero import.
