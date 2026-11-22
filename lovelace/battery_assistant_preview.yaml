@@ -3252,12 +3252,12 @@ views:
               **Car hours next to the batteries: {{ run }}**
               {%- if 'Car first' in cmp and 'Balance' in cmp -%}
               {%- set d = (cmp['Balance'].total - cmp['Car first'].total) | round(2) %}
-              {{ ' · Auto: ' if setp == 'Auto' else ' · set by hand; ' }}{{ 'Balance' if d > 0 else 'Car first' }} € {{ '%.2f' | format(d | abs) }} more{{ (' (Balance only below Car first − €0.02)' if setp == 'Auto' and run == 'Car first' and d <= 0 else '') }}
+              {{ ' · Auto: ' if setp == 'Auto' else ' · Car first set; ' }}{{ 'Balance' if d > 0 else 'Car first' }} € {{ '%.2f' | format(d | abs) }} more{{ (' (Balance only below Car first − €0.02)' if setp == 'Auto' and run == 'Car first' and d <= 0 else '') }}
 
 
               <small>
 
-              | | Car first | Balance | No car | Difference |
+              | | Car first | Balance ({{ cmp['Balance'].get('bal', 0) }} h) | No car | Difference |
               |:--|:--|:--|:--|--:|
               {%- set ch = namespace(c='', b='') -%}
               {%- for k in ['Car first', 'Balance'] -%}
@@ -3297,10 +3297,11 @@ views:
               No car: switch on **Insights mode** (Insights view) to have the plan worked out without the car too.
               {%- endif %}
 
-              <font color=grey>Difference = Balance − Car first (+ = Balance costs more). No car: the same plan without the car, in the hours {{ run }} gives the car. Cost out: what a kWh from the batteries has cost (bought ÷ efficiency, sun at the sell price, + wear). Balance keeps the car charging at a low rate next to the batteries; a large house load (about 2 kW) on a battery phase can still pause the car for about 15 seconds. With Car first that happens less often: the car charges at full power, so the charger can slow it further before it has to pause.</font>
+              <font color=grey>Balance = the same plan with Balance in the car hours above Minimum where the batteries charge next to the car (up to Minimum the car always goes first). Difference = Balance − Car first (+ = Balance costs more). No car: the same plan without the car, in the hours {{ run }} gives the car. Cost out: what a kWh from the batteries has cost (bought ÷ efficiency, sun at the sell price, + wear). Balance keeps the car charging at a low rate next to the batteries; a large house load (about 2 kW) on a battery phase can still pause the car for about 15 seconds. With Car first that happens less often: the car charges at full power, so the charger can slow it further before it has to pause.</font>
 
               </small>
-              {%- elif car.get('cmp_other', true) == false %} · set by hand. Switch on **Insights mode** (Insights view) for the comparison with {{ 'Car first' if run == 'Balance' else 'Balance' }} and with no car.
+              {%- elif car.get('cmp_other', true) == false and setp == 'Auto' %} · no hour where Balance could pay (no grid charging of the batteries next to the car above Minimum)
+              {%- elif car.get('cmp_other', true) == false %} · Car first set. Switch on **Insights mode** (Insights view) for the comparison with Balance and with no car.
               {%- elif setp != 'Car first' %} · Balance not possible (needs the batteries' phases and the phase limit for EV charging)
               {%- endif %}
               {% endif -%}

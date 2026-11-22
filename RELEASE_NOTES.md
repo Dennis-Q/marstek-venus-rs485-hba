@@ -13,6 +13,16 @@ This document covers HBA-specific changes only.
 
 ## Unreleased (dev builds report v4.10.1-r27)
 
+### Changed
+
+- **Planned: car hours priority decided per hour.** Up to the car's Minimum the car now always goes
+  first. Above it, *Auto* tries Balance (the batteries leave the car its 6 A minimum) only in the car hours
+  where the batteries charge from the grid next to the car, and keeps it only when the whole plan is more
+  than 2 cents cheaper. At runtime Balance follows the running hour, not one choice for the whole plan.
+  **The option *Balance* (every car hour) is removed**: set by hand it could cost more than Car first
+  (Normal spread over 4 hours). A setting still on Balance falls back to Auto. Options now: Auto, Car first.
+  The Car section shows the Balance column with its number of hours.
+
 ---
 
 ## v4.10.1-r26 — November 2026

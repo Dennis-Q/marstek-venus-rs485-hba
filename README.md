@@ -477,12 +477,14 @@ charge at night → sell tomorrow morning".
   doubles the calculation time to about 1 s).
 - With the EV project connected (*Car plan input*), the plan picks the car's cheapest hours before departure
   below its max price, and leaves room for tomorrow's sun on days the car is home.
-- **Car hours next to charging batteries** (*Car hours with charging batteries*, EV Charge view): **Car first**
-  = the car at full power, the batteries take the phase room it leaves; **Balance** = the batteries leave
-  the car its 6 A minimum (a 1-phase car: 1.4 kW, from the EV project's car info), so the charger slows the
-  car instead of pausing it; **Auto** (default) works both out and keeps the cheaper one. A large house load
-  on a battery phase can still pause the car for a moment with Balance. With a fixed choice the other one,
-  and the *No car* comparison, are only worked out while Insights mode is on (each is one more full
+- **Car hours next to charging batteries** (*Car hours with charging batteries*, EV Charge view): up to the
+  car's Minimum the car always goes first (full power, the batteries take the phase room it leaves).
+  Above Minimum, **Auto** (default) decides per hour: in the car hours where the batteries charge from the
+  grid next to the car, it also works out **Balance** (the batteries leave the car its 6 A minimum, a 1-phase
+  car 1.4 kW, so the charger slows the car instead of pausing it) and keeps it only where the whole plan
+  gets more than 2 cents cheaper. **Car first** = the car first in every hour. A large house load on a
+  battery phase can still pause the car for a moment in a Balance hour. With Car first, the Balance plan
+  and the *No car* comparison are only worked out while Insights mode is on (each is one more full
   calculation).
 - **Charge the car from the batteries** (switch, default off, preview): a plan action *Car* (🔋→🚗) gives
   the car battery energy when a kWh is worth more there than sold, used in the house or kept — worth the

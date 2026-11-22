@@ -69,7 +69,7 @@
 #                                    replace -> summary
 #       result_b, result_n, result   the same calculation with the other car priority and without
 #                                    the car (each only when needed, see "Car hours priority"),
-#                                    then the pick (Car first / Balance / Auto)
+#                                    then the pick (Auto: Car first or Balance per hour)
 #       history, slot_acts, debug    executed slots, what ran, debug copy
 #   sensor.hba_planned_car_preview            the same calculation, only to show it (Preview only)
 # script:
@@ -725,11 +725,10 @@ template:
           # plan = the plan that runs. preview = the same calculation with the car, only to show
           # it (sensor.hba_planned_car_preview, below).
           car_run: plan
-          # Car hours priority for this run: Balance or Car first; Auto starts with Car first and
-          # also works out Balance in the next step.
-          car_prio: &planned_car_prio >-
-            {{ 'Balance' if is_state('input_select.hba_strategy_planned_car_priority', 'Balance')
-               else 'Car first' }}
+          # Car hours priority for this run: the first run is always Car first; the next step works
+          # out Balance in the hours where it may pay (bal_hours, see "Car hours priority" below).
+          car_prio: &planned_car_prio "Car first"
+          bal_hours: &planned_bal_none "[]"
           result: &planned_result >-
             {#- Start time: the summary reports how long the calculation took (it blocks HA that long) -#}
             {%- set t_calc0 = as_timestamp(now()) -%}
@@ -912,7 +911,7 @@ template:
                 {%- set car = namespace(min=0, need=0, sun=0, min_left=0, left=0, picks={}, lims={}, home=false, over=0,
                     over_eur=0, over_from='', kwh=0, eur=0, alt_kwh=0, alt_eur=0, nskip=false, dep='Auto', dl=0,
                     dl_norm=0, dl_min=0, nkwh=0, neur=0, nfrom='', home_day='', home_fc=-1, home_sun=-1, sun_in=0,
-                    along=is_state('binary_sensor.hba_ev_alongside_ready', 'on')) -%}
+                    along=is_state('binary_sensor.hba_ev_alongside_ready', 'on'), bal=[]) -%}
                 {#- Sun into the car (below): value per kWh, per-slot kWh, totals -#}
                 {%- set cs = namespace(v=0, cap=0, e=0, l=[], at={}, kwh=0, norm=0, got=0, eur=0) -%}
                 {#- Battery to car (input_boolean.hba_strategy_planned_car_battery, below): kWh and value per
@@ -1076,8 +1075,10 @@ template:
                       on every battery phase) -#}
                   {%- set car_room = ([car_lim - car_kw * 1000 / (230 * car_n), 0] | max)
                       * 0.23 * (car_ph.l | length) -%}
-                  {#- Car hours priority (input_select.hba_strategy_planned_car_priority; car_prio is set per
-                      run, Auto runs both and keeps the cheaper). Balance: the batteries leave the car its
+                  {#- Car hours priority (input_select.hba_strategy_planned_car_priority: Auto / Car first;
+                      car_prio is set per run, see "Car hours priority" after this calculation). Balance
+                      runs only in the hours of bal_hours, and only in an hour without Minimum kWh: up to
+                      Minimum the car always goes first (user 2026-11-22). Balance: the batteries leave the car its
                       6 A minimum + 1 A margin per phase, so the charger keeps charging next to them instead
                       of pausing. Measured on prod 2026-11-15: the charger gives way at about 24-25 A per
                       phase on the P1 meter (its grid limit is set to 25 A and cannot be changed; its own
@@ -1089,11 +1090,18 @@ template:
                       Only with Charge alongside EV (car.along) and phases + a limit set; else Car first.
                       House load is left out, as for Car first: the charger pauses briefly by itself. -#}
                   {%- set car_bal = car_prio == 'Balance' and car.along and car_lim > 0 and (car_ph.l | length) > 0 -%}
-                  {%- set car_pk = ([car_kw, 6 * 0.23 * car_n] | min) if car_bal else car_kw -%}
+                  {%- set bal_set = ((bal_hours | from_json) if bal_hours is string else bal_hours)
+                      if car_bal else [] -%}
+                  {%- set car_pkb = [car_kw, 6 * 0.23 * car_n] | min -%}
                   {%- set bal_room = ([car_lim - 7, 0] | max) * 0.23 * (car_ph.l | length) -%}
                   {%- for sl in slots | selectattr('ts', 'lt', car_dl.norm) | selectattr('ts', 'ge', c_from)
                       | sort(attribute='b') -%}
                     {%- set c_over = car_max_on and sl.b > car_maxp -%}
+                    {#- Balance in this hour: listed, and no Minimum kWh left for it at full power -#}
+                    {%- set c_minf = 0 if (c_over and car_skip) or sl.ts >= car_dl_min
+                        else [car_kw * sl.h, car.min_left] | min -%}
+                    {%- set s_bal = sl.ts in bal_set and c_minf <= 0.05 -%}
+                    {%- set car_pk = car_pkb if s_bal else car_kw -%}
                     {%- set c_min = 0 if (c_over and car_skip) or sl.ts >= car_dl_min
                         else [car_pk * sl.h, car.min_left] | min -%}
                     {%- set c_want = 0 if c_over else [car_pk * sl.h - c_min, car.left] | min -%}
@@ -1105,6 +1113,9 @@ template:
                             {sl.ts | string: (car_lnorm if c_norm > 0.05 else car_lmin) | int}) -%}
                         {%- set car.kwh = car.kwh + c_min + c_norm -%}
                         {%- set car.eur = car.eur + (c_min + c_norm) * sl.b -%}
+                        {%- if s_bal -%}
+                          {%- set car.bal = car.bal + [sl.ts] -%}
+                        {%- endif -%}
                       {%- endif -%}
                       {%- set car.min_left = car.min_left - c_min -%}
                       {%- set car.left = car.left - c_want -%}
@@ -1126,8 +1137,8 @@ template:
                       | sort(attribute='b') -%}
                     {%- set c_over = not car_max_on and sl.b > car_maxp -%}
                     {%- set c_min = 0 if (c_over and car_skip) or sl.ts >= car_dl_min
-                        else [car_pk * sl.h, alt.min] | min -%}
-                    {%- set c_norm = 0 if c_over else [car_pk * sl.h - c_min, alt.need] | min -%}
+                        else [car_kw * sl.h, alt.min] | min -%}
+                    {%- set c_norm = 0 if c_over else [car_kw * sl.h - c_min, alt.need] | min -%}
                     {%- if c_min + c_norm > 0.1 -%}
                       {%- set alt.min = alt.min - c_min -%}
                       {%- set alt.need = alt.need - c_norm -%}
@@ -1199,6 +1210,7 @@ template:
                       value the battery energy above); the plan made at plug-in has them -#}
                   {%- if car_exp -%}
                     {%- set car.picks = {} -%}
+                    {%- set car.bal = [] -%}
                     {%- set car.kwh = 0 -%}
                     {%- set car.eur = 0 -%}
                     {%- set car.over = 0 -%}
@@ -1224,20 +1236,22 @@ template:
                     {%- if k in car.picks -%}
                       {%- set c_sun = [sl.u, car.picks[k]] | min -%}
                       {%- set u2 = [sl.u - car.picks[k], 0] | max -%}
+                      {%- set s_bal = sl.ts in car.bal -%}
                       {%- set c_pc =
-                          (([sl.pc, bal_room if car_bal else car_room] | min) if car_lim > 0 and car_ph.l else sl.pc)
+                          (([sl.pc, bal_room if s_bal else car_room] | min) if car_lim > 0 and car_ph.l else sl.pc)
                           if car.along
                           else (([sl.pc, u2 / ([sl.h, 0.01] | max)] | min) if car_pv else 0) -%}
                       {#- Only the part of the hour the car charges: an hour with 0.8 kWh for the car is ~5 min
                           at 10.5 kW, the batteries have their full power the rest of it (user 2026-11-15:
                           12:00 capped at 2.8 kWh for the whole hour, 3.6 kWh less stored, 15:00 Sell gone).
                           No discharge in that hour stays. -#}
-                      {%- set c_f = [car.picks[k] / ([car_pk * sl.h, 0.01] | max), 1] | min -%}
+                      {%- set c_f = [car.picks[k] / ([(car_pkb if s_bal else car_kw) * sl.h, 0.01] | max), 1] | min -%}
                       {%- set c_pc = c_pc * c_f + sl.pc * (1 - c_f) -%}
                       {%- set car.sun_in = car.sun_in + c_sun -%}
                       {%- set car.eur = car.eur - c_sun * (sl.b - sl.s) -%}
                       {%- set ns_car.l = ns_car.l + [sl | combine(
-                          {'ev': car.picks[k], 'ev_lim': car.lims[k], 'pd': 0, 'pc': c_pc, 'u': u2})] -%}
+                          {'ev': car.picks[k], 'ev_lim': car.lims[k], 'pd': 0, 'pc': c_pc, 'u': u2,
+                           'bal': s_bal})] -%}
                     {%- else -%}
                       {#- cs = kWh of exported sun the car may take, cv = what that kWh is worth there,
                           ck = the least export it starts with (half the hour at ~1.4 kW);
@@ -1626,6 +1640,9 @@ template:
                     {%- endif -%}
                     {%- if 'ev' in sl -%}
                       {%- set rw = rw | combine({'ev': sl.ev | round(1), 'ev_lim': sl.ev_lim}) -%}
+                      {%- if sl.bal -%}
+                        {%- set rw = rw | combine({'bal': true}) -%}
+                      {%- endif -%}
                     {%- endif -%}
                     {#- Battery to car: kWh into the car, the discharge power (W) and the car's limit
                         (Leftover). Power = the house forecast + what the car can take (never above what
@@ -1696,7 +1713,7 @@ template:
                       {%- set k = w.ts | string -%}
                       {%- if k in b_over.cut and w.ev - b_over.cut[k] < 0.1 -%}
                         {%- set nd = namespace(d={}) -%}
-                        {%- for kk, vv in w.items() if kk not in ['ev', 'ev_lim'] -%}
+                        {%- for kk, vv in w.items() if kk not in ['ev', 'ev_lim', 'bal'] -%}
                           {%- set nd.d = nd.d | combine({kk: vv}) -%}
                         {%- endfor -%}
                         {%- set nw.l = nw.l + [nd.d] -%}
@@ -1740,7 +1757,8 @@ template:
                       'until': (slots | last).ts + step,
                       'slots': N, 'levels': K, 'step_kwh': dE | round(2),
                       'car': {'soc': states('sensor.ev_car_info') | float(-1), 'along': car.along,
-                               'prio': 'Balance' if car_bal | default(false) else 'Car first',
+                               'prio': 'Balance' if car.bal | length > 0 else 'Car first',
+                               'bal_hours': car.bal | length,
                                'sun_in': car.sun_in | round(1), 'min': car.min | round(1), 'need': car.need | round(1),
                                'sun': car.sun | round(1), 'home': car.home,
                                'dep': car.dep, 'dl': car.dl, 'dl_norm': car.dl_norm, 'dl_min': car.dl_min,
@@ -1770,14 +1788,18 @@ template:
                 {%- endif -%}
               {%- endif -%}
             {%- endif -%}
-      # Car hours priority: the same plan once more with the other choice (Car first <-> Balance),
-      # only when the plan has car hours next to grid-charging batteries (Charge alongside EV). Both
-      # go into the summary (car cmp) for the Car section. Auto runs the cheaper one: plan cost
+      # Car hours priority (user 2026-11-22): the first plan is Car first in every car hour. The
+      # same plan once more with Balance in the hours where it may pay: car hours in which that plan
+      # charges the batteries from the grid next to the car (bal_hours), and only where the hour has
+      # no Minimum kWh (up to Minimum the car always goes first). No such hour = no second plan.
+      # Until 2026-11-22 Balance was a setting for every car hour, Minimum included; set by hand it
+      # spread Normal over 4 hours and cost more than Car first (prod 2026-11-16 23:40).
+      # Both go into the summary (car cmp) for the Car section. Auto runs the cheaper one: plan cost
       # (batteries + house) + the car's grid cost + car kWh that no longer fit before the departure
       # at the max price (else the dearest hour). Balance only when it saves more than 2 cents, so a
-      # tie does not flip the charger's behaviour at every re-plan. A fixed choice runs as set.
+      # tie does not flip the charger's behaviour at every re-plan. Car first runs as set.
       # Each extra calculation stops HA for as long as the first, so only what decides is worked
-      # out: the other choice when the setting is Auto, else only with Insights mode on; "No car"
+      # out: the Balance plan when the setting is Auto, else only with Insights mode on; "No car"
       # only with Insights mode on (the Car section says so where the numbers are missing).
       - variables:
           car_run: &planned_car_auto_run >-
@@ -1787,10 +1809,17 @@ template:
                 and c.get('kwh', 0) | float(0) > 0.05 else 'skip' }}
       - variables:
           car_run_ab: "{{ car_run }}"
+          bal_hours: &planned_bal_hours >-
+            {%- set r = result if result is mapping else (result | from_json) -%}
+            {{ (r.get('plan') or []) | selectattr('ev', 'defined') | selectattr('a', 'eq', 'Charge')
+               | map(attribute='ts') | list | tojson }}
+      - variables:
           car_run: &planned_car_other_run >-
-            {{ car_run if is_state('input_select.hba_strategy_planned_car_priority', 'Auto')
-               or is_state('input_boolean.hba_control_is_debug_mode', 'on') else 'skip' }}
-          car_prio: "{{ 'Car first' if car_prio == 'Balance' else 'Balance' }}"
+            {{ car_run if (is_state('input_select.hba_strategy_planned_car_priority', 'Auto')
+                           or is_state('input_boolean.hba_control_is_debug_mode', 'on'))
+                          and ((bal_hours | from_json) if bal_hours is string else bal_hours) | length > 0
+               else 'skip' }}
+          car_prio: "Balance"
           result_b: *planned_result
       # The same hours without the car (the "No car" column: what the car costs the batteries)
       - variables:
@@ -1823,7 +1852,7 @@ template:
                 {%- set ns.x = ns.x | combine({c.prio: {
                     'hours': hn.h, 'kwh': c.kwh, 'eur': c.eur,
                     'bat': hn.bat | round(1), 'cout': hn.cout,
-                    'plan': r.summary.plan_cost, 'unmet': c.unmet,
+                    'plan': r.summary.plan_cost, 'unmet': c.unmet, 'bal': c.get('bal_hours', 0),
                     'total': (r.summary.plan_cost + c.eur + c.unmet * mp) | round(2)}}) -%}
               {%- endfor -%}
               {%- set pa = a.summary.car.prio -%}
@@ -1908,12 +1937,13 @@ template:
                 {%- set ns_d.rows = ns_d.rows + [[
                     x.ts, x.a, x.e0, x.e1, x.b, x.s, x.sun, x.load, x.c, x.alt, x.adv, x.alt_e1, x.part,
                     x.get('pw'), x.get('ev'), x.get('du'), x.r, x.get('then'), x.get('ev_lim'), x.get('ev_sun'),
-                    x.get('bev')]] -%}
+                    x.get('bev'), x.get('bal')]] -%}
               {%- endfor -%}
               {%- set d = {'made': r.made, 'reason': r.reason, 'status': r.status, 'e_now': e_now, 'drift': drift,
                            'ledger': ledger if ledger is mapping else (ledger | from_json), 'summary': r.get('summary'),
                            'fields': ['ts', 'a', 'e0', 'e1', 'b', 's', 'sun', 'load', 'c', 'alt', 'adv',
-                                      'alt_e1', 'part', 'pw', 'ev', 'du', 'r', 'then', 'ev_lim', 'ev_sun', 'bev'],
+                                      'alt_e1', 'part', 'pw', 'ev', 'du', 'r', 'then', 'ev_lim', 'ev_sun', 'bev',
+                                      'bal'],
                            'rows': ns_d.rows} -%}
               {#- Safety: stay under the recorder's 16 kB (48 slots ~ 6.5 kB, 96 ~ 12 kB): else the first
                   rows that fit, 'cut' = how many the plan had -#}
@@ -2016,13 +2046,16 @@ template:
                 'C': state_attr('sensor.hba_planned_strategy', 'ledger_cost')} | tojson }}
           car_run: preview
           car_prio: *planned_car_prio
+          bal_hours: *planned_bal_none
           result: *planned_result
       - variables:
           car_run: *planned_car_auto_run
       - variables:
           car_run_ab: "{{ car_run }}"
+          bal_hours: *planned_bal_hours
+      - variables:
           car_run: *planned_car_other_run
-          car_prio: "{{ 'Car first' if car_prio == 'Balance' else 'Balance' }}"
+          car_prio: "Balance"
           result_b: *planned_result
       - variables:
           car_run: *planned_car_nocar_run

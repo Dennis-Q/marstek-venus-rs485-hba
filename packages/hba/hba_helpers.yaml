@@ -1279,15 +1279,17 @@ input_select:
       - "Min. until home day"
     icon: mdi:car-clock
   # Car hours when the batteries charge from the grid too (Planned, Charge alongside EV):
-  # Car first = the car at full power, the batteries the room it leaves; Balance = the batteries
-  # leave the car its 6 A minimum + 1 A margin, so the Peblar keeps charging instead of pausing;
-  # Auto = the plan works out both and keeps the cheaper (batteries + car).
+  # Car first = the car at full power, the batteries the room it leaves; Auto = per hour above the
+  # car's Minimum, Car first or Balance, whichever the plan finds cheaper (batteries + car). Balance =
+  # the batteries leave the car its 6 A minimum + 1 A margin, so the Peblar keeps charging instead of
+  # pausing. Up to Minimum the car always goes first. The option "Balance" (every car hour) was
+  # removed 2026-11-22 (user: Balance must never cost more than Car first; set by hand it spread
+  # Normal over 4 hours, prod 2026-11-16); a select still on it falls back to its first option, Auto.
   hba_strategy_planned_car_priority:
     name: "Planned: car hours priority"
     options:
       - "Auto"
       - "Car first"
-      - "Balance"
     icon: mdi:scale-balance
 
   hba_house_load_window:
@@ -2111,8 +2113,9 @@ template:
       #   mode       "Batteries first" below input_number.hba_ev_battery_priority_energy
       #              of usable energy, else "EV first"; always "EV first" in a Planned car
       #              hour (ev_mode force: the plan counts on the car's full power), or "Balance"
-      #              when that plan chose it (summary car prio): the batteries leave the car
-      #              its 6 A minimum + 1 A per phase (sensor.hba_phase_room ev_bal_w)
+      #              when the plan chose it for the running hour (row bal, priority Auto): the
+      #              batteries leave the car its 6 A minimum + 1 A per phase
+      #              (sensor.hba_phase_room ev_bal_w)
       # The room per phase lives in sensor.hba_phase_room (recorder-excluded: it changes on
       # every P1 update; this sensor's history stays useful).
       - name: "HBA EV Charge Alongside"
@@ -2146,10 +2149,9 @@ template:
             {%- set ok = q.ok -%}
             {%- if is_state('binary_sensor.hba_ev_assist', 'on')
                 and is_state_attr('binary_sensor.hba_ev_assist', 'ev_mode', 'force') -%}
-            {{ 'Balance'
-                if ((state_attr('sensor.hba_planned_strategy', 'summary') or {}).get('car')
-                  or {}).get('prio') == 'Balance'
-                else 'EV first' }}
+            {%- set plan = state_attr('sensor.hba_planned_strategy', 'plan') or [] -%}
+            {%- set cur = plan | selectattr('ts', 'le', as_timestamp(now()) | int) | list | last | default(none) -%}
+            {{ 'Balance' if cur is not none and cur.get('bal') == true else 'EV first' }}
             {%- elif not ok
                 and state_attr('binary_sensor.hba_ev_charge_alongside', 'mode') in ['Batteries first', 'EV first'] -%}
             {{ state_attr('binary_sensor.hba_ev_charge_alongside', 'mode') }}
