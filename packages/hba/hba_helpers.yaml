@@ -1465,7 +1465,7 @@ template:
       - name: "HBA Version"
         unique_id: hba_version
         icon: mdi:tag
-        state: "v4.10.1-r26"
+        state: "v4.10.1-r27"
 
       # Anchor of the decision log: HBA's Logbook lines (names "HBA Planned", "HBA BMS", "HBA Limits") are
       # written on this entity, so the Logbook filtered on it, and the Decisions card in Insights, show

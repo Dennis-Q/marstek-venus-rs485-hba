@@ -11,6 +11,10 @@ This document covers HBA-specific changes only.
 
 ---
 
+## Unreleased (dev builds report v4.10.1-r27)
+
+---
+
 ## v4.10.1-r26 — November 2026
 
 ### Upgrading — read this first
