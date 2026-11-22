@@ -230,6 +230,25 @@ template:
               {%- endif -%}
             {%- endif -%}
             {{ ns.by }}
+          # Every motion / occupancy / presence sensor on the floor that counts (on or off), so it can be
+          # checked which ones do (user 2026-11-18: could not tell whether a sensor counted for its floor).
+          # Changes only when a sensor is added, removed or moves to another floor: no recorder rows
+          # in between, unlike listing the ones that are on (see "Motion sensors" above).
+          motion_sensors: &pr_motion >-
+            {%- set n = this.entity_id | regex_findall('floor_(\d)_') | first | default(0) | int -%}
+            {%- set ids = states('sensor.hba_labs_presence_floors_resolved').split(',') | reject('eq', '') | list -%}
+            {%- set fl = ids[n - 1] if n >= 1 and ids | length >= n else none -%}
+            {%- set ns = namespace(l=[]) -%}
+            {%- if fl and is_state('input_boolean.hba_labs_presence_motion', 'on') -%}
+              {%- for s in states.binary_sensor | selectattr('attributes.device_class', 'defined')
+                  | selectattr('attributes.device_class', 'in', ['motion', 'occupancy', 'presence'])
+                  | rejectattr('entity_id', 'search', '^binary_sensor\.hba_labs_') -%}
+                {%- if floor_id(s.entity_id) == fl -%}
+                  {%- set ns.l = ns.l + [s.entity_id] -%}
+                {%- endif -%}
+              {%- endfor -%}
+            {%- endif -%}
+            {{ ns.l | sort }}
           floor: &pr_floor >-
             {%- set n = this.entity_id | regex_findall('floor_(\d)_') | first | default(0) | int -%}
             {%- set ids = states('sensor.hba_labs_presence_floors_resolved').split(',') | reject('eq', '') | list -%}
@@ -241,6 +260,7 @@ template:
         state: *pr_state
         attributes:
           by: *pr_by
+          motion_sensors: *pr_motion
           floor: *pr_floor
       - name: "HBA Labs Floor 3 Present"
         unique_id: hba_labs_floor_3_present
@@ -249,6 +269,7 @@ template:
         state: *pr_state
         attributes:
           by: *pr_by
+          motion_sensors: *pr_motion
           floor: *pr_floor
       - name: "HBA Labs Floor 4 Present"
         unique_id: hba_labs_floor_4_present
@@ -257,6 +278,7 @@ template:
         state: *pr_state
         attributes:
           by: *pr_by
+          motion_sensors: *pr_motion
           floor: *pr_floor
 
   # Settled floor per room tracker (non-binary source), sampled every 20 s:

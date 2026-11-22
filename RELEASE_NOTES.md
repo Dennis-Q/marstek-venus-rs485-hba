@@ -13,6 +13,13 @@ This document covers HBA-specific changes only.
 
 ## Unreleased (dev builds report v4.10.1-r27)
 
+### Added
+
+- **Labs presence: which motion sensors count per floor.** The floor *Present* sensors have a new attribute
+  `motion_sensors`: every motion / occupancy / presence sensor on that floor that counts (on or off), so you
+  can check that a new sensor is picked up. It changes only when a sensor is added or moved; `by` still
+  names the ones that are on as one entry, *Motion sensors*.
+
 ### Changed
 
 - **Planned: car hours priority decided per hour.** Up to the car's Minimum the car now always goes
