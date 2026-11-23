@@ -11,7 +11,16 @@ This document covers HBA-specific changes only.
 
 ---
 
-## Unreleased (dev builds report v4.10.1-r27)
+## v4.10.1-r27 — November 2026
+
+### Upgrading from r26 — read this first
+
+- **Battery files:** no change since r26 (if you skipped r26, replace them as its upgrade notes say).
+- **Car hours priority *Balance* is removed.** A setting still on *Balance* falls back to *Auto*, which now
+  chooses Balance per car hour when it is cheaper. Options: Auto, Car first. See *Changed*.
+- **Spook users:** with fewer than six batteries Spook reports *Unknown entities* in several HBA
+  automations, a script, a few template sensors and both dashboards. HBA works fine; see the README section
+  *Known limitation: Spook repairs for batteries you don't have* for why and how to ignore them once.
 
 ### Added
 
@@ -19,6 +28,8 @@ This document covers HBA-specific changes only.
   `motion_sensors`: every motion / occupancy / presence sensor on that floor that counts (on or off), so you
   can check that a new sensor is picked up. It changes only when a sensor is added or moved; `by` still
   names the ones that are on as one entry, *Motion sensors*.
+- **Preview dashboard, EV Charge view: Insights mode badge at the top.** The Car section's comparison of
+  Car first / Balance / No car needs Insights mode; the badge shows whether it is on and turns it on.
 
 ### Changed
 
