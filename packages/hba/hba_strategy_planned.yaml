@@ -274,6 +274,17 @@ template:
             {%- set n = as_timestamp(now()) | int -%}
             {%- set today = now().date() | string -%}
             {%- set e_now = states('sensor.hba_charge_available_energy') | float(0) -%}
+            {#- The full latch counts as full, as in the plan (e_now in the planner, user 2026-11-23) -#}
+            {%- set fl = namespace(add=0) -%}
+            {%- for b in (state_attr('sensor.hba_power_limits', 'full') or []) | map('int') -%}
+              {%- set soc = states('sensor.marstek_m' ~ b ~ '_battery_state_of_charge') | float(-1) -%}
+              {%- set hi = states('input_number.hba_marstek_m' ~ b ~ '_charging_cutoff_capacity') | float(100) -%}
+              {%- set cap = states('sensor.marstek_m' ~ b ~ '_battery_total_energy') | float(0) -%}
+              {%- set cap = cap if cap > 0
+                  else (state_attr('sensor.hba_battery_capacity', 'last_known') or {}).get(b | string, 0) | float(0) -%}
+              {%- set fl.add = fl.add + ([hi - soc, 0] | max) / 100 * cap if soc >= 0 else fl.add -%}
+            {%- endfor -%}
+            {%- set e_now = e_now + fl.add -%}
             {%- set prev = state_attr('binary_sensor.hba_ev_solar_allowed', 'reached') or '' -%}
             {%- set past = plan | selectattr('ts', 'le', n) | list -%}
             {%- set i = past | length - 1 -%}
@@ -553,7 +564,22 @@ template:
           step: &planned_step >-
             {%- set pph = state_attr('sensor.hba_energy_prices_data', 'datapoints_per_hour') | int(1) -%}
             {{ 3600 // ([pph, 1] | max) }}
-          e_now: &planned_e_now "{{ states('sensor.hba_charge_available_energy') | float(-1) }}"
+          # Stored energy now. A battery in the full latch (sensor.hba_power_limits `full`: SoC within 1 % of
+          # its charge cutoff, or its BMS at 0 A) counts as at its cutoff: after a full charge a Venus E reads
+          # 98.9-99 %, and the plan topped the batteries up by 0.1 kWh at 13:00 before a Sell (prod
+          # 2026-11-18; user 2026-11-23). Also the dispatcher's `avail`, so plan and run agree.
+          e_now: &planned_e_now >-
+            {%- set e = states('sensor.hba_charge_available_energy') | float(-1) -%}
+            {%- set ns = namespace(add=0) -%}
+            {%- for i in (state_attr('sensor.hba_power_limits', 'full') or []) | map('int') if e >= 0 -%}
+              {%- set soc = states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') | float(-1) -%}
+              {%- set hi = states('input_number.hba_marstek_m' ~ i ~ '_charging_cutoff_capacity') | float(100) -%}
+              {%- set cap = states('sensor.marstek_m' ~ i ~ '_battery_total_energy') | float(0) -%}
+              {%- set cap = cap if cap > 0
+                  else (state_attr('sensor.hba_battery_capacity', 'last_known') or {}).get(i | string, 0) | float(0) -%}
+              {%- set ns.add = ns.add + ([hi - soc, 0] | max) / 100 * cap if soc >= 0 else ns.add -%}
+            {%- endfor -%}
+            {{ (e + ns.add) | round(2) if e >= 0 else e }}
           today_solar_e: &planned_today_solar_e >-
             {%- set sa = states('input_text.hba_strategy_solar_aware_forecast_entity_id') | trim -%}
             {{ sa if sa not in ['', 'unknown', 'unavailable']
@@ -2179,7 +2205,8 @@ script:
             {%- else -%}
               {{ t }}
             {%- endif -%}
-          avail: "{{ states('sensor.hba_charge_available_energy') | float(0) }}"
+          # Stored energy, full latch counted as full (see e_now in the planner)
+          avail: *planned_e_now
           # Hysteresis (prod 2026-10-29 04:32-04:44: Charge <-> Charge PV every ~30 s near full).
           # Stored energy moves in steps of ~0.05 kWh (1 % SoC of one battery) and near 100 % the
           # SoC readings jump (98.9 -> 100 -> 99.0), so a 0.05 kWh margin kept crossing the target.
@@ -2188,9 +2215,11 @@ script:
           # The label is the memory -- no helper; a new slot with a clearly higher / lower target
           # resumes anyway.
           flow: "{{ states('input_text.hba_strategy_active_flow') }}"
+          # Every battery at its charge cutoff or in the full latch (sensor.hba_power_limits `full`)
           all_full: >-
             {%- set ns = namespace(full=true) -%}
-            {%- for i in range(1, (states('input_number.hba_battery_count') | int(1)) + 1) -%}
+            {%- set latch = (state_attr('sensor.hba_power_limits', 'full') or []) | map('int') | list -%}
+            {%- for i in range(1, (states('input_number.hba_battery_count') | int(1)) + 1) if i not in latch -%}
               {%- if states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') | float(0)
                      < states('input_number.hba_marstek_m' ~ i ~ '_charging_cutoff_capacity') | float(100) -%}
                 {%- set ns.full = false -%}

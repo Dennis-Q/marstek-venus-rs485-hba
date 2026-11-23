@@ -13,6 +13,14 @@ This document covers HBA-specific changes only.
 
 ## Unreleased (dev builds report v4.10.1-r28)
 
+### Fixed
+
+- **Planned: no small top-up Charge hours after a full charge.** After a full charge a battery often reads
+  98.9-99 % instead of 100 %, so the plan saw ~0.1 kWh of room and planned a tiny Charge (e.g. at 13:00
+  before a Sell; also rows like "Charge 8.9 → 8.9 kWh"). A battery HBA already counts as full (within 1 % of
+  its charge cutoff, or its BMS at 0 A) now counts as at its cutoff in the plan, in Planned's Charge / Sell
+  targets and in the solar-for-the-car target.
+
 ### Changed
 
 - **Planned: a full battery in a sunny hour is Charge PV, not Full stop.** When nothing goes in or out, the
