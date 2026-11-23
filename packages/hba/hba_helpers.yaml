@@ -393,13 +393,6 @@ input_number:
     step: 1
     unit_of_measurement: W
     icon: mdi:chart-bell-curve-cumulative
-  # Not read anywhere in HBA (2026-11-17); kept from HBC. Recorder- and logbook-excluded.
-  hba_control_debug:
-    name: "Debug value"
-    min: -10000
-    max: 10000
-    step: 1
-    icon: mdi:bug
 
   # --- Peak shaving limits ---
   hba_control_power_limit_import:
@@ -4127,8 +4120,6 @@ recorder:
       # Flow trace helpers — updated every control cycle
       - input_text.hba_strategy_active_flow
       - input_text.hba_control_cycle_state
-      # Debug value (updated frequently when debug mode is active)
-      - input_number.hba_control_debug
       # Commanded power — updates on every battery write (~1 s during active control)
       - sensor.hba_total_commanded_power
       # Status field (updated every P1 cycle, ~1 s)
@@ -4171,7 +4162,6 @@ logbook:
       # PID signal and output — updated every ~1 s during operation
       - input_number.hba_control_error_signal
       - input_number.hba_control_pid_output
-      - input_number.hba_control_debug
       # Control loop automation — triggers every ~1 s
       - automation.hba_control_loop_p1_meter_triggered
       # Flow trace helpers — updated every control cycle

@@ -9,6 +9,12 @@ For upstream changes in each HBC version, see the
 [HBC Release Notes](https://github.com/gitcodebob/marstek-venus-rs485-node-red/blob/main/RELEASE_NOTES.md).
 This document covers HBA-specific changes only.
 
+### Removed
+
+- **`input_number.hba_control_debug` ("Debug value").** Taken over from HBC, but nothing in HBA (or HBC's own
+  flows) ever wrote or read it. HA may list the old entity as no longer provided; remove it there if you like.
+  PID tuning uses Insights mode and the PID values (error signal, PID output, P / I / D terms).
+
 ---
 
 ## Unreleased (dev builds report v4.10.1-r28)
