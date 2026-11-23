@@ -1556,7 +1556,10 @@ template:
             {% set soc = states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') | float(0) %}
             {% set cap = states('sensor.marstek_m' ~ i ~ '_battery_total_energy') | float(0) %}
             {#- capacity not readable (polled every 5 min; after an outage it comes back last): last known -#}
-            {% if cap <= 0 %}{% set cap = (state_attr('sensor.hba_battery_capacity', 'last_known') or {}).get(i | string, 0) | float(0) %}{% endif %}
+            {% if cap <= 0 %}
+              {% set cap = (state_attr('sensor.hba_battery_capacity', 'last_known') or {}).get(i | string, 0)
+                  | float(0) %}
+            {% endif %}
             {% set soc_max = states('input_number.hba_marstek_m' ~ i ~ '_charging_cutoff_capacity') | float(100) %}
             {#- a battery whose SoC cannot be read does not count (it read as empty: all of it "to charge") -#}
             {% if is_number(states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge')) %}
@@ -1577,7 +1580,10 @@ template:
             {% set soc = states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') | float(0) %}
             {% set cap = states('sensor.marstek_m' ~ i ~ '_battery_total_energy') | float(0) %}
             {#- capacity not readable (polled every 5 min; after an outage it comes back last): last known -#}
-            {% if cap <= 0 %}{% set cap = (state_attr('sensor.hba_battery_capacity', 'last_known') or {}).get(i | string, 0) | float(0) %}{% endif %}
+            {% if cap <= 0 %}
+              {% set cap = (state_attr('sensor.hba_battery_capacity', 'last_known') or {}).get(i | string, 0)
+                  | float(0) %}
+            {% endif %}
             {% set soc_min = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) %}
             {% set ns.total = ns.total + ([((soc - soc_min) / 100) * cap, 0] | max) %}
           {% endfor %}
@@ -1598,7 +1604,10 @@ template:
             {% set extra = [0, min_soc - cutoff] | max %}
             {% set cap = states('sensor.marstek_m' ~ i ~ '_battery_total_energy') | float(0) %}
             {#- capacity not readable (polled every 5 min; after an outage it comes back last): last known -#}
-            {% if cap <= 0 %}{% set cap = (state_attr('sensor.hba_battery_capacity', 'last_known') or {}).get(i | string, 0) | float(0) %}{% endif %}
+            {% if cap <= 0 %}
+              {% set cap = (state_attr('sensor.hba_battery_capacity', 'last_known') or {}).get(i | string, 0)
+                  | float(0) %}
+            {% endif %}
             {% set ns.total = ns.total + (extra / 100) * cap %}
           {% endfor %}
           {{ ns.total | round(2) }}
@@ -1657,7 +1666,10 @@ template:
           {% set ns = namespace(total=0, n=0) %}
           {% for i in range(1, count + 1) %}
             {% set s = states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') %}
-            {% if is_number(s) %}{% set ns.total = ns.total + (s | float(0)) %}{% set ns.n = ns.n + 1 %}{% endif %}
+            {% if is_number(s) %}
+              {% set ns.total = ns.total + (s | float(0)) %}
+              {% set ns.n = ns.n + 1 %}
+            {% endif %}
           {% endfor %}
           {{ (ns.total / ns.n) | round(1) if ns.n > 0 else 0 }}
 
@@ -1751,7 +1763,10 @@ template:
           {% for i in range(1, count + 1) %}
             {% set cap = states('sensor.marstek_m' ~ i ~ '_battery_total_energy') | float(0) %}
             {#- capacity not readable (polled every 5 min; after an outage it comes back last): last known -#}
-            {% if cap <= 0 %}{% set cap = (state_attr('sensor.hba_battery_capacity', 'last_known') or {}).get(i | string, 0) | float(0) %}{% endif %}
+            {% if cap <= 0 %}
+              {% set cap = (state_attr('sensor.hba_battery_capacity', 'last_known') or {}).get(i | string, 0)
+                  | float(0) %}
+            {% endif %}
             {% set soc_max = states('input_number.hba_marstek_m' ~ i ~ '_charging_cutoff_capacity') | float(100) %}
             {% set soc_min = states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13) %}
             {#- Only a battery whose SoC can be read, as sensor.hba_charge_available_energy counts it:
@@ -1867,7 +1882,9 @@ template:
               {% for i in range(1, count + 1) %}
                 {% set soc = states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') | float(0) %}
                 {% set cutoff = states('input_number.hba_marstek_m' ~ i ~ '_charging_cutoff_capacity') | float(100) %}
-                {% if soc < cutoff - 1 %}{% set ns.full = false %}{% endif %}
+                {% if soc < cutoff - 1 %}
+                  {% set ns.full = false %}
+                {% endif %}
               {% endfor %}
               {{ ns.full }}
             {% elif goal == 'state of charge' %}
@@ -2871,7 +2888,9 @@ template:
             ] %}
             {% set ns = namespace(missing=[]) %}
             {% for e in expected %}
-              {% if not has_value(e) %}{% set ns.missing = ns.missing + [e] %}{% endif %}
+              {% if not has_value(e) %}
+                {% set ns.missing = ns.missing + [e] %}
+              {% endif %}
             {% endfor %}
             {{ ns.missing | join(', ') if ns.missing else '' }}
 
