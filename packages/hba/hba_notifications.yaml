@@ -1623,6 +1623,16 @@ automation:
       - action: input_select.select_option
         target: { entity_id: "input_select.hba_strategy_planned_car_{{ trigger.id.split('|')[0] }}" }
         data: { option: "{{ trigger.id.split('|')[1] }}" }
+      # Decision log (sensor.hba_decision_log, user 2026-11-23): the answer itself; the re-plan it causes
+      # logs its own line ("car changed")
+      - action: logbook.log
+        data:
+          name: "HBA Planned"
+          message: >-
+            Car question answered: {{ trigger.id.split('|')[1] }} ({{
+              {'next_departure': 'Next departure', 'normal_skip': 'Normal from the grid'}[trigger.id.split('|')[0]]
+            }}).
+          entity_id: sensor.hba_decision_log
 
 script:
   # ── Notification dispatch ─────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-# Home Battery Assistant (HBA) — v4.10.1-r26
+# Home Battery Assistant (HBA) — v4.10.1-r27
 
 A native Home Assistant replacement for the Node-RED battery control flows in
 [gitcodebob/marstek-venus-rs485-node-red](https://github.com/gitcodebob/marstek-venus-rs485-node-red).
@@ -186,7 +186,7 @@ The script downloads all HBA files, skips files you have already configured (P1 
 
 > **Tip:** The [SSH & Web Terminal add-on](https://github.com/hassio-addons/addon-ssh) gives you a terminal on your HA instance. Run the command above from `/config`.
 
-To install a specific version: `HBA_VERSION=v4.10.1-r26 bash <(curl -fsSL ...)`
+To install a specific version: `HBA_VERSION=v4.10.1-r27 bash <(curl -fsSL ...)`
 
 **Option B — Manual**
 
@@ -477,12 +477,18 @@ charge at night → sell tomorrow morning".
   doubles the calculation time to about 1 s).
 - With the EV project connected (*Car plan input*), the plan picks the car's cheapest hours before departure
   below its max price, and leaves room for tomorrow's sun on days the car is home.
-- **Car hours next to charging batteries** (*Car hours with charging batteries*, EV Charge view): **Car first**
-  = the car at full power, the batteries take the phase room it leaves; **Balance** = the batteries leave
-  the car its 6 A minimum (a 1-phase car: 1.4 kW, from the EV project's car info), so the charger slows the
-  car instead of pausing it; **Auto** (default) works both out and keeps the cheaper one. A large house load
-  on a battery phase can still pause the car for a moment with Balance. With a fixed choice the other one,
-  and the *No car* comparison, are only worked out while Insights mode is on (each is one more full
+- **Cold batteries:** a battery whose coldest cell is below 12 °C is planned at its BMS winter level (30 A,
+  ~1.6 kW) for the hours after the running one; the running hour uses what the batteries can do now.
+- **Car hours next to charging batteries** (*Car hours with charging batteries*, EV Charge view): up to the
+  car's Minimum the car always goes first (full power, the batteries take the phase room it leaves).
+  Above Minimum, **Auto** (default) decides per hour: in the car hours where the batteries charge from the
+  grid next to the car, it also works out **Balance** (the batteries leave the car its 6 A minimum, a 1-phase
+  car 1.4 kW, so the charger slows the car instead of pausing it) and keeps it only where the whole plan
+  gets more than 2 cents cheaper. **Car first** = the car first in every hour. A large house load on a
+  battery phase can still pause the car for a moment in a Balance hour. In the first 2 minutes of a car
+  hour, until the car charges, the batteries already leave it its room, so the charger can start it. With
+  Car first, the Balance plan
+  and the *No car* comparison are only worked out while Insights mode is on (each is one more full
   calculation).
 - **Charge the car from the batteries** (switch, default off, preview): a plan action *Car* (🔋→🚗) gives
   the car battery energy when a kWh is worth more there than sold, used in the house or kept — worth the
@@ -508,10 +514,15 @@ charge at night → sell tomorrow morning".
   Minimum, Normal or Leftover (within 5 minutes; the batteries then get the car's room).
 - **Decision log:** every decision of Planned is one line in HA's Logbook (*HBA Planned*, on the entity
   `sensor.hba_decision_log`; also the **Decisions** card at the top of Insights in the preview dashboard): why it re-planned and what changed (new solar forecast with the
-  old and new kWh, new prices, the car, the stored energy off the plan, Charge / Sell done), the running
+  old and new kWh, new prices, the car, the latest plug-in time for battery to car passing without the car, the stored energy off the plan, Charge / Sell done), the running
   and the next hour as now planned with what they were before, and each change of what runs ("Runs
-  Planned → Charge done → Full stop"). Only while Planned is the strategy; kept as long as the recorder
-  keeps its history.
+  Planned → Charge done → Full stop"). A re-plan is written when the running or next hour changes, or always
+  for a settings change, Charge / Sell done and a car choice (plugged in / out, next departure, Normal from
+  the grid, departure time; then ending in "no change" when the running and next hour stay the same); a
+  settings change names the setting with its old and new value, e.g.
+  "settings changed (Planned: efficiency: 85 → 80)"; car SoC steps only when they change those hours. Also: each answer to the car
+  question ("Car question answered: Not leaving (Next departure)") and a car choice going back to Auto
+  after its departure. Only while Planned is the strategy; kept as long as the recorder keeps its history.
 - **BMS limit log** (any strategy): a Logbook line *HBA BMS* (on `sensor.hba_decision_log`) when a
   battery's BMS starts or stops limiting its charge or discharge power, after the level has held 2 minutes,
   e.g. "M3 discharge limited by the BMS: 40 A, about 2.1 kW (own limit 2.5 kW) (was 100 A). Coldest cell
@@ -560,7 +571,24 @@ much of every hour each HA floor is occupied, as long-term statistics, to predic
 later. Sources: room trackers whose state is an area name (e.g. Bermuda `sensor.*_ble_area`), binary
 sensors, and optionally every motion / occupancy / presence sensor on the floor. A room tracker counts
 on a floor after 2 min there; a floor stays occupied 10 min after the last source left. It only
-collects data: nothing controls the batteries yet.
+collects data: nothing controls the batteries yet. Each floor's *Present* sensor lists the motion sensors
+that count for it (attribute `motion_sensors`) and the sources that see someone now (`by`).
+
+### Known limitation: Spook repairs for batteries you don't have
+
+HBA supports up to six batteries. Several automations, the script `hba_apply_defaults`, a few template
+sensors and both dashboards name the entities of every battery (M1–M6) directly, because a trigger list or
+a dashboard card cannot build entity names from the battery count. With fewer batteries those entities do
+not exist. HBA does not mind: a trigger on a missing entity never fires and the cards of a battery you do
+not have are hidden. But [Spook](https://spook.boo) reports every one of them as *Unknown entities used in …*
+(about 16 code repairs and one per dashboard, the same with 2 or 4 batteries; only the list in each grows).
+
+What to do: open each of these repairs and press **Ignore**. Spook (checked in 5.11.1) saves the ignore per
+automation or dashboard together with its list of entities, so it survives restarts, reloads and HBA
+updates. A repair only comes back when it names an entity that was not in the list you ignored, for
+example after you add a battery and then remove it again, or when an HBA update names a new M3–M6 entity.
+Check a repair before you ignore it: one that names an entity of a battery you **do** have (or a non-
+`marstek_m*` entity) is a real problem, such as a battery file that is missing or did not load.
 
 ---
 

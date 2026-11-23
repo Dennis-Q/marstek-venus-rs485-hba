@@ -1,4 +1,4 @@
-# HBA Factory Defaults — v4.10.1-r26
+# HBA Factory Defaults — v4.10.1-r27
 
 All values set by `script.hba_apply_defaults`. Run once after fresh install via
 Developer Tools → Services → `script.turn_on` → `script.hba_apply_defaults`.
@@ -281,7 +281,7 @@ Every minimum is also the default, so a new install plans sensibly before *Apply
 | `input_select.hba_strategy_planned_car_next_departure` | Auto (Not leaving / Leaving: back to Auto once that departure has passed) |
 | `input_boolean.hba_strategy_planned_car_ask_normal` | `off` (on = evening question whether Normal may charge) |
 | `input_select.hba_strategy_planned_car_normal_skip` | Auto (Minimum only ends once the next departure has passed, Min. until home day once a departure on a day the car was home has passed) |
-| `input_select.hba_strategy_planned_car_priority` | Auto (the plan works out Car first and Balance and keeps the cheaper) |
+| `input_select.hba_strategy_planned_car_priority` | Auto (Car first up to the car's Minimum; above it Balance per hour where the plan gets cheaper). Options: Auto, Car first |
 | `input_boolean.hba_strategy_planned_car_battery` | off (charge the car from the batteries) |
 | `input_number.hba_strategy_planned_car_battery_end` | 1 h (battery to car ends before the departure) |
 | `input_datetime.hba_strategy_planned_car_latest_plugin` | 18:00 (unset counts as 18:00) |

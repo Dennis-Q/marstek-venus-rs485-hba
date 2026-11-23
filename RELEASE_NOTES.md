@@ -11,6 +11,87 @@ This document covers HBA-specific changes only.
 
 ---
 
+## v4.10.1-r27 — November 2026
+
+### Upgrading from r26 — read this first
+
+- **Battery files:** no change since r26 (if you skipped r26, replace them as its upgrade notes say).
+- **Car hours priority *Balance* is removed.** A setting still on *Balance* falls back to *Auto*, which now
+  chooses Balance per car hour when it is cheaper. Options: Auto, Car first. See *Changed*.
+- **Spook users:** with fewer than six batteries Spook reports *Unknown entities* in several HBA
+  automations, a script, a few template sensors and both dashboards. HBA works fine; see the README section
+  *Known limitation: Spook repairs for batteries you don't have* for why and how to ignore them once.
+
+### Added
+
+- **Labs presence: which motion sensors count per floor.** The floor *Present* sensors have a new attribute
+  `motion_sensors`: every motion / occupancy / presence sensor on that floor that counts (on or off), so you
+  can check that a new sensor is picked up. It changes only when a sensor is added or moved; `by` still
+  names the ones that are on as one entry, *Motion sensors*.
+- **Preview dashboard, EV Charge view: Insights mode badge at the top.** The Car section's comparison of
+  Car first / Balance / No car needs Insights mode; the badge shows whether it is on and turns it on.
+
+### Changed
+
+- **Planned: car hours priority decided per hour.** Up to the car's Minimum the car now always goes
+  first. Above it, *Auto* tries Balance (the batteries leave the car its 6 A minimum) only in the car hours
+  where the batteries charge from the grid next to the car, and keeps it only when the whole plan is more
+  than 2 cents cheaper. At runtime Balance follows the running hour, not one choice for the whole plan.
+  **The option *Balance* (every car hour) is removed**: set by hand it could cost more than Car first
+  (Normal spread over 4 hours). A setting still on Balance falls back to Auto. Options now: Auto, Car first.
+  The Car section shows the Balance column with its number of hours.
+
+- **Decision log: the car's targets by name.** A re-plan because the car reached a target now says which,
+  e.g. "car reached Normal and Leftover (100 %)", instead of "car targets reached 1 → 3".
+- **Decision log: your car choices.** Each answer to the car question gets a line ("Car question answered:
+  Not leaving (Next departure)"), and so does a choice going back to Auto after its departure. The re-plan
+  after a car choice (plugged in / out, next departure, Normal from the grid, departure time) is now always
+  written, also when the running and next hour stay the same: a Not leaving answer at 20:00 moves the
+  night hours and left no line. Car SoC steps are still only written when they change those hours.
+  A *settings changed* re-plan now names the setting that changed, with the old and new value, from the
+  dashboard or an answer alike: "settings changed (Planned: car next departure: Auto → Not leaving)",
+  "settings changed (Planned: efficiency: 85 → 80)". Every Planned setting counts (the planner's own
+  settings, the car's, the solar forecast and price entities). The plan sensor has a new attribute
+  `plan_setting` with that text.
+- **Decision log: a re-plan that changes nothing is one short line.** When the running and next hour stay
+  as they were, the line ends with "no change" instead of repeating both hours: what runs or was already
+  planned is no new decision.
+- **Decision log: the latest plug-in time passing is named.** With battery to car on and the car not
+  plugged in, the plan stops counting on the car at its latest plug-in time and re-plans. The line now reads
+  "Re-plan, latest plug-in time 18:00 passed (car not plugged in)" instead of "car changed (battery to car
+  before the latest plug-in True → False)", which read as if something happened to the car.
+
+### Fixed
+
+- **No false "battery not responding" when the BMS or a full battery slows it down.** The alert now
+  compares what a battery delivers with what it can deliver: its command, or less when its BMS current
+  limit × battery voltage is lower (one cold evening the BMS cut discharge to 40 A at 17-24 % SoC, three
+  batteries gave exactly that and each raised the alert). Near full a charging battery slows down below its
+  BMS limit by itself, from about 95 % on a cold day: the alert now skips it from 6 % below the charge
+  cutoff instead of 3 %. A battery that gives much less than its BMS allows still raises the alert.
+- **Planned: cold batteries planned at their winter charge power.** Below about 10 °C the battery's BMS
+  allows only ~30 A (~1.6 kW instead of ~2.5 kW), all through a cold night's charge. The plan counted the
+  full power for every hour after the running one, so on a cold night it planned too much into the last
+  cheap hour and ended short (one night 1.1 kWh). A battery whose coldest cell is below 12 °C now counts at
+  30 A for the later hours; when it warms up the next re-plan counts it at full power again. The plan
+  summary lists the batteries counted cold (`cold`).
+- **Planned: the car can start at the beginning of a car hour.** In the first 2 minutes of a car hour,
+  until the car charges, the batteries already keep the car's room on its phases. Before, they charged at
+  full until the car drew power, and with a busy phase the charger's own load balancing could refuse the
+  start: on one night the car started 12 minutes late, when a house load stopped.
+- **Planned: battery charging next to the car planned as it really runs.** In a car hour the plan counted
+  the car at its power and left out the house, so it expected more battery charging next to the car than
+  the phases allowed (one night 3.1 kW planned, 2.5 kW real, 0.8 kWh less stored). It now counts the car at
+  *EV max current* when that is higher, as the batteries do while it charges, and takes the house's average
+  use (minus sun) off the room on the battery phases, for Car first and Balance alike. Auto may now pick
+  Balance in a few more hours: Car first loses more room than Balance.
+- **Car section: Car first / Balance / No car compared over the same hours.** *Batteries store* and *cost
+  out* were counted per column over that column's own car hours, so a Balance plan with three car hours
+  was compared with Car first and No car over two, and No car seemed to store less. All columns now use
+  one window, from the first to the end of the last car hour of either choice; the row names it.
+
+---
+
 ## v4.10.1-r26 — November 2026
 
 ### Upgrading — read this first
