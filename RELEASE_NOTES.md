@@ -32,6 +32,10 @@ This document covers HBA-specific changes only.
 
 ### Fixed
 
+- **Planned: the car can start at the beginning of a car hour.** In the first 2 minutes of a car hour,
+  until the car charges, the batteries already keep the car's room on its phases. Before, they charged at
+  full until the car drew power, and with a busy phase the charger's own load balancing could refuse the
+  start: on one night the car started 12 minutes late, when a house load stopped.
 - **Car section: Car first / Balance / No car compared over the same hours.** *Batteries store* and *cost
   out* were counted per column over that column's own car hours, so a Balance plan with three car hours
   was compared with Car first and No car over two, and No car seemed to store less. All columns now use

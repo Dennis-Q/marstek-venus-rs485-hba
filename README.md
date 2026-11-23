@@ -483,7 +483,9 @@ charge at night → sell tomorrow morning".
   grid next to the car, it also works out **Balance** (the batteries leave the car its 6 A minimum, a 1-phase
   car 1.4 kW, so the charger slows the car instead of pausing it) and keeps it only where the whole plan
   gets more than 2 cents cheaper. **Car first** = the car first in every hour. A large house load on a
-  battery phase can still pause the car for a moment in a Balance hour. With Car first, the Balance plan
+  battery phase can still pause the car for a moment in a Balance hour. In the first 2 minutes of a car
+  hour, until the car charges, the batteries already leave it its room, so the charger can start it. With
+  Car first, the Balance plan
   and the *No car* comparison are only worked out while Insights mode is on (each is one more full
   calculation).
 - **Charge the car from the batteries** (switch, default off, preview): a plan action *Car* (🔋→🚗) gives

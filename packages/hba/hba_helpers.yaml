@@ -2109,7 +2109,13 @@ template:
       # the policy is Charge alongside EV (or Planned with binary_sensor.hba_ev_alongside_ready),
       # no manual Full stop and no Timed EV charge
       # (that one discharges into the car on purpose). While on, hba_set_batteries never
-      # discharges and self-consumption runs with discharge disabled. Attributes:
+      # discharges and self-consumption runs with discharge disabled.
+      # Also on in the first 2 minutes of a Planned car hour (ev_mode force) while the car does not
+      # charge yet: the batteries keep the car's room before it draws. Prod
+      # 2026-11-23 02:00: the batteries charged at full, L1 stood at 19 A, and the Peblar's own load
+      # balancing (25 A) refused the start at 02:00:32; the car only started at 02:12 when a house load
+      # stopped. 2 minutes: the EV project switches the charger on at hh:00:30 and the car draws about
+      # 30 s later (03:01:03 the same night); the minute ticks of now() end it at hh:02:00. Attributes:
       #   mode       "Batteries first" below input_number.hba_ev_battery_priority_energy
       #              of usable energy, else "EV first"; always "EV first" in a Planned car
       #              hour (ev_mode force: the plan counts on the car's full power), or "Balance"
@@ -2126,7 +2132,15 @@ template:
           {%- set ev = e not in ['', 'unknown', 'unavailable'] and states(e) == 'on' -%}
           {%- set assist = is_state('binary_sensor.hba_battery_assist_active', 'on')
                            and not is_state('binary_sensor.hba_battery_assist_waiting', 'on') -%}
-          {{ ev and not assist
+          {%- set plan = state_attr('sensor.hba_planned_strategy', 'plan') or [] -%}
+          {%- set cur = plan | selectattr('ts', 'le', as_timestamp(now()) | int) | list | last | default(none) -%}
+          {%- set starting = not ev
+              and is_state('input_select.hba_strategy', 'Planned')
+              and is_state('binary_sensor.hba_ev_assist', 'on')
+              and is_state_attr('binary_sensor.hba_ev_assist', 'ev_mode', 'force')
+              and cur is not none
+              and as_timestamp(now()) - cur.ts < 120 -%}
+          {{ (ev or starting) and not assist
              and (is_state('input_select.hba_control_strategy_during_ev_charge', 'Charge alongside EV')
                   or (is_state('input_select.hba_strategy', 'Planned')
                       and is_state('binary_sensor.hba_ev_alongside_ready', 'on')))
