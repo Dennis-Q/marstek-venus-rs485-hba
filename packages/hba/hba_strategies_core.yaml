@@ -956,7 +956,8 @@ script:
                         target: { entity_id: input_text.hba_strategy_active_flow }
                         data:
                           value: >-
-                            {{ 'Planned → Car' if p_row | int(0) > 0 else 'Timed EV charge' }} — Grid overflow → Self-consumption
+                            {{ ('Planned → Car' if p_row | int(0) > 0 else 'Timed EV charge')
+                               ~ ' (grid overflow) → Self-consumption' }}
                       - action: script.hba_strategy_self_consumption
                         data: { skip_label: true }
                 default:
@@ -966,7 +967,7 @@ script:
                     target: { entity_id: input_text.hba_strategy_active_flow }
                     data:
                       value: >-
-                        {{ 'Planned → Car from the batteries → Discharge to EV' if p_row | int(0) > 0
+                        {{ 'Planned → Car → Discharge to EV' if p_row | int(0) > 0
                            else 'Timed EV charge → Discharge to EV' }}
                   - action: script.hba_set_batteries
                     data:
@@ -985,7 +986,7 @@ script:
             sequence:
               - action: input_text.set_value
                 target: { entity_id: input_text.hba_strategy_active_flow }
-                data: { value: "EV stop trigger — Peak shave active" }
+                data: { value: "EV charging → Standby / peak shave" }
               - action: script.hba_strategy_standby
                 data: { skip_label: true }
           # Charge PV during EV charge: absorb the solar residual the EV can't take.
@@ -1004,7 +1005,7 @@ script:
           - conditions: "{{ ev_active and ev_policy == 'Charge PV' and ev_saturated }}"
             sequence:
               - action: script.hba_strategy_charge_pv
-                data: { flow_prefix: "During EV charge →" }
+                data: { flow_prefix: "EV charging →" }
           # Charge alongside EV: no override — the normal strategy below decides whether
           # the batteries charge; binary_sensor.hba_ev_charge_alongside makes
           # hba_set_batteries skip discharging and cap charging per phase (EV first).
@@ -1012,7 +1013,7 @@ script:
             sequence:
               - action: input_text.set_value
                 target: { entity_id: input_text.hba_strategy_active_flow }
-                data: { value: "EV stop trigger" }
+                data: { value: "EV charging → Full stop" }
               - action: script.hba_strategy_full_stop
                 data: { skip_label: true }
           - conditions: "{{ strategy == 'Self-consumption' }}"

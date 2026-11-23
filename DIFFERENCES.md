@@ -174,7 +174,7 @@ HBA replaces this with a custom HA-native view that is substantially more detail
 HBC's. The cards on it:
 
 - **Flows used** — indented tree rendered from `input_text.hba_strategy_active_flow`
-  (e.g. `Control loop → Dynamic → Charge PV → Self-consumption (charge only)`)
+  (e.g. `Control loop → Dynamic → Charge PV`)
 - **Controller state** — grid power vs setpoint, current error, deadband indicator,
   P1 sensor age, peak-shaving clamp status per side (🟢/🔴), EV-stop entity state,
   and the current PID phase from `input_text.hba_control_cycle_state` (Deadband,

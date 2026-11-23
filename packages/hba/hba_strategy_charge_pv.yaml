@@ -41,7 +41,7 @@ script:
             sequence:
               - action: input_text.set_value
                 target: { entity_id: input_text.hba_strategy_active_flow }
-                data: { value: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Charge PV → Full stop" }
+                data: { value: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Charge PV (full) → Full stop" }
               - action: script.hba_strategy_full_stop
                 data: { skip_label: true }
         default:
@@ -51,4 +51,4 @@ script:
             data: { skip_label: true, discharge_disabled: true }
           - action: input_text.set_value
             target: { entity_id: input_text.hba_strategy_active_flow }
-            data: { value: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Charge PV → Self-consumption (charge only)" }
+            data: { value: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Charge PV" }

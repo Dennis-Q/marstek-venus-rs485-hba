@@ -346,7 +346,7 @@ script:
             sequence:
               - action: input_text.set_value
                 target: { entity_id: input_text.hba_strategy_active_flow }
-                data: { value: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Zero import → Full stop (SoC at minimum)" }
+                data: { value: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Zero import (empty) → Full stop" }
               - action: script.hba_strategy_full_stop
                 data: { skip_label: true }
         default:
@@ -376,7 +376,7 @@ script:
   # (input_select.hba_control_strategy_during_ev_charge = "Standby / peak shave"),
   # this script acts as a power-limited safe mode while the EV is charging.
   #
-  # skip_label: caller manages the label (e.g. "EV stop trigger — Peak shave active").
+  # skip_label: caller manages the label (e.g. "EV charging → Standby / peak shave").
   hba_strategy_standby:
     alias: "HBA: Strategy - Standby / peak shave"
     fields:
@@ -400,7 +400,7 @@ script:
                     sequence:
                       - action: input_text.set_value
                         target: { entity_id: input_text.hba_strategy_active_flow }
-                        data: { value: "Standby / peak shave → Self-consumption (import)" }
+                        data: { value: "Standby / peak shave (import limit) → Peak shaving" }
               - action: script.hba_strategy_self_consumption
                 data:
                   skip_label: true
@@ -412,7 +412,7 @@ script:
                     sequence:
                       - action: input_text.set_value
                         target: { entity_id: input_text.hba_strategy_active_flow }
-                        data: { value: "Standby / peak shave → Self-consumption (export)" }
+                        data: { value: "Standby / peak shave (export limit) → Peak shaving" }
               - action: script.hba_strategy_self_consumption
                 data:
                   skip_label: true

@@ -18,7 +18,7 @@
 #
 # flow_prefix propagation: Charge and Sell are called with flow_prefix: "Timed →"
 # so the full execution chain appears in active_flow, e.g.:
-#   "Timed → Charge → Charge PV → Self-consumption (charge only)"
+#   "Timed → Charge → Charge PV"
 # Other sub-strategies use the write-then-skip-label pattern instead:
 #   write "Timed → Full stop" → call full_stop with skip_label: true
 

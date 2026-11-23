@@ -19,6 +19,26 @@ This document covers HBA-specific changes only.
   plan names the hour Charge PV if the sun is up and storing it is worth more than exporting it; that now
   includes a full battery. If a load takes a little out, Charge PV refills it from the sun, where Full stop
   exported the sun. Full stop stays when exporting the sun is worth more, and at night.
+- **Clearer flow labels** (Overview *Flow* / *Executing*, the history of `sensor.hba_active_strategy`,
+  Insights *Flows used*). One arrow style (" → "), the last part is always the name of what runs, and a reason
+  sits in brackets on the step that decided it:
+
+  | Before | Now |
+  |---|---|
+  | Charge PV → Self-consumption (charge only) | Charge PV |
+  | Charge PV → Full stop | Charge PV (full) → Full stop |
+  | Charge → Self-consumption (sun refills battery) | Charge (sun refills) → Self-consumption |
+  | Zero import → Full stop (SoC at minimum) | Zero import (empty) → Full stop |
+  | Standby / peak shave → Self-consumption (import) / (export) | Standby / peak shave (import limit) / (export limit) → Peak shaving |
+  | EV stop trigger | EV charging → Full stop |
+  | EV stop trigger — Peak shave active | EV charging → Standby / peak shave |
+  | During EV charge → Charge PV → … | EV charging → Charge PV |
+  | Planned → Car — Grid overflow → Self-consumption | Planned → Car (grid overflow) → Self-consumption |
+  | Timed EV charge — Grid overflow → Self-consumption | Timed EV charge (grid overflow) → Self-consumption |
+  | Planned → Car from the batteries → Discharge to EV | Planned → Car → Discharge to EV |
+
+  Only the text changes, not what the batteries do. If you have your own automations or cards that compare
+  with one of the old texts, update them.
 
 ---
 

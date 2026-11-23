@@ -113,7 +113,9 @@ script:
                     sequence:
                       - action: input_text.set_value
                         target: { entity_id: input_text.hba_strategy_active_flow }
-                        data: { value: "{{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Charge → Self-consumption (sun refills battery)" }
+                        data:
+                          value: >-
+                            {{ (_flow_prefix ~ ' ') if _flow_prefix else '' }}Charge (sun refills) → Self-consumption
                       - action: script.hba_strategy_self_consumption
                         data: { skip_label: true }
                   - conditions: "{{ next in ['Charge PV', 'Charge PV — use battery if the sun refills it'] }}"
