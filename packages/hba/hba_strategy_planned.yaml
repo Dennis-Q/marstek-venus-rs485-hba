@@ -1072,9 +1072,16 @@ template:
                   {%- endfor -%}
                   {#- Room next to the car at full power: the limit minus the car's current per phase
                       (a 1-phase car has all of it on one phase; which one is not known, so it counts
-                      on every battery phase) -#}
-                  {%- set car_room = ([car_lim - car_kw * 1000 / (230 * car_n), 0] | max)
-                      * 0.23 * (car_ph.l | length) -%}
+                      on every battery phase). The car counts at input_number.hba_ev_max_current when that
+                      is higher than its power: the runtime keeps room up to it (sensor.hba_phase_room
+                      ev_reserve_w). The house load comes off per hour, below (car_hs). Prod 2026-11-23
+                      03:00: the plan counted 3.1 kW next to the car, the batteries got ~2.5 kW. -#}
+                  {%- set car_evmax = states('input_number.hba_ev_max_current') | float(0) -%}
+                  {%- set car_a = [car_kw * 1000 / (230 * car_n), car_evmax] | max -%}
+                  {%- set car_room = ([car_lim - car_a, 0] | max) * 0.23 * (car_ph.l | length) -%}
+                  {#- The house's share on the battery phases (kW per kW of house use): the house counted
+                      evenly over three phases, as its phases are not known -#}
+                  {%- set car_hs = (car_ph.l | length) / 3 -%}
                   {#- Car hours priority (input_select.hba_strategy_planned_car_priority: Auto / Car first;
                       car_prio is set per run, see "Car hours priority" after this calculation). Balance
                       runs only in the hours of bal_hours, and only in an hour without Minimum kWh: up to
@@ -1088,7 +1095,8 @@ template:
                       more hours; when the batteries are done early it speeds up, finishes sooner, and the
                       next plan sees that.
                       Only with Charge alongside EV (car.along) and phases + a limit set; else Car first.
-                      House load is left out, as for Car first: the charger pauses briefly by itself. -#}
+                      The house's average load comes off both rooms per hour (car_hs); a sudden house load
+                      still pauses the charger briefly. -#}
                   {%- set car_bal = car_prio == 'Balance' and car.along and car_lim > 0 and (car_ph.l | length) > 0 -%}
                   {%- set bal_set = ((bal_hours | from_json) if bal_hours is string else bal_hours)
                       if car_bal else [] -%}
@@ -1237,8 +1245,11 @@ template:
                       {%- set c_sun = [sl.u, car.picks[k]] | min -%}
                       {%- set u2 = [sl.u - car.picks[k], 0] | max -%}
                       {%- set s_bal = sl.ts in car.bal -%}
+                      {#- Room left after the house's net use (house minus sun) on the battery phases -#}
+                      {%- set c_hk = ([sl.load - sl.sun, 0] | max) / ([sl.h, 0.01] | max) * car_hs -%}
+                      {%- set c_rm = [(bal_room if s_bal else car_room) - c_hk, 0] | max -%}
                       {%- set c_pc =
-                          (([sl.pc, bal_room if s_bal else car_room] | min) if car_lim > 0 and car_ph.l else sl.pc)
+                          (([sl.pc, c_rm] | min) if car_lim > 0 and car_ph.l else sl.pc)
                           if car.along
                           else (([sl.pc, u2 / ([sl.h, 0.01] | max)] | min) if car_pv else 0) -%}
                       {#- Only the part of the hour the car charges: an hour with 0.8 kWh for the car is ~5 min

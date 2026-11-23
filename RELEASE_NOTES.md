@@ -36,6 +36,12 @@ This document covers HBA-specific changes only.
   until the car charges, the batteries already keep the car's room on its phases. Before, they charged at
   full until the car drew power, and with a busy phase the charger's own load balancing could refuse the
   start: on one night the car started 12 minutes late, when a house load stopped.
+- **Planned: battery charging next to the car planned as it really runs.** In a car hour the plan counted
+  the car at its power and left out the house, so it expected more battery charging next to the car than
+  the phases allowed (one night 3.1 kW planned, 2.5 kW real, 0.8 kWh less stored). It now counts the car at
+  *EV max current* when that is higher, as the batteries do while it charges, and takes the house's average
+  use (minus sun) off the room on the battery phases, for Car first and Balance alike. Auto may now pick
+  Balance in a few more hours: Car first loses more room than Balance.
 - **Car section: Car first / Balance / No car compared over the same hours.** *Batteries store* and *cost
   out* were counted per column over that column's own car hours, so a Balance plan with three car hours
   was compared with Car first and No car over two, and No car seemed to store less. All columns now use
