@@ -77,7 +77,8 @@
 #   hba_strategy_planned                      runs the running slot's strategy
 # automation:
 #   hba_planned_car_choice_reset, hba_planned_car_home_days_default, hba_house_load_profile_update,
-#   hba_planned_decision_log                  one Logbook line per decision (why it re-planned, what runs)
+#   hba_planned_decision_log                  one Logbook line per decision (why it re-planned, what runs);
+#                                             the car choice reset and the car question answers log there too
 #
 # ── Short names in the calculation ──────────────────────────────────────────────
 # Energy in kWh, power in kW, prices in EUR/kWh, unless a name says otherwise (pw = W).
@@ -2428,6 +2429,15 @@ automation:
           {{ states('input_select.hba_strategy_planned_car_next_departure') != 'Auto'
              and dep_day != '' and next_day > dep_day }}
         then:
+          # Decision log (sensor.hba_decision_log): the choice ended by itself
+          - action: logbook.log
+            data:
+              name: "HBA Planned"
+              message: >-
+                Next departure back to Auto (was {{
+                  states('input_select.hba_strategy_planned_car_next_departure') }} for the departure of {{
+                  as_datetime(dep_day).strftime('%d-%m') if as_datetime(dep_day) is not none else dep_day }}).
+              entity_id: sensor.hba_decision_log
           - action: input_select.select_option
             target: { entity_id: input_select.hba_strategy_planned_car_next_departure }
             data: { option: "Auto" }
@@ -2435,6 +2445,11 @@ automation:
           {{ (skip == 'Minimum only' and skip_day != '' and next_day > skip_day)
              or (skip == 'Min. until home day' and home_passed) }}
         then:
+          - action: logbook.log
+            data:
+              name: "HBA Planned"
+              message: "Normal from the grid back to Auto (was {{ skip }})."
+              entity_id: sensor.hba_decision_log
           - action: input_select.select_option
             target: { entity_id: input_select.hba_strategy_planned_car_normal_skip }
             data: { option: "Auto" }
@@ -2704,7 +2719,16 @@ automation:
               {%- if why.startswith('off by') or why.endswith(' done') -%}
                 {%- set ns_d.d = ns_d.d + ['stored ' ~ n.get('ledger_energy') ~ ' kWh'] -%}
               {%- endif -%}
-              {%- set always = why.endswith(' done')
+              {#- A car choice of the user (signature parts 7 plugged in, 13 next departure, 14 Normal from
+                  the grid, 15 deadline) is logged even when the running and next hour stay the same; car
+                  SoC steps and targets reached only when they change (user 2026-11-23: a Not leaving
+                  answer at 20:00 moves the night hours and left no line) -#}
+              {%- set car_choice = why == 'car changed' and s0 | length == s1 | length and s1 | length > 17 -%}
+              {%- set cc = namespace(on=false) -%}
+              {%- for i in [7, 13, 14, 15] if car_choice and s0[i] != s1[i] -%}
+                {%- set cc.on = true -%}
+              {%- endfor -%}
+              {%- set always = why.endswith(' done') or cc.on
                   or why in ['settings changed', 'refresh asked', 'HA start / reload', 'no plan yet'] -%}
               {%- if n.get('status') != 'OK' -%}
                 {{ 'No plan: ' ~ n.get('status') ~ ' (' ~ why ~ ')' if n.get('status') != o.get('status') else '' }}

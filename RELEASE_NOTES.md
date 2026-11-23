@@ -32,6 +32,11 @@ This document covers HBA-specific changes only.
 
 - **Decision log: the car's targets by name.** A re-plan because the car reached a target now says which,
   e.g. "car reached Normal and Leftover (100 %)", instead of "car targets reached 1 → 3".
+- **Decision log: your car choices.** Each answer to the car question gets a line ("Car question answered:
+  Not leaving (Next departure)"), and so does a choice going back to Auto after its departure. The re-plan
+  after a car choice (plugged in / out, next departure, Normal from the grid, departure time) is now always
+  written, also when the running and next hour stay the same: a Not leaving answer at 20:00 moves the
+  night hours and left no line. Car SoC steps are still only written when they change those hours.
 
 ### Fixed
 
