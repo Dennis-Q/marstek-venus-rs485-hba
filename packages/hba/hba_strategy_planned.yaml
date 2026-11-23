@@ -2724,8 +2724,17 @@ automation:
                                    8: 'car SoC', 9: 'max price', 10: 'charge power', 11: 'phases',
                                    12: 'over the max price', 13: 'next departure', 14: 'Normal from the grid',
                                    15: 'deadline', 16: 'battery to car before the latest plug-in'} -%}
+                  {#- Part 16 True → False with the clock past the latest plug-in time: the time passed
+                      without the car, nothing about the car changed (user 2026-11-23: "car changed" at 18:00
+                      while the car was away and unused) -#}
+                  {%- set lp = states('input_datetime.hba_strategy_planned_car_latest_plugin')[:5] -%}
+                  {%- set lp = '18:00' if lp in ['00:00', 'unkno', 'unava', ''] else lp -%}
+                  {%- set lp_gone = s0[16] == 'True' and s1[16] == 'False' and s0[7] == s1[7]
+                      and now().strftime('%H:%M') >= lp -%}
                   {%- for i in range(4, 17) if s0[i] != s1[i] -%}
-                    {%- set ns_d.d = ns_d.d + [names[i] ~ ' '
+                    {%- set ns_d.d = ns_d.d + [('latest plug-in time ' ~ lp ~ ' passed, car not plugged in')
+                        if i == 16 and lp_gone
+                        else names[i] ~ ' '
                         ~ (((s0[i] | float(0) * 5) | int ~ ' → ' ~ (s1[i] | float(0) * 5) | int ~ ' %') if i == 8
                            else (s0[i] ~ ' → ' ~ s1[i]))] -%}
                   {%- endfor -%}
@@ -2770,6 +2779,11 @@ automation:
               {#- Nothing changed in the running and next hour: only the reason, not the hours again (user
                   2026-11-23: what runs or was already planned is no decision; 11-22 evening had nine such lines) -#}
               {%- elif ns.changed or always or o.get('status') != 'OK' -%}
+                {#- Only the latest plug-in time passed: that is the reason, not "car changed" -#}
+                {%- set lp_only = why == 'car changed' and ns_d.d | length == 1
+                    and ns_d.d[0].startswith('latest plug-in time ') -%}
+                {%- set why = ns_d.d[0].split(', ')[0] if lp_only else why -%}
+                {%- set ns_d.d = ['car not plugged in'] if lp_only else ns_d.d -%}
                 {{ 'Re-plan, ' ~ why ~ (' (' ~ ns_d.d | join(', ') ~ ')' if ns_d.d | length > 0 else '') ~ ': '
                    ~ ((ns.parts | join('; ') if ns.parts | length > 0 else 'no slot planned')
                       if ns.changed or o.get('status') != 'OK' else 'no change') }}

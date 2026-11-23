@@ -514,7 +514,7 @@ charge at night → sell tomorrow morning".
   Minimum, Normal or Leftover (within 5 minutes; the batteries then get the car's room).
 - **Decision log:** every decision of Planned is one line in HA's Logbook (*HBA Planned*, on the entity
   `sensor.hba_decision_log`; also the **Decisions** card at the top of Insights in the preview dashboard): why it re-planned and what changed (new solar forecast with the
-  old and new kWh, new prices, the car, the stored energy off the plan, Charge / Sell done), the running
+  old and new kWh, new prices, the car, the latest plug-in time for battery to car passing without the car, the stored energy off the plan, Charge / Sell done), the running
   and the next hour as now planned with what they were before, and each change of what runs ("Runs
   Planned → Charge done → Full stop"). A re-plan is written when the running or next hour changes, or always
   for a settings change, Charge / Sell done and a car choice (plugged in / out, next departure, Normal from

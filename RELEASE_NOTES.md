@@ -45,6 +45,10 @@ This document covers HBA-specific changes only.
 - **Decision log: a re-plan that changes nothing is one short line.** When the running and next hour stay
   as they were, the line ends with "no change" instead of repeating both hours: what runs or was already
   planned is no new decision.
+- **Decision log: the latest plug-in time passing is named.** With battery to car on and the car not
+  plugged in, the plan stops counting on the car at its latest plug-in time and re-plans. The line now reads
+  "Re-plan, latest plug-in time 18:00 passed (car not plugged in)" instead of "car changed (battery to car
+  before the latest plug-in True → False)", which read as if something happened to the car.
 
 ### Fixed
 
