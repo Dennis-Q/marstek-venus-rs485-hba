@@ -48,6 +48,12 @@ This document covers HBA-specific changes only.
 
 ### Fixed
 
+- **No false "battery not responding" when the BMS or a full battery slows it down.** The alert now
+  compares what a battery delivers with what it can deliver: its command, or less when its BMS current
+  limit × battery voltage is lower (one cold evening the BMS cut discharge to 40 A at 17-24 % SoC, three
+  batteries gave exactly that and each raised the alert). Near full a charging battery slows down below its
+  BMS limit by itself, from about 95 % on a cold day: the alert now skips it from 6 % below the charge
+  cutoff instead of 3 %. A battery that gives much less than its BMS allows still raises the alert.
 - **Planned: cold batteries planned at their winter charge power.** Below about 10 °C the battery's BMS
   allows only ~30 A (~1.6 kW instead of ~2.5 kW), all through a cold night's charge. The plan counted the
   full power for every hour after the running one, so on a cold night it planned too much into the last

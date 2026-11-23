@@ -2425,15 +2425,24 @@ template:
               {% set at_limit = soc >= 0 and soc <= soc_min + 3 %}
             {% elif d == 'charge' %}
               {% set cmd = -(states('number.marstek_m1_forcible_charge_power') | float(0)) %}
-              {% set at_limit = soc >= 0 and soc >= soc_max - 3 %}
+              {# near full the battery tapers below its BMS limit by itself: from ~95.5 % on a cold day
+                 (prod 2026-11-23 M4: 850 W asked, BMS 15 A, 440-600 W from 95.8 %); was soc_max - 3 #}
+              {% set at_limit = soc >= 0 and soc >= soc_max - 6 %}
             {% else %}
               {% set cmd = 0 %}
               {% set at_limit = false %}
             {% endif %}
-            {% if at_limit or cmd | abs < 300 %}
+            {# What the battery can do: the command, or less when its BMS current limit x battery voltage is
+               lower. Prod 2026-11-21 19:09 / 19:15 / 19:37: the BMS cut discharge to 40 A at 17-24 % SoC, the
+               battery gave exactly that (~1980 W of 2500) and the alert fired before HBA lowered its command #}
+            {% set bms_a = states('sensor.marstek_m1_battery_' ~ ('discharge' if d == 'discharge' else 'charge')
+                ~ '_current_limit') | float(-1) %}
+            {% set v_bat = states('sensor.marstek_m1_battery_voltage') | float(0) %}
+            {% set can = ([cmd | abs, bms_a * v_bat] | min) if bms_a >= 0 and v_bat > 40 else cmd | abs %}
+            {% if at_limit or can < 300 %}
               false
             {% else %}
-              {{ (states('sensor.marstek_m1_ac_power') | float(0) - cmd) | abs > cmd | abs * 0.15 }}
+              {{ (states('sensor.marstek_m1_ac_power') | float(0) - (can if cmd > 0 else -can)) | abs > can * 0.15 }}
             {% endif %}
           {% endif %}
 
@@ -2479,15 +2488,24 @@ template:
               {% set at_limit = soc >= 0 and soc <= soc_min + 3 %}
             {% elif d == 'charge' %}
               {% set cmd = -(states('number.marstek_m2_forcible_charge_power') | float(0)) %}
-              {% set at_limit = soc >= 0 and soc >= soc_max - 3 %}
+              {# near full the battery tapers below its BMS limit by itself: from ~95.5 % on a cold day
+                 (prod 2026-11-23 M4: 850 W asked, BMS 15 A, 440-600 W from 95.8 %); was soc_max - 3 #}
+              {% set at_limit = soc >= 0 and soc >= soc_max - 6 %}
             {% else %}
               {% set cmd = 0 %}
               {% set at_limit = false %}
             {% endif %}
-            {% if at_limit or cmd | abs < 300 %}
+            {# What the battery can do: the command, or less when its BMS current limit x battery voltage is
+               lower. Prod 2026-11-21 19:09 / 19:15 / 19:37: the BMS cut discharge to 40 A at 17-24 % SoC, the
+               battery gave exactly that (~1980 W of 2500) and the alert fired before HBA lowered its command #}
+            {% set bms_a = states('sensor.marstek_m2_battery_' ~ ('discharge' if d == 'discharge' else 'charge')
+                ~ '_current_limit') | float(-1) %}
+            {% set v_bat = states('sensor.marstek_m2_battery_voltage') | float(0) %}
+            {% set can = ([cmd | abs, bms_a * v_bat] | min) if bms_a >= 0 and v_bat > 40 else cmd | abs %}
+            {% if at_limit or can < 300 %}
               false
             {% else %}
-              {{ (states('sensor.marstek_m2_ac_power') | float(0) - cmd) | abs > cmd | abs * 0.15 }}
+              {{ (states('sensor.marstek_m2_ac_power') | float(0) - (can if cmd > 0 else -can)) | abs > can * 0.15 }}
             {% endif %}
           {% endif %}
 
@@ -2533,15 +2551,24 @@ template:
               {% set at_limit = soc >= 0 and soc <= soc_min + 3 %}
             {% elif d == 'charge' %}
               {% set cmd = -(states('number.marstek_m3_forcible_charge_power') | float(0)) %}
-              {% set at_limit = soc >= 0 and soc >= soc_max - 3 %}
+              {# near full the battery tapers below its BMS limit by itself: from ~95.5 % on a cold day
+                 (prod 2026-11-23 M4: 850 W asked, BMS 15 A, 440-600 W from 95.8 %); was soc_max - 3 #}
+              {% set at_limit = soc >= 0 and soc >= soc_max - 6 %}
             {% else %}
               {% set cmd = 0 %}
               {% set at_limit = false %}
             {% endif %}
-            {% if at_limit or cmd | abs < 300 %}
+            {# What the battery can do: the command, or less when its BMS current limit x battery voltage is
+               lower. Prod 2026-11-21 19:09 / 19:15 / 19:37: the BMS cut discharge to 40 A at 17-24 % SoC, the
+               battery gave exactly that (~1980 W of 2500) and the alert fired before HBA lowered its command #}
+            {% set bms_a = states('sensor.marstek_m3_battery_' ~ ('discharge' if d == 'discharge' else 'charge')
+                ~ '_current_limit') | float(-1) %}
+            {% set v_bat = states('sensor.marstek_m3_battery_voltage') | float(0) %}
+            {% set can = ([cmd | abs, bms_a * v_bat] | min) if bms_a >= 0 and v_bat > 40 else cmd | abs %}
+            {% if at_limit or can < 300 %}
               false
             {% else %}
-              {{ (states('sensor.marstek_m3_ac_power') | float(0) - cmd) | abs > cmd | abs * 0.15 }}
+              {{ (states('sensor.marstek_m3_ac_power') | float(0) - (can if cmd > 0 else -can)) | abs > can * 0.15 }}
             {% endif %}
           {% endif %}
 
@@ -2587,15 +2614,24 @@ template:
               {% set at_limit = soc >= 0 and soc <= soc_min + 3 %}
             {% elif d == 'charge' %}
               {% set cmd = -(states('number.marstek_m4_forcible_charge_power') | float(0)) %}
-              {% set at_limit = soc >= 0 and soc >= soc_max - 3 %}
+              {# near full the battery tapers below its BMS limit by itself: from ~95.5 % on a cold day
+                 (prod 2026-11-23 M4: 850 W asked, BMS 15 A, 440-600 W from 95.8 %); was soc_max - 3 #}
+              {% set at_limit = soc >= 0 and soc >= soc_max - 6 %}
             {% else %}
               {% set cmd = 0 %}
               {% set at_limit = false %}
             {% endif %}
-            {% if at_limit or cmd | abs < 300 %}
+            {# What the battery can do: the command, or less when its BMS current limit x battery voltage is
+               lower. Prod 2026-11-21 19:09 / 19:15 / 19:37: the BMS cut discharge to 40 A at 17-24 % SoC, the
+               battery gave exactly that (~1980 W of 2500) and the alert fired before HBA lowered its command #}
+            {% set bms_a = states('sensor.marstek_m4_battery_' ~ ('discharge' if d == 'discharge' else 'charge')
+                ~ '_current_limit') | float(-1) %}
+            {% set v_bat = states('sensor.marstek_m4_battery_voltage') | float(0) %}
+            {% set can = ([cmd | abs, bms_a * v_bat] | min) if bms_a >= 0 and v_bat > 40 else cmd | abs %}
+            {% if at_limit or can < 300 %}
               false
             {% else %}
-              {{ (states('sensor.marstek_m4_ac_power') | float(0) - cmd) | abs > cmd | abs * 0.15 }}
+              {{ (states('sensor.marstek_m4_ac_power') | float(0) - (can if cmd > 0 else -can)) | abs > can * 0.15 }}
             {% endif %}
           {% endif %}
 
@@ -2641,15 +2677,24 @@ template:
               {% set at_limit = soc >= 0 and soc <= soc_min + 3 %}
             {% elif d == 'charge' %}
               {% set cmd = -(states('number.marstek_m5_forcible_charge_power') | float(0)) %}
-              {% set at_limit = soc >= 0 and soc >= soc_max - 3 %}
+              {# near full the battery tapers below its BMS limit by itself: from ~95.5 % on a cold day
+                 (prod 2026-11-23 M4: 850 W asked, BMS 15 A, 440-600 W from 95.8 %); was soc_max - 3 #}
+              {% set at_limit = soc >= 0 and soc >= soc_max - 6 %}
             {% else %}
               {% set cmd = 0 %}
               {% set at_limit = false %}
             {% endif %}
-            {% if at_limit or cmd | abs < 300 %}
+            {# What the battery can do: the command, or less when its BMS current limit x battery voltage is
+               lower. Prod 2026-11-21 19:09 / 19:15 / 19:37: the BMS cut discharge to 40 A at 17-24 % SoC, the
+               battery gave exactly that (~1980 W of 2500) and the alert fired before HBA lowered its command #}
+            {% set bms_a = states('sensor.marstek_m5_battery_' ~ ('discharge' if d == 'discharge' else 'charge')
+                ~ '_current_limit') | float(-1) %}
+            {% set v_bat = states('sensor.marstek_m5_battery_voltage') | float(0) %}
+            {% set can = ([cmd | abs, bms_a * v_bat] | min) if bms_a >= 0 and v_bat > 40 else cmd | abs %}
+            {% if at_limit or can < 300 %}
               false
             {% else %}
-              {{ (states('sensor.marstek_m5_ac_power') | float(0) - cmd) | abs > cmd | abs * 0.15 }}
+              {{ (states('sensor.marstek_m5_ac_power') | float(0) - (can if cmd > 0 else -can)) | abs > can * 0.15 }}
             {% endif %}
           {% endif %}
 
@@ -2695,15 +2740,24 @@ template:
               {% set at_limit = soc >= 0 and soc <= soc_min + 3 %}
             {% elif d == 'charge' %}
               {% set cmd = -(states('number.marstek_m6_forcible_charge_power') | float(0)) %}
-              {% set at_limit = soc >= 0 and soc >= soc_max - 3 %}
+              {# near full the battery tapers below its BMS limit by itself: from ~95.5 % on a cold day
+                 (prod 2026-11-23 M4: 850 W asked, BMS 15 A, 440-600 W from 95.8 %); was soc_max - 3 #}
+              {% set at_limit = soc >= 0 and soc >= soc_max - 6 %}
             {% else %}
               {% set cmd = 0 %}
               {% set at_limit = false %}
             {% endif %}
-            {% if at_limit or cmd | abs < 300 %}
+            {# What the battery can do: the command, or less when its BMS current limit x battery voltage is
+               lower. Prod 2026-11-21 19:09 / 19:15 / 19:37: the BMS cut discharge to 40 A at 17-24 % SoC, the
+               battery gave exactly that (~1980 W of 2500) and the alert fired before HBA lowered its command #}
+            {% set bms_a = states('sensor.marstek_m6_battery_' ~ ('discharge' if d == 'discharge' else 'charge')
+                ~ '_current_limit') | float(-1) %}
+            {% set v_bat = states('sensor.marstek_m6_battery_voltage') | float(0) %}
+            {% set can = ([cmd | abs, bms_a * v_bat] | min) if bms_a >= 0 and v_bat > 40 else cmd | abs %}
+            {% if at_limit or can < 300 %}
               false
             {% else %}
-              {{ (states('sensor.marstek_m6_ac_power') | float(0) - cmd) | abs > cmd | abs * 0.15 }}
+              {{ (states('sensor.marstek_m6_ac_power') | float(0) - (can if cmd > 0 else -can)) | abs > can * 0.15 }}
             {% endif %}
           {% endif %}
 
