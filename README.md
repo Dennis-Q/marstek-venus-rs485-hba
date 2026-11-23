@@ -574,6 +574,22 @@ on a floor after 2 min there; a floor stays occupied 10 min after the last sourc
 collects data: nothing controls the batteries yet. Each floor's *Present* sensor lists the motion sensors
 that count for it (attribute `motion_sensors`) and the sources that see someone now (`by`).
 
+### Known limitation: Spook repairs for batteries you don't have
+
+HBA supports up to six batteries. Several automations, the script `hba_apply_defaults`, a few template
+sensors and both dashboards name the entities of every battery (M1–M6) directly, because a trigger list or
+a dashboard card cannot build entity names from the battery count. With fewer batteries those entities do
+not exist. HBA does not mind: a trigger on a missing entity never fires and the cards of a battery you do
+not have are hidden. But [Spook](https://spook.boo) reports every one of them as *Unknown entities used in …*
+(about 16 code repairs and one per dashboard, the same with 2 or 4 batteries; only the list in each grows).
+
+What to do: open each of these repairs and press **Ignore**. Spook (checked in 5.11.1) saves the ignore per
+automation or dashboard together with its list of entities, so it survives restarts, reloads and HBA
+updates. A repair only comes back when it names an entity that was not in the list you ignored, for
+example after you add a battery and then remove it again, or when an HBA update names a new M3–M6 entity.
+Check a repair before you ignore it: one that names an entity of a battery you **do** have (or a non-
+`marstek_m*` entity) is a real problem, such as a battery file that is missing or did not load.
+
 ---
 
 ## Feedback and maintenance
