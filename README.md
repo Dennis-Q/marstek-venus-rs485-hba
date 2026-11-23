@@ -498,7 +498,7 @@ charge at night → sell tomorrow morning".
   charger's energy meter says the car has that hour's kWh. Settings: *ends before departure* (hours) and
   *latest plug-in time* (an expected car).
 - **Ask before Normal** (switch, default off): a phone question with buttons (charge Normal tonight or not,
-  is the car leaving) right after the car is plugged in — as soon as the plan has the car, a second or two —
+  is the car leaving) right after the car is plugged in, at any time of day — as soon as the plan has the car, a second or two —
   and at the EV project's reminder time (default 20:00) when it did not ask yet that day. No answer = it
   charges.
 - Charge and Sell run to the energy the plan expects at the end of the hour. Charge uses the power the

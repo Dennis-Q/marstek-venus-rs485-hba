@@ -1364,8 +1364,8 @@ automation:
           resolve_id: hba_entity_health
 
   # ── Planned: skip Normal for the car ─────────────────────────────────────────────
-  # Ask before Normal on, car connected, plan in charge, and Normal has hours tonight: asked at
-  # the EV project's reminder time, or after plug-in until 22:00. No answer = it charges.
+  # Ask before Normal on, car connected, plan in charge, and Normal has hours tonight: asked at a real
+  # plug-in, or at the EV project's reminder time when no question went out that day. No answer = it charges.
   # On a home day from the list it asks whether the car really stays (Not leaving / Leaving).
   # While Min. until home day runs: a short notice that Normal stays skipped, or the solar-low
   # message when that day's solar looks too low.
@@ -1421,10 +1421,10 @@ automation:
       # The reminder asks only when no question went out that day yet (see "asked" below), in both
       # cases: the Normal case had no such check, so a plug-in at 19:32 asked and 20:00 asked again
       # (prod 2026-11-18; user 2026-11-22: build).
+      # A real plug-in asks whatever the time (user 2026-11-23; from 2026-11-01 until then only between the
+      # reminder time and 22:00, so a later plug-in waited for the next day's reminder, no reason recorded).
       - condition: template
         value_template: >-
-          {%- set t = states('input_datetime.ev_assisted_reminder')[:5] -%}
-          {%- set t = '20:00' if t in ['00:00', 'unkno', 'unava', ''] else t -%}
           {%- set car = (state_attr('sensor.hba_planned_strategy', 'summary') or {}).get('car') or {} -%}
           {%- set bat = (car.get('bat') or {}) -%}
           {%- set bat_on = bat.get('on') == true
@@ -1436,9 +1436,7 @@ automation:
           {%- set asked = (last | timestamp_custom('%Y-%m-%d')) == now().strftime('%Y-%m-%d') -%}
           {{ state_attr('sensor.ev_car_info', 'connected') == true
              and (trigger.id == 'plugged' or not asked)
-             and (bat_on
-                  or ((trigger.id == 'reminder' or t <= now().strftime('%H:%M') < '22:00')
-                      and car.get('normal', 0) | float(0) > 0.1)) }}
+             and (bat_on or car.get('normal', 0) | float(0) > 0.1) }}
     actions:
       - variables:
           car: "{{ (state_attr('sensor.hba_planned_strategy', 'summary') or {}).get('car') or {} }}"

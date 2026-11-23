@@ -20,6 +20,10 @@ This document covers HBA-specific changes only.
   before a Sell; also rows like "Charge 8.9 → 8.9 kWh"). A battery HBA already counts as full (within 1 % of
   its charge cutoff, or its BMS at 0 A) now counts as at its cutoff in the plan, in Planned's Charge / Sell
   targets and in the solar-for-the-car target.
+- **Car question at every plug-in.** With *Ask before Normal* on, a plug-in asked about Normal only between
+  the reminder time (default 20:00) and 22:00. Before it, the question waited for the reminder; after 22:00
+  it waited for the next day's, and with no answer the car charged Normal that night. It now asks right after
+  every real plug-in, whatever the time; the reminder still asks when no question went out that day.
 
 ### Changed
 
