@@ -2753,10 +2753,12 @@ automation:
                   or why in ['settings changed', 'refresh asked', 'HA start / reload', 'no plan yet'] -%}
               {%- if n.get('status') != 'OK' -%}
                 {{ 'No plan: ' ~ n.get('status') ~ ' (' ~ why ~ ')' if n.get('status') != o.get('status') else '' }}
+              {#- Nothing changed in the running and next hour: only the reason, not the hours again (user
+                  2026-11-23: what runs or was already planned is no decision; 11-22 evening had nine such lines) -#}
               {%- elif ns.changed or always or o.get('status') != 'OK' -%}
                 {{ 'Re-plan, ' ~ why ~ (' (' ~ ns_d.d | join(', ') ~ ')' if ns_d.d | length > 0 else '') ~ ': '
-                   ~ (ns.parts | join('; ') if ns.parts | length > 0 else 'no slot planned')
-                   ~ ('' if ns.changed else ' (no change)') }}
+                   ~ ((ns.parts | join('; ') if ns.parts | length > 0 else 'no slot planned')
+                      if ns.changed or o.get('status') != 'OK' else 'no change') }}
               {%- endif -%}
             {%- endif -%}
       - condition: template

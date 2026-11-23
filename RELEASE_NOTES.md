@@ -42,6 +42,9 @@ This document covers HBA-specific changes only.
   "settings changed (Planned: efficiency: 85 → 80)". Every Planned setting counts (the planner's own
   settings, the car's, the solar forecast and price entities). The plan sensor has a new attribute
   `plan_setting` with that text.
+- **Decision log: a re-plan that changes nothing is one short line.** When the running and next hour stay
+  as they were, the line ends with "no change" instead of repeating both hours: what runs or was already
+  planned is no new decision.
 
 ### Fixed
 
