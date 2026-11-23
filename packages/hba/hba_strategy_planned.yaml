@@ -1994,6 +1994,23 @@ template:
           plan_made: "{{ (result if result is mapping else (result | from_json)).made }}"
           plan_reason: "{{ (result if result is mapping else (result | from_json)).reason }}"
           plan_slot: "{{ now_slot if replan != '' else prev_slot }}"
+          # Which setting caused a "settings changed" re-plan, as "<name>: old → new", for the decision log
+          # (user 2026-11-23); kept while no new plan is made, empty after a re-plan for another reason
+          plan_setting: >-
+            {%- if replan == '' -%}
+              {{ state_attr('sensor.hba_planned_strategy', 'plan_setting') or '' }}
+            {%- elif trigger.id == 'settings' and trigger.get('to_state') -%}
+              {%- set a = trigger.get('attribute') -%}
+              {%- set f = trigger.get('from_state') -%}
+              {%- set t = trigger.to_state -%}
+              {%- set v0 = (f.attributes.get(a) if a else f.state) if f else none -%}
+              {%- set v1 = t.attributes.get(a) if a else t.state -%}
+              {%- if a == 'deadline' -%}
+                {%- set v0 = (v0 | int(0) | timestamp_custom('%d-%m %H:%M')) if v0 | int(0) > 0 else v0 -%}
+                {%- set v1 = (v1 | int(0) | timestamp_custom('%d-%m %H:%M')) if v1 | int(0) > 0 else v1 -%}
+              {%- endif -%}
+              {{ (t.name ~ (' ' ~ a if a else '') ~ ': ' ~ (v0 | string)[:40] ~ ' → ' ~ (v1 | string)[:40]) }}
+            {%- endif -%}
           # The slot whose Charge / Sell is done and re-planned: the script asks once per slot
           done_slot: >-
             {{ now_slot if trigger.id == 'done'
@@ -2684,6 +2701,10 @@ automation:
                   {%- if s0[3] != s1[3] -%}
                     {%- set ns_d.d = ns_d.d + ['solar tomorrow ' ~ s0[3] ~ ' → ' ~ s1[3] ~ ' kWh'] -%}
                   {%- endif -%}
+                {#- settings changed: the setting that triggered it (plan_setting: name, old → new; user
+                    2026-11-23) -#}
+                {%- elif why == 'settings changed' -%}
+                  {%- set ns_d.d = ns_d.d + ([n.get('plan_setting')] if n.get('plan_setting') else []) -%}
                 {%- elif why == 'car changed' -%}
                   {%- set names = {4: 'Follow assisted', 5: 'max price on', 6: 'car known', 7: 'plugged in',
                                    8: 'car SoC', 9: 'max price', 10: 'charge power', 11: 'phases',

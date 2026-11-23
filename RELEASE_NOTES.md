@@ -37,6 +37,11 @@ This document covers HBA-specific changes only.
   after a car choice (plugged in / out, next departure, Normal from the grid, departure time) is now always
   written, also when the running and next hour stay the same: a Not leaving answer at 20:00 moves the
   night hours and left no line. Car SoC steps are still only written when they change those hours.
+  A *settings changed* re-plan now names the setting that changed, with the old and new value, from the
+  dashboard or an answer alike: "settings changed (Planned: car next departure: Auto → Not leaving)",
+  "settings changed (Planned: efficiency: 85 → 80)". Every Planned setting counts (the planner's own
+  settings, the car's, the solar forecast and price entities). The plan sensor has a new attribute
+  `plan_setting` with that text.
 
 ### Fixed
 

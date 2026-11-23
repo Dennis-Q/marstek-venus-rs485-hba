@@ -516,7 +516,8 @@ charge at night → sell tomorrow morning".
   and the next hour as now planned with what they were before, and each change of what runs ("Runs
   Planned → Charge done → Full stop"). A re-plan is written when the running or next hour changes, or always
   for a settings change, Charge / Sell done and a car choice (plugged in / out, next departure, Normal from
-  the grid, departure time); car SoC steps only when they change those hours. Also: each answer to the car
+  the grid, departure time); a settings change names the setting with its old and new value, e.g.
+  "settings changed (Planned: efficiency: 85 → 80)"; car SoC steps only when they change those hours. Also: each answer to the car
   question ("Car question answered: Not leaving (Next departure)") and a car choice going back to Auto
   after its departure. Only while Planned is the strategy; kept as long as the recorder keeps its history.
 - **BMS limit log** (any strategy): a Logbook line *HBA BMS* (on `sensor.hba_decision_log`) when a
