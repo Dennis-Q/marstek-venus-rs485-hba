@@ -48,6 +48,12 @@ This document covers HBA-specific changes only.
 
 ### Fixed
 
+- **Planned: cold batteries planned at their winter charge power.** Below about 10 °C the battery's BMS
+  allows only ~30 A (~1.6 kW instead of ~2.5 kW), all through a cold night's charge. The plan counted the
+  full power for every hour after the running one, so on a cold night it planned too much into the last
+  cheap hour and ended short (one night 1.1 kWh). A battery whose coldest cell is below 12 °C now counts at
+  30 A for the later hours; when it warms up the next re-plan counts it at full power again. The plan
+  summary lists the batteries counted cold (`cold`).
 - **Planned: the car can start at the beginning of a car hour.** In the first 2 minutes of a car hour,
   until the car charges, the batteries already keep the car's room on its phases. Before, they charged at
   full until the car drew power, and with a busy phase the charger's own load balancing could refuse the

@@ -774,13 +774,26 @@ template:
               {%- set pl_d = pl_d if pl_d is mapping and is_state('sensor.hba_power_limits', 'Active') else {} -%}
               {%- set lk_c = lk_c if lk_c is mapping else {} -%}
               {%- set lk_d = lk_d if lk_d is mapping else {} -%}
-              {%- set ns_p = namespace(c=0, d=0, max_c=0) -%}
+              {#- Cold cells: a battery whose coldest cell is below 12 degC counts at its BMS cold level for
+                  the later slots too, 30 A x battery voltage (~1.6 kW instead of ~2.5). Prod 2026-11-22/23:
+                  30 A all evening at rest and through practically the whole night charge (cells 2.5 -> 12
+                  degC; 70 A only 4-23 min, from 9.0-9.3 degC, back to 30 A at 9.2-11.4 degC and 70-78 % SoC;
+                  full power at 14 degC); the plan counted 7.2 kW for 04:00 and got 6.1 (user 2026-11-23).
+                  Not the BMS value of the moment: near full it is 10-15 A by SoC, which would carry over to
+                  the next night. No temperature reading: its full power, as before. -#}
+              {%- set ns_p = namespace(c=0, d=0, max_c=0, cold=[]) -%}
               {%- for i in range(1, count + 1) -%}
                 {%- set k = i | string -%}
                 {%- set rc = states('number.marstek_m' ~ i ~ '_max_charge_power') | float(0) -%}
                 {%- set rd = states('number.marstek_m' ~ i ~ '_max_discharge_power') | float(0) -%}
                 {%- set lim_c = (pl_c[k] if k in pl_c
                     else (lk_c[k] if k in lk_c else (rc if rc > 50 else 2500))) | float(0) -%}
+                {%- set t_cell = states('sensor.marstek_m' ~ i ~ '_min_cell_temperature') -%}
+                {%- set v_bat = states('sensor.marstek_m' ~ i ~ '_battery_voltage') | float(0) -%}
+                {%- if is_number(t_cell) and t_cell | float < 12 and v_bat > 40 and 30 * v_bat < lim_c -%}
+                  {%- set lim_c = 30 * v_bat -%}
+                  {%- set ns_p.cold = ns_p.cold + ['M' ~ i] -%}
+                {%- endif -%}
                 {%- set ns_p.c = ns_p.c + lim_c -%}
                 {%- set ns_p.max_c = [ns_p.max_c, lim_c] | max -%}
                 {%- set ns_p.d = ns_p.d
@@ -1794,6 +1807,7 @@ template:
                                        'extra': bt.extra | round(1), 'extra_value': bt.vx | round(3),
                                        'slots': bt.at | length, 'top': bt.top | int, 'grid_off': grid_off,
                                        'grid_cut': b_over.k | round(1)}},
+                      'cold': ns_p.cold,
                       'calc_s': (as_timestamp(now()) - t_calc0) | round(2)} -%}
                   {{ {'plan': fw.out, 'status': 'OK', 'made': now().isoformat(), 'reason': replan,
                       'eta': (eta * 100) | round(1), 'summary': summary} | tojson }}

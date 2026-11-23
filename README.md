@@ -477,6 +477,8 @@ charge at night → sell tomorrow morning".
   doubles the calculation time to about 1 s).
 - With the EV project connected (*Car plan input*), the plan picks the car's cheapest hours before departure
   below its max price, and leaves room for tomorrow's sun on days the car is home.
+- **Cold batteries:** a battery whose coldest cell is below 12 °C is planned at its BMS winter level (30 A,
+  ~1.6 kW) for the hours after the running one; the running hour uses what the batteries can do now.
 - **Car hours next to charging batteries** (*Car hours with charging batteries*, EV Charge view): up to the
   car's Minimum the car always goes first (full power, the batteries take the phase room it leaves).
   Above Minimum, **Auto** (default) decides per hour: in the car hours where the batteries charge from the
