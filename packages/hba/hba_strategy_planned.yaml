@@ -2673,13 +2673,32 @@ automation:
                   {%- set names = {4: 'Follow assisted', 5: 'max price on', 6: 'car known', 7: 'plugged in',
                                    8: 'car SoC', 9: 'max price', 10: 'charge power', 11: 'phases',
                                    12: 'over the max price', 13: 'next departure', 14: 'Normal from the grid',
-                                   15: 'deadline', 16: 'battery to car before the latest plug-in',
-                                   17: 'car targets reached'} -%}
-                  {%- for i in range(4, 18) if s0[i] != s1[i] -%}
+                                   15: 'deadline', 16: 'battery to car before the latest plug-in'} -%}
+                  {%- for i in range(4, 17) if s0[i] != s1[i] -%}
                     {%- set ns_d.d = ns_d.d + [names[i] ~ ' '
                         ~ (((s0[i] | float(0) * 5) | int ~ ' → ' ~ (s1[i] | float(0) * 5) | int ~ ' %') if i == 8
                            else (s0[i] ~ ' → ' ~ s1[i]))] -%}
                   {%- endfor -%}
+                  {#- Part 17 = how many of the car's targets that are set are reached; named here, lowest
+                      first (user 2026-11-23: "car targets reached 1 → 3" did not say which) -#}
+                  {%- if s0[17] != s1[17] -%}
+                    {%- set tg = namespace(l=[]) -%}
+                    {%- for k in ['Minimum', 'Normal', 'Leftover'] -%}
+                      {%- set v = states('input_number.hba_strategy_planned_car_' ~ (k | lower)) | float(0) -%}
+                      {%- if v > 0 -%}
+                        {%- set tg.l = tg.l + [{'n': k, 'v': v}] -%}
+                      {%- endif -%}
+                    {%- endfor -%}
+                    {%- set tl = tg.l | sort(attribute='v') | map(attribute='n') | list -%}
+                    {%- set a0 = s0[17] | int(0) -%}
+                    {%- set a1 = s1[17] | int(0) -%}
+                    {%- set soc = states('sensor.ev_car_info') | float(0) | round(0) | int -%}
+                    {%- set tw = tl[a0:a1] if a1 > a0 else tl[a1:a0] -%}
+                    {%- set tw = (tw[:-1] | join(', ') ~ ' and ' ~ tw[-1]) if tw | length > 1
+                        else (tw | join('') or ('targets ' ~ a0 ~ ' → ' ~ a1)) -%}
+                    {%- set ns_d.d = ns_d.d + [('car reached ' ~ tw if a1 > a0 else 'car below ' ~ tw ~ ' again')
+                        ~ ' (' ~ soc ~ ' %)'] -%}
+                  {%- endif -%}
                 {%- endif -%}
               {%- endif -%}
               {%- if why.startswith('off by') or why.endswith(' done') -%}

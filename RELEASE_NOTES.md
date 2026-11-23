@@ -30,6 +30,9 @@ This document covers HBA-specific changes only.
   (Normal spread over 4 hours). A setting still on Balance falls back to Auto. Options now: Auto, Car first.
   The Car section shows the Balance column with its number of hours.
 
+- **Decision log: the car's targets by name.** A re-plan because the car reached a target now says which,
+  e.g. "car reached Normal and Leftover (100 %)", instead of "car targets reached 1 → 3".
+
 ### Fixed
 
 - **Planned: the car can start at the beginning of a car hour.** In the first 2 minutes of a car hour,
