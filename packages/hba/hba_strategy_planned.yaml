@@ -1522,8 +1522,10 @@ template:
                       {%- endfor -%}
                     {%- endfor -%}
                     {#- Name what the battery does (user 2026-11-04). Nothing in and nothing out: all hold
-                        options are the same, so Charge PV when the sun is up, storing is worth it and
-                        there is room, else Full stop -- never Charge PV at night, never Zero import /
+                        options are the same, so Charge PV when the sun is up and storing is worth it,
+                        also with a full battery (user 2026-11-23: Full stop only when it is worth more,
+                        e.g. the sun exported earns more; Charge PV refills what a load takes out), else
+                        Full stop -- never Charge PV at night, never Zero import /
                         Self-consumption on an empty battery. The running slot keeps the hold strategy
                         it was planned with (e.g. Zero import that ran empty, which stops by itself), so
                         a re-plan does not rename the hour. Replaces "empty = Self-consumption" (10-29).
@@ -1543,7 +1545,7 @@ template:
                           | selectattr('ts', 'eq', sl.ts) | first | default(none)
                           if t == 0 else none -%}
                       {%- set na = pr.a if pr is mapping and pr.a in holds
-                                   else ((('Self-consumption' if cover else 'Charge PV') if store and room > 0.05
+                                   else ((('Self-consumption' if cover else 'Charge PV') if store
                                        else ('Zero import' if cover else 'Full stop'))) -%}
                       {%- if na != best.a -%}
                         {%- if best.alt == na -%}
@@ -1603,7 +1605,7 @@ template:
                         {%- endfor -%}
                         {%- set cover1 = sl.up and av1 > 0.05 and slope / ed + wear < sl.b and not car_h -%}
                         {%- set then_a = th.a if th.dis >= 0.01 or th.ch >= 0.01
-                            else ((('Self-consumption' if cover1 else 'Charge PV') if store and room1 > 0.05
+                            else ((('Self-consumption' if cover1 else 'Charge PV') if store
                                    else ('Zero import' if cover1 else 'Full stop'))) -%}
                       {%- endif -%}
                     {%- endif -%}

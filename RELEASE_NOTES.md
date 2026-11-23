@@ -13,6 +13,13 @@ This document covers HBA-specific changes only.
 
 ## Unreleased (dev builds report v4.10.1-r28)
 
+### Changed
+
+- **Planned: a full battery in a sunny hour is Charge PV, not Full stop.** When nothing goes in or out, the
+  plan names the hour Charge PV if the sun is up and storing it is worth more than exporting it; that now
+  includes a full battery. If a load takes a little out, Charge PV refills it from the sun, where Full stop
+  exported the sun. Full stop stays when exporting the sun is worth more, and at night.
+
 ---
 
 ## v4.10.1-r27 — November 2026
