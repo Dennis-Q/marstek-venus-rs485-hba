@@ -2019,22 +2019,25 @@ template:
                 {{ d | combine({'rows': ns_d.rows[:[keep, 1] | max], 'cut': ns_d.rows | length}) | tojson }}
               {%- endif -%}
             {%- else -%}{}{%- endif -%}
+      # The calculation result as a mapping (JSON text when it contains null, see above)
+      - variables:
+          res: "{{ result if result is mapping else (result | from_json) }}"
     sensor:
       - name: "HBA Planned Strategy"
         unique_id: hba_planned_strategy
         icon: mdi:calendar-clock
         # The strategy for the running slot, or why there is no plan
-        # result / history are JSON text when they contain null (not a Python literal) -> from_json
+        # history is JSON text when it contains null (not a Python literal) -> from_json; res: see above
         state: >-
-          {%- set r = result if result is mapping else (result | from_json) -%}
+          {%- set r = res -%}
           {%- set row = r.plan | selectattr('ts', 'eq', now_slot) | first | default(none) -%}
           {{ row.a if row is not none else (r.status if r.status != 'OK' else 'No plan') }}
         attributes:
-          plan: "{{ (result if result is mapping else (result | from_json)).plan }}"
+          plan: "{{ res.plan }}"
           history: "{{ history if history is sequence and history is not string else (history | from_json) }}"
-          status: "{{ (result if result is mapping else (result | from_json)).status }}"
-          plan_made: "{{ (result if result is mapping else (result | from_json)).made }}"
-          plan_reason: "{{ (result if result is mapping else (result | from_json)).reason }}"
+          status: "{{ res.status }}"
+          plan_made: "{{ res.made }}"
+          plan_reason: "{{ res.reason }}"
           plan_slot: "{{ now_slot if replan != '' else prev_slot }}"
           # Which setting caused a "settings changed" re-plan, as "<name>: old → new", for the decision log
           # (user 2026-11-23); kept while no new plan is made, empty after a re-plan for another reason
@@ -2058,9 +2061,9 @@ template:
             {{ now_slot if trigger.id == 'done'
                else state_attr('sensor.hba_planned_strategy', 'done_slot') | int(0) }}
           signature: "{{ signature }}"
-          efficiency: "{{ (result if result is mapping else (result | from_json)).eta }}"
+          efficiency: "{{ res.eta }}"
           # Assumptions + expected cost of the plan vs Self-consumption only (Insights)
-          summary: "{{ (result if result is mapping else (result | from_json)).get('summary') }}"
+          summary: "{{ res.get('summary') }}"
           drift: "{{ drift }}"
           slot_acts: "{{ slot_acts if slot_acts is mapping else (slot_acts | from_json) }}"
           # Re-plans of the last 24 h: when (t) and why (r), for Insights
@@ -2076,7 +2079,7 @@ template:
           ledger_car_grid: "{{ (ledger if ledger is mapping else (ledger | from_json)).get('g', 0) }}"
           # Stored energy the plan expects at the end of the running slot (Charge / Sell run to it)
           target_energy: >-
-            {%- set row = (result if result is mapping else (result | from_json)).plan
+            {%- set row = res.plan
                 | selectattr('ts', 'eq', now_slot) | first | default(none) -%}
             {{ row.e1 if row is not none else none }}
       # Debug copy of each new plan (see the variable debug). Between plans it keeps the last one.
@@ -2144,15 +2147,18 @@ template:
       - variables:
           car_run: "{{ car_run_ab }}"
           result: *planned_car_auto_pick
+      # The calculation result as a mapping (JSON text when it contains null, see above)
+      - variables:
+          res: "{{ result if result is mapping else (result | from_json) }}"
     sensor:
       - name: "HBA Planned Car Preview"
         unique_id: hba_planned_car_preview
         icon: mdi:car-clock
-        state: "{{ (result if result is mapping else (result | from_json)).status }}"
+        state: "{{ res.status }}"
         attributes:
-          plan: "{{ (result if result is mapping else (result | from_json)).plan }}"
-          plan_made: "{{ (result if result is mapping else (result | from_json)).made }}"
-          summary: "{{ (result if result is mapping else (result | from_json)).get('summary') }}"
+          plan: "{{ res.plan }}"
+          plan_made: "{{ res.made }}"
+          summary: "{{ res.get('summary') }}"
 
 script:
   # A new plan now, from the refresh icon in the Planned view. The plan re-makes itself on new
@@ -2630,22 +2636,25 @@ automation:
                 'no_statistics': ids | reject('in', S.keys() | list) | list,
                 'kwh_day': ((ns2.p | reject('none') | sum) / 1000) | round(1) if keep | length > 0
                            else none} | tojson }}
+      # The result as a mapping (it is JSON text)
+      - variables:
+          res: "{{ result if result is mapping else (result | from_json) }}"
       # Nothing usable came back (the statistics call failed, or no complete day): keep the
       # profile there is. An empty one replaced it until the next night, and Planned ran on
       # the flat house load.
       - condition: template
         value_template: >-
-          {{ (result if result is mapping else (result | from_json)).days_used | int(0) > 0
+          {{ res.days_used | int(0) > 0
              or (state_attr('sensor.hba_house_load_profile', 'profile') or []) | length != 24 }}
       - event: hba_house_load_profile
         event_data:
-          profile: "{{ (result if result is mapping else (result | from_json)).profile }}"
-          days_used: "{{ (result if result is mapping else (result | from_json)).days_used }}"
-          skipped: "{{ (result if result is mapping else (result | from_json)).skipped }}"
-          window_weeks: "{{ (result if result is mapping else (result | from_json)).window_weeks }}"
-          sources: "{{ (result if result is mapping else (result | from_json)).sources }}"
-          no_statistics: "{{ (result if result is mapping else (result | from_json)).no_statistics }}"
-          kwh_day: "{{ (result if result is mapping else (result | from_json)).kwh_day }}"
+          profile: "{{ res.profile }}"
+          days_used: "{{ res.days_used }}"
+          skipped: "{{ res.skipped }}"
+          window_weeks: "{{ res.window_weeks }}"
+          sources: "{{ res.sources }}"
+          no_statistics: "{{ res.no_statistics }}"
+          kwh_day: "{{ res.kwh_day }}"
 
   # ── Decision log ──────────────────────────────────────────────────────────────
   # One Logbook line per Planned decision, so why it stopped or started can be read back later (user
