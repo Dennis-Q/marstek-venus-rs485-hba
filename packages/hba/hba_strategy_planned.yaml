@@ -553,6 +553,17 @@ template:
         attribute: following
         for: "00:00:10"
         id: settings
+      # The battery room temperature sensor (predicted cell temperature, experimental) has a number
+      # again. After an HA start a Zigbee sensor comes back about a minute after the first plan, which
+      # is then made without the prediction until the next hour (prod 2026-11-24 20:17, 20:47, 21:13;
+      # user: re-plan when it is back). Re-plans only when the plan in force has no prediction (see
+      # replan), so filling in the setting does not plan twice. 10 s, so a flicker does not re-plan.
+      - trigger: template
+        value_template: >-
+          {%- set e = states('input_text.hba_strategy_planned_battery_room_temp_entity_id') | trim -%}
+          {{ e not in ['', 'unknown', 'unavailable'] and is_number(states(e)) }}
+        for: "00:00:10"
+        id: room
     actions:
       # `this` is not available in trigger actions -- read the previous plan by entity id.
       - variables:
@@ -669,6 +680,9 @@ template:
             {%- elif trigger.id == 'manual' -%}refresh asked
             {%- elif trigger.platform in ['homeassistant', 'event'] -%}HA start / reload
             {%- elif trigger.id == 'settings' -%}settings changed
+            {%- elif trigger.id == 'room' -%}
+              {{- '' if (state_attr('sensor.hba_planned_strategy', 'summary') or {}).get('cell')
+                  else 'room temperature back' -}}
             {%- elif prev_plan | length == 0 -%}no plan yet
             {%- elif signature.split('|')[:4] != (prev_sig or '').split('|')[:4] -%}new prices or forecast
             {%- elif signature != prev_sig -%}car changed
