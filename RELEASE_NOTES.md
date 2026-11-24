@@ -9,12 +9,6 @@ For upstream changes in each HBC version, see the
 [HBC Release Notes](https://github.com/gitcodebob/marstek-venus-rs485-node-red/blob/main/RELEASE_NOTES.md).
 This document covers HBA-specific changes only.
 
-### Removed
-
-- **`input_number.hba_control_debug` ("Debug value").** Taken over from HBC, but nothing in HBA (or HBC's own
-  flows) ever wrote or read it. HA may list the old entity as no longer provided; remove it there if you like.
-  PID tuning uses Insights mode and the PID values (error signal, PID output, P / I / D terms).
-
 ---
 
 ## Unreleased (dev builds report v4.10.1-r28)
@@ -57,6 +51,18 @@ This document covers HBA-specific changes only.
 
   Only the text changes, not what the batteries do. If you have your own automations or cards that compare
   with one of the old texts, update them.
+- **Power groups, BMS share: up to ~200 W more for the other batteries.** A battery held back by its BMS
+  counted as its BMS power + 100 W, rounded up to the next 100 W; it now counts as its BMS power (current
+  limit × battery voltage). Example (prod, 30 A at 53.4 V = 1602 W): it counted 1800 W, so the other battery
+  in a 3600 W group got 1800 W; now it gets 1998 W. Measured on prod: a battery never charges above its BMS
+  power, and its own limit is that value too, so the group still never goes over its max power.
+
+### Removed
+
+- **`input_number.hba_control_debug` ("Debug value").** Taken over from HBC, but nothing in HBA (or HBC's own
+  flows) ever wrote or read it. HA may list the old entity as no longer provided; remove it there if you like.
+  PID tuning uses Insights mode and the PID values (error signal, PID output, P / I / D terms).
+
 
 ---
 

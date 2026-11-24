@@ -2987,8 +2987,13 @@ template:
   #   - BMS shortfall (input_boolean.hba_power_group_bms_share, experimental, default off;
   #     user 2026-11-17): a battery whose BMS allows less than its own limit (cold cells: 30 A
   #     ~1.6 kW; near full / empty: 20-0 A) counts at the BMS power instead (current limit
-  #     35111 / 35112 x battery voltage + 100 W, rounded up to 100 W), so the rest of the group's
-  #     power goes to the other batteries. Only when it is 200 W or more below the own limit, and
+  #     35111 / 35112 x battery voltage, whole W), so the rest of the group's power goes to the
+  #     other batteries. No margin on top (user 2026-11-24; was + 100 W rounded up to 100 W, which
+  #     left up to ~200 W of the group unused: prod 11-24 04:49, M1 at 30 A x 53.4 V = 1602 W counted
+  #     as 1800 W). Prod 11-22..24: a battery never charged above BMS A x voltage, and its own register
+  #     is this value too, so the group cannot go over its max; the voltage rises while charging (up
+  #     to 3.7 V in one level), so near the end of a long level it may get ~100 W less than its BMS
+  #     allows. Only when it is 200 W or more below the own limit, and
   #     only a BMS level that has held 2 minutes (the value is kept while the level stays: no
   #     write per voltage step). 0 A is left to the full / empty latch. Why: prod 2026-11-14/15,
   #     M2 at 30 A (cold) charged at most 1570 W; as a 2500 W leader in a 3600 W group its
@@ -3172,7 +3177,7 @@ template:
                   {%- elif old is not none and old[0] | float(-1) == a -%}
                     {%- set e = old -%}
                   {%- elif (now() - st.last_changed).total_seconds() >= 120 -%}
-                    {%- set e = [a, (((a * volt + 100) / 100) | round(0, 'ceil') * 100) | int] -%}
+                    {%- set e = [a, (a * volt) | round(0, 'ceil') | int] -%}
                   {%- else -%}
                     {%- set e = old -%}
                   {%- endif -%}
