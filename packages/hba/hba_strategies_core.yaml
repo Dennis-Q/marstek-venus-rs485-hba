@@ -825,7 +825,8 @@ automation:
           message: >-
             {%- set kw = '%.1f' | format(a1 * volt / 1000) -%}
             {%- set was = (' (was ' ~ a0 | round(0) | int ~ ' A)') if a0 >= 0 else '' -%}
-            {%- set cell = states('sensor.marstek_m' ~ bat ~ '_min_cell_temperature') -%}
+            {#- The warmest cell: the BMS picks its table row by it (BMS 115 tables, 2026-11-24) -#}
+            {%- set cell = states('sensor.marstek_m' ~ bat ~ '_max_cell_temperature') -%}
             {%- set soc = states('sensor.marstek_m' ~ bat ~ '_battery_state_of_charge') -%}
             {%- if a1 * volt >= own - 200 -%}
               {{ 'M' ~ bat ~ ' ' ~ dir ~ ' no longer limited by the BMS: ' ~ a1 | round(0) | int ~ ' A, about '
@@ -835,7 +836,7 @@ automation:
                  ~ ('full' if dir == 'charge' else 'empty') ~ ')' ~ was ~ '. SoC ' ~ soc ~ ' %.' }}
             {%- else -%}
               {{ 'M' ~ bat ~ ' ' ~ dir ~ ' limited by the BMS: ' ~ a1 | round(0) | int ~ ' A, about ' ~ kw
-                 ~ ' kW (own limit ' ~ '%.1f' | format(own / 1000) ~ ' kW)' ~ was ~ '. Coldest cell ' ~ cell
+                 ~ ' kW (own limit ' ~ '%.1f' | format(own / 1000) ~ ' kW)' ~ was ~ '. Warmest cell ' ~ cell
                  ~ ' °C, SoC ' ~ soc ~ ' %.' }}
             {%- endif -%}
 

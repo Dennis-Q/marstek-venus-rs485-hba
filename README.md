@@ -528,7 +528,7 @@ charge at night → sell tomorrow morning".
   after its departure. Only while Planned is the strategy; kept as long as the recorder keeps its history.
 - **BMS limit log** (any strategy): a Logbook line *HBA BMS* (on `sensor.hba_decision_log`) when a
   battery's BMS starts or stops limiting its charge or discharge power, after the level has held 2 minutes,
-  e.g. "M3 discharge limited by the BMS: 40 A, about 2.1 kW (own limit 2.5 kW) (was 100 A). Coldest cell
+  e.g. "M3 discharge limited by the BMS: 40 A, about 2.1 kW (own limit 2.5 kW) (was 100 A). Warmest cell
   5.2 °C, SoC 25 %." Levels above the battery's own limit write nothing.
 - **Power limit log** (any strategy): a line *HBA Limits* when the batteries start or stop running at the
   main fuse, car first, Balance or BMS limit (the Overview's "limited" line), with what they can do and,

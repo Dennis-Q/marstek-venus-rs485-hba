@@ -58,6 +58,8 @@ This document covers HBA-specific changes only.
   12.6 °C, which the plan did not expect), 10 A below 5 °C, 5 A below 0 °C, 40 A discharging below 20 % SoC
   when under 10 °C. A charge that crosses 70 % or 90 % SoC is planned slower from there. With *Share BMS
   shortfall* on, the other batteries of a power group are counted at the power they then get.
+- **BMS limit log names the warmest cell.** The *HBA BMS* Logbook line said "Coldest cell"; the BMS picks
+  its limit by the warmest cell, so the line now shows that one ("… Warmest cell 5.2 °C, SoC 25 %.").
 - **Power groups, BMS share: up to ~200 W more for the other batteries.** A battery held back by its BMS
   counted as its BMS power + 100 W, rounded up to the next 100 W; it now counts as its BMS power (current
   limit × battery voltage). Example (prod, 30 A at 53.4 V = 1602 W): it counted 1800 W, so the other battery
