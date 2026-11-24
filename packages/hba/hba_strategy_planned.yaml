@@ -3036,7 +3036,8 @@ automation:
   # flow: what runs now changes (input_text.hba_strategy_active_flow, "Planned → ..."). Compared up to
   #   the Planned decision itself (Charge, "Charge done → Charge PV", "Car (car not charging) → ..."):
   #   the sub-states after it, such as Charge PV switching between Full stop and Self-consumption with
-  #   the sun, would write a line every few minutes.
+  #   the sun, would write a line every few minutes. A Charge that starts with cold cells while a cheaper
+  #   Charge hour with more charge power follows (cell prediction on) adds what charging now costs extra.
   - id: hba_planned_decision_log
     alias: "HBA: Planned decision log"
     mode: queued
@@ -3067,7 +3068,38 @@ automation:
           message: >-
             {%- if trigger.id == 'flow' -%}
               {%- set k = flow_key if flow_key is sequence and flow_key is not string else (flow_key | from_json) -%}
-              {{ ('Runs ' ~ trigger.to_state.state)
+              {#- A Charge with cold cells while a cheaper Charge hour with more charge power follows within 6 h
+                  (predicted cell temperature on; user 2026-11-24). Says the situation, not the cause: the plan
+                  cannot tell "earlier to warm the cells" from "earlier because one hour cannot take it all". -#}
+              {%- set cold = namespace(t='') -%}
+              {%- set sm = state_attr('sensor.hba_planned_strategy', 'summary') or {} -%}
+              {%- set kw = (sm.get('cell') or {}).get('kw') or {} -%}
+              {%- if k[1] == 'Planned → Charge' and k[0] != k[1] and kw -%}
+                {%- set plan = state_attr('sensor.hba_planned_strategy', 'plan') or [] -%}
+                {%- set cur = plan | selectattr('ts', 'le', as_timestamp(now())) | list | last | default(none) -%}
+                {%- if cur is not none and cur.a == 'Charge' and (cur.ts | string) in kw -%}
+                  {%- set lo = plan | selectattr('a', 'eq', 'Charge') | selectattr('ts', 'gt', cur.ts)
+                      | selectattr('ts', 'lt', cur.ts + 6 * 3600) | sort(attribute='b') | first | default(none) -%}
+                  {%- if lo is not none and lo.b < cur.b - 0.0005 and (lo.ts | string) in kw
+                      and kw[lo.ts | string] > kw[cur.ts | string] + 0.1 -%}
+                    {%- set ec = (sm.get('efficiency', 83) | float(83) / 100) ** 0.5 -%}
+                    {%- set g = [([cur.e1 - cur.e0, 0] | max) / ec
+                        - ([cur.get('sun', 0) - cur.get('load', 0), 0] | max), 0] | max -%}
+                    {%- set tw = namespace(t=[]) -%}
+                    {%- for i in range(1, states('input_number.hba_battery_count') | int(1) + 1) -%}
+                      {%- set x = states('sensor.marstek_m' ~ i ~ '_max_cell_temperature') -%}
+                      {%- if is_number(x) -%}
+                        {%- set tw.t = tw.t + [x | float] -%}
+                      {%- endif -%}
+                    {%- endfor -%}
+                    {%- set cold.t = '. Cold cells: warmest ' ~ (('%.1f °C, ' | format(tw.t | max)) if tw.t else '')
+                        ~ 'max ' ~ kw[cur.ts | string] ~ ' kW; the plan expects ' ~ kw[lo.ts | string] ~ ' kW at '
+                        ~ lo.ts | timestamp_custom('%H:%M') ~ '. Costs +€%.2f (€%.3f/kWh) vs charging at '
+                        | format(g * (cur.b - lo.b), cur.b - lo.b) ~ lo.ts | timestamp_custom('%H:%M') ~ '.' -%}
+                  {%- endif -%}
+                {%- endif -%}
+              {%- endif -%}
+              {{ ('Runs ' ~ trigger.to_state.state ~ cold.t)
                  if k[1].startswith('Planned') and k[0] != k[1] else '' }}
             {%- else -%}
               {%- set o = trigger.from_state.attributes if trigger.from_state else {} -%}

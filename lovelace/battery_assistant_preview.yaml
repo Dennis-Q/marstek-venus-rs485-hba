@@ -4542,7 +4542,8 @@ views:
                       | max -%}
                   {%- if r.b - lo.b > 0.0005 and kwh > 0.05 -%}
                     {%- set ns.tot = ns.tot + kwh * (r.b - lo.b) -%}
-                    {%- set x = '+€%.2f vs %s' | format(kwh * (r.b - lo.b), lo.ts | timestamp_custom('%H:%M')) -%}
+                    {%- set x = '+€%.2f (€%.3f/kWh) vs %s'
+                        | format(kwh * (r.b - lo.b), r.b - lo.b, lo.ts | timestamp_custom('%H:%M')) -%}
                   {%- endif -%}
                 {%- endif -%}
                 {%- set d = r.ts | timestamp_custom('%a') -%}
@@ -4576,7 +4577,8 @@ views:
               together may charge at that moment (BMS limit by that temperature and the charge level, your
               power limits included); after an early Charge this goes up. **Extra vs cheapest Charge
               hour:** for a Charge hour that is dearer than the cheapest Charge hour in the 6 hours from
-              it: the kWh from the grid × the price difference. Stored sun costs the sell price (it is not
+              it: the kWh from the grid × the price difference, for the whole hour (per kWh in brackets). Stored sun
+              costs the sell price (it is not
               exported), but it is stored either way, so it is not part of the difference. **+X kWh:** what the
               batteries store in that hour. It is what charging then instead of in that cheapest
               hour costs: the most that warming the cells can cost, because it also counts hours the plan

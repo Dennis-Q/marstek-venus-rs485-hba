@@ -68,7 +68,10 @@ This document covers HBA-specific changes only.
   since the lowest point of the plan) and gives every hour the BMS limit it expects there. The Planned view
   shows the room temperature and the warmest cell expected per hour; Insights → *Cold batteries per hour*
   shows per hour the warmest cell, the max charge power and what a Charge before the cheapest Charge hour costs
-  extra. Batteries indoors: leave it empty (nothing extra is calculated).
+  extra (for the hour, and per kWh). When a Charge hour starts with cold cells and a cheaper Charge hour with
+  more charge power follows within 6 hours, the decision log line says so, e.g. "Runs Planned → Charge. Cold
+  cells: warmest 3.0 °C, max 1.6 kW; the plan expects 4.7 kW at 05:00. Costs +€0.03 (€0.017/kWh) vs charging
+  at 05:00." Batteries indoors: leave it empty (nothing extra is calculated).
 - **Planned calculates about twice as fast, same plan.** HA waits while the plan is made (prod: 1.1-1.4 s,
   more with the car or the cell prediction). The best partial Charge / Sell target is now found in one step
   instead of trying each level, and hours without sun skip options that cost exactly the same. Dev: 0.35 ->

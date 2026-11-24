@@ -534,7 +534,10 @@ charge at night → sell tomorrow morning".
   settings change names the setting with its old and new value, e.g.
   "settings changed (Planned: efficiency: 85 → 80)"; car SoC steps only when they change those hours. Also: each answer to the car
   question ("Car question answered: Not leaving (Next departure)") and a car choice going back to Auto
-  after its departure. Only while Planned is the strategy; kept as long as the recorder keeps its history.
+  after its departure. With the cold battery prediction on, a Charge that starts with cold cells while a
+  cheaper Charge hour with more charge power follows adds what charging now costs extra ("... Costs +€0.03
+  (€0.017/kWh) vs charging at 05:00."). Only while Planned is the strategy; kept as long as the recorder keeps
+  its history.
 - **BMS limit log** (any strategy): a Logbook line *HBA BMS* (on `sensor.hba_decision_log`) when a
   battery's BMS starts or stops limiting its charge or discharge power, after the level has held 2 minutes,
   e.g. "M3 discharge limited by the BMS: 40 A, about 2.1 kW (own limit 2.5 kW) (was 100 A). Warmest cell
