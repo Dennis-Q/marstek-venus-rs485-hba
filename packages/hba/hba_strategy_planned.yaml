@@ -2145,13 +2145,23 @@ template:
                   {%- endfor -%}
                   {%- set plan_total = fw.cost - fw.E * endv -%}
                   {%- set sc_total = sc.cost - sc.E * endv -%}
-                  {#- Predicted cell temperature: the warmest cell expected at the start of each slot, at the
-                      stored energy this plan has there -#}
-                  {%- set ctp = namespace(d={}) -%}
-                  {%- for w in fw.out if cell.on and (w.ts | string) in cell.tk -%}
-                    {%- set ctp.d = ctp.d | combine({w.ts | string:
-                        cell.tk[w.ts | string][[[(w.e0 / dE) | round(0) | int, 0] | max, K - 1] | min]}) -%}
-                  {%- endfor -%}
+                  {#- Predicted cell temperature: the warmest cell expected at the start of each slot (tp) and
+                      the max charge power of all batteries there (kw, the slot's ceiling included), at the
+                      stored energy this plan has at that start (Insights, Cold batteries per hour) -#}
+                  {%- set ctp = namespace(d={}, kw={}) -%}
+                  {%- if cell.on -%}
+                    {%- for w in fw.out -%}
+                      {%- set sl = slots | selectattr('ts', 'eq', w.ts) | first | default(none) -%}
+                      {%- set kx = [[(w.e0 / dE) | round(0) | int, 0] | max, K - 1] | min -%}
+                      {%- if (w.ts | string) in cell.tk -%}
+                        {%- set ctp.d = ctp.d | combine({w.ts | string: cell.tk[w.ts | string][kx]}) -%}
+                      {%- endif -%}
+                      {%- if sl is not none -%}
+                        {%- set ctp.kw = ctp.kw | combine({w.ts | string:
+                            ([sl.pc, ns_p.plc[sl.pk][kx]] | min) | round(1)}) -%}
+                      {%- endif -%}
+                    {%- endfor -%}
+                  {%- endif -%}
                   {%- set summary = {
                       'usable': emax | round(1), 'charge_kw': pc | round(1), 'discharge_kw': pd | round(1),
                       'efficiency': (eta * 100) | round(1), 'house_w': (load_kw * 1000) | round(0) | int,
@@ -2190,7 +2200,7 @@ template:
                                        'slots': bt.at | length, 'top': bt.top | int, 'grid_off': grid_off,
                                        'grid_cut': b_over.k | round(1)}},
                       'cold': ns_p.cold,
-                      'cell': {'room': room_t | float(0), 'slots': cell.at | length, 'tp': ctp.d}
+                      'cell': {'room': room_t | float(0), 'slots': cell.at | length, 'tp': ctp.d, 'kw': ctp.kw}
                               if cell.on else none,
                       'calc_s': (as_timestamp(now()) - t_calc0) | round(2)} -%}
                   {{ {'plan': fw.out, 'status': 'OK', 'made': now().isoformat(), 'reason': replan,

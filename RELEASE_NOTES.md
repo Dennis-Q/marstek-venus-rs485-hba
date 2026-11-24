@@ -66,8 +66,9 @@ This document covers HBA-specific changes only.
   spread the charge over too many hours or gave up part of it. With the sensor set, the plan predicts each
   battery's warmest cell per hour and per stored energy (cooling toward the room, warming by what it charged
   since the lowest point of the plan) and gives every hour the BMS limit it expects there. The Planned view
-  shows the room temperature and the warmest cell expected per hour. Batteries indoors: leave it empty
-  (nothing extra is calculated).
+  shows the room temperature and the warmest cell expected per hour; Insights → *Cold batteries per hour*
+  shows per hour the warmest cell, the max charge power and what a Charge before the cheapest Charge hour costs
+  extra. Batteries indoors: leave it empty (nothing extra is calculated).
 - **Planned calculates about twice as fast, same plan.** HA waits while the plan is made (prod: 1.1-1.4 s,
   more with the car or the cell prediction). The best partial Charge / Sell target is now found in one step
   instead of trying each level, and hours without sun skip options that cost exactly the same. Dev: 0.35 ->

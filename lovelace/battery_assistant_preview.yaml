@@ -2868,7 +2868,7 @@ views:
                 (n_at ~ ' slots with another BMS limit than now') if n_at > 0 else 'BMS limits as now' }}
               {%- endif %}
 
-              <font color=grey>_For batteries in a cold room (garage, shed): the battery's BMS lets less current in when its cells are cold (Venus E 3.0: 70 A at 10–15 °C, 30 A at 5–10 °C, 10 A at 0–5 °C, 5 A below 0 °C), and charging warms the cells (about 3.8 °C per kWh per battery). With a room temperature sensor set, the plan predicts each battery's warmest cell per hour and per stored energy (cooling toward the room, warming by what it charged since the lowest point of the plan) and plans every hour with the BMS limit it expects there, so on a cold night it knows charging speeds up once the batteries have taken some energy. The times above: the warmest cell at the start of each hour, at the energy this plan has there. The warming numbers were measured on one install (four Venus E 3.0 in a garage); yours may differ. Empty = off: batteries indoors need nothing._</font>
+              <font color=grey>_For batteries in a cold room (garage, shed): the battery's BMS lets less current in when its cells are cold (Venus E 3.0: 70 A at 10–15 °C, 30 A at 5–10 °C, 10 A at 0–5 °C, 5 A below 0 °C), and charging warms the cells (about 3.8 °C per kWh per battery). With a room temperature sensor set, the plan predicts each battery's warmest cell per hour and per stored energy (cooling toward the room, warming by what it charged since the lowest point of the plan) and plans every hour with the BMS limit it expects there, so on a cold night it knows charging speeds up once the batteries have taken some energy. The times above: the warmest cell at the start of each hour, at the energy this plan has there; per hour with the charge power and what charging earlier costs: Insights → Cold batteries per hour. The warming numbers were measured on one install (four Venus E 3.0 in a garage); yours may differ. Empty = off: batteries indoors need nothing._</font>
           - type: heading
             heading: Strategies the plan may use
             heading_style: subtitle
@@ -4513,6 +4513,75 @@ views:
               change. **Cost out:** what a kWh from the battery has cost after this slot (bought ÷
               efficiency, sun at the sell price, + wear), carried over between plans. **Sun / House:**
               what the plan assumed for that slot.</font></small>
+
+      # ── Cold batteries per hour (summary 'cell' of sensor.hba_planned_strategy; experimental setting) ──
+      - type: grid
+        cards:
+          - type: heading
+            heading: Cold batteries per hour
+            heading_style: title
+            icon: mdi:snowflake-thermometer
+          - type: markdown
+            content: |-
+              {%- set E = 'sensor.hba_planned_strategy' -%}
+              {%- set c = (state_attr(E, 'summary') or {}).get('cell') -%}
+              {%- set plan = state_attr(E, 'plan') or [] -%}
+              {%- if c -%}
+              {%- set ec = ((state_attr(E, 'summary') or {}).get('efficiency', 83) | float(83) / 100) ** 0.5 -%}
+              {%- set tp = c.get('tp') or {} -%}
+              {%- set kw = c.get('kw') or {} -%}
+              {%- set ns = namespace(day='', rows=[], tot=0) -%}
+              {%- for r in plan -%}
+                {%- set x = '' -%}
+                {%- if r.a == 'Charge' -%}
+                  {%- set later = plan | selectattr('a', 'eq', 'Charge') | selectattr('ts', 'ge', r.ts)
+                      | selectattr('ts', 'lt', r.ts + 6 * 3600) | list -%}
+                  {%- set lo = later | sort(attribute='b') | first -%}
+                  {#- from the grid: what goes in minus the sun the house does not use -#}
+                  {%- set kwh = [([r.e1 - r.e0, 0] | max) / ec - ([r.get('sun', 0) - r.get('load', 0), 0] | max), 0]
+                      | max -%}
+                  {%- if r.b - lo.b > 0.0005 and kwh > 0.05 -%}
+                    {%- set ns.tot = ns.tot + kwh * (r.b - lo.b) -%}
+                    {%- set x = '+€%.2f vs %s' | format(kwh * (r.b - lo.b), lo.ts | timestamp_custom('%H:%M')) -%}
+                  {%- endif -%}
+                {%- endif -%}
+                {%- set d = r.ts | timestamp_custom('%a') -%}
+                {%- set ns.rows = ns.rows + ['| ' ~ ((d ~ ' ') if d != ns.day else '')
+                    ~ r.ts | timestamp_custom('%H:%M')
+                    ~ ' | ' ~ r.a ~ ((' +%.1f kWh' | format([r.e1 - r.e0, 0] | max)) if r.a == 'Charge' else '')
+                    ~ ' | ' ~ (('%.1f °C' | format(tp[r.ts | string])) if (r.ts | string) in tp else '—')
+                    ~ ' | ' ~ (('%.1f kW' | format(kw[r.ts | string])) if (r.ts | string) in kw else '—')
+                    ~ ' | ' ~ (x or '') ~ ' |'] -%}
+                {%- set ns.day = d -%}
+              {%- endfor -%}
+              <small>**Room {{ c.room | round(1) }} °C** · {{ c.get('slots', 0) }} slots with another BMS limit than now{{
+                (' · charging before the cheapest Charge hour: **+€%.2f**' | format(ns.tot)) if ns.tot > 0 }}</small>
+
+              <small><small>
+
+              | Time | Strategy | Warmest cell | Max charge | Extra vs cheapest Charge hour |
+              |:--|:--|--:|--:|:--|
+              {{ ns.rows | join('\n') }}
+
+              </small></small>
+              {%- else -%}
+              <font color=grey>_Off. For batteries in a cold room: set **Battery room temperature sensor** in the Planned view (Cold batteries, experimental); the plan then predicts the warmest cell per hour and this table shows it._</font>
+              {%- endif %}
+          - type: markdown
+            text_only: true
+            content: >-
+              <small><font color=grey>**Warmest cell:** what the plan expects for the warmest cell of the
+              warmest battery at the start of the hour, at the energy the plan has stored then (cooling
+              toward the room, warming ~3.8 °C per kWh charged). **Max charge:** what all batteries
+              together may charge at that moment (BMS limit by that temperature and the charge level, your
+              power limits included); after an early Charge this goes up. **Extra vs cheapest Charge
+              hour:** for a Charge hour that is dearer than the cheapest Charge hour in the 6 hours from
+              it: the kWh from the grid × the price difference. Stored sun costs the sell price (it is not
+              exported), but it is stored either way, so it is not part of the difference. **+X kWh:** what the
+              batteries store in that hour. It is what charging then instead of in that cheapest
+              hour costs: the most that warming the cells can cost, because it also counts hours the plan
+              charges in anyway (not enough power to do it all in the cheapest hour). The plan only
+              charges earlier when the whole night gets cheaper by it.</font></small>
 
       # ── House use per hour of the day (sensor.hba_house_load_profile) ──
       - type: grid

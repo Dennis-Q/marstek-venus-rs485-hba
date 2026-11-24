@@ -489,7 +489,8 @@ charge at night → sell tomorrow morning".
   about +3.8 °C per kWh it charged since the lowest point of the plan (measured on one install, four Venus E
   3.0 in a garage). Each hour gets the BMS limit it expects at each energy level, so on a cold night the plan
   knows charging speeds up once the batteries have taken some energy, and only counts warmth from charging it
-  plans itself. Empty = off, no extra calculation.
+  plans itself. Empty = off, no extra calculation. Insights → *Cold batteries per hour*: per hour the expected
+  warmest cell, the max charge power and what charging before the cheapest Charge hour costs extra.
 - **Car hours next to charging batteries** (*Car hours with charging batteries*, EV Charge view): up to the
   car's Minimum the car always goes first (full power, the batteries take the phase room it leaves).
   Above Minimum, **Auto** (default) decides per hour: in the car hours where the batteries charge from the
