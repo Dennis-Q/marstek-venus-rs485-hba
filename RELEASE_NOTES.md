@@ -68,6 +68,11 @@ This document covers HBA-specific changes only.
   since the lowest point of the plan) and gives every hour the BMS limit it expects there. The Planned view
   shows the room temperature and the warmest cell expected per hour. Batteries indoors: leave it empty
   (nothing extra is calculated).
+- **Planned calculates about twice as fast, same plan.** HA waits while the plan is made (prod: 1.1-1.4 s,
+  more with the car or the cell prediction). The best partial Charge / Sell target is now found in one step
+  instead of trying each level, and hours without sun skip options that cost exactly the same. Dev: 0.35 ->
+  0.2 s per plan; seven test situations (with and without car, battery to car, cold cells) gave the same
+  plans to the last digit.
 - **BMS limit log names the warmest cell.** The *HBA BMS* Logbook line said "Coldest cell"; the BMS picks
   its limit by the warmest cell, so the line now shows that one ("… Warmest cell 5.2 °C, SoC 25 %.").
 - **Power groups, BMS share: up to ~200 W more for the other batteries.** A battery held back by its BMS

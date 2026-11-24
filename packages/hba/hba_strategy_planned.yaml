@@ -1659,12 +1659,37 @@ template:
                     {%- set cg = (sl.cv - sl.s) if 'cs' in sl else 0 -%}
                     {%- set bc = sl.bc if 'bc' in sl else 0 -%}
                     {%- set bv = sl.bv if 'bc' in sl else 0 -%}
+                    {%- set ep = eps if sl.up else eps_dark -%}
+                    {#- No sun to store (u = 0): Charge PV costs the same as Full stop and Self-consumption the same
+                        as Zero import, apart from the tie-breaker. Only the lowest cost counts here, so the twin
+                        with the higher tie-breaker is left out (the forward pass still weighs all of them). -#}
                     {%- set acts_t = acts + (['Car'] if 'bc' in sl else []) -%}
+                    {%- set acts_t = acts_t if u > 0
+                        else acts_t | reject('eq', 'Zero import')
+                          | reject('eq', 'Full stop' if ep['Charge PV'] < ep['Full stop'] else 'Charge PV') | list -%}
+                    {#- Partial Charge / Sell targets (j = a level in between): the cost is a straight line in j
+                        plus the value table at j, so per slot one list per direction (wl.c, wl.s) and the best
+                        target of a level is the lowest entry of a slice of it (one min instead of a loop over j).
+                        Charge in between: ch = (j x dE - E) / ec > u, so all of net = d - u + ch is imported:
+                          v = (d - u - E / ec) x b + eps + [V[j] + j x dE x b / ec]
+                        Sell in between: dis = (E - j x dE) x ed > d, so dis - d + u is exported, the sun exported
+                        is u, nothing is imported:
+                          v = -(E x ed + u - d) x s - sun into the car + wear x E x ed + msp x (E x ed - d) + eps
+                              + [V[j] + j x dE x ed x (s - wear - msp)]
+                        Car in between keeps the loop (its 0.7 kWh minimum is an exact threshold per j). -#}
+                    {%- set wl = namespace(c=[], s=[]) -%}
+                    {%- for k in range(K) -%}
+                      {%- set wl.c = wl.c + [ns.V[k] + k * dE * sl.b / ec] -%}
+                      {%- set wl.s = wl.s + [ns.V[k] + k * dE * ed * (sl.s - wear - msp)] -%}
+                    {%- endfor -%}
+                    {%- set cs_u = (([u, cs_k] | min) * cg if u >= ck else 0) -%}
+                    {%- set pch = sl.pc * sl.h -%}
+                    {%- set pdh = sl.pd * sl.h -%}
                     {%- set nv = namespace(V=[]) -%}
                     {%- for k in range(K) -%}
                       {%- set E = k * dE -%}
-                      {%- set cc = [sl.pc * sl.h, r_c[k]] | min -%}
-                      {%- set cd = [sl.pd * sl.h, r_d[k]] | min -%}
+                      {%- set cc = [pch, r_c[k]] | min -%}
+                      {%- set cd = [pdh, r_d[k]] | min -%}
                       {%- set room = ([emax - E, 0] | max) / ec -%}
                       {%- set av = ([E - rmin, 0] | max) * ed -%}
                       {%- set best = namespace(v=1e9) -%}
@@ -1688,7 +1713,7 @@ template:
                             else ((range(((E + u * ec) / dE + 0.02) | round(0, 'ceil') | int,
                                          ((E + ch0 * ec) / dE - 0.02) | round(0, 'ceil') | int) | list)
                                   if a == 'Charge' else []) -%}
-                        {%- for j in [-1] + js -%}
+                        {%- for j in [-1] + (js if a == 'Car' else []) -%}
                           {%- set ch = ch0 if j < 0 else (((j * dE - E) / ec) if a == 'Charge' else 0) -%}
                           {%- set dis = dis0 if j < 0 else (((E - j * dE) * ed) if a in ['Sell', 'Car'] else 0) -%}
                           {%- set bk = ([dis - d, 0] | max) if a == 'Car' else 0 -%}
@@ -1715,7 +1740,7 @@ template:
                               - bk * bv
                               + wear * dis
                               + msp * ([dis - d - bk, 0] | max)
-                              + (eps if sl.up else eps_dark)[a]
+                              + ep[a]
                               + ns.V[i] * (1 - f) + ns.V[i + 1] * f -%}
                           {#- Car only with at least 0.7 kWh per hour into the car (1e9 = never chosen): the
                               same limit as for offering a slot to the car (half the hour at the car's
@@ -1727,6 +1752,18 @@ template:
                             {%- set best.v = v -%}
                           {%- endif -%}
                         {%- endfor -%}
+                        {%- if js and a == 'Charge' -%}
+                          {%- set v = (d - u - E / ec) * sl.b + ep[a] + (wl.c[js[0]:js[-1] + 1] | min) -%}
+                          {%- if v < best.v -%}
+                            {%- set best.v = v -%}
+                          {%- endif -%}
+                        {%- elif js and a == 'Sell' -%}
+                          {%- set v = -(E * ed + u - d) * sl.s - cs_u + wear * E * ed + msp * (E * ed - d) + ep[a]
+                              + (wl.s[js[0]:js[-1] + 1] | min) -%}
+                          {%- if v < best.v -%}
+                            {%- set best.v = v -%}
+                          {%- endif -%}
+                        {%- endif -%}
                       {%- endfor -%}
                       {%- set nv.V = nv.V + [best.v] -%}
                     {%- endfor -%}

@@ -19,3 +19,18 @@ per plan against 1.1-1.35 s off (11-24 18:02-19:00). Speed-up 11-24 (same plan o
 temperature read once per plan, its rows looked up per 0.1 °C and kept (`cell.memo`), the power of each level
 worked out once per set of rows (`jobs`, `pw`), slots with the same power per level share one key and one pair
 of reach tables (`p0` = now, `p1` ...). Dev: 0.71 -> 0.46 s on, 0.35-0.41 s off.
+
+## Backward pass speed-up (2026-11-24, same plan)
+
+Dev timing per part (11-24): the backward pass was 0.30 of 0.35 s. Two changes, both only in the backward pass
+(the forward pass, which names the strategy, still weighs every option):
+- Partial Charge / Sell targets: their cost is linear in the target level j plus V[j] (Charge in between imports
+  all of net; Sell in between exports dis - d + u with the sun exported = u), so per slot two lists `wl.c` /
+  `wl.s` and the best target of a level = min of a slice. Car partial targets keep the loop (the 0.7 kWh
+  minimum is an exact threshold per j).
+- u = 0: Charge PV = Full stop and Self-consumption = Zero import except the tie-breaker; the twin with the
+  higher tie-breaker is skipped.
+Proof: `cmp_plan.py`-style render of the template at a fixed time in 7 situations (no car, car preview, battery
+to car offered, cold cells with prediction, with and without car), inputs re-set until stable (the fake
+batteries overwrite test states on their poll); old vs new identical within 1e-9 in plan and summary.
+Dev: 0.35 -> 0.15-0.21 s without the prediction, 0.46 -> 0.33-0.36 s with it.
