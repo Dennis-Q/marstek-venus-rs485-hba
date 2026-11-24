@@ -800,33 +800,157 @@ template:
               {%- set pl_d = pl_d if pl_d is mapping and is_state('sensor.hba_power_limits', 'Active') else {} -%}
               {%- set lk_c = lk_c if lk_c is mapping else {} -%}
               {%- set lk_d = lk_d if lk_d is mapping else {} -%}
-              {#- Cold cells: a battery whose coldest cell is below 12 degC counts at its BMS cold level for
-                  the later slots too, 30 A x battery voltage (~1.6 kW instead of ~2.5). Prod 2026-11-22/23:
-                  30 A all evening at rest and through practically the whole night charge (cells 2.5 -> 12
-                  degC; 70 A only 4-23 min, from 9.0-9.3 degC, back to 30 A at 9.2-11.4 degC and 70-78 % SoC;
-                  full power at 14 degC); the plan counted 7.2 kW for 04:00 and got 6.1 (user 2026-11-23).
-                  Not the BMS value of the moment: near full it is 10-15 A by SoC, which would carry over to
-                  the next night. No temperature reading: its full power, as before. -#}
-              {%- set ns_p = namespace(c=0, d=0, max_c=0, cold=[]) -%}
+              {#- BMS limits (Venus E 3.0, BMS 115): the BMS allows a current from two tables, temperature x
+                  SoC, A = % of 100 A (read from the firmware 2026-11-24, tests/bms_limit/bms115_tables.md; source:
+                  the public BMS 115 binary of github.com/sphings79/marstek-firmware-archiv). Row = the WARMEST
+                  cell up to the row's temperature, column = SoC up to the column's value. Every prod step
+                  11-22..24 fits (e.g. 10-15 degC: 70 A to 70 % SoC, 30 A above; M1 11-24 04:46 at 72.7 %). The
+                  BMS changes row ~0.5-1 degC above a boundary going up and ~3.5 degC below it going down (prod
+                  11-22..24), so the row is the one between (warmest - 1) and (warmest + 3.5) that gives the
+                  battery's BMS limit now; none fits (e.g. 0 A when full) -> the row of the warmest cell. Later
+                  slots keep today's row (the cells warm while charging: the next re-plan sees it) and take the
+                  SoC column of each energy level (lvl below): every battery at the same share of its range.
+                  Replaces "30 A below 12 degC (coldest cell), any SoC" of 11-23 (user 2026-11-24: make the
+                  plan match how the battery behaves). No temperature / voltage reading: its own limit. -#}
+              {%- set bt_c = {'t': [-10, 0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60],
+                  's': [10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 100],
+                  'm': [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [5, 5, 5, 5, 5, 5, 5, 5, 3, 3, 3],
+                        [10, 10, 10, 10, 10, 10, 10, 10, 5, 3, 3], [30, 30, 30, 30, 30, 30, 30, 15, 15, 15, 10],
+                        [70, 70, 70, 70, 70, 70, 70, 30, 30, 10, 10], [80, 80, 80, 80, 80, 80, 80, 80, 80, 20, 20],
+                        [80, 80, 80, 80, 80, 80, 80, 80, 80, 20, 20],
+                        [100, 100, 100, 100, 100, 100, 100, 100, 80, 50, 50],
+                        [100, 100, 100, 100, 100, 100, 100, 100, 80, 50, 50],
+                        [100, 100, 100, 100, 100, 100, 100, 100, 80, 50, 50],
+                        [100, 100, 100, 100, 100, 100, 100, 100, 80, 50, 50],
+                        [100, 100, 100, 100, 100, 100, 100, 100, 80, 50, 50],
+                        [30, 30, 30, 30, 30, 30, 30, 30, 20, 20, 20], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]} -%}
+              {#- Discharge: SoC axis 0, 10 .. 100, 101 (column = the 10 % band), temperature -30, -20, -10, -5,
+                  0 .. 60 -#}
+              {%- set bt_d = {'t': [-30, -20, -10, -5, 0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60],
+                  's': [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 101],
+                  'm': [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                        [10, 20, 20, 20, 50, 50, 50, 50, 50, 50, 50], [10, 30, 50, 50, 50, 50, 50, 50, 50, 50, 50],
+                        [10, 30, 50, 50, 50, 50, 50, 50, 50, 50, 50], [20, 40, 80, 80, 80, 80, 80, 80, 80, 80, 80],
+                        [20, 40, 80, 80, 100, 100, 100, 100, 100, 100, 100],
+                        [50, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100],
+                        [50, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100],
+                        [70, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100],
+                        [70, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100],
+                        [70, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100],
+                        [70, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100],
+                        [70, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100],
+                        [50, 80, 100, 100, 100, 100, 100, 100, 100, 100, 100],
+                        [50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]} -%}
+              {#- Energy levels of the plan (input_number.hba_strategy_planned_energy_step, 0 = auto 20 steps;
+                  4..100 steps of the usable energy). The time grows with the square of the levels (the
+                  partial Charge / Sell targets): dev box, 25 slots, 41 levels 0.7 s, 61 1.6 s, 91 2.9 s
+                  (2026-11-04) -- it blocks HA that long. The dashboard shows the real step and an estimate
+                  from the last plan's time. -#}
+              {%- set est = states('input_number.hba_strategy_planned_energy_step') | float(0) -%}
+              {%- set K = ([[(emax / est) | round(0, 'ceil') | int, 4] | max, 100] | min if est > 0 else 20) + 1 -%}
+              {%- set dE = emax / ([K - 1, 1] | max) -%}
+              {#- Per battery: its own share of the power (lc / ld: power-group target, else last known, else
+                  register, else 2500 W), its own max (oc / od, for the BMS share), the table rows (-1 = no
+                  table), voltage, SoC range -#}
+              {%- set share = is_state('input_boolean.hba_power_group_bms_share', 'on')
+                  and is_state('sensor.hba_power_limits', 'Active') -%}
+              {%- set pgroups = state_attr('sensor.hba_power_limits', 'groups') -%}
+              {%- set pgroups = pgroups if pgroups is mapping else {} -%}
+              {%- set ns_p = namespace(c=0, d=0, max_c=0, cold=[], bats=[], lc=[], ld=[]) -%}
               {%- for i in range(1, count + 1) -%}
                 {%- set k = i | string -%}
                 {%- set rc = states('number.marstek_m' ~ i ~ '_max_charge_power') | float(0) -%}
                 {%- set rd = states('number.marstek_m' ~ i ~ '_max_discharge_power') | float(0) -%}
                 {%- set lim_c = (pl_c[k] if k in pl_c
                     else (lk_c[k] if k in lk_c else (rc if rc > 50 else 2500))) | float(0) -%}
-                {%- set t_cell = states('sensor.marstek_m' ~ i ~ '_min_cell_temperature') -%}
+                {%- set lim_d = (pl_d[k] if k in pl_d
+                    else (lk_d[k] if k in lk_d else (rd if rd > 50 else 2500))) | float(0) -%}
+                {%- set t_hi = states('sensor.marstek_m' ~ i ~ '_max_cell_temperature') -%}
                 {%- set v_bat = states('sensor.marstek_m' ~ i ~ '_battery_voltage') | float(0) -%}
-                {%- if is_number(t_cell) and t_cell | float < 12 and v_bat > 40 and 30 * v_bat < lim_c -%}
-                  {%- set lim_c = 30 * v_bat -%}
-                  {%- set ns_p.cold = ns_p.cold + ['M' ~ i] -%}
+                {%- set soc = states('sensor.marstek_m' ~ i ~ '_battery_state_of_charge') | float(-1) -%}
+                {%- set rows = namespace(c=-1, d=-1) -%}
+                {%- if is_number(t_hi) and v_bat > 40 and soc >= 0 -%}
+                  {%- set th = t_hi | float -%}
+                  {%- for bt in [bt_c, bt_d] -%}
+                    {%- set last = bt.t | length - 1 -%}
+                    {%- set col = ([bt.s | select('lt', soc) | list | length, 10] | min) if bt is sameas bt_c
+                        else ([[(bt.s | select('lt', soc) | list | length) - 1, 0] | max, 10] | min) -%}
+                    {%- set a_now = states('sensor.marstek_m' ~ i ~ '_battery_'
+                        ~ ('charge' if bt is sameas bt_c else 'discharge') ~ '_current_limit') | float(-1) -%}
+                    {%- set r_lo = [bt.t | select('lt', th - 1) | list | length, last] | min -%}
+                    {%- set r_hi = [bt.t | select('lt', th + 3.5) | list | length, last] | min -%}
+                    {%- set fit = range(r_lo, r_hi + 1) | select('in', range(last + 1)) | list -%}
+                    {%- set ns_r = namespace(r=none) -%}
+                    {%- for r in fit if ns_r.r is none and bt.m[r][col] == a_now -%}
+                      {%- set ns_r.r = r -%}
+                    {%- endfor -%}
+                    {%- set r = ns_r.r if ns_r.r is not none
+                        else [bt.t | select('lt', th) | list | length, last] | min -%}
+                    {%- if bt is sameas bt_c -%}
+                      {%- set rows.c = r -%}
+                    {%- else -%}
+                      {%- set rows.d = r -%}
+                    {%- endif -%}
+                  {%- endfor -%}
                 {%- endif -%}
-                {%- set ns_p.c = ns_p.c + lim_c -%}
-                {%- set ns_p.max_c = [ns_p.max_c, lim_c] | max -%}
-                {%- set ns_p.d = ns_p.d
-                    + (pl_d[k] if k in pl_d else (lk_d[k] if k in lk_d else (rd if rd > 50 else 2500))) | float(0) -%}
+                {%- set ns_p.bats = ns_p.bats + [{
+                    'i': i, 'lc': lim_c, 'ld': lim_d, 'rc': rows.c, 'rd': rows.d, 'v': v_bat,
+                    'oc': states('input_number.hba_marstek_m' ~ i ~ '_max_charge_power') | float(lim_c),
+                    'od': states('input_number.hba_marstek_m' ~ i ~ '_max_discharge_power') | float(lim_d),
+                    'soc': soc,
+                    'lo': states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13),
+                    'hi': states('input_number.hba_marstek_m' ~ i ~ '_charging_cutoff_capacity') | float(100)}] -%}
               {%- endfor -%}
-              {%- set pc = ns_p.c / 1000 -%}
-              {%- set pd = ns_p.d / 1000 -%}
+              {#- Max charge / discharge power (W) per energy level (lvl -1 = now, each battery at its own SoC):
+                  per battery the lower of its share and the BMS table x voltage; with the BMS share on, a
+                  power group gets the lower of its max and the sum of its batteries' own max capped by the
+                  BMS (hba_helpers.yaml, BMS shortfall), else each battery its own share -#}
+              {%- for lvl in range(-1, K) -%}
+                {%- set w = namespace(c={}, d={}) -%}
+                {%- for bt in ns_p.bats -%}
+                  {%- set s = bt.soc if lvl < 0 else bt.lo + (bt.hi - bt.lo) * lvl / ([K - 1, 1] | max) -%}
+                  {%- set cc_a = bt_c.m[bt.rc][[bt_c.s | select('lt', s) | list | length, 10] | min]
+                      if bt.rc >= 0 else none -%}
+                  {%- set cd_a = bt_d.m[bt.rd][[[(bt_d.s | select('lt', s) | list | length) - 1, 0] | max, 10] | min]
+                      if bt.rd >= 0 else none -%}
+                  {%- set w.c = w.c | combine({bt.i | string: cc_a * bt.v if cc_a is not none else 1e9}) -%}
+                  {%- set w.d = w.d | combine({bt.i | string: cd_a * bt.v if cd_a is not none else 1e9}) -%}
+                {%- endfor -%}
+                {%- set tot = namespace(c=0, d=0, done=[]) -%}
+                {%- if share -%}
+                  {%- for G in pgroups -%}
+                    {%- set mem = (pgroups[G].members | default([])) | map('int') | list -%}
+                    {%- set g = namespace(c=0, d=0) -%}
+                    {%- for bt in ns_p.bats if bt.i in mem -%}
+                      {%- set g.c = g.c + [bt.oc, w.c[bt.i | string]] | min -%}
+                      {%- set g.d = g.d + [bt.od, w.d[bt.i | string]] | min -%}
+                    {%- endfor -%}
+                    {%- set mp = pgroups[G].max_power | default(0) | float(0) -%}
+                    {%- set tot.c = tot.c + ([g.c, mp] | min if mp > 0 else g.c) -%}
+                    {%- set tot.d = tot.d + ([g.d, mp] | min if mp > 0 else g.d) -%}
+                    {%- set tot.done = tot.done + mem -%}
+                  {%- endfor -%}
+                {%- endif -%}
+                {%- for bt in ns_p.bats if bt.i not in tot.done -%}
+                  {%- set tot.c = tot.c + [bt.lc, w.c[bt.i | string]] | min -%}
+                  {%- set tot.d = tot.d + [bt.ld, w.d[bt.i | string]] | min -%}
+                {%- endfor -%}
+                {%- if lvl < 0 -%}
+                  {%- for bt in ns_p.bats -%}
+                    {%- set bw = [bt.lc, w.c[bt.i | string]] | min -%}
+                    {%- set ns_p.max_c = [ns_p.max_c, bw] | max -%}
+                    {%- if bw < bt.lc -%}
+                      {%- set ns_p.cold = ns_p.cold + ['M' ~ bt.i] -%}
+                    {%- endif -%}
+                  {%- endfor -%}
+                {%- else -%}
+                  {%- set ns_p.lc = ns_p.lc + [tot.c / 1000] -%}
+                  {%- set ns_p.ld = ns_p.ld + [tot.d / 1000] -%}
+                {%- endif -%}
+              {%- endfor -%}
+              {#- pc / pd: the most any level allows (the ceiling of a slot; the level decides in the plan) -#}
+              {%- set pc = ns_p.lc | max -%}
+              {%- set pd = ns_p.ld | max -%}
               {%- set wear = states('input_number.hba_strategy_planned_wear_cost') | float(0) -%}
               {%- set rmin = [states('input_number.hba_strategy_planned_reserve') | float(0), emax] | min -%}
               {%- set margin = states('input_number.hba_strategy_planned_house_margin') | float(0) / 100 -%}
@@ -1319,15 +1443,45 @@ template:
                   {{ {'plan': [], 'status': 'No price data', 'made': now().isoformat(), 'reason': replan,
                       'eta': (eta * 100) | round(1)} | tojson }}
                 {%- else -%}
-                  {#- ── Energy levels, and the value of energy left at the end ── -#}
-                  {#- Energy levels: input_number.hba_strategy_planned_energy_step (0 = auto, 20 steps);
-                      the step divides the usable energy evenly, 4..100 steps. The time grows with the
-                      square of the levels (the partial Charge / Sell targets): dev box, 25 slots, 41 levels
-                      0.7 s, 61 1.6 s, 91 2.9 s (2026-11-04) -- it blocks HA that long. The dashboard shows
-                      the real step and an estimate from the last plan's time. -#}
-                  {%- set est = states('input_number.hba_strategy_planned_energy_step') | float(0) -%}
-                  {%- set K = ([[(emax / est) | round(0, 'ceil') | int, 4] | max, 100] | min if est > 0 else 20) + 1 -%}
-                  {%- set dE = emax / (K - 1) -%}
+                  {#- ── Energy levels (K, dE: see the power limits above), value of energy left at the end ── -#}
+                  {#- What a slot can charge / discharge (AC kWh) from each energy level, with the power of the
+                      levels it passes (ns_p.lc / ns_p.ld): e.g. 10-15 degC, 65 % SoC: 70 A to 70 %, then 30 A.
+                      tc[k] = hours to charge from level 0 to k, td[k] = hours to discharge from k to 0; a slot
+                      of h hours from level k reaches the level whose time is h further (two pointers, linear
+                      between levels). One table for the normal slot length, one for the running slot. -#}
+                  {%- set rt = namespace(tc=[0], td=[0]) -%}
+                  {%- for k in range(K - 1) -%}
+                    {%- set rt.tc = rt.tc + [rt.tc[-1] + (dE / (ec * ns_p.lc[k]) if ns_p.lc[k] > 0.01 else 1e6)] -%}
+                    {%- set rt.td = rt.td + [rt.td[-1]
+                        + (dE * ed / ns_p.ld[k + 1] if ns_p.ld[k + 1] > 0.01 else 1e6)] -%}
+                  {%- endfor -%}
+                  {%- set reach = namespace(c={}, d={}) -%}
+                  {%- for hh in [step / 3600, slots[0].h] | unique -%}
+                    {#- at most this many levels per slot (pointer steps per level), from the ceiling pc / pd -#}
+                    {%- set n_c = (pc * hh * ec / dE) | round(0, 'ceil') | int + 2 -%}
+                    {%- set n_d = (pd * hh / ed / dE) | round(0, 'ceil') | int + 2 -%}
+                    {%- set rc_ = namespace(l=[], j=0) -%}
+                    {%- for k in range(K) -%}
+                      {%- set rc_.j = [rc_.j, k] | max -%}
+                      {%- for x in range(n_c) if rc_.j < K - 1 and rt.tc[rc_.j + 1] <= rt.tc[k] + hh -%}
+                        {%- set rc_.j = rc_.j + 1 -%}
+                      {%- endfor -%}
+                      {%- set f = ([(rt.tc[k] + hh - rt.tc[rc_.j]) / (rt.tc[rc_.j + 1] - rt.tc[rc_.j]), 1] | min)
+                          if rc_.j < K - 1 else 0 -%}
+                      {%- set rc_.l = rc_.l + [(rc_.j - k + f) * dE / ec] -%}
+                    {%- endfor -%}
+                    {%- set rd_ = namespace(l=[], j=0) -%}
+                    {%- for k in range(K) -%}
+                      {%- for x in range(n_d) if rd_.j < k and rt.td[k] - rt.td[rd_.j] > hh -%}
+                        {%- set rd_.j = rd_.j + 1 -%}
+                      {%- endfor -%}
+                      {%- set f = ([(hh - (rt.td[k] - rt.td[rd_.j])) / (rt.td[rd_.j] - rt.td[rd_.j - 1]), 1] | min)
+                          if rd_.j > 0 else 0 -%}
+                      {%- set rd_.l = rd_.l + [(k - rd_.j + f) * dE * ed] -%}
+                    {%- endfor -%}
+                    {%- set reach.c = reach.c | combine({hh | string: rc_.l}) -%}
+                    {%- set reach.d = reach.d | combine({hh | string: rd_.l}) -%}
+                  {%- endfor -%}
                   {%- set mean_b = (slots | map(attribute='b') | sum) / N -%}
                   {#- Value of energy still in the battery when the price data ends: what it will most
                       likely save -- the night after, so the LOWEST buy price in the last 12 h of the
@@ -1348,8 +1502,9 @@ template:
                     {%- set sl = slots[t] -%}
                     {%- set d = sl.d -%}
                     {%- set u = sl.u -%}
-                    {%- set cc = sl.pc * sl.h -%}
-                    {%- set cd = sl.pd * sl.h -%}
+                    {#- the reach for this slot's length (AC kWh per level), capped by the slot's power -#}
+                    {%- set r_c = reach.c[(sl.h if t == 0 else step / 3600) | string] -%}
+                    {%- set r_d = reach.d[(sl.h if t == 0 else step / 3600) | string] -%}
                     {%- set ck = sl.ck if 'cs' in sl else 1e9 -%}
                     {%- set cs_k = sl.cs if 'cs' in sl else 0 -%}
                     {%- set cg = (sl.cv - sl.s) if 'cs' in sl else 0 -%}
@@ -1359,6 +1514,8 @@ template:
                     {%- set nv = namespace(V=[]) -%}
                     {%- for k in range(K) -%}
                       {%- set E = k * dE -%}
+                      {%- set cc = [sl.pc * sl.h, r_c[k]] | min -%}
+                      {%- set cd = [sl.pd * sl.h, r_d[k]] | min -%}
                       {%- set room = ([emax - E, 0] | max) / ec -%}
                       {%- set av = ([E - rmin, 0] | max) * ed -%}
                       {%- set best = namespace(v=1e9) -%}
@@ -1443,12 +1600,13 @@ template:
                     {%- set V = ns.Vs[t + 1] -%}
                     {%- set d = sl.d -%}
                     {%- set u = sl.u -%}
-                    {%- set cc = sl.pc * sl.h -%}
-                    {%- set cd = sl.pd * sl.h -%}
+                    {%- set E = fw.E -%}
+                    {%- set kE = [[(E / dE) | round(0) | int, 0] | max, K - 1] | min -%}
+                    {%- set cc = [sl.pc * sl.h, reach.c[(sl.h if t == 0 else step / 3600) | string][kE]] | min -%}
+                    {%- set cd = [sl.pd * sl.h, reach.d[(sl.h if t == 0 else step / 3600) | string][kE]] | min -%}
                     {%- set ck = sl.ck if 'cs' in sl else 1e9 -%}
                     {%- set cs_k = sl.cs if 'cs' in sl else 0 -%}
                     {%- set cg = (sl.cv - sl.s) if 'cs' in sl else 0 -%}
-                    {%- set E = fw.E -%}
                     {%- set room = ([emax - E, 0] | max) / ec -%}
                     {%- set av = ([E - rmin, 0] | max) * ed -%}
                     {%- set bc = ([sl.bc, ([E - fw.gb, 0] | max) * ed] | min if grid_off else sl.bc) if 'bc' in sl
@@ -1785,8 +1943,10 @@ template:
                   {%- for sl in slots -%}
                     {%- set d = sl.d -%}
                     {%- set u = sl.u -%}
-                    {%- set ch = [u, sl.pc * sl.h, ([emax - sc.E, 0] | max) / ec] | min -%}
-                    {%- set dis = [d, sl.pd * sl.h, ([sc.E - rmin, 0] | max) * ed] | min -%}
+                    {%- set kE = [[(sc.E / dE) | round(0) | int, 0] | max, K - 1] | min -%}
+                    {%- set hk = (sl.h if loop.first else step / 3600) | string -%}
+                    {%- set ch = [u, sl.pc * sl.h, reach.c[hk][kE], ([emax - sc.E, 0] | max) / ec] | min -%}
+                    {%- set dis = [d, sl.pd * sl.h, reach.d[hk][kE], ([sc.E - rmin, 0] | max) * ed] | min -%}
                     {%- set net = d - u + ch - dis -%}
                     {%- set sx = [[-net, u - ch] | min, 0] | max -%}
                     {%- set sc.cost = sc.cost

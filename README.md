@@ -400,7 +400,7 @@ over once another is 5 % further along), *Equal* or
 discharge share. A **main fuse limit per phase** (same section) keeps each phase below a
 current in every strategy, for charging and discharging (needs the per-phase P1 sensors).
 **Share BMS shortfall** (experimental, default off): when a battery's BMS allows less than its own
-limit — cold cells (30 A, about 1.6 kW below ~6 °C until they warm to ~10 °C) or nearly full / empty — it
+limit — cold cells (e.g. 30 A, about 1.6 kW, between 5 and 10 °C) or nearly full / empty — it
 counts at what the BMS allows, so the rest of the group's power goes to the other batteries.
 **Use at your own risk:** it is a software limit, not electrical protection —
 always have an electrician check your installation.
@@ -477,8 +477,11 @@ charge at night → sell tomorrow morning".
   doubles the calculation time to about 1 s).
 - With the EV project connected (*Car plan input*), the plan picks the car's cheapest hours before departure
   below its max price, and leaves room for tomorrow's sun on days the car is home.
-- **Cold batteries:** a battery whose coldest cell is below 12 °C is planned at its BMS winter level (30 A,
-  ~1.6 kW) for the hours after the running one; the running hour uses what the batteries can do now.
+- **BMS limits (Venus E 3.0):** the plan uses the battery's own BMS tables (charge and discharge current by
+  temperature of the warmest cell and SoC, read from BMS firmware 115). Example: at 10-15 °C a battery
+  charges at 70 A up to 70 % SoC and at 30 A above; below 5 °C at 10 A, below 0 °C at 5 A. Each energy
+  level of the plan gets the power the BMS allows there, so a charge slows down where the battery will;
+  later hours keep today's temperature. The running hour uses what the batteries can do now.
 - **Car hours next to charging batteries** (*Car hours with charging batteries*, EV Charge view): up to the
   car's Minimum the car always goes first (full power, the batteries take the phase room it leaves).
   Above Minimum, **Auto** (default) decides per hour: in the car hours where the batteries charge from the

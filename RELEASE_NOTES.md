@@ -51,6 +51,13 @@ This document covers HBA-specific changes only.
 
   Only the text changes, not what the batteries do. If you have your own automations or cards that compare
   with one of the old texts, update them.
+- **Planned: follows the battery's BMS tables.** The Venus E 3.0 BMS sets its charge and discharge current
+  from two tables (temperature of the warmest cell × SoC), now read from its firmware (BMS 115). The plan
+  used "30 A below 12 °C (coldest cell)" at any SoC. Now every energy level gets what the BMS allows there:
+  e.g. at 10-15 °C 70 A up to 70 % SoC and 30 A above (one morning a battery dropped to 30 A at 72 % and
+  12.6 °C, which the plan did not expect), 10 A below 5 °C, 5 A below 0 °C, 40 A discharging below 20 % SoC
+  when under 10 °C. A charge that crosses 70 % or 90 % SoC is planned slower from there. With *Share BMS
+  shortfall* on, the other batteries of a power group are counted at the power they then get.
 - **Power groups, BMS share: up to ~200 W more for the other batteries.** A battery held back by its BMS
   counted as its BMS power + 100 W, rounded up to the next 100 W; it now counts as its BMS power (current
   limit × battery voltage). Example (prod, 30 A at 53.4 V = 1602 W): it counted 1800 W, so the other battery
