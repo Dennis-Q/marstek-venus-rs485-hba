@@ -926,49 +926,72 @@ template:
               {%- for bt in ns_p.bats -%}
                 {%- set kb.k = kb.k + [bt.rc ~ '.' ~ bt.rd] -%}
               {%- endfor -%}
-              {%- set key0 = kb.k | join('/') -%}
+              {#- combo0 = the rows of now; key0 = its set of powers (later keys: p1, p2 ...) -#}
+              {%- set combo0 = kb.k | join('/') -%}
+              {%- set key0 = 'p0' -%}
               {%- set room_e = states('input_text.hba_strategy_planned_battery_room_temp_entity_id') | trim -%}
               {%- set room_t = states(room_e) if room_e not in ['', 'unknown', 'unavailable'] else 'none' -%}
               {%- set cbats = ns_p.bats | selectattr('rc', 'ge', 0) | list -%}
-              {%- set cell = namespace(at={}, rows={}, tk={}, on=false) -%}
+              {#- cell.lv: slot -> rows per level (a combo string per level: 'charge.discharge' row per battery,
+                  joined by '/'); cell.tk: slot -> warmest cell per level; memo: battery + temperature in 0.1
+                  degC -> its rows (the same rows come back for many slots and levels) -#}
+              {%- set cell = namespace(at={}, lv={}, tk={}, on=false, memo={}) -%}
               {%- if is_number(room_t) and cbats | length > 0 -%}
                 {%- set cell.on = true -%}
                 {%- set tr = room_t | float -%}
                 {%- set nb = cbats | length -%}
+                {%- set nc = bt_c.t | length - 1 -%}
+                {%- set nd = bt_d.t | length - 1 -%}
+                {%- set tcell = namespace(d={}) -%}
+                {%- for bt in cbats -%}
+                  {%- set tcell.d = tcell.d | combine({bt.i | string:
+                      states('sensor.marstek_m' ~ bt.i ~ '_max_cell_temperature') | float(tr)}) -%}
+                {%- endfor -%}
                 {%- set c_ts = marks | select('mapping') | map(attribute='start') | map('as_timestamp', 0)
                     | map('int') | select('gt', now_slot) | sort | list -%}
                 {%- for ts in c_ts -%}
                   {%- set dt = (ts - now_ts) / 3600 -%}
                   {%- set f = 2.718282 ** (-0.186 * dt / 2) -%}
-                  {%- set lv = namespace(rows=[], key=[], tk=[]) -%}
+                  {%- set g0 = 2.718282 ** (-0.186 * dt) -%}
+                  {#- levels at or below the energy of now have no warmth: one combo for all of them -#}
+                  {%- set lv = namespace(key=[], tk=[], k0=none, t0=none) -%}
                   {%- for k in range(K) -%}
                     {%- set warm = 3.81 * ([k * dE - e_now, 0] | max) / ec / nb * f -%}
-                    {%- set rk = namespace(r={}, key=[], t=-99) -%}
-                    {%- for bt in ns_p.bats -%}
-                      {%- if bt.rc >= 0 -%}
-                        {%- set tc = states('sensor.marstek_m' ~ bt.i ~ '_max_cell_temperature') | float(tr) -%}
-                        {%- set T = tr + (tc - tr) * 2.718282 ** (-0.186 * dt) + warm -%}
-                        {%- set up_c = [bt_c.t | select('lt', T - 0.75) | list | length, bt_c.t | length - 1] | min -%}
-                        {%- set dn_c = [bt_c.t | select('lt', T + 3.5) | list | length, bt_c.t | length - 1] | min -%}
-                        {%- set up_d = [bt_d.t | select('lt', T - 0.75) | list | length, bt_d.t | length - 1] | min -%}
-                        {%- set dn_d = [bt_d.t | select('lt', T + 3.5) | list | length, bt_d.t | length - 1] | min -%}
-                        {%- set rr = [[[bt.rc, up_c] | max, dn_c] | min, [[bt.rd, up_d] | max, dn_d] | min] -%}
-                        {%- set rk.t = [rk.t, T] | max -%}
-                      {%- else -%}
-                        {%- set rr = [bt.rc, bt.rd] -%}
+                    {%- if warm == 0 and lv.k0 is not none -%}
+                      {%- set lv.key = lv.key + [lv.k0] -%}
+                      {%- set lv.tk = lv.tk + [lv.t0] -%}
+                    {%- else -%}
+                      {%- set rk = namespace(key=[], t=-99) -%}
+                      {%- for bt in ns_p.bats -%}
+                        {%- if bt.rc >= 0 -%}
+                          {%- set T = tr + (tcell.d[bt.i | string] - tr) * g0 + warm -%}
+                          {%- set mk = bt.i ~ ':' ~ (T * 10) | round(0) | int -%}
+                          {%- if mk not in cell.memo -%}
+                            {%- set Tq = ((T * 10) | round(0)) / 10 -%}
+                            {%- set cell.memo = cell.memo | combine({mk:
+                                ([[bt.rc, [bt_c.t | select('lt', Tq - 0.75) | list | length, nc] | min] | max,
+                                  [bt_c.t | select('lt', Tq + 3.5) | list | length, nc] | min] | min | string)
+                                ~ '.' ~ ([[bt.rd, [bt_d.t | select('lt', Tq - 0.75) | list | length, nd] | min] | max,
+                                  [bt_d.t | select('lt', Tq + 3.5) | list | length, nd] | min] | min | string)}) -%}
+                          {%- endif -%}
+                          {%- set rk.key = rk.key + [cell.memo[mk]] -%}
+                          {%- set rk.t = [rk.t, T] | max -%}
+                        {%- else -%}
+                          {%- set rk.key = rk.key + [bt.rc ~ '.' ~ bt.rd] -%}
+                        {%- endif -%}
+                      {%- endfor -%}
+                      {%- set cmb = rk.key | join('/') -%}
+                      {%- set lv.key = lv.key + [cmb] -%}
+                      {%- set lv.tk = lv.tk + [rk.t | round(1)] -%}
+                      {%- if warm == 0 -%}
+                        {%- set lv.k0 = cmb -%}
+                        {%- set lv.t0 = rk.t | round(1) -%}
                       {%- endif -%}
-                      {%- set rk.r = rk.r | combine({bt.i | string: rr}) -%}
-                      {%- set rk.key = rk.key + [rr[0] ~ '.' ~ rr[1]] -%}
-                    {%- endfor -%}
-                    {%- set lv.rows = lv.rows + [rk.r] -%}
-                    {%- set lv.key = lv.key + [rk.key | join('/')] -%}
-                    {%- set lv.tk = lv.tk + [rk.t | round(1)] -%}
+                    {%- endif -%}
                   {%- endfor -%}
                   {%- set cell.tk = cell.tk | combine({ts | string: lv.tk}) -%}
-                  {%- if lv.key | reject('eq', key0) | list | length > 0 -%}
-                    {%- set kx = lv.key | join(' ') -%}
-                    {%- set cell.at = cell.at | combine({ts | string: kx}) -%}
-                    {%- set cell.rows = cell.rows | combine({kx: lv.rows}) -%}
+                  {%- if lv.key | reject('eq', combo0) | list | length > 0 -%}
+                    {%- set cell.lv = cell.lv | combine({ts | string: lv.key}) -%}
                   {%- endif -%}
                 {%- endfor -%}
               {%- endif -%}
@@ -976,56 +999,94 @@ template:
                   per battery the lower of its share and the BMS table x voltage; with the BMS share on, a
                   power group gets the lower of its max and the sum of its batteries' own max capped by the
                   BMS (hba_helpers.yaml, BMS shortfall), else each battery its own share -#}
-              {#- One list per set of rows: key0 (now) first, then each predicted one (cell.rows) -#}
-              {%- for pk in [key0] + (cell.rows.keys() | list) -%}
-                {%- set rws = none if pk == key0 else cell.rows[pk] -%}
-                {%- set pl = namespace(c=[], d=[]) -%}
-                {%- for lvl in range(-1 if pk == key0 else 0, K) -%}
-                  {%- set w = namespace(c={}, d={}) -%}
-                  {%- for bt in ns_p.bats -%}
-                    {%- set s = bt.soc if lvl < 0 else bt.lo + (bt.hi - bt.lo) * lvl / ([K - 1, 1] | max) -%}
-                    {%- set rr = rws[lvl][bt.i | string] if rws and lvl >= 0 else [bt.rc, bt.rd] -%}
-                    {%- set cc_a = bt_c.m[rr[0]][[bt_c.s | select('lt', s) | list | length, 10] | min]
-                        if rr[0] >= 0 else none -%}
-                    {%- set cd_a = bt_d.m[rr[1]][[[(bt_d.s | select('lt', s) | list | length) - 1, 0] | max, 10] | min]
-                        if rr[1] >= 0 else none -%}
-                    {%- set w.c = w.c | combine({bt.i | string: cc_a * bt.v if cc_a is not none else 1e9}) -%}
-                    {%- set w.d = w.d | combine({bt.i | string: cd_a * bt.v if cd_a is not none else 1e9}) -%}
-                  {%- endfor -%}
-                  {%- set tot = namespace(c=0, d=0, done=[]) -%}
-                  {%- if share -%}
-                    {%- for G in pgroups -%}
-                      {%- set mem = (pgroups[G].members | default([])) | map('int') | list -%}
-                      {%- set g = namespace(c=0, d=0) -%}
-                      {%- for bt in ns_p.bats if bt.i in mem -%}
-                        {%- set g.c = g.c + [bt.oc, w.c[bt.i | string]] | min -%}
-                        {%- set g.d = g.d + [bt.od, w.d[bt.i | string]] | min -%}
-                      {%- endfor -%}
-                      {%- set mp = pgroups[G].max_power | default(0) | float(0) -%}
-                      {%- set tot.c = tot.c + ([g.c, mp] | min if mp > 0 else g.c) -%}
-                      {%- set tot.d = tot.d + ([g.d, mp] | min if mp > 0 else g.d) -%}
-                      {%- set tot.done = tot.done + mem -%}
-                    {%- endfor -%}
-                  {%- endif -%}
-                  {%- for bt in ns_p.bats if bt.i not in tot.done -%}
-                    {%- set tot.c = tot.c + [bt.lc, w.c[bt.i | string]] | min -%}
-                    {%- set tot.d = tot.d + [bt.ld, w.d[bt.i | string]] | min -%}
-                  {%- endfor -%}
-                  {%- if lvl < 0 -%}
-                    {%- for bt in ns_p.bats -%}
-                      {%- set bw = [bt.lc, w.c[bt.i | string]] | min -%}
-                      {%- set ns_p.max_c = [ns_p.max_c, bw] | max -%}
-                      {%- if bw < bt.lc -%}
-                        {%- set ns_p.cold = ns_p.cold + ['M' ~ bt.i] -%}
-                      {%- endif -%}
-                    {%- endfor -%}
-                  {%- else -%}
-                    {%- set pl.c = pl.c + [tot.c / 1000] -%}
-                    {%- set pl.d = pl.d + [tot.d / 1000] -%}
+              {#- Worked out once per energy level and set of rows (job 'k|combo'): the rows of now at every
+                  level (and lvl -1 = now, each battery at its own SoC), plus each predicted level that has
+                  other rows -#}
+              {%- set jobs = namespace(l=['-1|' ~ combo0], seen={}) -%}
+              {%- for k in range(K) -%}
+                {%- set jobs.l = jobs.l + [k ~ '|' ~ combo0] -%}
+              {%- endfor -%}
+              {%- for ts in cell.lv -%}
+                {%- for cmb in cell.lv[ts] -%}
+                  {%- set jk = loop.index0 ~ '|' ~ cmb -%}
+                  {%- if cmb != combo0 and jk not in jobs.seen -%}
+                    {%- set jobs.seen = jobs.seen | combine({jk: 1}) -%}
+                    {%- set jobs.l = jobs.l + [jk] -%}
                   {%- endif -%}
                 {%- endfor -%}
-                {%- set ns_p.plc = ns_p.plc | combine({pk: pl.c}) -%}
-                {%- set ns_p.pld = ns_p.pld | combine({pk: pl.d}) -%}
+              {%- endfor -%}
+              {%- set pw = namespace(d={}) -%}
+              {%- for jk in jobs.l -%}
+                {%- set lvl = jk.split('|')[0] | int -%}
+                {%- set cmb = jk.split('|')[1] -%}
+                {%- set rws = cmb.split('/') -%}
+                {%- set w = namespace(c={}, d={}) -%}
+                {%- for bt in ns_p.bats -%}
+                  {%- set s = bt.soc if lvl < 0 else bt.lo + (bt.hi - bt.lo) * lvl / ([K - 1, 1] | max) -%}
+                  {%- set rr = rws[loop.index0].split('.') | map('int') | list -%}
+                  {%- set cc_a = bt_c.m[rr[0]][[bt_c.s | select('lt', s) | list | length, 10] | min]
+                      if rr[0] >= 0 else none -%}
+                  {%- set cd_a = bt_d.m[rr[1]][[[(bt_d.s | select('lt', s) | list | length) - 1, 0] | max, 10] | min]
+                      if rr[1] >= 0 else none -%}
+                  {%- set w.c = w.c | combine({bt.i | string: cc_a * bt.v if cc_a is not none else 1e9}) -%}
+                  {%- set w.d = w.d | combine({bt.i | string: cd_a * bt.v if cd_a is not none else 1e9}) -%}
+                {%- endfor -%}
+                {%- set tot = namespace(c=0, d=0, done=[]) -%}
+                {%- if share -%}
+                  {%- for G in pgroups -%}
+                    {%- set mem = (pgroups[G].members | default([])) | map('int') | list -%}
+                    {%- set g = namespace(c=0, d=0) -%}
+                    {%- for bt in ns_p.bats if bt.i in mem -%}
+                      {%- set g.c = g.c + [bt.oc, w.c[bt.i | string]] | min -%}
+                      {%- set g.d = g.d + [bt.od, w.d[bt.i | string]] | min -%}
+                    {%- endfor -%}
+                    {%- set mp = pgroups[G].max_power | default(0) | float(0) -%}
+                    {%- set tot.c = tot.c + ([g.c, mp] | min if mp > 0 else g.c) -%}
+                    {%- set tot.d = tot.d + ([g.d, mp] | min if mp > 0 else g.d) -%}
+                    {%- set tot.done = tot.done + mem -%}
+                  {%- endfor -%}
+                {%- endif -%}
+                {%- for bt in ns_p.bats if bt.i not in tot.done -%}
+                  {%- set tot.c = tot.c + [bt.lc, w.c[bt.i | string]] | min -%}
+                  {%- set tot.d = tot.d + [bt.ld, w.d[bt.i | string]] | min -%}
+                {%- endfor -%}
+                {%- if lvl < 0 -%}
+                  {%- for bt in ns_p.bats -%}
+                    {%- set bw = [bt.lc, w.c[bt.i | string]] | min -%}
+                    {%- set ns_p.max_c = [ns_p.max_c, bw] | max -%}
+                    {%- if bw < bt.lc -%}
+                      {%- set ns_p.cold = ns_p.cold + ['M' ~ bt.i] -%}
+                    {%- endif -%}
+                  {%- endfor -%}
+                {%- else -%}
+                  {%- set pw.d = pw.d | combine({jk: [tot.c / 1000, tot.d / 1000]}) -%}
+                {%- endif -%}
+              {%- endfor -%}
+              {#- Power per level of now (key0), then per predicted slot; slots with the same powers share a key -#}
+              {%- set pl = namespace(c=[], d=[]) -%}
+              {%- for k in range(K) -%}
+                {%- set pl.c = pl.c + [pw.d[k ~ '|' ~ combo0][0]] -%}
+                {%- set pl.d = pl.d + [pw.d[k ~ '|' ~ combo0][1]] -%}
+              {%- endfor -%}
+              {%- set ns_p.plc = {key0: pl.c} -%}
+              {%- set ns_p.pld = {key0: pl.d} -%}
+              {%- set sigs = namespace(d={(pl.c + pl.d) | join(','): key0}) -%}
+              {%- for ts in cell.lv -%}
+                {%- set pl = namespace(c=[], d=[]) -%}
+                {%- for cmb in cell.lv[ts] -%}
+                  {%- set pl.c = pl.c + [pw.d[loop.index0 ~ '|' ~ cmb][0]] -%}
+                  {%- set pl.d = pl.d + [pw.d[loop.index0 ~ '|' ~ cmb][1]] -%}
+                {%- endfor -%}
+                {%- set sg = (pl.c + pl.d) | join(',') -%}
+                {%- if sg not in sigs.d -%}
+                  {%- set pk = 'p' ~ (sigs.d | length) -%}
+                  {%- set sigs.d = sigs.d | combine({sg: pk}) -%}
+                  {%- set ns_p.plc = ns_p.plc | combine({pk: pl.c}) -%}
+                  {%- set ns_p.pld = ns_p.pld | combine({pk: pl.d}) -%}
+                {%- endif -%}
+                {%- if sigs.d[sg] != key0 -%}
+                  {%- set cell.at = cell.at | combine({ts: sigs.d[sg]}) -%}
+                {%- endif -%}
               {%- endfor -%}
               {%- set ns_p.lc = ns_p.plc[key0] -%}
               {%- set ns_p.ld = ns_p.pld[key0] -%}
