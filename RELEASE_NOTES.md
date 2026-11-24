@@ -58,6 +58,16 @@ This document covers HBA-specific changes only.
   12.6 °C, which the plan did not expect), 10 A below 5 °C, 5 A below 0 °C, 40 A discharging below 20 % SoC
   when under 10 °C. A charge that crosses 70 % or 90 % SoC is planned slower from there. With *Share BMS
   shortfall* on, the other batteries of a power group are counted at the power they then get.
+- **Planned, experimental: predicted cell temperature for batteries in a cold room** (off by default). New
+  setting *Battery room temperature sensor* (Planned view, Cold batteries;
+  `input_text.hba_strategy_planned_battery_room_temp_entity_id`). The BMS lets much less in when the cells
+  are cold (Venus E 3.0: 10 A at 0-5 °C, 5 A below 0 °C), and charging warms them (about 3.8 °C per kWh per
+  battery). Until now the plan kept the temperature of now for every later hour, so on a freezing night it
+  spread the charge over too many hours or gave up part of it. With the sensor set, the plan predicts each
+  battery's warmest cell per hour and per stored energy (cooling toward the room, warming by what it charged
+  since the lowest point of the plan) and gives every hour the BMS limit it expects there. The Planned view
+  shows the room temperature and the warmest cell expected per hour. Batteries indoors: leave it empty
+  (nothing extra is calculated).
 - **BMS limit log names the warmest cell.** The *HBA BMS* Logbook line said "Coldest cell"; the BMS picks
   its limit by the warmest cell, so the line now shows that one ("… Warmest cell 5.2 °C, SoC 25 %.").
 - **Power groups, BMS share: up to ~200 W more for the other batteries.** A battery held back by its BMS

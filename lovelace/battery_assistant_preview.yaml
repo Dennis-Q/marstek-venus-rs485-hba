@@ -2845,6 +2845,31 @@ views:
               + batteries + solar − EV charger, skipping absent days. The 24 hours are in **Insights →
               House use per hour**. Without a profile it uses the average house load above._</font>
           - type: heading
+            heading: Cold batteries (experimental)
+            heading_style: subtitle
+            icon: mdi:snowflake-thermometer
+          - type: entities
+            entities:
+              - entity: input_text.hba_strategy_planned_battery_room_temp_entity_id
+                name: Battery room temperature sensor (empty = off)
+          - type: markdown
+            text_only: true
+            content: >-
+              {%- set c = (state_attr('sensor.hba_planned_strategy', 'summary') or {}).get('cell') -%}
+              {%- if c -%}
+              {%- set tp = c.get('tp') or {} -%}
+              {%- set ks = tp.keys() | map('int') | sort | list -%}
+              {%- set ns = namespace(l=[]) -%}
+              {%- for k in ks[:8] -%}
+                {%- set ns.l = ns.l + [(k | timestamp_custom('%H:%M')) ~ ' ' ~ tp[k | string] ~ ' °C'] -%}
+              {%- endfor -%}
+              {%- set n_at = c.get('slots', 0) | int(0) -%}
+              **Room {{ c.room | round(1) }} °C** · warmest cell expected: {{ ns.l | join(', ') }} · {{
+                (n_at ~ ' slots with another BMS limit than now') if n_at > 0 else 'BMS limits as now' }}
+              {%- endif %}
+
+              <font color=grey>_For batteries in a cold room (garage, shed): the battery's BMS lets less current in when its cells are cold (Venus E 3.0: 70 A at 10–15 °C, 30 A at 5–10 °C, 10 A at 0–5 °C, 5 A below 0 °C), and charging warms the cells (about 3.8 °C per kWh per battery). With a room temperature sensor set, the plan predicts each battery's warmest cell per hour and per stored energy (cooling toward the room, warming by what it charged since the lowest point of the plan) and plans every hour with the BMS limit it expects there, so on a cold night it knows charging speeds up once the batteries have taken some energy. The times above: the warmest cell at the start of each hour, at the energy this plan has there. The warming numbers were measured on one install (four Venus E 3.0 in a garage); yours may differ. Empty = off: batteries indoors need nothing._</font>
+          - type: heading
             heading: Strategies the plan may use
             heading_style: subtitle
             icon: mdi:format-list-checks

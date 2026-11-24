@@ -501,6 +501,7 @@ template:
           - input_boolean.hba_strategy_planned_car_preview
           - input_text.hba_strategy_planned_car_home_days
           - input_text.hba_strategy_planned_sell_price_entity_id
+          - input_text.hba_strategy_planned_battery_room_temp_entity_id
           - input_text.hba_strategy_solar_aware_forecast_entity_id
           - input_text.hba_strategy_solar_forecast_entity_id
           - input_text.hba_strategy_solar_forecast_tomorrow_entity_id
@@ -856,7 +857,7 @@ template:
                   and is_state('sensor.hba_power_limits', 'Active') -%}
               {%- set pgroups = state_attr('sensor.hba_power_limits', 'groups') -%}
               {%- set pgroups = pgroups if pgroups is mapping else {} -%}
-              {%- set ns_p = namespace(c=0, d=0, max_c=0, cold=[], bats=[], lc=[], ld=[]) -%}
+              {%- set ns_p = namespace(c=0, d=0, max_c=0, cold=[], bats=[], lc=[], ld=[], plc={}, pld={}) -%}
               {%- for i in range(1, count + 1) -%}
                 {%- set k = i | string -%}
                 {%- set rc = states('number.marstek_m' ~ i ~ '_max_charge_power') | float(0) -%}
@@ -901,53 +902,133 @@ template:
                     'lo': states('input_number.hba_marstek_m' ~ i ~ '_discharging_cutoff_capacity') | float(13),
                     'hi': states('input_number.hba_marstek_m' ~ i ~ '_charging_cutoff_capacity') | float(100)}] -%}
               {%- endfor -%}
+              {#- Predicted cell temperature (EXPERIMENTAL, user 2026-11-24; off while
+                  input_text.hba_strategy_planned_battery_room_temp_entity_id is empty). Why: on a cold night
+                  the cells start in a low row (0-5 degC: 10 A) and warm up while charging; with the row of now
+                  kept for every later slot the plan spreads the charge over too many hours or gives up part
+                  of it. Per later slot and energy level, each battery's warmest cell is expected at
+                    idle: room + (cell now - room) x e^(-0.186 x hours from now)
+                    + 3.81 degC per kWh (AC) above the stored energy of now, x e^(-0.186 x half the hours ahead)
+                  (per battery, fitted on prod 2026-11-22..24: tests/bms_limit/warming_per_kwh.py and
+                  garage_vs_cells.py; 3.81 degC per kWh charging, cooling toward the room with a time constant
+                  of ~5.4 h; the charge taken as spread evenly from now to the slot). Only energy above now
+                  counts: a level can only be reached by charging from here, so the warmth is never more than
+                  the plan's own charging gives. In the evening before a Sell this counts less than it will be
+                  (as before this feature); at the low point (re-plans at least every hour) it fits the night.
+                  Warmth from discharging (3.74 per kWh) is left out. Dev tests 2026-11-24: the warmth of a
+                  first plan given to a second one dropped the hours that gave it (charge 02-05 h at 10 A ->
+                  all at 05 h at 30 A); warmth from the low point of the plan in force flipped between two
+                  plans at every re-plan.
+                  Rows change like the BMS does (prod 11-22..24): up 0.75 degC above a boundary, down 3.5
+                  below it, from the row of now. A slot with other rows than now gets its own power per level
+                  (cell.at: slot -> key, cell.rows: key -> per level the rows per battery). -#}
+              {%- set kb = namespace(k=[]) -%}
+              {%- for bt in ns_p.bats -%}
+                {%- set kb.k = kb.k + [bt.rc ~ '.' ~ bt.rd] -%}
+              {%- endfor -%}
+              {%- set key0 = kb.k | join('/') -%}
+              {%- set room_e = states('input_text.hba_strategy_planned_battery_room_temp_entity_id') | trim -%}
+              {%- set room_t = states(room_e) if room_e not in ['', 'unknown', 'unavailable'] else 'none' -%}
+              {%- set cbats = ns_p.bats | selectattr('rc', 'ge', 0) | list -%}
+              {%- set cell = namespace(at={}, rows={}, tk={}, on=false) -%}
+              {%- if is_number(room_t) and cbats | length > 0 -%}
+                {%- set cell.on = true -%}
+                {%- set tr = room_t | float -%}
+                {%- set nb = cbats | length -%}
+                {%- set c_ts = marks | select('mapping') | map(attribute='start') | map('as_timestamp', 0)
+                    | map('int') | select('gt', now_slot) | sort | list -%}
+                {%- for ts in c_ts -%}
+                  {%- set dt = (ts - now_ts) / 3600 -%}
+                  {%- set f = 2.718282 ** (-0.186 * dt / 2) -%}
+                  {%- set lv = namespace(rows=[], key=[], tk=[]) -%}
+                  {%- for k in range(K) -%}
+                    {%- set warm = 3.81 * ([k * dE - e_now, 0] | max) / ec / nb * f -%}
+                    {%- set rk = namespace(r={}, key=[], t=-99) -%}
+                    {%- for bt in ns_p.bats -%}
+                      {%- if bt.rc >= 0 -%}
+                        {%- set tc = states('sensor.marstek_m' ~ bt.i ~ '_max_cell_temperature') | float(tr) -%}
+                        {%- set T = tr + (tc - tr) * 2.718282 ** (-0.186 * dt) + warm -%}
+                        {%- set up_c = [bt_c.t | select('lt', T - 0.75) | list | length, bt_c.t | length - 1] | min -%}
+                        {%- set dn_c = [bt_c.t | select('lt', T + 3.5) | list | length, bt_c.t | length - 1] | min -%}
+                        {%- set up_d = [bt_d.t | select('lt', T - 0.75) | list | length, bt_d.t | length - 1] | min -%}
+                        {%- set dn_d = [bt_d.t | select('lt', T + 3.5) | list | length, bt_d.t | length - 1] | min -%}
+                        {%- set rr = [[[bt.rc, up_c] | max, dn_c] | min, [[bt.rd, up_d] | max, dn_d] | min] -%}
+                        {%- set rk.t = [rk.t, T] | max -%}
+                      {%- else -%}
+                        {%- set rr = [bt.rc, bt.rd] -%}
+                      {%- endif -%}
+                      {%- set rk.r = rk.r | combine({bt.i | string: rr}) -%}
+                      {%- set rk.key = rk.key + [rr[0] ~ '.' ~ rr[1]] -%}
+                    {%- endfor -%}
+                    {%- set lv.rows = lv.rows + [rk.r] -%}
+                    {%- set lv.key = lv.key + [rk.key | join('/')] -%}
+                    {%- set lv.tk = lv.tk + [rk.t | round(1)] -%}
+                  {%- endfor -%}
+                  {%- set cell.tk = cell.tk | combine({ts | string: lv.tk}) -%}
+                  {%- if lv.key | reject('eq', key0) | list | length > 0 -%}
+                    {%- set kx = lv.key | join(' ') -%}
+                    {%- set cell.at = cell.at | combine({ts | string: kx}) -%}
+                    {%- set cell.rows = cell.rows | combine({kx: lv.rows}) -%}
+                  {%- endif -%}
+                {%- endfor -%}
+              {%- endif -%}
               {#- Max charge / discharge power (W) per energy level (lvl -1 = now, each battery at its own SoC):
                   per battery the lower of its share and the BMS table x voltage; with the BMS share on, a
                   power group gets the lower of its max and the sum of its batteries' own max capped by the
                   BMS (hba_helpers.yaml, BMS shortfall), else each battery its own share -#}
-              {%- for lvl in range(-1, K) -%}
-                {%- set w = namespace(c={}, d={}) -%}
-                {%- for bt in ns_p.bats -%}
-                  {%- set s = bt.soc if lvl < 0 else bt.lo + (bt.hi - bt.lo) * lvl / ([K - 1, 1] | max) -%}
-                  {%- set cc_a = bt_c.m[bt.rc][[bt_c.s | select('lt', s) | list | length, 10] | min]
-                      if bt.rc >= 0 else none -%}
-                  {%- set cd_a = bt_d.m[bt.rd][[[(bt_d.s | select('lt', s) | list | length) - 1, 0] | max, 10] | min]
-                      if bt.rd >= 0 else none -%}
-                  {%- set w.c = w.c | combine({bt.i | string: cc_a * bt.v if cc_a is not none else 1e9}) -%}
-                  {%- set w.d = w.d | combine({bt.i | string: cd_a * bt.v if cd_a is not none else 1e9}) -%}
-                {%- endfor -%}
-                {%- set tot = namespace(c=0, d=0, done=[]) -%}
-                {%- if share -%}
-                  {%- for G in pgroups -%}
-                    {%- set mem = (pgroups[G].members | default([])) | map('int') | list -%}
-                    {%- set g = namespace(c=0, d=0) -%}
-                    {%- for bt in ns_p.bats if bt.i in mem -%}
-                      {%- set g.c = g.c + [bt.oc, w.c[bt.i | string]] | min -%}
-                      {%- set g.d = g.d + [bt.od, w.d[bt.i | string]] | min -%}
-                    {%- endfor -%}
-                    {%- set mp = pgroups[G].max_power | default(0) | float(0) -%}
-                    {%- set tot.c = tot.c + ([g.c, mp] | min if mp > 0 else g.c) -%}
-                    {%- set tot.d = tot.d + ([g.d, mp] | min if mp > 0 else g.d) -%}
-                    {%- set tot.done = tot.done + mem -%}
-                  {%- endfor -%}
-                {%- endif -%}
-                {%- for bt in ns_p.bats if bt.i not in tot.done -%}
-                  {%- set tot.c = tot.c + [bt.lc, w.c[bt.i | string]] | min -%}
-                  {%- set tot.d = tot.d + [bt.ld, w.d[bt.i | string]] | min -%}
-                {%- endfor -%}
-                {%- if lvl < 0 -%}
+              {#- One list per set of rows: key0 (now) first, then each predicted one (cell.rows) -#}
+              {%- for pk in [key0] + (cell.rows.keys() | list) -%}
+                {%- set rws = none if pk == key0 else cell.rows[pk] -%}
+                {%- set pl = namespace(c=[], d=[]) -%}
+                {%- for lvl in range(-1 if pk == key0 else 0, K) -%}
+                  {%- set w = namespace(c={}, d={}) -%}
                   {%- for bt in ns_p.bats -%}
-                    {%- set bw = [bt.lc, w.c[bt.i | string]] | min -%}
-                    {%- set ns_p.max_c = [ns_p.max_c, bw] | max -%}
-                    {%- if bw < bt.lc -%}
-                      {%- set ns_p.cold = ns_p.cold + ['M' ~ bt.i] -%}
-                    {%- endif -%}
+                    {%- set s = bt.soc if lvl < 0 else bt.lo + (bt.hi - bt.lo) * lvl / ([K - 1, 1] | max) -%}
+                    {%- set rr = rws[lvl][bt.i | string] if rws and lvl >= 0 else [bt.rc, bt.rd] -%}
+                    {%- set cc_a = bt_c.m[rr[0]][[bt_c.s | select('lt', s) | list | length, 10] | min]
+                        if rr[0] >= 0 else none -%}
+                    {%- set cd_a = bt_d.m[rr[1]][[[(bt_d.s | select('lt', s) | list | length) - 1, 0] | max, 10] | min]
+                        if rr[1] >= 0 else none -%}
+                    {%- set w.c = w.c | combine({bt.i | string: cc_a * bt.v if cc_a is not none else 1e9}) -%}
+                    {%- set w.d = w.d | combine({bt.i | string: cd_a * bt.v if cd_a is not none else 1e9}) -%}
                   {%- endfor -%}
-                {%- else -%}
-                  {%- set ns_p.lc = ns_p.lc + [tot.c / 1000] -%}
-                  {%- set ns_p.ld = ns_p.ld + [tot.d / 1000] -%}
-                {%- endif -%}
+                  {%- set tot = namespace(c=0, d=0, done=[]) -%}
+                  {%- if share -%}
+                    {%- for G in pgroups -%}
+                      {%- set mem = (pgroups[G].members | default([])) | map('int') | list -%}
+                      {%- set g = namespace(c=0, d=0) -%}
+                      {%- for bt in ns_p.bats if bt.i in mem -%}
+                        {%- set g.c = g.c + [bt.oc, w.c[bt.i | string]] | min -%}
+                        {%- set g.d = g.d + [bt.od, w.d[bt.i | string]] | min -%}
+                      {%- endfor -%}
+                      {%- set mp = pgroups[G].max_power | default(0) | float(0) -%}
+                      {%- set tot.c = tot.c + ([g.c, mp] | min if mp > 0 else g.c) -%}
+                      {%- set tot.d = tot.d + ([g.d, mp] | min if mp > 0 else g.d) -%}
+                      {%- set tot.done = tot.done + mem -%}
+                    {%- endfor -%}
+                  {%- endif -%}
+                  {%- for bt in ns_p.bats if bt.i not in tot.done -%}
+                    {%- set tot.c = tot.c + [bt.lc, w.c[bt.i | string]] | min -%}
+                    {%- set tot.d = tot.d + [bt.ld, w.d[bt.i | string]] | min -%}
+                  {%- endfor -%}
+                  {%- if lvl < 0 -%}
+                    {%- for bt in ns_p.bats -%}
+                      {%- set bw = [bt.lc, w.c[bt.i | string]] | min -%}
+                      {%- set ns_p.max_c = [ns_p.max_c, bw] | max -%}
+                      {%- if bw < bt.lc -%}
+                        {%- set ns_p.cold = ns_p.cold + ['M' ~ bt.i] -%}
+                      {%- endif -%}
+                    {%- endfor -%}
+                  {%- else -%}
+                    {%- set pl.c = pl.c + [tot.c / 1000] -%}
+                    {%- set pl.d = pl.d + [tot.d / 1000] -%}
+                  {%- endif -%}
+                {%- endfor -%}
+                {%- set ns_p.plc = ns_p.plc | combine({pk: pl.c}) -%}
+                {%- set ns_p.pld = ns_p.pld | combine({pk: pl.d}) -%}
               {%- endfor -%}
+              {%- set ns_p.lc = ns_p.plc[key0] -%}
+              {%- set ns_p.ld = ns_p.pld[key0] -%}
               {#- pc / pd: the most any level allows (the ceiling of a slot; the level decides in the plan) -#}
               {%- set pc = ns_p.lc | max -%}
               {%- set pd = ns_p.ld | max -%}
@@ -1047,8 +1128,9 @@ template:
                         'ts': ts, 'b': b, 's': s, 'h': h,
                         'sun': ns_s.kwh, 'load': lw * h, 'up': up,
                         'd': ns_s.d + lm * ([h - ns_s.cov, 0] | max), 'u': ns_s.u,
-                        'pc': ([pc_now, pc] | min) if first else pc,
-                        'pd': ([pd_now, pd] | min) if first else pd}] -%}
+                        'pc': ([pc_now, pc] | min) if first else ns_p.plc[cell.at.get(ts | string, key0)] | max,
+                        'pd': ([pd_now, pd] | min) if first else ns_p.pld[cell.at.get(ts | string, key0)] | max,
+                        'pk': key0 if first else cell.at.get(ts | string, key0)}] -%}
                   {%- endif -%}
                 {%- endfor -%}
                 {%- set slots = ns_in.slots | sort(attribute='ts') -%}
@@ -1449,38 +1531,44 @@ template:
                       tc[k] = hours to charge from level 0 to k, td[k] = hours to discharge from k to 0; a slot
                       of h hours from level k reaches the level whose time is h further (two pointers, linear
                       between levels). One table for the normal slot length, one for the running slot. -#}
-                  {%- set rt = namespace(tc=[0], td=[0]) -%}
-                  {%- for k in range(K - 1) -%}
-                    {%- set rt.tc = rt.tc + [rt.tc[-1] + (dE / (ec * ns_p.lc[k]) if ns_p.lc[k] > 0.01 else 1e6)] -%}
-                    {%- set rt.td = rt.td + [rt.td[-1]
-                        + (dE * ed / ns_p.ld[k + 1] if ns_p.ld[k + 1] > 0.01 else 1e6)] -%}
-                  {%- endfor -%}
                   {%- set reach = namespace(c={}, d={}) -%}
-                  {%- for hh in [step / 3600, slots[0].h] | unique -%}
-                    {#- at most this many levels per slot (pointer steps per level), from the ceiling pc / pd -#}
-                    {%- set n_c = (pc * hh * ec / dE) | round(0, 'ceil') | int + 2 -%}
-                    {%- set n_d = (pd * hh / ed / dE) | round(0, 'ceil') | int + 2 -%}
-                    {%- set rc_ = namespace(l=[], j=0) -%}
-                    {%- for k in range(K) -%}
-                      {%- set rc_.j = [rc_.j, k] | max -%}
-                      {%- for x in range(n_c) if rc_.j < K - 1 and rt.tc[rc_.j + 1] <= rt.tc[k] + hh -%}
-                        {%- set rc_.j = rc_.j + 1 -%}
-                      {%- endfor -%}
-                      {%- set f = ([(rt.tc[k] + hh - rt.tc[rc_.j]) / (rt.tc[rc_.j + 1] - rt.tc[rc_.j]), 1] | min)
-                          if rc_.j < K - 1 else 0 -%}
-                      {%- set rc_.l = rc_.l + [(rc_.j - k + f) * dE / ec] -%}
+                  {#- one pair of tables per set of rows (key: rows '@' slot hours); the running slot always
+                      has the rows of now -#}
+                  {%- for pk in ns_p.plc -%}
+                    {%- set lc_ = ns_p.plc[pk] -%}
+                    {%- set ld_ = ns_p.pld[pk] -%}
+                    {%- set rt = namespace(tc=[0], td=[0]) -%}
+                    {%- for k in range(K - 1) -%}
+                      {%- set rt.tc = rt.tc + [rt.tc[-1] + (dE / (ec * lc_[k]) if lc_[k] > 0.01 else 1e6)] -%}
+                      {%- set rt.td = rt.td + [rt.td[-1]
+                          + (dE * ed / ld_[k + 1] if ld_[k + 1] > 0.01 else 1e6)] -%}
                     {%- endfor -%}
-                    {%- set rd_ = namespace(l=[], j=0) -%}
-                    {%- for k in range(K) -%}
-                      {%- for x in range(n_d) if rd_.j < k and rt.td[k] - rt.td[rd_.j] > hh -%}
-                        {%- set rd_.j = rd_.j + 1 -%}
+                    {%- for hh in ([step / 3600, slots[0].h] if pk == key0 else [step / 3600]) | unique -%}
+                      {#- at most this many levels per slot (pointer steps per level), from the ceiling pc / pd -#}
+                      {%- set n_c = ((lc_ | max) * hh * ec / dE) | round(0, 'ceil') | int + 2 -%}
+                      {%- set n_d = ((ld_ | max) * hh / ed / dE) | round(0, 'ceil') | int + 2 -%}
+                      {%- set rc_ = namespace(l=[], j=0) -%}
+                      {%- for k in range(K) -%}
+                        {%- set rc_.j = [rc_.j, k] | max -%}
+                        {%- for x in range(n_c) if rc_.j < K - 1 and rt.tc[rc_.j + 1] <= rt.tc[k] + hh -%}
+                          {%- set rc_.j = rc_.j + 1 -%}
+                        {%- endfor -%}
+                        {%- set f = ([(rt.tc[k] + hh - rt.tc[rc_.j]) / (rt.tc[rc_.j + 1] - rt.tc[rc_.j]), 1] | min)
+                            if rc_.j < K - 1 else 0 -%}
+                        {%- set rc_.l = rc_.l + [(rc_.j - k + f) * dE / ec] -%}
                       {%- endfor -%}
-                      {%- set f = ([(hh - (rt.td[k] - rt.td[rd_.j])) / (rt.td[rd_.j] - rt.td[rd_.j - 1]), 1] | min)
-                          if rd_.j > 0 else 0 -%}
-                      {%- set rd_.l = rd_.l + [(k - rd_.j + f) * dE * ed] -%}
+                      {%- set rd_ = namespace(l=[], j=0) -%}
+                      {%- for k in range(K) -%}
+                        {%- for x in range(n_d) if rd_.j < k and rt.td[k] - rt.td[rd_.j] > hh -%}
+                          {%- set rd_.j = rd_.j + 1 -%}
+                        {%- endfor -%}
+                        {%- set f = ([(hh - (rt.td[k] - rt.td[rd_.j])) / (rt.td[rd_.j] - rt.td[rd_.j - 1]), 1] | min)
+                            if rd_.j > 0 else 0 -%}
+                        {%- set rd_.l = rd_.l + [(k - rd_.j + f) * dE * ed] -%}
+                      {%- endfor -%}
+                      {%- set reach.c = reach.c | combine({pk ~ '@' ~ hh: rc_.l}) -%}
+                      {%- set reach.d = reach.d | combine({pk ~ '@' ~ hh: rd_.l}) -%}
                     {%- endfor -%}
-                    {%- set reach.c = reach.c | combine({hh | string: rc_.l}) -%}
-                    {%- set reach.d = reach.d | combine({hh | string: rd_.l}) -%}
                   {%- endfor -%}
                   {%- set mean_b = (slots | map(attribute='b') | sum) / N -%}
                   {#- Value of energy still in the battery when the price data ends: what it will most
@@ -1503,8 +1591,8 @@ template:
                     {%- set d = sl.d -%}
                     {%- set u = sl.u -%}
                     {#- the reach for this slot's length (AC kWh per level), capped by the slot's power -#}
-                    {%- set r_c = reach.c[(sl.h if t == 0 else step / 3600) | string] -%}
-                    {%- set r_d = reach.d[(sl.h if t == 0 else step / 3600) | string] -%}
+                    {%- set r_c = reach.c[sl.pk ~ '@' ~ (sl.h if t == 0 else step / 3600)] -%}
+                    {%- set r_d = reach.d[sl.pk ~ '@' ~ (sl.h if t == 0 else step / 3600)] -%}
                     {%- set ck = sl.ck if 'cs' in sl else 1e9 -%}
                     {%- set cs_k = sl.cs if 'cs' in sl else 0 -%}
                     {%- set cg = (sl.cv - sl.s) if 'cs' in sl else 0 -%}
@@ -1602,8 +1690,9 @@ template:
                     {%- set u = sl.u -%}
                     {%- set E = fw.E -%}
                     {%- set kE = [[(E / dE) | round(0) | int, 0] | max, K - 1] | min -%}
-                    {%- set cc = [sl.pc * sl.h, reach.c[(sl.h if t == 0 else step / 3600) | string][kE]] | min -%}
-                    {%- set cd = [sl.pd * sl.h, reach.d[(sl.h if t == 0 else step / 3600) | string][kE]] | min -%}
+                    {%- set hk = sl.pk ~ '@' ~ (sl.h if t == 0 else step / 3600) -%}
+                    {%- set cc = [sl.pc * sl.h, reach.c[hk][kE]] | min -%}
+                    {%- set cd = [sl.pd * sl.h, reach.d[hk][kE]] | min -%}
                     {%- set ck = sl.ck if 'cs' in sl else 1e9 -%}
                     {%- set cs_k = sl.cs if 'cs' in sl else 0 -%}
                     {%- set cg = (sl.cv - sl.s) if 'cs' in sl else 0 -%}
@@ -1944,7 +2033,7 @@ template:
                     {%- set d = sl.d -%}
                     {%- set u = sl.u -%}
                     {%- set kE = [[(sc.E / dE) | round(0) | int, 0] | max, K - 1] | min -%}
-                    {%- set hk = (sl.h if loop.first else step / 3600) | string -%}
+                    {%- set hk = sl.pk ~ '@' ~ (sl.h if loop.first else step / 3600) -%}
                     {%- set ch = [u, sl.pc * sl.h, reach.c[hk][kE], ([emax - sc.E, 0] | max) / ec] | min -%}
                     {%- set dis = [d, sl.pd * sl.h, reach.d[hk][kE], ([sc.E - rmin, 0] | max) * ed] | min -%}
                     {%- set net = d - u + ch - dis -%}
@@ -1958,6 +2047,13 @@ template:
                   {%- endfor -%}
                   {%- set plan_total = fw.cost - fw.E * endv -%}
                   {%- set sc_total = sc.cost - sc.E * endv -%}
+                  {#- Predicted cell temperature: the warmest cell expected at the start of each slot, at the
+                      stored energy this plan has there -#}
+                  {%- set ctp = namespace(d={}) -%}
+                  {%- for w in fw.out if cell.on and (w.ts | string) in cell.tk -%}
+                    {%- set ctp.d = ctp.d | combine({w.ts | string:
+                        cell.tk[w.ts | string][[[(w.e0 / dE) | round(0) | int, 0] | max, K - 1] | min]}) -%}
+                  {%- endfor -%}
                   {%- set summary = {
                       'usable': emax | round(1), 'charge_kw': pc | round(1), 'discharge_kw': pd | round(1),
                       'efficiency': (eta * 100) | round(1), 'house_w': (load_kw * 1000) | round(0) | int,
@@ -1996,6 +2092,8 @@ template:
                                        'slots': bt.at | length, 'top': bt.top | int, 'grid_off': grid_off,
                                        'grid_cut': b_over.k | round(1)}},
                       'cold': ns_p.cold,
+                      'cell': {'room': room_t | float(0), 'slots': cell.at | length, 'tp': ctp.d}
+                              if cell.on else none,
                       'calc_s': (as_timestamp(now()) - t_calc0) | round(2)} -%}
                   {{ {'plan': fw.out, 'status': 'OK', 'made': now().isoformat(), 'reason': replan,
                       'eta': (eta * 100) | round(1), 'summary': summary} | tojson }}

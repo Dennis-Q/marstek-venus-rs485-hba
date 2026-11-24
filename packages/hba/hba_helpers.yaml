@@ -1040,6 +1040,14 @@ input_text:
     name: "Planned: sell price sensor (entity_id)"
     max: 100
     icon: mdi:cash-plus
+  # Planned, EXPERIMENTAL (user 2026-11-24): temperature sensor of the room the batteries are in
+  # (garage, shed). Set = the plan predicts how the cells warm while charging and cool toward this
+  # temperature, and the BMS limit that follows (hba_strategy_planned.yaml, "Predicted cell
+  # temperature"). Empty = off, no extra calculation (batteries indoors).
+  hba_strategy_planned_battery_room_temp_entity_id:
+    name: "Planned: battery room temperature sensor (entity_id), experimental"
+    max: 100
+    icon: mdi:thermometer
   # Days the car is usually home in daytime, e.g. "Sat,Sun". Empty = Sat,Sun, none = never.
   hba_strategy_planned_car_home_days:
     name: "Planned: car home in daytime on"

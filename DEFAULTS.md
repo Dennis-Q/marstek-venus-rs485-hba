@@ -286,6 +286,7 @@ Every minimum is also the default, so a new install plans sensibly before *Apply
 | `input_number.hba_strategy_planned_car_battery_end` | 1 h (battery to car ends before the departure) |
 | `input_datetime.hba_strategy_planned_car_latest_plugin` | 18:00 (unset counts as 18:00) |
 | `input_text.hba_strategy_planned_sell_price_entity_id` | empty = sell at the buy price (net metering) |
+| `input_text.hba_strategy_planned_battery_room_temp_entity_id` | empty = off (experimental: predicted cell temperature) |
 | `input_boolean.hba_strategy_planned_skip_charge` / `_skip_sell` / `_skip_zero_import` | `off` (all strategies allowed) |
 | `input_boolean.hba_strategy_planned_car_solar_export` | `off` (the car only gets sun the plan would export when selling pays less than a kWh in the car is worth) |
 | `input_boolean.hba_strategy_planned_debug` | `off` (on = a recorded copy of each plan in `sensor.hba_planned_strategy_debug`) |

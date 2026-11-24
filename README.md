@@ -481,7 +481,15 @@ charge at night → sell tomorrow morning".
   temperature of the warmest cell and SoC, read from BMS firmware 115). Example: at 10-15 °C a battery
   charges at 70 A up to 70 % SoC and at 30 A above; below 5 °C at 10 A, below 0 °C at 5 A. Each energy
   level of the plan gets the power the BMS allows there, so a charge slows down where the battery will;
-  later hours keep today's temperature. The running hour uses what the batteries can do now.
+  later hours keep today's temperature, unless the experimental prediction below is on. The running hour uses
+  what the batteries can do now.
+- **Cold batteries, predicted cell temperature (experimental, off by default):** for batteries in a cold room
+  (garage, shed). Set *Battery room temperature sensor* (Planned view, Cold batteries) and the plan follows each
+  battery's warmest cell per hour and per stored energy: cooling toward the room (time constant ~5.4 h) and
+  about +3.8 °C per kWh it charged since the lowest point of the plan (measured on one install, four Venus E
+  3.0 in a garage). Each hour gets the BMS limit it expects at each energy level, so on a cold night the plan
+  knows charging speeds up once the batteries have taken some energy, and only counts warmth from charging it
+  plans itself. Empty = off, no extra calculation.
 - **Car hours next to charging batteries** (*Car hours with charging batteries*, EV Charge view): up to the
   car's Minimum the car always goes first (full power, the batteries take the phase room it leaves).
   Above Minimum, **Auto** (default) decides per hour: in the car hours where the batteries charge from the
