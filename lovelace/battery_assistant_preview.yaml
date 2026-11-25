@@ -3322,6 +3322,13 @@ views:
               | Car kWh that do not fit | {{ A.unmet }} | {{ B.unmet }} | — | {{ df(B.unmet - A.unmet, '%+.1f') }} |
               {%- endif %}
               | **Total** | **€ {{ '%.2f' | format(A.total) }}** | **€ {{ '%.2f' | format(B.total) }}** | — | **{{ df(B.total - A.total) }}** |
+              {%- if state_attr(I, 'compensated') == true and N.get('plan') is number %}
+              {%- set mpv = state_attr(I, 'max_price') | float(0) -%}
+              {%- set na = A.eur - A.kwh * mpv + A.plan - N.plan -%}
+              {%- set nb = B.eur - B.kwh * mpv + B.plan - N.plan %}
+              | Compensated (max price € {{ '%.3f' | format(mpv) }}) | € {{ '%.2f' | format(A.kwh * mpv) }} | € {{ '%.2f' | format(B.kwh * mpv) }} | — | {{ df((B.kwh - A.kwh) * mpv) }} |
+              | **Net for you** (+ = costs you) | **€ {{ df(na) }}** | **€ {{ df(nb) }}** | — | **{{ df(nb - na) }}** |
+              {%- endif %}
 
               {%- set P = cmp[run] if run in cmp else A %}
               {%- set given = bat.get('value', 0) | float(0) if bat.get('kwh', 0) | float(0) > 0.05 else 0 -%}
@@ -3333,7 +3340,7 @@ views:
               No car: switch on **Insights mode** (Insights view) to have the plan worked out without the car too.
               {%- endif %}
 
-              <font color=grey>Balance = the same plan with Balance in the car hours above Minimum where the batteries charge next to the car (up to Minimum the car always goes first). Difference = Balance − Car first (+ = Balance costs more). No car: the same plan without the car. Stored kWh and cost out are compared over one window for all columns: from the first to the end of the last car hour of either choice. Cost out: what a kWh from the batteries has cost (bought ÷ efficiency, sun at the sell price, + wear). Balance keeps the car charging at a low rate next to the batteries; a large house load (about 2 kW) on a battery phase can still pause the car for about 15 seconds. With Car first that happens less often: the car charges at full power, so the charger can slow it further before it has to pause.</font>
+              <font color=grey>{{ "Compensated = car kWh × the car's max price (EV project: home charging compensated). Net for you = car cost − compensated + what the car costs the batteries (batteries + house − No car); − = you gain, compared with not charging the car here. Car kWh that do not fit are left out. " if state_attr(I, 'compensated') == true and N.get('plan') is number }}Balance = the same plan with Balance in the car hours above Minimum where the batteries charge next to the car (up to Minimum the car always goes first). Difference = Balance − Car first (+ = Balance costs more). No car: the same plan without the car. Stored kWh and cost out are compared over one window for all columns: from the first to the end of the last car hour of either choice. Cost out: what a kWh from the batteries has cost (bought ÷ efficiency, sun at the sell price, + wear). Balance keeps the car charging at a low rate next to the batteries; a large house load (about 2 kW) on a battery phase can still pause the car for about 15 seconds. With Car first that happens less often: the car charges at full power, so the charger can slow it further before it has to pause.</font>
 
               </small>
               {%- elif car.get('cmp_other', true) == false and setp == 'Auto' %} · no hour where Balance could pay (no grid charging of the batteries next to the car above Minimum)

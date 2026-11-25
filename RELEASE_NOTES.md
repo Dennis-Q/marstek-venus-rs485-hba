@@ -39,6 +39,11 @@ This document covers HBA-specific changes only.
 
 ### Changed
 
+- **Car comparison table (Cars view): compensation and net.** For a car whose home charging is compensated
+  (EV project), the table under *Car hours next to the batteries* now has two more rows: *Compensated* (car kWh
+  × the car's max price) and *Net for you* = car cost − compensated + what the car costs the batteries compared
+  with No car (− = you gain). It shows whether charging the car at home pays, or a free charger elsewhere is
+  better. Shown when the No car column is worked out (Insights mode or priority Auto).
 - **Planned: a full battery in a sunny hour is Charge PV, not Full stop.** When nothing goes in or out, the
   plan names the hour Charge PV if the sun is up and storing it is worth more than exporting it; that now
   includes a full battery. If a load takes a little out, Charge PV refills it from the sun, where Full stop
