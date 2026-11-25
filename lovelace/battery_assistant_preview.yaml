@@ -3286,7 +3286,7 @@ views:
               **Car hours next to the batteries: {{ run }}**
               {%- if 'Car first' in cmp and 'Balance' in cmp -%}
               {%- set d = (cmp['Balance'].total - cmp['Car first'].total) | round(2) %}
-              {{ ' · Auto: ' if setp == 'Auto' else ' · Car first set; ' }}{{ 'Balance' if d > 0 else 'Car first' }} € {{ '%.2f' | format(d | abs) }} more{{ (' (Balance only below Car first − €0.02)' if setp == 'Auto' and run == 'Car first' and d <= 0 else '') }}
+              {{ ' · Auto: ' if setp == 'Auto' else ' · Car first set; ' }}{{ 'Balance' if d > 0 else 'Car first' }} € {{ '%.2f' | format(d | abs) }} more{{ (' (Balance from €0.05 cheaper)' if setp == 'Auto' and run == 'Car first' else (' (Balance kept until Car first is €0.05 cheaper)' if setp == 'Auto' and run == 'Balance' else '')) }}
 
 
               <small>

@@ -2230,8 +2230,11 @@ template:
       # spread Normal over 4 hours and cost more than Car first (prod 2026-11-16 23:40).
       # Both go into the summary (car cmp) for the Car section. Auto runs the cheaper one: plan cost
       # (batteries + house) + the car's grid cost + car kWh that no longer fit before the departure
-      # at the max price (else the dearest hour). Balance only when it saves more than 2 cents, so a
-      # tie does not flip the charger's behaviour at every re-plan. Car first runs as set.
+      # at the max price (else the dearest hour). Balance from 5 cents cheaper, and a plan that ran
+      # Balance keeps it until Car first is 5 cents cheaper (user 2026-11-25). Until then the rule was
+      # "more than 2 cents" at every plan: prod 11-25 the two were 0-4 cents apart and Auto switched
+      # between them 8 times in an afternoon, also during charging (each 1 % car SoC re-plans).
+      # Car first runs as set.
       # Each extra calculation stops HA for as long as the first, so only what decides is worked
       # out: the Balance plan when the setting is Auto, else only with Insights mode on; "No car"
       # only with Insights mode on (the Car section says so where the numbers are missing).
@@ -2303,8 +2306,15 @@ template:
               {%- endfor -%}
               {%- set pa = a.summary.car.prio -%}
               {%- set auto = is_state('input_select.hba_strategy_planned_car_priority', 'Auto') -%}
-              {%- set use_b = auto and b.status == 'OK' and pa == 'Car first' and b.summary.car.prio == 'Balance'
-                              and ns.x['Balance'].total < ns.x['Car first'].total - 0.02 -%}
+              {#- The choice of the previous plan (the preview keeps its own) -#}
+              {%- set prev_e = 'sensor.hba_planned_car_preview' if replan == 'preview'
+                  else 'sensor.hba_planned_strategy' -%}
+              {%- set prev = ((state_attr(prev_e, 'summary') or {}).get('car') or {}).get('prio') -%}
+              {%- set use_b = auto and b.status == 'OK' and pa == 'Car first' and b.summary.car.prio == 'Balance' -%}
+              {%- if use_b -%}
+                {%- set gain = (ns.x['Car first'].total - ns.x['Balance'].total) | round(2) -%}
+                {%- set use_b = gain >= 0.05 or (prev == 'Balance' and gain > -0.05) -%}
+              {%- endif -%}
               {%- set pick = b if use_b else a -%}
               {#- No car: batteries + house, what they store and their cost out in the same window -#}
               {%- set n = result_n if result_n is mapping else (result_n | from_json) -%}

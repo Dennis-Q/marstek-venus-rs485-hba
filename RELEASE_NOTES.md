@@ -39,6 +39,10 @@ This document covers HBA-specific changes only.
 
 ### Changed
 
+- **Planned car hours on Auto: no more switching between Car first and Balance.** Balance is used from
+  5 cents cheaper (was 2), and once chosen it stays until Car first is 5 cents cheaper. On a night with flat
+  prices the two are a few cents apart, and Auto switched between them at almost every new plan, also while
+  the car was charging (its rate jumping between full power and Balance's low rate).
 - **Car comparison table (Cars view): compensation and net.** For a car whose home charging is compensated
   (EV project), the table under *Car hours next to the batteries* now has two more rows: *Compensated* (car kWh
   × the car's max price) and *Net for you* = car cost − compensated + what the car costs the batteries compared

@@ -495,8 +495,9 @@ charge at night → sell tomorrow morning".
   car's Minimum the car always goes first (full power, the batteries take the phase room it leaves).
   Above Minimum, **Auto** (default) decides per hour: in the car hours where the batteries charge from the
   grid next to the car, it also works out **Balance** (the batteries leave the car its 6 A minimum, a 1-phase
-  car 1.4 kW, so the charger slows the car instead of pausing it) and keeps it only where the whole plan
-  gets more than 2 cents cheaper. **Car first** = the car first in every hour. A large house load on a
+  car 1.4 kW, so the charger slows the car instead of pausing it) and uses it when the whole plan gets
+  at least 5 cents cheaper; once chosen, Balance stays until Car first is 5 cents cheaper, so a near-tie
+  does not switch the car's charging rate at every new plan. **Car first** = the car first in every hour. A large house load on a
   battery phase can still pause the car for a moment in a Balance hour. In the first 2 minutes of a car
   hour, until the car charges, the batteries already leave it its room, so the charger can start it. With
   Car first, the Balance plan
