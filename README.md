@@ -282,7 +282,7 @@ no manual helper editing required.
 | `hba_strategy_*.yaml` (7 files) | Individual strategy scripts (incl. `hba_strategy_planned.yaml`: the Planned strategy and the house-load profile) | No |
 | `hba_notifications.yaml` | All notifications (each with a dashboard banner and a "resolved" message) | No |
 | `hba_savings.yaml` | Savings sensors (what the batteries saved, in EUR) | No |
-| `hba_labs_presence.yaml` | Labs: presence per floor (off by default) | No |
+| `hba_presence.yaml` | Labs: presence per floor (off by default) | No |
 | `hba_hbc_coexistence.yaml` | HBC coexistence controls | No — skip on clean install without HBC |
 
 All default values for helpers are documented in [DEFAULTS.md](DEFAULTS.md).

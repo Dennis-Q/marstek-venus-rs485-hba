@@ -13,6 +13,18 @@ This document covers HBA-specific changes only.
 
 ## Unreleased (dev builds report v4.10.1-r28)
 
+### Upgrading — Labs presence renamed (only if you use it)
+
+- **Labs presence has new entity IDs without "labs"**, so they can stay the same if the feature ever leaves Labs:
+  `hba_labs_presence*` → `hba_presence*`, `hba_labs_floor_N_*` → `hba_presence_floor_N_*`,
+  `hba_labs_home_occupancy` → `hba_presence_home_occupancy`. The file is now `hba_presence.yaml`; the installer removes
+  `hba_labs_presence.yaml`. Nothing to do if you never switched Labs presence on.
+- **Keep your presence history:** before updating, rename the five occupancy sensors in Settings → Entities
+  (`sensor.hba_labs_floor_1_occupancy` → `sensor.hba_presence_floor_1_occupancy`, floors 2-4 and `home` the same).
+  After the update, delete the old `hba_labs_*` entities (no longer provided), then rename the new occupancy sensors
+  that got `_2` to the name without `_2`: they continue the history. Without these steps the history starts again.
+- **Set the presence settings again** (on/off, motion, floors, sources): they are new helpers.
+
 ### Fixed
 
 - **Planned: no small top-up Charge hours after a full charge.** After a full charge a battery often reads

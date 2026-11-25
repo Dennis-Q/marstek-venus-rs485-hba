@@ -6744,24 +6744,24 @@ views:
             grid_options:
               columns: full
             content: >-
-              {%- set nf = state_attr('sensor.hba_labs_presence_floors_resolved', 'not_found') or [] -%}
-              {%- set src = states('input_text.hba_labs_presence_sources') -%}
+              {%- set nf = state_attr('sensor.hba_presence_floors_resolved', 'not_found') or [] -%}
+              {%- set src = states('input_text.hba_presence_sources') -%}
               {%- set ns = namespace(bad=[]) -%}
               {%- for e in (src if src not in ['unknown', 'unavailable'] else '').split(',') | map('trim') | reject('eq', '') -%}
                 {%- if states(e) == 'unknown' and states[e] is none -%}
                   {%- set ns.bad = ns.bad + [e] -%}
                 {%- endif -%}
               {%- endfor -%}
-              {%- if is_state('input_boolean.hba_labs_presence', 'on') and (nf or floors() | length == 0) -%}
+              {%- if is_state('input_boolean.hba_presence', 'on') and (nf or floors() | length == 0) -%}
               <ha-alert alert-type="warning"><strong>{{ 'Floor not found' if nf else 'No floors' }}</strong><br>
               {{ (nf | join(', ') ~ ' — ') if nf }}known floors: {{ floors() | map('floor_name') | join(', ') or '(none — add floors in HA first)' }}</ha-alert>
               {%- endif -%}
-              {%- if is_state('input_boolean.hba_labs_presence', 'on') and ns.bad -%}
+              {%- if is_state('input_boolean.hba_presence', 'on') and ns.bad -%}
               <ha-alert alert-type="warning"><strong>Source not found</strong><br>
               {{ ns.bad | join(', ') }} — check the spelling in Sources.</ha-alert>
               {%- endif -%}
           - type: tile
-            entity: input_boolean.hba_labs_presence
+            entity: input_boolean.hba_presence
             name: Collect presence per floor
             color: blue
             vertical: false
@@ -6770,11 +6770,11 @@ views:
               columns: full
           - type: entities
             entities:
-              - entity: input_text.hba_labs_presence_floors
+              - entity: input_text.hba_presence_floors
                 name: Floors (empty = all, in order)
-              - entity: input_text.hba_labs_presence_sources
+              - entity: input_text.hba_presence_sources
                 name: Sources
-              - entity: input_boolean.hba_labs_presence_motion
+              - entity: input_boolean.hba_presence_motion
                 name: Also use motion sensors
       - type: grid
         cards:
@@ -6787,17 +6787,17 @@ views:
             grid_options:
               columns: full
             content: >-
-              {%- if is_state('input_boolean.hba_labs_presence', 'off') -%}
+              {%- if is_state('input_boolean.hba_presence', 'off') -%}
               Off — switch on *Collect presence per floor* to start.
               {%- else -%}
               | Floor | Now | Sources |
 
               |---|---|---|
 
-              | Home | {{ 'someone home' if is_state('sensor.hba_labs_home_occupancy', '100') else 'nobody home' }} | {{ states('zone.home') }} in zone home |
+              | Home | {{ 'someone home' if is_state('sensor.hba_presence_home_occupancy', '100') else 'nobody home' }} | {{ states('zone.home') }} in zone home |
 
               {% for n in range(1, 5) -%}
-              {%- set b = 'binary_sensor.hba_labs_floor_' ~ n ~ '_occupied' -%}
+              {%- set b = 'binary_sensor.hba_presence_floor_' ~ n ~ '_occupied' -%}
               {%- if states(b) not in ['unavailable'] -%}
               {%- set ns = namespace(by=[]) -%}
               {%- for e in state_attr(b, 'by') or [] -%}
@@ -6826,19 +6826,19 @@ views:
             stat_types:
               - mean
             entities:
-              - entity: sensor.hba_labs_home_occupancy
+              - entity: sensor.hba_presence_home_occupancy
                 name: Home
-              - entity: sensor.hba_labs_floor_1_occupancy
+              - entity: sensor.hba_presence_floor_1_occupancy
                 name: Floor 1
-              - entity: sensor.hba_labs_floor_2_occupancy
+              - entity: sensor.hba_presence_floor_2_occupancy
                 name: Floor 2
-              - entity: sensor.hba_labs_floor_3_occupancy
+              - entity: sensor.hba_presence_floor_3_occupancy
                 name: Floor 3
-              - entity: sensor.hba_labs_floor_4_occupancy
+              - entity: sensor.hba_presence_floor_4_occupancy
                 name: Floor 4
             grid_options:
               columns: full
             visibility:
               - condition: state
-                entity: input_boolean.hba_labs_presence
+                entity: input_boolean.hba_presence
                 state: "on"

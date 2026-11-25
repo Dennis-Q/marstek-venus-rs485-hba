@@ -4082,9 +4082,9 @@ recorder:
       # All HBA scripts — run at ~1 Hz, generate on/off per execution, history is not useful
       - script.hba_*
       # Labs presence: someone on a floor right now — follows every room-tracker flip
-      # (thousands a day); the recorded history is sensor.hba_labs_floor_*_occupancy
-      - binary_sensor.hba_labs_floor_*_present
-      - sensor.hba_labs_presence_trackers
+      # (thousands a day); the recorded history is sensor.hba_presence_floor_*_occupancy
+      - binary_sensor.hba_presence_floor_*_present
+      - sensor.hba_presence_trackers
       # Savings: the 15 s accumulator; the recorded total is sensor.hba_savings
       - sensor.hba_savings_accumulator
       - input_text.hba_savings_store

@@ -219,7 +219,7 @@ CORE_FILES=(
     packages/hba/hba_strategy_self_consumption.yaml
     packages/hba/hba_strategy_timed.yaml
     packages/hba/hba_notifications.yaml
-    packages/hba/hba_labs_presence.yaml
+    packages/hba/hba_presence.yaml
     packages/hba/hba_savings.yaml
     lovelace/battery_assistant.yaml
 )
@@ -319,9 +319,12 @@ ok "${#STAGED[@]} files installed"
 # would keep loading. hba_strategy_dynamic_v2.yaml (renamed to
 # hba_strategy_dynamic.yaml in r22, which also replaced the old Dynamic v1 file
 # of that name) would define sensor.hba_energy_prices_data a second time.
+# hba_labs_presence.yaml was renamed to hba_presence.yaml in r28 (entity IDs without "labs", user 2026-11-25);
+# both files loaded together would define the presence helpers twice.
 
 OBSOLETE_FILES=(
     packages/hba/hba_strategy_dynamic_v2.yaml
+    packages/hba/hba_labs_presence.yaml
 )
 
 for f in "${OBSOLETE_FILES[@]}"; do

@@ -303,10 +303,10 @@ average house load is only used while `sensor.hba_house_load_profile` has no pro
 
 | Helper | Default |
 |---|---|
-| `input_boolean.hba_labs_presence` | `off` (nothing is collected) |
-| `input_boolean.hba_labs_presence_motion` | `off` (on = every motion / occupancy / presence sensor on a floor counts too) |
-| `input_text.hba_labs_presence_floors` | empty = the first 4 HA floors |
-| `input_text.hba_labs_presence_sources` | empty (room trackers and binary sensors, comma-separated) |
+| `input_boolean.hba_presence` | `off` (nothing is collected) |
+| `input_boolean.hba_presence_motion` | `off` (on = every motion / occupancy / presence sensor on a floor counts too) |
+| `input_text.hba_presence_floors` | empty = the first 4 HA floors |
+| `input_text.hba_presence_sources` | empty (room trackers and binary sensors, comma-separated) |
 
 ## Per-Battery SoC Cutoffs (all 6 slots)
 
