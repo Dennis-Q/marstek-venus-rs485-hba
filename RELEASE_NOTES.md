@@ -27,6 +27,11 @@ This document covers HBA-specific changes only.
 
 ### Fixed
 
+- **No false "battery not responding" right after a power-group leader change.** When a group hands the lead
+  to another battery, the old leader's max discharge (or charge) power drops to its follower share, e.g.
+  2500 → 1100 W, and the battery gives that while its command may still be higher for a minute or two. The
+  check now also takes the battery's own max power register as what it can do, the same way it already took
+  the BMS limit (prod 26-11: M1 alerted at 19:02 and cleared 26 s later).
 - **Planned: no small top-up Charge hours after a full charge.** After a full charge a battery often reads
   98.9-99 % instead of 100 %, so the plan saw ~0.1 kWh of room and planned a tiny Charge (e.g. at 13:00
   before a Sell; also rows like "Charge 8.9 → 8.9 kWh"). A battery HBA already counts as full (within 1 % of

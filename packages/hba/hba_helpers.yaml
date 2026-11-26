@@ -2457,6 +2457,12 @@ template:
                 ~ '_current_limit') | float(-1) %}
             {% set v_bat = states('sensor.marstek_m1_battery_voltage') | float(0) %}
             {% set can = ([cmd | abs, bms_a * v_bat] | min) if bms_a >= 0 and v_bat > 40 else cmd | abs %}
+            {# ...and no more than its own max charge / discharge register (read back), which power groups lower for a
+               follower. Prod 2026-11-26 19:01: group A leader M1 -> M4, M1 max discharge 2500 -> 1100 W, M1 gave
+               ~1100 W while its command stayed 1844 W for ~2 min; the alert fired at 19:02:33, cleared 26 s later #}
+            {% set reg = states('sensor.marstek_m1_max_' ~ ('discharge' if d == 'discharge' else 'charge')
+                ~ '_power_number') | float(-1) %}
+            {% set can = [can, reg] | min if reg >= 0 else can %}
             {% if at_limit or can < 300 %}
               false
             {% else %}
@@ -2520,6 +2526,12 @@ template:
                 ~ '_current_limit') | float(-1) %}
             {% set v_bat = states('sensor.marstek_m2_battery_voltage') | float(0) %}
             {% set can = ([cmd | abs, bms_a * v_bat] | min) if bms_a >= 0 and v_bat > 40 else cmd | abs %}
+            {# ...and no more than its own max charge / discharge register (read back), which power groups lower for a
+               follower. Prod 2026-11-26 19:01: group A leader M1 -> M4, M1 max discharge 2500 -> 1100 W, M1 gave
+               ~1100 W while its command stayed 1844 W for ~2 min; the alert fired at 19:02:33, cleared 26 s later #}
+            {% set reg = states('sensor.marstek_m2_max_' ~ ('discharge' if d == 'discharge' else 'charge')
+                ~ '_power_number') | float(-1) %}
+            {% set can = [can, reg] | min if reg >= 0 else can %}
             {% if at_limit or can < 300 %}
               false
             {% else %}
@@ -2583,6 +2595,12 @@ template:
                 ~ '_current_limit') | float(-1) %}
             {% set v_bat = states('sensor.marstek_m3_battery_voltage') | float(0) %}
             {% set can = ([cmd | abs, bms_a * v_bat] | min) if bms_a >= 0 and v_bat > 40 else cmd | abs %}
+            {# ...and no more than its own max charge / discharge register (read back), which power groups lower for a
+               follower. Prod 2026-11-26 19:01: group A leader M1 -> M4, M1 max discharge 2500 -> 1100 W, M1 gave
+               ~1100 W while its command stayed 1844 W for ~2 min; the alert fired at 19:02:33, cleared 26 s later #}
+            {% set reg = states('sensor.marstek_m3_max_' ~ ('discharge' if d == 'discharge' else 'charge')
+                ~ '_power_number') | float(-1) %}
+            {% set can = [can, reg] | min if reg >= 0 else can %}
             {% if at_limit or can < 300 %}
               false
             {% else %}
@@ -2646,6 +2664,12 @@ template:
                 ~ '_current_limit') | float(-1) %}
             {% set v_bat = states('sensor.marstek_m4_battery_voltage') | float(0) %}
             {% set can = ([cmd | abs, bms_a * v_bat] | min) if bms_a >= 0 and v_bat > 40 else cmd | abs %}
+            {# ...and no more than its own max charge / discharge register (read back), which power groups lower for a
+               follower. Prod 2026-11-26 19:01: group A leader M1 -> M4, M1 max discharge 2500 -> 1100 W, M1 gave
+               ~1100 W while its command stayed 1844 W for ~2 min; the alert fired at 19:02:33, cleared 26 s later #}
+            {% set reg = states('sensor.marstek_m4_max_' ~ ('discharge' if d == 'discharge' else 'charge')
+                ~ '_power_number') | float(-1) %}
+            {% set can = [can, reg] | min if reg >= 0 else can %}
             {% if at_limit or can < 300 %}
               false
             {% else %}
@@ -2709,6 +2733,12 @@ template:
                 ~ '_current_limit') | float(-1) %}
             {% set v_bat = states('sensor.marstek_m5_battery_voltage') | float(0) %}
             {% set can = ([cmd | abs, bms_a * v_bat] | min) if bms_a >= 0 and v_bat > 40 else cmd | abs %}
+            {# ...and no more than its own max charge / discharge register (read back), which power groups lower for a
+               follower. Prod 2026-11-26 19:01: group A leader M1 -> M4, M1 max discharge 2500 -> 1100 W, M1 gave
+               ~1100 W while its command stayed 1844 W for ~2 min; the alert fired at 19:02:33, cleared 26 s later #}
+            {% set reg = states('sensor.marstek_m5_max_' ~ ('discharge' if d == 'discharge' else 'charge')
+                ~ '_power_number') | float(-1) %}
+            {% set can = [can, reg] | min if reg >= 0 else can %}
             {% if at_limit or can < 300 %}
               false
             {% else %}
@@ -2772,6 +2802,12 @@ template:
                 ~ '_current_limit') | float(-1) %}
             {% set v_bat = states('sensor.marstek_m6_battery_voltage') | float(0) %}
             {% set can = ([cmd | abs, bms_a * v_bat] | min) if bms_a >= 0 and v_bat > 40 else cmd | abs %}
+            {# ...and no more than its own max charge / discharge register (read back), which power groups lower for a
+               follower. Prod 2026-11-26 19:01: group A leader M1 -> M4, M1 max discharge 2500 -> 1100 W, M1 gave
+               ~1100 W while its command stayed 1844 W for ~2 min; the alert fired at 19:02:33, cleared 26 s later #}
+            {% set reg = states('sensor.marstek_m6_max_' ~ ('discharge' if d == 'discharge' else 'charge')
+                ~ '_power_number') | float(-1) %}
+            {% set can = [can, reg] | min if reg >= 0 else can %}
             {% if at_limit or can < 300 %}
               false
             {% else %}
