@@ -307,6 +307,9 @@ average house load is only used while `sensor.hba_house_load_profile` has no pro
 | `input_boolean.hba_presence_motion` | `off` (on = every motion / occupancy / presence sensor on a floor counts too) |
 | `input_text.hba_presence_floors` | empty = the first 4 HA floors |
 | `input_text.hba_presence_sources` | empty (room trackers and binary sensors, comma-separated) |
+| `input_number.hba_presence_arrival_delay` | `0` min (a floor counts as occupied at once) |
+| `input_number.hba_presence_tracker_wait` | `0` = 2 min (a room tracker counts on a floor after 2 min there) |
+| `input_number.hba_presence_hold` | `0` = 10 min (a floor stays occupied 10 min after the last source left) |
 
 ## Per-Battery SoC Cutoffs (all 6 slots)
 

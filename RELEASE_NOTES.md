@@ -42,6 +42,17 @@ This document covers HBA-specific changes only.
   it waited for the next day's, and with no answer the car charged Normal that night. It now asks right after
   every real plug-in, whatever the time; the reminder still asks when no question went out that day.
 
+### Added
+
+- **Labs presence: three timing settings** (0 = today's behaviour). *Arrival delay*: a floor counts as
+  occupied only once someone is still seen there that many minutes after arriving, from any source on the
+  floor (hallway motion, then the kitchen), so a short visit such as fetching a coffee or the dogs' leash does
+  not count; meant for heating per floor. *Tracker wait* (default 2 min): how long a room tracker must stay
+  on a floor before it counts. *Hold* (default 10 min): how long a floor stays occupied after the last source
+  left (motion-only installs may want longer, mmWave shorter). New attributes `arrived` and `confirmed` on
+  `binary_sensor.hba_presence_floor_N_occupied`. Changing a setting changes what the occupancy history means
+  from then on.
+
 ### Changed
 
 - **Planned car hours on Auto: no more switching between Car first and Balance.** Balance is used from

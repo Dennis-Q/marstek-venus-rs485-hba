@@ -22,6 +22,19 @@
 # on 10 min after the last source left: room trackers flip between floors
 # stacked above each other (prod 2026-11-04/05: one phone changed area 3,844
 # times in 51 h) and motion sensors only report movement.
+# Three settings (0 = the default, user 2026-11-28: use the floor sensors for
+# heating without an extra sensor per install, and installs differ: motion only
+# needs a long hold, mmWave a short one):
+#   input_number.hba_presence_arrival_delay  a floor counts as occupied only once
+#     someone is still seen there N min after arriving (0 = at once). Any source
+#     on the floor counts (hallway motion, then the kitchen). Filters short
+#     visits; prod 2026-11-26..28: 3 ground-floor visits of 1-6 min heated the AC.
+#   input_number.hba_presence_tracker_wait   minutes a room tracker must stay on
+#     a floor before it counts (0 = 2). Prod 2026-11-26..28: a phone still
+#     changed floor 20 times an hour, 85 % of them back within 2 min.
+#   input_number.hba_presence_hold           minutes a floor stays occupied after
+#     the last source left (0 = 10).
+# Changing a setting changes what the occupancy history means from then on.
 #
 # sensor.hba_presence_floor_N_occupancy (0/100 %, state_class measurement) is what
 # the recorder keeps: its hourly mean = the share of that hour the floor was
@@ -45,6 +58,33 @@ input_boolean:
   hba_presence_motion:
     name: "HBA Presence Motion"
     icon: mdi:motion-sensor
+
+input_number:
+  # 0 = the default of each (see the header); box, not slider
+  hba_presence_arrival_delay:
+    name: "HBA Presence Arrival Delay"
+    min: 0
+    max: 30
+    step: 1
+    unit_of_measurement: min
+    mode: box
+    icon: mdi:timer-sand
+  hba_presence_tracker_wait:
+    name: "HBA Presence Tracker Wait"
+    min: 0
+    max: 10
+    step: 0.5
+    unit_of_measurement: min
+    mode: box
+    icon: mdi:map-marker-question-outline
+  hba_presence_hold:
+    name: "HBA Presence Hold"
+    min: 0
+    max: 60
+    step: 1
+    unit_of_measurement: min
+    mode: box
+    icon: mdi:timer-outline
 
 input_text:
   # Floor names or ids, comma-separated, in slot order. Empty = the first 4 HA floors.
@@ -287,8 +327,9 @@ template:
   # Settled floor per room tracker (non-binary source), sampled every 20 s:
   # trackers = {source: {f: floor now, t: since when, s: settled floor}}. A
   # tracker settles on a floor (or on none = away/out of range) after 2 min
-  # there; until then the previous settled floor stays. Prod 2026-11-05: a
-  # phone in the bedroom jumped to the attic for ~5 s, 230-360 times a night;
+  # there (input_number.hba_presence_tracker_wait, 0 = 2); until then the
+  # previous settled floor stays. Prod 2026-11-05: a phone in the bedroom
+  # jumped to the attic for ~5 s, 230-360 times a night;
   # counting every jump kept the attic occupied all night. A delay per area
   # instead would drop the bedroom too (every jump restarts it). Lost at a
   # restart: no settled floor for the first 2 min.
@@ -311,6 +352,7 @@ template:
           trackers: >-
             {%- set prev = (this.attributes | default({})).get('trackers') or {} -%}
             {%- set now_ts = as_timestamp(now()) | int -%}
+            {%- set wait = ((states('input_number.hba_presence_tracker_wait') | float(0)) or 2) * 60 -%}
             {%- set ns = namespace(d={}) -%}
             {%- for e in states('input_text.hba_presence_sources').split(',') | map('trim')
                   | reject('eq', '') | reject('match', 'binary_sensor\.') -%}
@@ -318,12 +360,16 @@ template:
               {%- set f = floor_id(st) if st not in ['unknown', 'unavailable'] else none -%}
               {%- set p = prev.get(e) or {} -%}
               {%- set t = p.get('t', now_ts) if 'f' in p and p.get('f') == f else now_ts -%}
-              {%- set s = f if now_ts - t >= 120 else p.get('s') -%}
+              {%- set s = f if now_ts - t >= wait else p.get('s') -%}
               {%- set ns.d = dict(ns.d.items() | list + [(e, {'f': f, 't': t, 's': s})]) -%}
             {%- endfor -%}
             {{ ns.d }}
 
-  # Occupied = present, or present in the last 10 min (empty_since). Not delay_off:
+  # Active = present, or present in the last 10 min (empty_since; hold setting,
+  # 0 = 10). Occupied = active, and once someone was still seen there the arrival
+  # delay after arriving (attribute arrived = first present on an empty floor,
+  # confirmed = that happened; both reset when the floor is no longer active).
+  # With delay 0, occupied = active, as before 2026-11-28. Not delay_off:
   # HA restarts that timer on every re-render, and the present templates re-render
   # on every room-tracker change and (motion on) about every minute, so a floor
   # would hardly ever go empty. Checked every minute and on every present change.
@@ -350,10 +396,18 @@ template:
         state: &oc_state >-
           {%- set n = this.entity_id | regex_findall('floor_(\d)_') | first | default(0) | int -%}
           {%- set a = this.attributes | default({}) -%}
+          {%- set p = is_state('binary_sensor.hba_presence_floor_' ~ n ~ '_present', 'on') -%}
+          {%- set now_ts = as_timestamp(now()) -%}
+          {%- set hold = ((states('input_number.hba_presence_hold') | float(0)) or 10) * 60 -%}
+          {%- set delay = (states('input_number.hba_presence_arrival_delay') | float(0)) * 60 -%}
           {#- none = present at the previous render, so it just became empty -#}
           {%- set es = a.get('empty_since') if 'empty_since' in a else 'unknown' -%}
-          {{ is_state('binary_sensor.hba_presence_floor_' ~ n ~ '_present', 'on')
-             or es is none or as_timestamp(now()) - as_timestamp(es, 0) < 600 }}
+          {%- set active = p or es is none or now_ts - as_timestamp(es, 0) < hold -%}
+          {%- set arr = a.get('arrived') -%}
+          {#- confirmed missing (sensor from before 2026-11-28): the state it had -#}
+          {{ active
+             and (a.get('confirmed', this.state == 'on') == true
+               or (p and (delay <= 0 or (arr is not none and now_ts - as_timestamp(arr, now_ts) >= delay)))) }}
         attributes:
           empty_since: &oc_empty >-
             {%- set n = this.entity_id | regex_findall('floor_(\d)_') | first | default(0) | int -%}
@@ -365,6 +419,33 @@ template:
             {%- else -%}
               {{ a.get('empty_since') or now().isoformat() }}
             {%- endif -%}
+          arrived: &oc_arrived >-
+            {%- set n = this.entity_id | regex_findall('floor_(\d)_') | first | default(0) | int -%}
+            {%- set a = this.attributes | default({}) -%}
+            {%- set p = is_state('binary_sensor.hba_presence_floor_' ~ n ~ '_present', 'on') -%}
+            {%- set hold = ((states('input_number.hba_presence_hold') | float(0)) or 10) * 60 -%}
+            {%- set es = a.get('empty_since') if 'empty_since' in a else 'unknown' -%}
+            {%- set active = p or es is none or as_timestamp(now()) - as_timestamp(es, 0) < hold -%}
+            {%- if p -%}
+              {{ a.get('arrived') or now().isoformat() }}
+            {%- elif active -%}
+              {{ a.get('arrived') }}
+            {%- else -%}
+              {{ none }}
+            {%- endif -%}
+          confirmed: &oc_confirmed >-
+            {%- set n = this.entity_id | regex_findall('floor_(\d)_') | first | default(0) | int -%}
+            {%- set a = this.attributes | default({}) -%}
+            {%- set p = is_state('binary_sensor.hba_presence_floor_' ~ n ~ '_present', 'on') -%}
+            {%- set now_ts = as_timestamp(now()) -%}
+            {%- set hold = ((states('input_number.hba_presence_hold') | float(0)) or 10) * 60 -%}
+            {%- set delay = (states('input_number.hba_presence_arrival_delay') | float(0)) * 60 -%}
+            {%- set es = a.get('empty_since') if 'empty_since' in a else 'unknown' -%}
+            {%- set active = p or es is none or now_ts - as_timestamp(es, 0) < hold -%}
+            {%- set arr = a.get('arrived') -%}
+            {{ active
+               and (a.get('confirmed', this.state == 'on') == true
+                 or (p and (delay <= 0 or (arr is not none and now_ts - as_timestamp(arr, now_ts) >= delay)))) }}
           floor: &oc_floor >-
             {%- set n = this.entity_id | regex_findall('floor_(\d)_') | first | default(0) | int -%}
             {{ state_attr('binary_sensor.hba_presence_floor_' ~ n ~ '_present', 'floor') }}
@@ -388,6 +469,8 @@ template:
         state: *oc_state
         attributes:
           empty_since: *oc_empty
+          arrived: *oc_arrived
+          confirmed: *oc_confirmed
           floor: *oc_floor
           by: *oc_by
   - triggers:
@@ -407,6 +490,8 @@ template:
         state: *oc_state
         attributes:
           empty_since: *oc_empty
+          arrived: *oc_arrived
+          confirmed: *oc_confirmed
           floor: *oc_floor
           by: *oc_by
   - triggers:
@@ -426,5 +511,7 @@ template:
         state: *oc_state
         attributes:
           empty_since: *oc_empty
+          arrived: *oc_arrived
+          confirmed: *oc_confirmed
           floor: *oc_floor
           by: *oc_by

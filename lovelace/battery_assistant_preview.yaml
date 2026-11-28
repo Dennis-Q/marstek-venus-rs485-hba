@@ -6744,8 +6744,15 @@ views:
               **Sources:** room trackers whose state is an area name (e.g. Bermuda
               `sensor.<phone>_area`), or binary sensors (on = someone in that
               sensor's area). **Motion sensors:** also count every motion /
-              occupancy / presence sensor in an area on the floor. A floor stays
-              occupied 10 min after the last source left.
+              occupancy / presence sensor in an area on the floor.
+
+
+              **Timing** (0 = default): a room tracker counts on a floor after
+              *Tracker wait* (2 min); a floor stays occupied *Hold* (10 min) after
+              the last source left; with an *Arrival delay* a floor only counts as
+              occupied once someone is still there that long after arriving, so a
+              short visit (coffee, the dogs' leash) does not count. Changing these
+              changes what the history means from then on.
           - type: markdown
             text_only: true
             grid_options:
@@ -6783,6 +6790,12 @@ views:
                 name: Sources
               - entity: input_boolean.hba_presence_motion
                 name: Also use motion sensors
+              - entity: input_number.hba_presence_arrival_delay
+                name: Arrival delay (0 = none)
+              - entity: input_number.hba_presence_tracker_wait
+                name: Tracker wait (0 = 2 min)
+              - entity: input_number.hba_presence_hold
+                name: Hold (0 = 10 min)
       - type: grid
         cards:
           - type: heading

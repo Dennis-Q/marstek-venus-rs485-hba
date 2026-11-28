@@ -586,7 +586,9 @@ Off by default (*Collect presence per floor* in the preview dashboard's **Labs**
 much of every hour each HA floor is occupied, as long-term statistics, to predict heating and house use
 later. Sources: room trackers whose state is an area name (e.g. Bermuda `sensor.*_ble_area`), binary
 sensors, and optionally every motion / occupancy / presence sensor on the floor. A room tracker counts
-on a floor after 2 min there; a floor stays occupied 10 min after the last source left. It only
+on a floor after 2 min there; a floor stays occupied 10 min after the last source left (both settable).
+An optional arrival delay makes a floor count only once someone is still there that long after
+arriving, so short visits do not count (e.g. for heating per floor). It only
 collects data: nothing controls the batteries yet. Each floor's *Present* sensor lists the motion sensors
 that count for it (attribute `motion_sensors`) and the sources that see someone now (`by`).
 
